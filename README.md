@@ -248,8 +248,8 @@ TBD (To be determined)
 
 ## 📞 Contact
 
-- **Developer**: [Your Name]
-- **Email**: [Your Email]
+- **Developer**: Mitiku Teshome
+- **Email**: mitikutes@gmail.com
 - **Security**: security@weredaconnect.com (to be set up)
 
 ---
