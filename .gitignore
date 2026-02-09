@@ -1,0 +1,36 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter/Dart
+mobile/.dart_tool/
+mobile/.packages
+mobile/.pub-cache/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+*.g.dart
+
+# .NET
+server/bin/
+server/obj/
+server/**/bin/
+server/**/obj/
+server/.vs/
+server/*.user
+
+# Node/CDK
+infra/node_modules/
+infra/cdk.out/
+
+# Environment
+.env
+.env.*
+*.local
