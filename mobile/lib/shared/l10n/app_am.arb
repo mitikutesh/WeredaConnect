@@ -1,0 +1,88 @@
+{
+  "@@locale": "am",
+  "appName": "ወረዳ ኮነክት",
+  "@appName": {
+    "description": "The application name in Amharic"
+  },
+  "welcomeMessage": "ወደ ወረዳ ኮነክት እንኳን በደህና መጡ",
+  "@welcomeMessage": {
+    "description": "Welcome message shown on first launch"
+  },
+  "offlineMode": "ከመስመር ውጭ",
+  "@offlineMode": {
+    "description": "Indicator that the app is currently offline"
+  },
+  "syncPending": "ማመሳሰል በመጠባበቅ ላይ",
+  "@syncPending": {
+    "description": "Indicator that there are pending sync operations"
+  },
+  "syncInProgress": "በማመሳሰል ላይ...",
+  "@syncInProgress": {
+    "description": "Indicator that sync is currently in progress"
+  },
+  "syncComplete": "ማመሳሰል ተጠናቅቋል",
+  "@syncComplete": {
+    "description": "Indicator that sync has completed successfully"
+  },
+  "syncFailed": "ማመሳሰል አልተሳካም",
+  "@syncFailed": {
+    "description": "Indicator that sync has failed"
+  },
+  "retry": "እንደገና ሞክር",
+  "@retry": {
+    "description": "Button to retry a failed operation"
+  },
+  "cancel": "ሰርዝ",
+  "@cancel": {
+    "description": "Button to cancel an operation"
+  },
+  "save": "አስቀምጥ",
+  "@save": {
+    "description": "Button to save data"
+  },
+  "delete": "ሰርዝ",
+  "@delete": {
+    "description": "Button to delete data"
+  },
+  "edit": "አርትዕ",
+  "@edit": {
+    "description": "Button to edit data"
+  },
+  "settings": "ቅንብሮች",
+  "@settings": {
+    "description": "Settings menu item"
+  },
+  "language": "ቋንቋ",
+  "@language": {
+    "description": "Language selection setting"
+  },
+  "dataUsage": "የውሂብ አጠቃቀም",
+  "@dataUsage": {
+    "description": "Data usage statistics"
+  },
+  "dataSaverMode": "ውሂብ ቆጣቢ ሁነታ",
+  "@dataSaverMode": {
+    "description": "Toggle for data saver mode"
+  },
+  "kebele": "ቀበሌ",
+  "@kebele": {
+    "description": "Local administrative unit (neighborhood)"
+  },
+  "wereda": "ወረዳ",
+  "@wereda": {
+    "description": "District administrative unit"
+  },
+  "errorOccurred": "ስህተት ተከስቷል",
+  "@errorOccurred": {
+    "description": "Generic error message"
+  },
+  "noInternetConnection": "የበይነመረብ ግንኙነት የለም",
+  "@noInternetConnection": {
+    "description": "Error message when offline"
+  },
+  "dataWillSyncWhenOnline": "መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል",
+  "@dataWillSyncWhenOnline": {
+    "description": "Reassurance message for offline operations"
+  }
+}
+

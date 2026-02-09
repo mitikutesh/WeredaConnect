@@ -1,0 +1,88 @@
+{
+  "@@locale": "om",
+  "appName": "WeredaConnect",
+  "@appName": {
+    "description": "The application name (kept in English as brand name)"
+  },
+  "welcomeMessage": "Gara WeredaConnect baga nagaan dhuftan",
+  "@welcomeMessage": {
+    "description": "Welcome message shown on first launch"
+  },
+  "offlineMode": "Haalata Offline",
+  "@offlineMode": {
+    "description": "Indicator that the app is currently offline"
+  },
+  "syncPending": "Walsimsiisuun Eegaa Jira",
+  "@syncPending": {
+    "description": "Indicator that there are pending sync operations"
+  },
+  "syncInProgress": "Walsimsiisuun Itti Fufeera...",
+  "@syncInProgress": {
+    "description": "Indicator that sync is currently in progress"
+  },
+  "syncComplete": "Walsimsiisuun Xumurameera",
+  "@syncComplete": {
+    "description": "Indicator that sync has completed successfully"
+  },
+  "syncFailed": "Walsimsiisuun Hin Milkoofne",
+  "@syncFailed": {
+    "description": "Indicator that sync has failed"
+  },
+  "retry": "Irra Deebi'ii Yaali",
+  "@retry": {
+    "description": "Button to retry a failed operation"
+  },
+  "cancel": "Dhiisi",
+  "@cancel": {
+    "description": "Button to cancel an operation"
+  },
+  "save": "Olkaa'i",
+  "@save": {
+    "description": "Button to save data"
+  },
+  "delete": "Haqi",
+  "@delete": {
+    "description": "Button to delete data"
+  },
+  "edit": "Gulaal",
+  "@edit": {
+    "description": "Button to edit data"
+  },
+  "settings": "Qindaa'ina",
+  "@settings": {
+    "description": "Settings menu item"
+  },
+  "language": "Afaan",
+  "@language": {
+    "description": "Language selection setting"
+  },
+  "dataUsage": "Itti Fayyadama Deetaa",
+  "@dataUsage": {
+    "description": "Data usage statistics"
+  },
+  "dataSaverMode": "Haalata Deetaa Qusachuu",
+  "@dataSaverMode": {
+    "description": "Toggle for data saver mode"
+  },
+  "kebele": "Gandaa",
+  "@kebele": {
+    "description": "Local administrative unit (neighborhood)"
+  },
+  "wereda": "Aanaa",
+  "@wereda": {
+    "description": "District administrative unit"
+  },
+  "errorOccurred": "Dogongora Uumameera",
+  "@errorOccurred": {
+    "description": "Generic error message"
+  },
+  "noInternetConnection": "Walitti Dhufeenya Interneetii Hin Jiru",
+  "@noInternetConnection": {
+    "description": "Error message when offline"
+  },
+  "dataWillSyncWhenOnline": "Yeroo online taatan deetaan keessan walsimsifama",
+  "@dataWillSyncWhenOnline": {
+    "description": "Reassurance message for offline operations"
+  }
+}
+

@@ -1,0 +1,88 @@
+{
+  "@@locale": "en",
+  "appName": "WeredaConnect",
+  "@appName": {
+    "description": "The application name"
+  },
+  "welcomeMessage": "Welcome to WeredaConnect",
+  "@welcomeMessage": {
+    "description": "Welcome message shown on first launch"
+  },
+  "offlineMode": "Offline Mode",
+  "@offlineMode": {
+    "description": "Indicator that the app is currently offline"
+  },
+  "syncPending": "Sync Pending",
+  "@syncPending": {
+    "description": "Indicator that there are pending sync operations"
+  },
+  "syncInProgress": "Syncing...",
+  "@syncInProgress": {
+    "description": "Indicator that sync is currently in progress"
+  },
+  "syncComplete": "Sync Complete",
+  "@syncComplete": {
+    "description": "Indicator that sync has completed successfully"
+  },
+  "syncFailed": "Sync Failed",
+  "@syncFailed": {
+    "description": "Indicator that sync has failed"
+  },
+  "retry": "Retry",
+  "@retry": {
+    "description": "Button to retry a failed operation"
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Button to cancel an operation"
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Button to save data"
+  },
+  "delete": "Delete",
+  "@delete": {
+    "description": "Button to delete data"
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "Button to edit data"
+  },
+  "settings": "Settings",
+  "@settings": {
+    "description": "Settings menu item"
+  },
+  "language": "Language",
+  "@language": {
+    "description": "Language selection setting"
+  },
+  "dataUsage": "Data Usage",
+  "@dataUsage": {
+    "description": "Data usage statistics"
+  },
+  "dataSaverMode": "Data Saver Mode",
+  "@dataSaverMode": {
+    "description": "Toggle for data saver mode"
+  },
+  "kebele": "Kebele",
+  "@kebele": {
+    "description": "Local administrative unit (neighborhood)"
+  },
+  "wereda": "Wereda",
+  "@wereda": {
+    "description": "District administrative unit"
+  },
+  "errorOccurred": "An error occurred",
+  "@errorOccurred": {
+    "description": "Generic error message"
+  },
+  "noInternetConnection": "No internet connection",
+  "@noInternetConnection": {
+    "description": "Error message when offline"
+  },
+  "dataWillSyncWhenOnline": "Your data will sync when you're back online",
+  "@dataWillSyncWhenOnline": {
+    "description": "Reassurance message for offline operations"
+  }
+}
+
