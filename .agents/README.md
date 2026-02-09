@@ -10,11 +10,27 @@ This directory contains **detailed workflows and checklists** for AI agents work
 ```
 .agents/
 ├── README.md              # This file
+├── task-protocol.md       # How to claim tasks with @Scope tags
+├── branch-protocol.md     # Scoped branching rules
 ├── feature_workflow.md    # How to implement a new feature
 ├── bug_fix_workflow.md    # How to fix bugs
 ├── deployment_checklist.md # Pre-deployment validation
 └── session_handoff.md     # How to hand off between sessions
 ```
+
+---
+
+## Multi-Agent Coordination
+
+Before starting any work, read these two protocols:
+
+### Task Claiming
+Read `task-protocol.md` — claim tasks with `@Scope` tags in `TASK.md` before starting work. This prevents duplicate effort across agents and sessions.
+
+### Scoped Branching
+Read `branch-protocol.md` — use `<scope>/<description>` branch naming and keep one scope per branch. This prevents cross-module merge conflicts.
+
+Both protocols reference `.ai/ownership.md` for file ownership boundaries.
 
 ---
 

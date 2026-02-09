@@ -15,40 +15,42 @@ Establish the foundational folder structure and governance files for WeredaConne
 
 ## 📋 Active Tasks
 
+> **Task Claiming:** All tasks use `@Scope` tags per `.agents/task-protocol.md`. Claim a task by adding your scope tag and committing before starting work.
+
 ### Phase 1: Foundation (Current)
-- [x] Define project structure requirements
-- [ ] Create root governance files (CLAUDE.md, STATE.md, TASK.md)
-- [ ] Create .ai/ governance directory
-- [ ] Create .agents/ directory for agent SOPs
-- [ ] Create docs/ structure with local_reality/
-- [ ] Create specs/ directory for feature tickets
+- [x] `@Architect` Define project structure requirements
+- [ ] `@Architect` Create root governance files (CLAUDE.md, STATE.md, TASK.md)
+- [ ] `@Architect` Create .ai/ governance directory
+- [ ] `@Architect` Create .agents/ directory for agent SOPs
+- [ ] `@Architect` Create docs/ structure with local_reality/
+- [ ] `@Architect` Create specs/ directory for feature tickets
 
 ### Phase 2: Mobile Structure
-- [ ] Create mobile/ directory
-- [ ] Create mobile/lib/core/ (sync engine, Isar)
-- [ ] Create mobile/lib/features/
-- [ ] Create mobile/lib/shared/
-- [ ] Create mobile/lib/shared/l10n/ (Amharic/Oromo/English)
-- [ ] Add sample .arb files for localization
+- [ ] `@Mobile` Create mobile/ directory
+- [ ] `@Mobile` Create mobile/lib/core/ (sync engine, Isar)
+- [ ] `@Mobile` Create mobile/lib/features/
+- [ ] `@Mobile` Create mobile/lib/shared/
+- [ ] `@Localization` Create mobile/lib/shared/l10n/ (Amharic/Oromo/English)
+- [ ] `@Localization` Add sample .arb files for localization
 
 ### Phase 3: Server Structure
-- [ ] Create server/ directory
-- [ ] Create server/AOT_COMPLIANCE.md
-- [ ] Create server/src/ structure
-- [ ] Add .NET project scaffolding notes
+- [ ] `@Backend` Create server/ directory
+- [ ] `@Backend` Create server/AOT_COMPLIANCE.md
+- [ ] `@Backend` Create server/src/ structure
+- [ ] `@Backend` Add .NET project scaffolding notes
 
 ### Phase 4: Infrastructure & Automation
-- [ ] Create infra/ directory for AWS CDK
-- [ ] Create scripts/ directory
-- [ ] Create scripts/checkpoint.sh automation
-- [ ] Make checkpoint.sh executable
-- [ ] Create qa/ directory for threat models
+- [ ] `@Infra` Create infra/ directory for AWS CDK
+- [ ] `@Infra` Create scripts/ directory
+- [ ] `@Infra` Create scripts/checkpoint.sh automation
+- [ ] `@Infra` Make checkpoint.sh executable
+- [ ] `@Security` Create qa/ directory for threat models
 
 ### Phase 5: Documentation
-- [ ] Create .ai/agents.md (role definitions)
-- [ ] Create .ai/standards.md (coding patterns)
-- [ ] Create .ai/tech_stack.md (framework versions)
-- [ ] Create docs/local_reality/README.md (Ethiopian context)
+- [ ] `@Architect` Create .ai/agents.md (role definitions)
+- [ ] `@Architect` Create .ai/standards.md (coding patterns)
+- [ ] `@Architect` Create .ai/tech_stack.md (framework versions)
+- [ ] `@Architect` Create docs/local_reality/README.md (Ethiopian context)
 
 ---
 

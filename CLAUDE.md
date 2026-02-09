@@ -66,6 +66,17 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 - **Validate** against offline-first requirements
 - **Document** decisions in appropriate spec files
 
+### Multi-Agent Conflict Prevention
+
+When multiple AI agents or sequential sessions work on this repo, follow these 6 rules to prevent conflicts:
+
+1. **Check ownership first.** Before editing any file, consult `.ai/ownership.md`. If the file isn't in your scope's owned paths, don't touch it — create a task for the owning scope instead.
+2. **Claim before you work.** Before starting a task, add your `@Scope` tag in `TASK.md` and commit the claim. See `.agents/task-protocol.md`.
+3. **Read contracts, not source.** When implementing a cross-module interface (e.g., mobile calling server), reference `specs/contracts/` — not the other module's source code. Contracts are the single source of truth for shared interfaces.
+4. **Branch per scope.** Use `<scope>/<description>` branch naming (e.g., `mobile/add-crop-listing`). One scope per branch. See `.agents/branch-protocol.md`.
+5. **Never modify shared files without protocol.** `CLAUDE.md`, `specs/contracts/`, and `.ai/` files require Architect scope. Propose changes via `TASK.md`.
+6. **Document, don't assume.** If you make a decision that affects another scope, write it down in `specs/` or `TASK.md`. Silent assumptions cause conflicts.
+
 ### Git Commit Messages
 
 All commits **must** follow [Conventional Commits](https://www.conventionalcommits.org/).

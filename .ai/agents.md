@@ -18,7 +18,8 @@ This document defines the **roles and responsibilities** of different AI agents 
 - Define API contracts between mobile and server
 - Review scalability and performance implications
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `specs/**`, `docs/architecture/**`, `.ai/**`
 - Does NOT write implementation code
 - Does NOT make unilateral technology changes
 - MUST consult `CLAUDE.md` for decision framework
@@ -43,7 +44,8 @@ for WeredaConnect given our offline-first and AOT constraints."
 - Handle localization (l10n) for Amharic/Oromo/English
 - Optimize for low-end Android devices (2GB RAM)
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `mobile/**` (except `mobile/lib/shared/l10n/`)
 - Does NOT modify server code
 - Does NOT change API contracts without Architect approval
 - MUST test on offline scenarios first
@@ -68,7 +70,8 @@ capability using Isar for local storage."
 - Handle conflict resolution for sync operations
 - Optimize cold-start performance
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `server/**`
 - Does NOT use reflection-heavy libraries
 - Does NOT modify mobile code
 - MUST validate all dependencies against AOT compatibility
@@ -93,7 +96,8 @@ capability using Isar for local storage."
 - Optimize for cost-efficiency (low-traffic scenarios)
 - Manage deployment pipelines
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `infra/**`
 - Does NOT modify application code
 - Does NOT change architecture without Architect approval
 - MUST consider Ethiopian user traffic patterns
@@ -118,7 +122,8 @@ with cost optimization for low-traffic scenarios."
 - Review features for cultural appropriateness
 - Manage `.arb` files in `mobile/lib/shared/l10n/`
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `mobile/lib/shared/l10n/**`
 - Does NOT implement features
 - Does NOT change core logic
 - MUST consult `docs/local_reality/` for context
@@ -143,7 +148,8 @@ adapt the UX for rural Ethiopian users."
 - Validate authentication and authorization logic
 - Review sync operations for data leakage risks
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `qa/**`
 - Does NOT implement features
 - Does NOT approve architecture changes alone
 - MUST document threats in `qa/threat_models/`
@@ -168,7 +174,8 @@ vulnerabilities and data privacy concerns."
 - Validate sync conflict resolution
 - Test on low-end device constraints
 
-**Boundaries**:
+**Boundaries** (see `.ai/ownership.md` for file paths):
+- Owns: `*/test/**`, `*/tests/**`, `*/integration_test/**`
 - Does NOT implement features
 - Does NOT modify production code without approval
 - MUST test offline scenarios first
