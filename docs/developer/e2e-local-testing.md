@@ -84,6 +84,10 @@ flutter emulators --create \
   --api-level 26 \
   --ram 2048
 
+# Or list and launch available emulators
+flutter emulators
+flutter emulators --launch <emulator-id>
+
 # Verify device is connected
 flutter devices
 ```
