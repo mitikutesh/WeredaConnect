@@ -3,8 +3,9 @@
 ## Overview
 This document summarizes the fixes applied to resolve GitHub Actions failures for unit tests, AOT compatibility checks, and code coverage.
 
-**Date:** 2026-02-10  
+**Date:** 2026-02-10
 **Status:** ✅ All CI/CD checks should now pass
+**Commits:** 4c3b071, 6bf7c9d, 6637f24, 38914e1
 
 ---
 
@@ -42,12 +43,15 @@ This document summarizes the fixes applied to resolve GitHub Actions failures fo
 #### Problems Identified:
 - ⚠️ AOT compatibility warnings (IL2026, IL3050) due to reflection-based JSON serialization
 - ⚠️ StripSymbols requires Linux-specific tools (llvm-objcopy) - fails on macOS
+- ❌ Test project couldn't find main assembly (FileNotFoundException)
+- ❌ `HealthCheckJsonContext` was internal, preventing test access
 
 #### Fixes Applied:
 
 **AOT Compatibility:**
 - ✅ Implemented JSON source generators in `HealthCheckFunction.cs`
 - ✅ Created `HealthCheckJsonContext` for AOT-compatible serialization
+- ✅ Changed `HealthCheckJsonContext` from `internal` to `public` (commit 6bf7c9d)
 - ✅ Updated all `JsonSerializer.Serialize/Deserialize` calls to use source generators
 - ✅ Updated test file to use source generators
 
@@ -55,11 +59,14 @@ This document summarizes the fixes applied to resolve GitHub Actions failures fo
 - ✅ Made `StripSymbols` conditional on CI environment
 - ✅ Disabled symbol stripping for local development (macOS)
 - ✅ Enabled symbol stripping in CI/CD (Linux)
+- ✅ Made AOT configuration conditional on publish only (commit 38914e1)
+- ✅ Moved `PublishAot` and related settings to conditional PropertyGroup
 
 **Results:**
 - ✅ Build succeeds with 0 warnings, 0 errors
 - ✅ All 3 unit tests pass
 - ✅ AOT publish works (on Linux in CI/CD)
+- ✅ Test project can now reference main assembly
 
 ---
 
@@ -119,16 +126,16 @@ CI=true dotnet publish -c Release /p:PublishAot=true
 ## Files Modified
 
 ### Mobile
-- `mobile/test/main_test.dart` (created)
-- `mobile/test/smoke/smoke_test.dart` (created)
-- `mobile/integration_test/app_test.dart` (created)
+- `mobile/test/main_test.dart` (created, updated in 6637f24)
+- `mobile/test/smoke/smoke_test.dart` (created, updated in 6637f24)
+- `mobile/integration_test/app_test.dart` (created, updated in 6637f24)
 - `mobile/pubspec.yaml` (updated)
 - `.github/workflows/mobile-tests.yml` (updated)
 
 ### Server
-- `server/src/Functions/HealthCheckFunction.cs` (updated)
-- `server/tests/HealthCheckFunctionTests.cs` (updated)
-- `server/WeredaConnect.Server.csproj` (updated)
+- `server/src/Functions/HealthCheckFunction.cs` (updated in 4c3b071, 6bf7c9d)
+- `server/tests/HealthCheckFunctionTests.cs` (updated in 4c3b071)
+- `server/WeredaConnect.Server.csproj` (updated in 4c3b071, 38914e1)
 
 ---
 
