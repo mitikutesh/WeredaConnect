@@ -1,0 +1,178 @@
+name: Infrastructure Tests (CDK)
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-tests.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'infra/**'
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Run linter
+        working-directory: infra
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: infra
+        run: npm test -- --coverage --testPathPattern=unit
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./infra/coverage/lcov.info
+          flags: infra-unit
+          name: infra-unit-tests
+          fail_ci_if_error: false
+
+  snapshot-tests:
+    name: Snapshot Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Run snapshot tests
+        working-directory: infra
+        run: npm test -- --testPathPattern=snapshot
+
+      - name: Check for snapshot changes
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --name-only | grep -q "\.snap$"; then
+            echo "⚠️ Snapshot files have changed. Please review carefully."
+            git diff --name-only | grep "\.snap$"
+          fi
+
+  synth-validation:
+    name: CDK Synth Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: infra
+        run: npm run build
+
+      - name: Synthesize CDK stacks (dev)
+        working-directory: infra
+        run: npx cdk synth --context environment=dev --quiet
+
+      - name: Synthesize CDK stacks (staging)
+        working-directory: infra
+        run: npx cdk synth --context environment=staging --quiet
+
+      - name: Synthesize CDK stacks (prod)
+        working-directory: infra
+        run: npx cdk synth --context environment=prod --quiet
+
+      - name: Upload CloudFormation templates
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-templates
+          path: infra/cdk.out/*.template.json
+          retention-days: 7
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [unit-tests]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Run integration tests
+        working-directory: infra
+        run: npm test -- --testPathPattern=integration
+
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: infra
+        run: npm run build
+
+      - name: Verify CDK app can be synthesized
+        working-directory: infra
+        run: npx cdk synth --quiet > /dev/null
+

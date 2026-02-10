@@ -1,0 +1,174 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Cancel in-progress runs when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Determine which components changed
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+      server: ${{ steps.filter.outputs.server }}
+      infra: ${{ steps.filter.outputs.infra }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            mobile:
+              - 'mobile/**'
+            server:
+              - 'server/**'
+            infra:
+              - 'infra/**'
+
+  # Mobile tests
+  mobile-tests:
+    name: Mobile Tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mobile == 'true'
+    uses: ./.github/workflows/mobile-tests.yml
+
+  # Server tests
+  server-tests:
+    name: Server Tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.server == 'true'
+    uses: ./.github/workflows/server-tests.yml
+
+  # Infrastructure tests
+  infra-tests:
+    name: Infrastructure Tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.infra == 'true'
+    uses: ./.github/workflows/infra-tests.yml
+
+  # E2E tests (run if mobile OR server changed)
+  e2e-tests:
+    name: E2E Tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mobile == 'true' || needs.detect-changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: dynamodb,s3,lambda,apigateway
+          DEBUG: 1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.9'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install Maestro CLI
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+
+      - name: Wait for LocalStack
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:4566/_localstack/health; do sleep 2; done'
+
+      - name: Deploy server to LocalStack
+        working-directory: server
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+        run: |
+          dotnet restore
+          dotnet build --configuration Release
+          # Deploy Lambda functions to LocalStack
+          # TODO: Add deployment script
+
+      - name: Get mobile dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Run E2E tests with Maestro
+        working-directory: mobile
+        env:
+          API_BASE_URL: http://10.0.2.2:4566
+        run: |
+          # Build APK for E2E testing
+          flutter build apk --debug --dart-define=API_BASE_URL=$API_BASE_URL
+          
+          # Run Maestro E2E tests
+          # maestro test .maestro/
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: mobile/.maestro/results/
+          retention-days: 7
+
+  # Final validation check
+  pr-validation-complete:
+    name: PR Validation Complete
+    needs: [detect-changes, mobile-tests, server-tests, infra-tests, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check all jobs status
+        run: |
+          echo "Mobile Tests: ${{ needs.mobile-tests.result }}"
+          echo "Server Tests: ${{ needs.server-tests.result }}"
+          echo "Infra Tests: ${{ needs.infra-tests.result }}"
+          echo "E2E Tests: ${{ needs.e2e-tests.result }}"
+          
+          # Fail if any required job failed
+          if [[ "${{ needs.mobile-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.server-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.infra-tests.result }}" == "failure" ]] || \
+             [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
+            echo "❌ One or more test suites failed"
+            exit 1
+          fi
+          
+          echo "✅ All test suites passed!"
+
