@@ -53,10 +53,28 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            // Release signing configuration
+            // In production, these should be loaded from environment variables or secure storage
+            // For CI/CD: Use GitHub Secrets or AWS Secrets Manager
+            if (System.getenv("RELEASE_STORE_FILE")) {
+                storeFile file(System.getenv("RELEASE_STORE_FILE"))
+                storePassword System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
-            
+            // Only sign with release config if credentials are available
+            // Otherwise, build will be unsigned (safer than using debug key)
+            if (System.getenv("RELEASE_STORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
+
             // Optimize for Ethiopian context (small APK size)
             shrinkResources true
             minifyEnabled true
