@@ -10,6 +10,7 @@ on:
     branches: [main, develop]
     paths:
       - 'infra/**'
+  workflow_call:  # Allow this workflow to be called from pr-validation.yml
 
 jobs:
   unit-tests:

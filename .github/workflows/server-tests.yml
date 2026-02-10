@@ -15,6 +15,7 @@ on:
     paths:
       - 'server/**'
   workflow_dispatch:
+  workflow_call:  # Allow this workflow to be called from pr-validation.yml
 
 jobs:
   unit-tests:
