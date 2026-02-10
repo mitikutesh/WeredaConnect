@@ -1,0 +1,46 @@
+buildscript {
+    ext.kotlin_version = '2.1.0'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.6.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+
+    // Workaround: isar_flutter_libs (v3.1.0) declares namespace in
+    // AndroidManifest.xml instead of build.gradle. AGP 8.0+ requires
+    // namespace in build.gradle. This block reads the manifest package
+    // attribute and sets it as namespace for any library plugin that
+    // hasn't declared one yet.
+    plugins.withId("com.android.library") {
+        def manifestFile = file("${project.projectDir}/src/main/AndroidManifest.xml")
+        if (manifestFile.exists()) {
+            def xml = new XmlSlurper().parse(manifestFile)
+            def pkgName = xml.@package.toString()
+            if (pkgName && !pkgName.isEmpty() && project.android.namespace == null) {
+                project.android.namespace = pkgName
+            }
+        }
+    }
+
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

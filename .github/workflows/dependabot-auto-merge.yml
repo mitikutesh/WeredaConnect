@@ -1,0 +1,107 @@
+# Auto-merge Dependabot PRs after validation
+# Only auto-merges minor and patch updates that pass all tests
+# Major updates require manual review
+
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Check if this is a Dependabot PR
+  dependabot-metadata:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    outputs:
+      update-type: ${{ steps.metadata.outputs.update-type }}
+      dependency-names: ${{ steps.metadata.outputs.dependency-names }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+  # Auto-approve minor and patch updates
+  auto-approve:
+    runs-on: ubuntu-latest
+    needs: dependabot-metadata
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      (needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor' ||
+       needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch')
+    steps:
+      - name: Approve PR
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Auto-merge after tests pass
+  auto-merge:
+    runs-on: ubuntu-latest
+    needs: [dependabot-metadata, auto-approve]
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      (needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor' ||
+       needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch')
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add comment
+        run: |
+          gh pr comment "$PR_URL" --body "🤖 Auto-merging this ${{ needs.dependabot-metadata.outputs.update-type }} update after tests pass.
+          
+          **Dependency:** ${{ needs.dependabot-metadata.outputs.dependency-names }}
+          **Update Type:** ${{ needs.dependabot-metadata.outputs.update-type }}
+          
+          This PR will be automatically merged once all required checks pass."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Notify for major updates (require manual review)
+  notify-major-update:
+    runs-on: ubuntu-latest
+    needs: dependabot-metadata
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-major'
+    steps:
+      - name: Add comment for manual review
+        run: |
+          gh pr comment "$PR_URL" --body "⚠️ **Major version update detected**
+          
+          **Dependency:** ${{ needs.dependabot-metadata.outputs.dependency-names }}
+          **Update Type:** ${{ needs.dependabot-metadata.outputs.update-type }}
+          
+          This PR requires manual review due to potential breaking changes.
+          
+          **Review checklist:**
+          - [ ] Check CHANGELOG for breaking changes
+          - [ ] Review migration guide
+          - [ ] Test locally
+          - [ ] For .NET updates: Verify AOT compatibility (see \`server/AOT_COMPLIANCE.md\`)
+          - [ ] For Flutter updates: Test on low-end devices (2GB RAM)
+          - [ ] For AWS CDK updates: Review infrastructure changes
+          
+          Once reviewed, approve and merge manually."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Request review
+        run: gh pr edit "$PR_URL" --add-reviewer mitikutesh
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

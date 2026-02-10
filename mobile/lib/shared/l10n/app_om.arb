@@ -4,6 +4,10 @@
   "@appName": {
     "description": "The application name (kept in English as brand name)"
   },
+  "appTitle": "WeredaConnect",
+  "@appTitle": {
+    "description": "The application title shown in app bar"
+  },
   "welcomeMessage": "Gara WeredaConnect baga nagaan dhuftan",
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
@@ -83,6 +87,10 @@
   "dataWillSyncWhenOnline": "Yeroo online taatan deetaan keessan walsimsifama",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"
+  },
+  "offlineReady": "Offline Qophaa'eera",
+  "@offlineReady": {
+    "description": "Indicator that the app is ready to work offline"
   }
 }
 

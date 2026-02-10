@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>13.0</LangVersion>
+
+    <!-- Lambda Configuration -->
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Performance Optimizations -->
+    <TieredCompilation>false</TieredCompilation>
+    <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
+  </PropertyGroup>
+
+  <!-- Native AOT Configuration - Only for Publish -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Use linux-arm64 for AWS Lambda Graviton2 -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <!-- StripSymbols requires llvm-objcopy (Linux only) - enable in CI/CD -->
+    <StripSymbols Condition="'$(CI)' == 'true'">true</StripSymbols>
+    <StripSymbols Condition="'$(CI)' != 'true'">false</StripSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AWS Lambda -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
+
+    <!-- AWS SDK (AOT-Compatible) -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.400" />
+
+    <!-- Database Access (AOT-Compatible) -->
+    <!-- ❌ BANNED: Entity Framework Core -->
+    <!-- ✅ USE: Dapper -->
+    <PackageReference Include="Dapper" Version="2.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude test files from main project -->
+    <Compile Remove="tests/**" />
+    <EmbeddedResource Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Make internal members visible to test project -->
+    <InternalsVisibleTo Include="WeredaConnect.Server.Tests" />
+  </ItemGroup>
+
+</Project>
+

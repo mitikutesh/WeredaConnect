@@ -1,0 +1,147 @@
+# Dependabot configuration for WeredaConnect
+# Automatically checks for dependency updates across all project components
+# See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+
+updates:
+  # ============================================================================
+  # Mobile App (Flutter/Dart)
+  # ============================================================================
+  - package-ecosystem: "pub"
+    directory: "/mobile"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Addis_Ababa"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "mitikutesh"
+    labels:
+      - "dependencies"
+      - "mobile"
+      - "flutter"
+    commit-message:
+      prefix: "chore(mobile)"
+      include: "scope"
+    # Group minor and patch updates together to reduce PR noise
+    groups:
+      flutter-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Allow only specific dependency types
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    # Ignore specific packages if needed
+    # ignore:
+    #   - dependency-name: "isar"
+    #     versions: ["4.x"]
+
+  # ============================================================================
+  # Infrastructure (AWS CDK - npm/TypeScript)
+  # ============================================================================
+  - package-ecosystem: "npm"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Addis_Ababa"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "mitikutesh"
+    labels:
+      - "dependencies"
+      - "infra"
+      - "aws-cdk"
+    commit-message:
+      prefix: "chore(infra)"
+      include: "scope"
+    groups:
+      aws-cdk:
+        patterns:
+          - "aws-cdk*"
+          - "@aws-cdk/*"
+        update-types:
+          - "minor"
+          - "patch"
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    versioning-strategy: increase
+
+  # ============================================================================
+  # Server (.NET/NuGet)
+  # ============================================================================
+  - package-ecosystem: "nuget"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Addis_Ababa"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "mitikutesh"
+    labels:
+      - "dependencies"
+      - "server"
+      - "dotnet"
+    commit-message:
+      prefix: "chore(server)"
+      include: "scope"
+    groups:
+      aws-sdk:
+        patterns:
+          - "AWSSDK.*"
+        update-types:
+          - "minor"
+          - "patch"
+      lambda:
+        patterns:
+          - "Amazon.Lambda.*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Critical: Ensure AOT compatibility
+    # Review AOT_COMPLIANCE.md before accepting updates
+    ignore:
+      # Example: Ignore major version updates that might break AOT
+      # - dependency-name: "AWSSDK.*"
+      #   update-types: ["version-update:semver-major"]
+
+  # ============================================================================
+  # GitHub Actions Workflows
+  # ============================================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Addis_Ababa"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "mitikutesh"
+    labels:
+      - "dependencies"
+      - "ci"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+

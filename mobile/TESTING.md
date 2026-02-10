@@ -7,6 +7,8 @@ Comprehensive testing guide for WeredaConnect Flutter mobile app. Covers unit te
 
 ## Quick Start
 
+### Running Tests
+
 ```bash
 # Run all unit tests
 flutter test
@@ -23,6 +25,11 @@ flutter test test/core/sync/sync_service_test.dart
 # Run tests in watch mode
 flutter test --watch
 ```
+
+### Running on Emulator
+
+For setting up Android emulator and running the app, see:
+**[Android Emulation Setup Guide](../docs/developer/android-emulation.md)**
 
 ---
 
@@ -282,6 +289,26 @@ void main() {
 ---
 
 ## 4. E2E Tests (Maestro)
+
+### Local E2E Testing with Backend
+
+For complete end-to-end testing with mobile app → backend server → database, see:
+**[E2E Local Testing Guide](../docs/developer/e2e-local-testing.md)**
+
+**Quick Setup**:
+```bash
+# 1. Start LocalStack (backend services)
+cd ../server
+docker-compose -f docker-compose.localstack.yml up -d
+
+# 2. Run mobile app with LocalStack URL
+cd ../mobile
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
+
+# Note: 10.0.2.2 is Android emulator's way to access host machine's localhost
+# For iOS simulator, use: http://localhost:4566
+# For physical device, use your computer's IP: http://192.168.1.100:4566
+```
 
 ### Setup Maestro
 ```bash

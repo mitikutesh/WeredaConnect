@@ -1,0 +1,93 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+android {
+    namespace "et.wereda.connect"
+    compileSdk 36
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "et.wereda.connect"
+        minSdk 26  // Android 8.0 - Offline-first requirement
+        targetSdk 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+        
+        // Optimize APK size for 3G downloads
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            // Release signing configuration
+            // In production, these should be loaded from environment variables or secure storage
+            // For CI/CD: Use GitHub Secrets or AWS Secrets Manager
+            if (System.getenv("RELEASE_STORE_FILE")) {
+                storeFile file(System.getenv("RELEASE_STORE_FILE"))
+                storePassword System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Only sign with release config if credentials are available
+            // Otherwise, build will be unsigned (safer than using debug key)
+            if (System.getenv("RELEASE_STORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
+
+            // Optimize for Ethiopian context (small APK size)
+            shrinkResources true
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    // No additional dependencies needed for base setup
+}
+

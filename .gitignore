@@ -18,6 +18,11 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 *.g.dart
 
+# Android
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
 # .NET
 server/bin/
 server/obj/
@@ -25,6 +30,9 @@ server/**/bin/
 server/**/obj/
 server/.vs/
 server/*.user
+
+# LocalStack (prevent accidental commits of state/secrets)
+server/localstack-data/**
 
 # Node/CDK
 infra/node_modules/

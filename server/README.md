@@ -26,8 +26,8 @@ server/
 ### Prerequisites
 - .NET 10 SDK
 - AWS CLI configured
-- AWS SAM CLI (for local testing)
-- Docker (for LocalStack/SAM)
+- AWS SAM CLI (for local Lambda testing)
+- Docker (optional, for LocalStack integration tests only)
 
 ### Setup
 ```bash
@@ -187,12 +187,49 @@ dotnet test
 
 ### Integration Tests (LocalStack)
 ```bash
-# Start LocalStack
-docker-compose up -d
+# Start LocalStack (Docker required)
+docker-compose -f docker-compose.localstack.yml up -d
+
+# Verify LocalStack is running
+curl http://localhost:4566/_localstack/health
+
+# Set environment variables
+export AWS_ENDPOINT_URL=http://localhost:4566
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
 
 # Run integration tests
 dotnet test --filter Category=Integration
+
+# Stop LocalStack
+docker-compose -f docker-compose.localstack.yml down
 ```
+
+**Note**: Docker is only required for integration tests with LocalStack. Unit tests and AOT validation do not require Docker.
+
+### E2E Testing with Mobile App
+
+To test the complete stack (mobile app → API → database) locally:
+
+```bash
+# 1. Start LocalStack
+docker-compose -f docker-compose.localstack.yml up -d
+
+# 2. In another terminal, run mobile app
+cd ../mobile
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
+
+# 3. Test offline → online sync flow in mobile emulator
+# See: docs/developer/e2e-local-testing.md for complete guide
+```
+
+**Network Configuration**:
+- **Android Emulator**: Use `http://10.0.2.2:4566` (10.0.2.2 = host machine's localhost)
+- **iOS Simulator**: Use `http://localhost:4566`
+- **Physical Device**: Use your computer's IP (e.g., `http://192.168.1.100:4566`)
+
+For detailed E2E testing scenarios, see **[E2E Local Testing Guide](../docs/developer/e2e-local-testing.md)**.
 
 ### AOT Build Validation
 ```bash

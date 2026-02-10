@@ -1,0 +1,72 @@
+# .dockerignore for WeredaConnect Server
+# Purpose: Exclude unnecessary files from Docker build context (if Docker is used)
+# Note: Docker is NOT recommended for production, but this file exists for LocalStack testing
+
+# Build outputs
+bin/
+obj/
+dist/
+*.dll
+*.exe
+*.pdb
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# Test results
+TestResults/
+coverage/
+*.trx
+*.coverage
+
+# IDE and editor files
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# LocalStack data
+localstack-data/
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+azure-pipelines.yml
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+

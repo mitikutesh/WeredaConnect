@@ -1,0 +1,180 @@
+# GitHub Actions Workflow: Server Tests
+# Purpose: Run .NET server tests with LocalStack integration
+# Trigger: Push to main, pull requests, or manual dispatch
+
+name: Server Tests (.NET 10)
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'server/**'
+  workflow_dispatch:
+  workflow_call:  # Allow this workflow to be called from pr-validation.yml
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Restore dependencies
+        working-directory: ./server
+        run: dotnet restore
+      
+      - name: Build
+        working-directory: ./server
+        run: dotnet build --no-restore --configuration Release
+      
+      - name: Run unit tests
+        working-directory: ./server
+        run: dotnet test --no-build --configuration Release --filter "Category!=Integration" --logger "trx;LogFileName=test-results.trx"
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: server/TestResults/*.trx
+
+  integration-tests:
+    name: Integration Tests (LocalStack)
+    runs-on: ubuntu-latest
+    
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: dynamodb,s3,lambda
+          DEBUG: 1
+          DISABLE_EVENTS: 1
+          DEFAULT_REGION: us-east-1
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Restore dependencies
+        working-directory: ./server
+        run: dotnet restore
+      
+      - name: Build
+        working-directory: ./server
+        run: dotnet build --no-restore --configuration Release
+      
+      - name: Wait for LocalStack
+        run: |
+          echo "Waiting for LocalStack to be ready..."
+          timeout 60 bash -c 'until curl -f http://localhost:4566/_localstack/health; do sleep 2; done'
+      
+      - name: Run integration tests
+        working-directory: ./server
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: dotnet test --no-build --configuration Release --filter "Category=Integration" --logger "trx;LogFileName=integration-test-results.trx"
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: server/TestResults/*.trx
+
+  aot-validation:
+    name: AOT Compatibility Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU for ARM64 emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Restore dependencies
+        working-directory: ./server
+        run: dotnet restore
+
+      - name: Validate AOT compatibility
+        working-directory: ./server
+        env:
+          COMPlus_CrossCompiling: 1
+          OBJCOPY: aarch64-linux-gnu-objcopy
+        run: dotnet publish WeredaConnect.Server.csproj -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false
+
+      - name: Check binary size
+        working-directory: ./server
+        run: |
+          BINARY_SIZE=$(du -h bin/Release/net10.0/linux-arm64/publish/bootstrap | cut -f1)
+          echo "Native AOT binary size: $BINARY_SIZE"
+          echo "::notice::Native AOT binary size (ARM64): $BINARY_SIZE"
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      
+      - name: Restore dependencies
+        working-directory: ./server
+        run: dotnet restore
+      
+      - name: Run tests with coverage
+        working-directory: ./server
+        run: dotnet test --collect:"XPlat Code Coverage" --results-directory ./coverage
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./server/coverage/**/coverage.cobertura.xml
+          flags: server
+          name: server-coverage
+
