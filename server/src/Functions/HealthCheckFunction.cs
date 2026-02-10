@@ -9,17 +9,24 @@ using System.Text.Json.Serialization;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
+/// JSON source generator context for AOT compatibility.
+/// This enables native AOT compilation without reflection.
+/// </summary>
+[JsonSerializable(typeof(HealthCheckResponse))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+internal partial class HealthCheckJsonContext : JsonSerializerContext
+{
+}
+
+/// <summary>
 /// Health check Lambda function for monitoring and cold-start optimization.
 /// Target: <2 seconds cold start on ARM64.
 /// </summary>
 public class HealthCheckFunction
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = false
-    };
 
     /// <summary>
     /// Lambda function handler for health check endpoint.
@@ -40,7 +47,7 @@ public class HealthCheckFunction
         return new APIGatewayProxyResponse
         {
             StatusCode = 200,
-            Body = JsonSerializer.Serialize(response, JsonOptions),
+            Body = JsonSerializer.Serialize(response, HealthCheckJsonContext.Default.HealthCheckResponse),
             Headers = new Dictionary<string, string>
             {
                 { "Content-Type", "application/json" },

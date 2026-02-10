@@ -11,7 +11,9 @@
     <InvariantGlobalization>false</InvariantGlobalization>
     <RuntimeIdentifier>linux-arm64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <StripSymbols>true</StripSymbols>
+    <!-- StripSymbols requires llvm-objcopy (Linux only) - enable in CI/CD -->
+    <StripSymbols Condition="'$(CI)' == 'true'">true</StripSymbols>
+    <StripSymbols Condition="'$(CI)' != 'true'">false</StripSymbols>
     
     <!-- Lambda Configuration -->
     <AWSProjectType>Lambda</AWSProjectType>
