@@ -50,7 +50,7 @@ public class HealthCheckFunction
     }
 
     private static bool _isColdStart = true;
-    
+
     private static bool IsColdStart()
     {
         if (_isColdStart)
@@ -59,6 +59,14 @@ public class HealthCheckFunction
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Reset cold start state for testing purposes only.
+    /// </summary>
+    internal static void ResetColdStart()
+    {
+        _isColdStart = true;
     }
 }
 

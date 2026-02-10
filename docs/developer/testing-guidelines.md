@@ -196,11 +196,14 @@ public class ReportApiTests : IClassFixture<LocalStackFixture>
 
 ### 3. E2E Tests
 
-**Purpose**: Test complete user flows
+**Purpose**: Test complete user flows from mobile app through backend to database
 
 **When to write**:
 - Critical user journeys
 - Smoke tests for deployments
+- Offline-first scenarios
+
+**Local E2E Testing**: See **[E2E Local Testing Guide](./e2e-local-testing.md)** for complete setup with mobile emulator + LocalStack
 
 **Example (Maestro)**:
 ```yaml
@@ -214,6 +217,18 @@ appId: com.weredaconnect.app
 - tapOn: "Infrastructure"
 - tapOn: "Submit"
 - assertVisible: "Report created successfully"
+```
+
+**Quick E2E Setup**:
+```bash
+# 1. Start LocalStack backend
+cd server && docker-compose -f docker-compose.localstack.yml up -d
+
+# 2. Run mobile app on emulator
+cd mobile && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
+
+# 3. Test offline → online sync flow
+# See e2e-local-testing.md for detailed scenarios
 ```
 
 ### 4. Smoke Tests
@@ -428,6 +443,7 @@ jobs:
 
 ## Related Documentation
 
+- **[E2E Local Testing Guide](./e2e-local-testing.md)** - Complete guide for mobile emulator + LocalStack testing
 - **[Testing Philosophy](../../.ai/testing.md)** - Central testing strategy
 - **[Mobile Testing](../../mobile/TESTING.md)** - Flutter-specific guide
 - **[Server Testing](../../server/TESTING.md)** - .NET-specific guide

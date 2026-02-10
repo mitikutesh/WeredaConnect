@@ -430,6 +430,7 @@ export AWS_DEFAULT_REGION=us-east-1
 3. **Understand the workflow**: [Development Workflow](./dev-workflow.md)
 4. **Start contributing**: [Contributing Guide](./contributing.md)
 5. **Run your first test**: [Testing Guidelines](./testing-guidelines.md)
+6. **Test end-to-end locally**: [E2E Local Testing Guide](./e2e-local-testing.md)
 
 ---
 
