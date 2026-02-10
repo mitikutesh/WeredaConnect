@@ -7,6 +7,8 @@ Comprehensive testing guide for WeredaConnect Flutter mobile app. Covers unit te
 
 ## Quick Start
 
+### Running Tests
+
 ```bash
 # Run all unit tests
 flutter test
@@ -23,6 +25,11 @@ flutter test test/core/sync/sync_service_test.dart
 # Run tests in watch mode
 flutter test --watch
 ```
+
+### Running on Emulator
+
+For setting up Android emulator and running the app, see:
+**[Android Emulation Setup Guide](../docs/developer/android-emulation.md)**
 
 ---
 
