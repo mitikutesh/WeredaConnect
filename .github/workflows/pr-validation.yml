@@ -10,6 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Permissions needed for paths-filter to read PR files
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   # Determine which components changed
   detect-changes:
@@ -19,10 +24,12 @@ jobs:
       mobile: ${{ steps.filter.outputs.mobile }}
       server: ${{ steps.filter.outputs.server }}
       infra: ${{ steps.filter.outputs.infra }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for accurate change detection
 
       - name: Check for changes
         uses: dorny/paths-filter@v3
