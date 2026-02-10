@@ -5,24 +5,25 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>13.0</LangVersion>
-    
-    <!-- Native AOT Configuration -->
-    <PublishAot>true</PublishAot>
+
+    <!-- Lambda Configuration -->
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Performance Optimizations -->
+    <TieredCompilation>false</TieredCompilation>
+    <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
+  </PropertyGroup>
+
+  <!-- Native AOT Configuration - Only for Publish -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <InvariantGlobalization>false</InvariantGlobalization>
     <RuntimeIdentifier>linux-arm64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <!-- StripSymbols requires llvm-objcopy (Linux only) - enable in CI/CD -->
     <StripSymbols Condition="'$(CI)' == 'true'">true</StripSymbols>
     <StripSymbols Condition="'$(CI)' != 'true'">false</StripSymbols>
-    
-    <!-- Lambda Configuration -->
-    <AWSProjectType>Lambda</AWSProjectType>
-    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    
-    <!-- Performance Optimizations -->
-    <TieredCompilation>false</TieredCompilation>
-    <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
   </PropertyGroup>
 
   <ItemGroup>
