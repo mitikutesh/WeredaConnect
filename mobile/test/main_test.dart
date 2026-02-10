@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/main.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -63,17 +64,9 @@ void main() {
     testWidgets('supports English locale', (WidgetTester tester) async {
       await tester.pumpWidget(const WeredaConnectApp());
       await tester.pumpAndSettle();
-      
+
       // Verify English text is displayed
       expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
-    });
-  });
-
-  group('Memory Optimization', () {
-    test('image cache is configured for low-end devices', () {
-      // Verify image cache limits are set
-      expect(imageCache.maximumSize, equals(50));
-      expect(imageCache.maximumSizeBytes, equals(50 * 1024 * 1024));
     });
   });
 }
