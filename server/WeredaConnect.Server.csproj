@@ -19,9 +19,8 @@
   <!-- Native AOT Configuration - Only for Publish -->
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <InvariantGlobalization>false</InvariantGlobalization>
-    <!-- Use linux-x64 for CI/CD compatibility (GitHub Actions runners are x64) -->
-    <!-- For production ARM64 (Graviton2), override with: dotnet publish /p:RuntimeIdentifier=linux-arm64 -->
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-x64</RuntimeIdentifier>
+    <!-- Use linux-arm64 for AWS Lambda Graviton2 -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <!-- StripSymbols requires llvm-objcopy (Linux only) - enable in CI/CD -->
     <StripSymbols Condition="'$(CI)' == 'true'">true</StripSymbols>
