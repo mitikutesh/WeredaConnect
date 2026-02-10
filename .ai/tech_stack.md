@@ -8,8 +8,8 @@ This document defines the **exact versions and technologies** used in WeredaConn
 ## Mobile Stack
 
 ### Core Framework
-- **Flutter**: `3.27.x` (stable channel)
-- **Dart**: `3.6.x`
+- **Flutter**: `3.38.9` (stable channel)
+- **Dart**: `3.10.8`
 - **Target Platform**: Android 8+ (API 26+)
 - **Minimum Device**: 2GB RAM, ARM64
 
@@ -92,7 +92,7 @@ android {
 ## Server Stack
 
 ### Core Framework
-- **.NET**: `10.0` (LTS)
+- **.NET**: `10.0` (SDK 10.0.102)
 - **C#**: `13.0`
 - **Runtime**: Native AOT (Ahead-of-Time compilation)
 - **Deployment**: AWS Lambda (ARM64)
@@ -149,7 +149,8 @@ android {
 
 ### Core Framework
 - **AWS CDK**: `2.170.x` (TypeScript)
-- **Node.js**: `20.x LTS`
+- **Node.js**: `20.20.0 LTS`
+- **npm**: `10.8.2`
 - **TypeScript**: `5.7.x`
 
 ### AWS Services
