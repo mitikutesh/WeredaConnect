@@ -7,7 +7,7 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 
 ## 🛑 Session Checkpoint
 
-**Timestamp:** 2026-02-10 19:10:13 EET  
+**Timestamp:** 2026-02-10 19:10:13 EET
 **Status:** Checkpoint created by automation  
 **Active Branch:** boiler-plate-project
 

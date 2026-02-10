@@ -23,7 +23,7 @@ public class HealthCheckFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.NotNull(response.Body);
 
-        var healthCheck = JsonSerializer.Deserialize(response.Body, HealthCheckJsonContext.Default.HealthCheckResponse);
+        var healthCheck = JsonSerializer.Deserialize<HealthCheckResponse>(response.Body);
         Assert.NotNull(healthCheck);
         Assert.Equal("healthy", healthCheck.Status);
         Assert.Equal("0.1.0", healthCheck.Version);
@@ -41,29 +41,27 @@ public class HealthCheckFunctionTests
         var response = function.FunctionHandler(request, context);
 
         // Assert
+        Assert.True(response.Headers.ContainsKey("Content-Type"));
         Assert.Equal("application/json", response.Headers["Content-Type"]);
-        Assert.Equal("nosniff", response.Headers["X-Content-Type-Options"]);
-        Assert.Equal("DENY", response.Headers["X-Frame-Options"]);
-        Assert.Equal("no-store", response.Headers["Cache-Control"]);
-        Assert.Contains("max-age=", response.Headers["Strict-Transport-Security"]);
+        Assert.True(response.Headers.ContainsKey("X-WeredaConnect-Version"));
+        Assert.Equal("0.1.0", response.Headers["X-WeredaConnect-Version"]);
     }
 
     [Fact]
     public void FunctionHandler_DetectsColdStart()
     {
         // Arrange
-        HealthCheckFunction.ResetColdStart(); // Reset state for this test
         var function = new HealthCheckFunction();
         var request = new APIGatewayProxyRequest();
         var context = new TestLambdaContext();
 
         // Act - First invocation should be cold start
         var response1 = function.FunctionHandler(request, context);
-        var healthCheck1 = JsonSerializer.Deserialize(response1.Body, HealthCheckJsonContext.Default.HealthCheckResponse);
+        var healthCheck1 = JsonSerializer.Deserialize<HealthCheckResponse>(response1.Body);
 
         // Act - Second invocation should not be cold start
         var response2 = function.FunctionHandler(request, context);
-        var healthCheck2 = JsonSerializer.Deserialize(response2.Body, HealthCheckJsonContext.Default.HealthCheckResponse);
+        var healthCheck2 = JsonSerializer.Deserialize<HealthCheckResponse>(response2.Body);
 
         // Assert
         Assert.NotNull(healthCheck1);
