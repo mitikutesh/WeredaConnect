@@ -127,7 +127,7 @@ jobs:
       
       - name: Validate AOT compatibility
         working-directory: ./server
-        run: dotnet publish -c Release /p:PublishAot=true
+        run: dotnet publish WeredaConnect.Server.csproj -c Release /p:PublishAot=true
 
       - name: Check binary size
         working-directory: ./server
