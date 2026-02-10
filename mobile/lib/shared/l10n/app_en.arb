@@ -4,6 +4,10 @@
   "@appName": {
     "description": "The application name"
   },
+  "appTitle": "WeredaConnect",
+  "@appTitle": {
+    "description": "The application title shown in app bar"
+  },
   "welcomeMessage": "Welcome to WeredaConnect",
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
@@ -83,6 +87,10 @@
   "dataWillSyncWhenOnline": "Your data will sync when you're back online",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"
+  },
+  "offlineReady": "Offline Ready",
+  "@offlineReady": {
+    "description": "Indicator that the app is ready to work offline"
   }
 }
 
