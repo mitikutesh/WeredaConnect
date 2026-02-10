@@ -1,0 +1,88 @@
+# LocalStack Docker Compose Configuration
+# Purpose: Local AWS service emulation for integration testing
+# Usage: docker-compose -f docker-compose.localstack.yml up -d
+
+version: '3.8'
+
+services:
+  localstack:
+    container_name: weredaconnect-localstack
+    image: localstack/localstack:latest
+    ports:
+      # LocalStack edge port (all services accessible via this port)
+      - "4566:4566"
+    environment:
+      # AWS services to emulate
+      - SERVICES=dynamodb,s3,lambda,apigateway
+      
+      # Enable debug logging
+      - DEBUG=1
+      
+      # Disable analytics
+      - DISABLE_EVENTS=1
+      
+      # Persistence (optional, uncomment to persist data between restarts)
+      # - PERSISTENCE=1
+      
+      # Default region
+      - DEFAULT_REGION=us-east-1
+      
+      # Lambda executor (docker-reuse for better performance)
+      - LAMBDA_EXECUTOR=docker-reuse
+      
+      # Enable CORS for local development
+      - EXTRA_CORS_ALLOWED_ORIGINS=*
+    
+    volumes:
+      # Persist LocalStack data (optional)
+      - "./localstack-data:/var/lib/localstack"
+      
+      # Mount Docker socket for Lambda execution
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    
+    networks:
+      - weredaconnect-test
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  weredaconnect-test:
+    driver: bridge
+
+# Usage Instructions:
+# 
+# 1. Start LocalStack:
+#    docker-compose -f docker-compose.localstack.yml up -d
+#
+# 2. Check status:
+#    docker-compose -f docker-compose.localstack.yml ps
+#
+# 3. View logs:
+#    docker-compose -f docker-compose.localstack.yml logs -f
+#
+# 4. Run integration tests:
+#    dotnet test --filter Category=Integration
+#
+# 5. Stop LocalStack:
+#    docker-compose -f docker-compose.localstack.yml down
+#
+# 6. Stop and remove data:
+#    docker-compose -f docker-compose.localstack.yml down -v
+#
+# Environment Variables for Tests:
+# Set these in your test configuration or shell:
+#   export AWS_ENDPOINT_URL=http://localhost:4566
+#   export AWS_ACCESS_KEY_ID=test
+#   export AWS_SECRET_ACCESS_KEY=test
+#   export AWS_DEFAULT_REGION=us-east-1
+#
+# Troubleshooting:
+# - If port 4566 is in use: Change the port mapping to "4567:4566"
+# - If Lambda tests fail: Ensure Docker socket is mounted correctly
+# - If data persists unexpectedly: Remove localstack-data/ directory
+
