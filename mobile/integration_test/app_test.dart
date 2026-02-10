@@ -9,7 +9,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('App Integration Tests', () {
-    testWidgets('app launches and displays home screen', (WidgetTester tester) async {
+    testWidgets('app launches and displays home screen',
+        (WidgetTester tester) async {
       // Start the app
       await tester.pumpWidget(const WeredaConnectApp());
       await tester.pumpAndSettle();
@@ -37,4 +38,3 @@ void main() {
     });
   });
 }
-

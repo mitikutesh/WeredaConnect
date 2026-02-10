@@ -50,11 +50,11 @@ class WeredaConnectApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'WeredaConnect',
-      
+
       // Localization - delegates and locales defined in generated l10n code
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      
+
       // Theme
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -62,7 +62,7 @@ class WeredaConnectApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      
+
       // Home
       home: const HomePage(),
     );
@@ -75,7 +75,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.appTitle),
@@ -107,4 +107,3 @@ class HomePage extends StatelessWidget {
     );
   }
 }
-

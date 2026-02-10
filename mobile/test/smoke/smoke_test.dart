@@ -9,7 +9,7 @@ void main() {
     testWidgets('app starts without crashing', (WidgetTester tester) async {
       // Build the app
       await tester.pumpWidget(const WeredaConnectApp());
-      
+
       // Verify the app renders
       expect(find.byType(WeredaConnectApp), findsOneWidget);
     });
@@ -18,7 +18,7 @@ void main() {
       // Build the app
       await tester.pumpWidget(const WeredaConnectApp());
       await tester.pumpAndSettle();
-      
+
       // Verify HomePage is displayed
       expect(find.byType(HomePage), findsOneWidget);
     });
@@ -27,11 +27,10 @@ void main() {
       // Build the app
       await tester.pumpWidget(const WeredaConnectApp());
       await tester.pumpAndSettle();
-      
+
       // Verify essential UI elements
       expect(find.text('WeredaConnect'), findsOneWidget);
       expect(find.byIcon(Icons.agriculture), findsOneWidget);
     });
   });
 }
-
