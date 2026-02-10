@@ -18,6 +18,11 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 *.g.dart
 
+# Android
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
 # .NET
 server/bin/
 server/obj/
