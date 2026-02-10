@@ -8,6 +8,10 @@ namespace WeredaConnect.Server.Tests;
 
 public class HealthCheckFunctionTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
     [Fact]
     public void FunctionHandler_ReturnsHealthyStatus()
     {

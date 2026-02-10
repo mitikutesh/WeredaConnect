@@ -73,12 +73,16 @@ For detailed emulator setup instructions, see:
 
 Quick start:
 ```bash
-# Start existing emulator
-emulator -avd WeredaConnect_API26 &
-
-# Or list and launch available emulators
+# List and launch available emulators
 flutter emulators
 flutter emulators --launch <emulator-id>
+
+# Or create a new low-end emulator (matches target devices)
+flutter emulators --create \
+  --name wereda_test \
+  --device "pixel_2" \
+  --api-level 26 \
+  --ram 2048
 
 # Verify device is connected
 flutter devices
@@ -189,7 +193,14 @@ Recommended settings for target devices (2GB RAM, low-end):
 ```bash
 # Using Android Studio:
 # Tools → Device Manager → Create Device
-# Settings: Pixel 2, Android 8.0 (API 26), 2048 MB RAM
+
+# Settings:
+# - Device: Pixel 2 or similar
+# - System Image: Android 8.0 (API 26) - Oreo
+# - RAM: 2048 MB (2GB)
+# - Internal Storage: 2048 MB
+# - SD Card: 512 MB
+# - Graphics: Automatic
 
 # Or via command line:
 avdmanager create avd \

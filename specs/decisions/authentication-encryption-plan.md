@@ -123,6 +123,7 @@ User → Mobile App → AWS Cognito → DynamoDB
 - **Purpose**: Prevent brute force attacks on cached credentials
 - **Ethiopian Context**: Critical for shared devices (multiple users)
 
+
 ### 2.3 Token Refresh (Background Sync)
 
 ```dart
