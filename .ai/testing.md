@@ -32,7 +32,7 @@ This document defines the **comprehensive testing strategy** for WeredaConnect. 
 
 **What**: Test individual functions, classes, or components in isolation
 
-**Coverage Target**: >80% for core business logic
+**Coverage Target**: Mobile >80%, Server >75%, Infrastructure >70% for core business logic
 
 **Speed**: <1 minute for entire suite
 

@@ -1,7 +1,7 @@
 # System Architecture
 
 ## Purpose
-This document provides a high-level overview of WeredaConnect's system architecture, explaining the major components and how they work together to deliver an offline-first civic engagement platform for Ethiopian communities.
+This document provides a high-level overview of WeredaConnect's system architecture, explaining the major components and how they work together to deliver an offline-first agritech logistics platform for Ethiopian rural communities.
 
 ## Audience
 - Architects
@@ -100,7 +100,7 @@ WeredaConnect follows a **3-tier offline-first architecture**:
 - Explicit dependency injection
 - Trimmed binaries
 
-**Why**: Lambda cold starts must be <500ms for good UX.
+**Why**: Lambda cold starts must be <2 seconds for acceptable UX on 3G.
 
 ### 4. Multi-Language Support
 
@@ -108,7 +108,7 @@ WeredaConnect follows a **3-tier offline-first architecture**:
 
 **Implementation**:
 - Flutter l10n with .arb files
-- RTL support for Amharic
+- Ethiopic script support (Ge'ez/Amharic is LTR, not RTL)
 - Server-side language detection
 - Localized error messages
 
@@ -180,13 +180,14 @@ WeredaConnect follows a **3-tier offline-first architecture**:
 - **Concurrency**: Limited to prevent runaway costs
 
 #### 2. DynamoDB Tables
-- **Reports Table**: User-submitted reports
-- **Users Table**: User profiles
+- **Listings Table**: Crop listings (type, quantity, location, price)
+- **Users Table**: User profiles (farmers, truckers, buyers)
+- **Trips Table**: Transport trips (pickup, delivery, status)
 - **Sync Metadata**: Version tracking for conflict resolution
 - **Billing**: On-demand (pay per request)
 
 #### 3. S3 Buckets
-- **Media Bucket**: User-uploaded images
+- **Media Bucket**: Crop photos, delivery evidence, audio notes
 - **Static Assets**: App resources
 - **Lifecycle Policies**: Auto-delete old files
 
@@ -242,7 +243,7 @@ See [Deployment Architecture](./deployment-architecture.md) for detailed deploym
 - **Offline**: No network calls = fast
 
 ### Backend Performance
-- **Cold Start**: <500ms (Native AOT)
+- **Cold Start**: <2 seconds (Native AOT on ARM64)
 - **Warm Response**: <100ms
 - **Throughput**: Auto-scales with Lambda
 - **Cost**: ~$5-10/month for 1000 users

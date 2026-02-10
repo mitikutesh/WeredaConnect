@@ -294,6 +294,6 @@ You now have:
 ---
 
 **Created**: 2026-02-09  
-**For**: Solo developers building offline-first civic tech for Ethiopia  
+**For**: Solo developers building offline-first agritech logistics for Ethiopia  
 **With**: AI-assisted development in mind
 

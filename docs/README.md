@@ -71,7 +71,7 @@ The canonical product definition - what WeredaConnect is, who it serves, and why
 
 - **[Project Background](./project-background.md)** - Product vision, functional requirements, architectural constraints, agent roles
 
-**Start here if you want to**: Understand the product, its goals, and Ethiopian agritech context.
+**Start here if you want to**: Understand the product, its goals, and Ethiopian agritech logistics context.
 
 ---
 

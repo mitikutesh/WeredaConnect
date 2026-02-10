@@ -5,11 +5,12 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 
 ## Project Identity
 
-**WeredaConnect** is a hyperlocal civic engagement platform designed for Ethiopian communities, with a focus on:
+**WeredaConnect** is an offline-first agritech logistics platform designed for Ethiopian rural communities, connecting farmers, transport providers, and urban wholesalers. It focuses on:
 - **Offline-first architecture** (3G/intermittent connectivity)
-- **Cultural relevance** (Amharic, Afan Oromo, English)
-- **Rural accessibility** (low-end Android devices)
+- **Voice-to-text in local languages** (Amharic, Afan Oromo, English for low-literacy users)
+- **Rural accessibility** (low-end Android devices, $50 phones)
 - **Data efficiency** (expensive mobile data costs)
+- **Logistics marketplace** (farmers → truckers → buyers with Telebirr escrow)
 
 ## Core Principles
 

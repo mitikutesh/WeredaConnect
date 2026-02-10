@@ -1,7 +1,7 @@
 # 🔐 Quality Assurance & Security
 
 ## Purpose
-This directory contains **threat models, security reviews, and QA processes** for WeredaConnect. Security and quality are non-negotiable for civic tech.
+This directory contains **threat models, security reviews, and QA processes** for WeredaConnect. Security and quality are non-negotiable for agritech logistics.
 
 ---
 

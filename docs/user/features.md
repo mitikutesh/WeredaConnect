@@ -5,7 +5,7 @@
 This document provides a comprehensive overview of all WeredaConnect features.
 
 ## Audience
-- End users
+- End users (farmers, truckers, buyers/wholesalers)
 - Product managers
 - Stakeholders
 
@@ -13,134 +13,128 @@ This document provides a comprehensive overview of all WeredaConnect features.
 
 ## Core Features
 
-### 1. Issue Reporting
+### 1. Crop Listing
 
-**Report community problems and track their resolution.**
-
-#### Capabilities
-- ✅ Create reports with title, description, photos, and location
-- ✅ Categorize issues (Infrastructure, Sanitation, Safety, Health, Education, Other)
-- ✅ Add up to 5 photos per report
-- ✅ Auto-detect location or manually place pin on map
-- ✅ Report anonymously (optional)
-- ✅ Edit reports within 24 hours of creation
-- ✅ Delete your own reports
-- ✅ Track report status (Pending, Acknowledged, In Progress, Resolved, Closed)
-
-#### Offline Support
-- ✅ Create reports offline
-- ✅ Photos queued for upload when online
-- ✅ Automatic sync when connectivity restored
-
----
-
-### 2. Report Discovery
-
-**Browse and search community reports.**
+**List your crops for sale and reach buyers and truckers directly.**
 
 #### Capabilities
-- ✅ View all reports in your wereda
-- ✅ Filter by category
-- ✅ Filter by status
-- ✅ Sort by: Recent, Nearby, Most Upvoted
-- ✅ Search reports by keyword
-- ✅ View report details (photos, location, comments, status history)
-- ✅ View reports on map
-- ✅ Share reports (SMS, WhatsApp, social media)
+- Create listings with crop type, quantity (quintals), price, and quality grade
+- Voice-to-text listing creation in Amharic, Afan Oromo, and English
+- Categorize by crop type (Teff, Wheat, Maize, Sorghum, Coffee, Sesame, etc.)
+- Set pickup location with map pin or auto-detected GPS coordinates
+- Add up to 5 photos of crop quality and storage conditions
+- Attach audio notes describing crop details for low-literacy communication
+- Edit listings until a transport match is confirmed
+- Delete your own listings
+- Track listing status (Active, Matched, In Transit, Delivered, Closed)
 
 #### Offline Support
-- ✅ View previously loaded reports offline
-- ✅ Cached photos available offline
-- ❌ Search requires internet (local cache search coming soon)
+- Create listings offline with voice-to-text
+- Photos and audio queued for upload when online
+- Automatic sync when connectivity restored
 
 ---
 
-### 3. Engagement
+### 2. Marketplace Discovery
 
-**Interact with reports and community members.**
+**Browse and search crop listings across regions.**
 
 #### Capabilities
-- ✅ Upvote reports (show support)
-- ✅ Comment on reports
-- ✅ Reply to comments
-- ✅ Follow reports (get notifications on updates)
-- ✅ Share reports with others
-- ✅ Thank report creators
+- View all active crop listings in your area and beyond
+- Filter by crop type (Teff, Wheat, Coffee, etc.)
+- Filter by price range and quantity
+- Sort by: Recent, Nearby, Lowest Price, Largest Quantity
+- Search listings by keyword
+- View listing details (photos, audio notes, location, seller profile)
+- View listings on map with cluster markers by region
+- Contact seller directly via in-app messaging or audio note
 
 #### Offline Support
-- ✅ Upvote/comment offline (syncs later)
-- ✅ View existing comments offline
-- ❌ Real-time comment updates require internet
+- View previously loaded listings offline
+- Cached photos and audio available offline
+- Search within locally cached listings offline
 
 ---
 
-### 4. Community Discussions
+### 3. Transport Matching
 
-**Engage in community conversations.**
+**Connect farmers with truckers for crop delivery.**
 
 #### Capabilities
-- ✅ Create discussion topics
-- ✅ Post in discussions
-- ✅ Reply to posts
-- ✅ Upvote/downvote posts
-- ✅ Follow topics
-- ✅ Browse by category (Events, Ideas, Questions, Announcements)
-- ✅ Search discussions
+- Truckers browse available loads by route, crop type, and pickup date
+- Farmers request transport for their listed crops
+- View trucker profiles (vehicle type, capacity, ratings, verified status)
+- Route optimization suggestions based on multiple pickup/dropoff points
+- Accept or decline transport requests
+- View estimated distance, travel time, and transport cost
+- Schedule pickup windows
+- Track active transport assignments
 
 #### Offline Support
-- ✅ View previously loaded discussions offline
-- ✅ Create posts offline (sync later)
-- ❌ Real-time updates require internet
+- Browse cached transport requests offline
+- Accept/decline requests offline (syncs later)
+- Route information cached for active assignments
 
 ---
 
-### 5. Notifications
+### 4. Escrow Payments
 
-**Stay informed about community activity.**
+**Secure transactions through Telebirr escrow integration.**
 
-#### Notification Types
-- 🔔 Report status changes
-- 🔔 Comments on your reports
-- 🔔 Replies to your comments
-- 🔔 Upvotes on your content
-- 🔔 New reports in followed categories
-- 🔔 Community announcements
-- 🔔 Emergency alerts
+#### Capabilities
+- Buyer locks payment into Telebirr escrow when transport is confirmed
+- Funds held securely until delivery is verified
+- Automatic release on successful delivery verification (QR + GPS + photo)
+- Dispute resolution flow for damaged or missing goods
+- Transaction history with full audit trail
+- Payment notifications at each stage (locked, in transit, released)
+- Support for partial payments on large orders
 
-#### Settings
-- ✅ Enable/disable by type
-- ✅ Quiet hours (no notifications at night)
-- ✅ Sound/vibration preferences
-- ✅ In-app vs push notifications
+#### Offline Support
+- View transaction history offline
+- Payment status cached locally
+- Escrow initiation queued if offline (executed on sync)
 
 ---
 
-### 6. User Profile
+### 5. Delivery Verification
 
-**Manage your account and preferences.**
+**Validate deliveries with multi-factor evidence.**
 
-#### Profile Information
-- ✅ Name, phone number, email
-- ✅ Wereda (district)
-- ✅ Profile photo
-- ✅ Bio (optional)
-- ✅ Preferred language
+#### Capabilities
+- QR delivery token generated at trip creation
+- Buyer scans QR code at delivery point to confirm receipt
+- GPS tracking records pickup and dropoff coordinates
+- Photo evidence required at pickup (loaded truck) and delivery (unloaded goods)
+- Timestamp verification ensures delivery within expected window
+- Audio notes for crop inspection comments at delivery
+- Automatic escrow release triggered on successful verification
+- Dispute flag if verification conditions are not met
 
-#### Activity
-- ✅ View your reports
-- ✅ View your comments
-- ✅ View your discussions
-- ✅ View upvoted content
-- ✅ View followed topics
+#### Offline Support
+- QR codes generated and stored locally
+- QR scanning works offline
+- GPS coordinates captured offline
+- Photos and evidence queued for upload when online
 
-#### Settings
-- ✅ Change language (Amharic, Afan Oromo, English)
-- ✅ Notification preferences
-- ✅ Privacy settings
-- ✅ Data saver mode
-- ✅ Sync preferences (WiFi only, auto-sync)
-- ✅ Dark mode / Light mode
-- ✅ Delete account
+---
+
+### 6. Identity Verification
+
+**Secure onboarding with Fayda ID integration.**
+
+#### Capabilities
+- Fayda ID biometric verification for farmer, trucker, and buyer onboarding
+- Identity required for all financial transactions (Telebirr escrow)
+- Verified badge displayed on user profiles
+- One-time verification process during registration
+- Trucker vehicle registration and license verification
+- Cooperative membership verification (where applicable)
+
+#### Offline Support
+- Verification status cached locally after initial onboarding
+- Verified identity persists offline
+- New verification requires internet connection
 
 ---
 
@@ -149,123 +143,133 @@ This document provides a comprehensive overview of all WeredaConnect features.
 **Work seamlessly with or without internet.**
 
 #### Capabilities
-- ✅ Local database (Isar) stores all data
-- ✅ Automatic background sync
-- ✅ Sync queue for pending operations
-- ✅ Conflict resolution (server wins, client merges)
-- ✅ Sync status indicator
-- ✅ Manual sync trigger
-- ✅ View sync history
+- Local database (Isar) stores all data on-device
+- Automatic background sync when connectivity detected
+- Sync queue for pending operations (listings, matches, evidence uploads)
+- Conflict resolution (server wins for financial data, client merges for listings)
+- Sync status indicator showing pending/synced items
+- Manual sync trigger
+- View sync history and pending queue
+- Resumable sync survives app crashes and phone restarts
 
 #### Data Management
-- ✅ Cache reports for offline viewing
-- ✅ Cache photos (configurable size limit)
-- ✅ Clear cache to free space
-- ✅ Export your data
+- Cache listings, photos, and audio for offline viewing
+- Configurable cache size limit
+- Clear cache to free device space
+- Audio compressed to .ogg/Opus at 16-32 kbps to minimize storage
 
 ---
 
 ### 8. Localization
 
-**Support for Ethiopian languages.**
+**Full support for Ethiopian languages.**
 
 #### Supported Languages
-- 🇪🇹 አማርኛ (Amharic)
-- 🇪🇹 Afaan Oromoo (Afan Oromo)
-- 🌍 English
+- Amharic
+- Afaan Oromoo (Afan Oromo)
+- English
 
 #### Localized Content
-- ✅ UI text
-- ✅ Error messages
-- ✅ Notifications
-- ✅ Help documentation
-- ✅ Date/time formats
-- ✅ Number formats
+- UI text in all three languages
+- Voice-to-text input in Amharic and Afan Oromo
+- Error messages
+- Notifications
+- Help documentation
+- Date/time formats (Ethiopian calendar support)
+- Number formats
+- Ge'ez script rendering without glitches
 
 ---
 
 ### 9. Maps & Location
 
-**Visualize reports geographically.**
+**Visualize crop locations, transport routes, and delivery points.**
 
 #### Capabilities
-- ✅ View reports on map
-- ✅ Cluster nearby reports
-- ✅ Filter map by category
-- ✅ Auto-detect current location
-- ✅ Manually place report location
-- ✅ View report location details
-- ✅ Get directions to report location
+- View crop listings on map with cluster markers
+- Filter map by crop type and availability
+- Auto-detect current location via GPS
+- Manually place crop pickup location on map
+- View transport routes between pickup and delivery points
+- Get directions to pickup/delivery locations
+- Regional view showing crop density and active routes
 
 #### Offline Support
-- ✅ Cached map tiles for offline viewing
-- ✅ GPS works offline
-- ❌ Directions require internet
+- Cached map tiles for offline viewing
+- GPS works offline for location capture
+- Saved routes available offline
+- Directions require internet
 
 ---
 
 ### 10. Media Management
 
-**Handle photos efficiently.**
+**Handle crop photos, delivery evidence, and audio notes efficiently.**
 
 #### Capabilities
-- ✅ Take photos in-app
-- ✅ Select from gallery
-- ✅ Crop/rotate photos
-- ✅ Compress photos (save data)
-- ✅ View full-screen photos
-- ✅ Zoom/pan photos
-- ✅ Download photos
+- Take crop photos in-app with camera
+- Select photos from gallery
+- Crop and rotate photos
+- Automatic compression to save data (configurable quality)
+- Record audio notes for crop descriptions and inspection comments
+- Audio compression (.ogg/Opus at 16-32 kbps)
+- View full-screen photos with zoom/pan
+- Play audio notes in-app
+- Download media for offline access
 
 #### Offline Support
-- ✅ Photos cached for offline viewing
-- ✅ Upload queued when offline
-- ✅ Retry failed uploads
+- Photos and audio cached for offline viewing/playback
+- Upload queued when offline with automatic retry
+- Retry failed uploads on next sync
+- Partial upload resumption supported
 
 ---
 
 ## Upcoming Features
 
 ### Phase 2 (Q2 2026)
-- 📅 Event organization
-- 📊 Analytics dashboard for community leaders
-- 🏆 Gamification (badges, leaderboards)
-- 🔍 Advanced search filters
-- 📱 SMS integration (for feature phones)
+- Cooperative management tools (group listings, shared accounts)
+- Admin dashboard for cooperative leaders and local authorities
+- SMS integration for feature phone users (listing alerts, delivery confirmations)
+- Advanced search filters (harvest date, organic certification)
+- In-app dispute resolution workflow
 
 ### Phase 3 (Q3 2026)
-- 🗳️ Polls and surveys
-- 💰 Budget transparency
-- 📈 Progress tracking for government projects
-- 🤝 Volunteer coordination
-- 🎓 Educational resources
+- Market price analytics and historical trends by crop and region
+- Weather integration (rainfall forecasts, harvest timing alerts)
+- Micro-insurance per trip via AICE APIs (automatic coverage on trip start)
+- Trucker fleet management for multi-vehicle operators
+- Buyer order placement and recurring purchase scheduling
 
 ### Phase 4 (Q4 2026)
-- 🌐 Multi-wereda support
-- 🔗 Integration with government systems
-- 📞 Voice reporting (for accessibility)
-- 🤖 AI-powered issue categorization
-- 📊 Data export for researchers
+- Credit scoring based on transaction history and delivery reliability
+- Multi-region expansion beyond initial pilot weredas
+- Integration with Agricultural Transformation Agency (ATA) data
+- AI-powered crop price prediction and demand forecasting
+- Voice-only mode for full app operation without reading
 
 ---
 
-## Feature Comparison
+## User Roles
 
-### Free vs Premium (Future)
+### Farmer vs Trucker vs Buyer
 
-| Feature | Free | Premium |
-|---------|------|---------|
-| Create reports | ✅ Unlimited | ✅ Unlimited |
-| View reports | ✅ Unlimited | ✅ Unlimited |
-| Comments | ✅ Unlimited | ✅ Unlimited |
-| Discussions | ✅ Unlimited | ✅ Unlimited |
-| Photos per report | ✅ 5 | ✅ 10 |
-| Offline storage | ✅ 100 MB | ✅ 500 MB |
-| Analytics | ❌ | ✅ |
-| Priority support | ❌ | ✅ |
-| Ad-free | ❌ | ✅ |
+| Feature | Farmer | Trucker | Buyer |
+|---------|--------|---------|-------|
+| Create crop listings | Yes | -- | -- |
+| Voice-to-text listing | Yes | -- | -- |
+| Browse listings | Yes | Yes | Yes |
+| Request transport | Yes | -- | Yes |
+| Accept transport jobs | -- | Yes | -- |
+| Initiate escrow payment | -- | -- | Yes |
+| Scan delivery QR | -- | -- | Yes |
+| Provide delivery evidence | -- | Yes | -- |
+| View transaction history | Yes | Yes | Yes |
+| Fayda ID verification | Required | Required | Required |
+| Audio notes | Yes | Yes | Yes |
+| Offline access | Full | Full | Full |
 
-**Note**: Premium features are planned for sustainability but not yet implemented.
+**Note**: All roles require Fayda ID verification for financial transactions. Basic browsing is available without verification.
 
 ---
 
@@ -274,9 +278,11 @@ This document provides a comprehensive overview of all WeredaConnect features.
 ### For Developers
 
 See **[Developer Documentation](../developer/)** for:
-- API endpoints
-- Data models
-- Sync protocols
+- API endpoints and contracts
+- Data models and Isar schemas
+- Sync protocols and conflict resolution
+- Telebirr escrow integration
+- Fayda ID authentication flow
 - Testing guidelines
 
 ---
@@ -284,16 +290,18 @@ See **[Developer Documentation](../developer/)** for:
 ## Accessibility Features
 
 ### Current
-- ✅ Large text support
-- ✅ High contrast mode
-- ✅ Screen reader support (basic)
-- ✅ Simple, clear UI
+- Large text support
+- High contrast mode
+- Voice-to-text input for low-literacy users
+- Audio notes as alternative to text
+- Simple, clear UI optimized for low-end devices
+- Screen reader support (basic)
 
 ### Planned
-- 📅 Voice commands
-- 📅 Audio descriptions
-- 📅 Simplified mode for low literacy
-- 📅 Offline voice reporting
+- Full voice-only navigation mode
+- Audio playback of listing details
+- Simplified mode with icon-driven interface
+- Haptic feedback for key actions
 
 ---
 
@@ -304,7 +312,6 @@ See **[Developer Documentation](../developer/)** for:
 
 ---
 
-**Last Updated**: 2026-02-09  
-**Version**: 1.0.0  
+**Last Updated**: 2026-02-09
+**Version**: 1.0.0
 **Product Owner**: Product Team
-

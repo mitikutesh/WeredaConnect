@@ -27,7 +27,7 @@ This document describes the AWS infrastructure, deployment pipelines, and enviro
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                       API Gateway (REST)                         │
-│  - /reports, /users, /sync endpoints                             │
+│  - /listings, /trips, /escrow, /sync endpoints                   │
 │  - Request validation                                            │
 │  - Throttling (1000 req/sec)                                     │
 │  - CORS configuration                                            │
@@ -36,7 +36,7 @@ This document describes the AWS infrastructure, deployment pipelines, and enviro
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Lambda Functions (ARM64)                      │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ CreateReport │  │ GetReports   │  │ SyncData     │          │
+│  │ CreateList  │  │ GetListings  │  │ SyncData     │          │
 │  │ Function     │  │ Function     │  │ Function     │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 │  - .NET 10 Native AOT                                            │
@@ -49,8 +49,8 @@ This document describes the AWS infrastructure, deployment pipelines, and enviro
 │                         Data Layer                               │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
 │  │ DynamoDB         │  │ S3               │  │ Cognito      │  │
-│  │ - Reports table  │  │ - Media bucket   │  │ - User pool  │  │
-│  │ - Users table    │  │ - Static assets  │  │ - Identity   │  │
+│  │ - Listings table │  │ - Media bucket   │  │ - User pool  │  │
+│  │ - Trips table    │  │ - Crop photos    │  │ - Identity   │  │
 │  │ - On-demand      │  │ - Lifecycle      │  │   pool       │  │
 │  └──────────────────┘  └──────────────────┘  └──────────────┘  │
 └─────────────────────────────────────────────────────────────────┘

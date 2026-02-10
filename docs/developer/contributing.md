@@ -66,7 +66,7 @@ git checkout -b feature/your-feature-name
 
 ### 3. Make Changes
 
-- Write code following [coding standards](.ai/standards.md)
+- Write code following [coding standards](../../.ai/standards.md)
 - Write tests (see [Testing Guidelines](./testing-guidelines.md))
 - Update documentation
 - Follow offline-first principles
@@ -455,7 +455,7 @@ If you have questions about contributing:
 
 **Thank you for contributing to WeredaConnect!** 🙏
 
-Together, we're building a platform that empowers Ethiopian communities to engage with their local government and improve their neighborhoods.
+Together, we're building a platform that connects Ethiopian farmers, transport providers, and wholesalers — reducing crop loss and improving rural livelihoods.
 
 ---
 

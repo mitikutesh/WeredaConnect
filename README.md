@@ -1,14 +1,14 @@
 # 🌍 WeredaConnect
 
-**Hyperlocal civic engagement platform for Ethiopian communities**
+**Offline-first agritech logistics platform for Ethiopian rural communities**
 
-Built with offline-first architecture for 3G networks, low-end Android devices, and intermittent connectivity.
+Connecting farmers, transport providers, and urban wholesalers with voice-to-text in local languages, built for 3G networks, low-end Android devices, and intermittent connectivity.
 
 ---
 
 ## 🎯 Project Vision
 
-WeredaConnect empowers Ethiopian communities to engage with local governance, share information, and collaborate—even when offline. Designed for the realities of rural Ethiopia: expensive data, unreliable connectivity, and diverse languages.
+WeredaConnect solves the rural logistics crisis where Ethiopian smallholder farmers lose up to **40% of their crops** due to lack of transport and market access. The platform connects farmers directly with truckers and buyers, eliminating expensive middlemen while enabling truck drivers to find loads for empty return trips. Designed for the realities of rural Ethiopia: expensive data, unreliable connectivity, low-literacy users, and diverse languages.
 
 ---
 
@@ -86,11 +86,23 @@ cdk deploy --context env=dev
 
 ## 🌟 Key Features
 
-### Offline-First
-- All features work without internet connectivity
+### Voice-to-Text Crop Listings
+- Record voice notes in **Amharic**, **Afan Oromo**, or **English**
+- Auto-categorize into searchable listings with map location
+- Designed for low-literacy rural users
+- Example: *"I have 50 quintals of Teff in Ada'a ready for pickup"*
+
+### Offline-First Logistics Marketplace
+- List crops, find transport, connect with buyers—all offline
 - Local-first data storage with Isar database
 - Automatic sync when connection is restored
 - Conflict resolution for concurrent edits
+
+### Telebirr Escrow & Fayda ID Integration
+- Secure payments via **Telebirr escrow** (funds released on verified delivery)
+- **Fayda ID** biometric verification for all users
+- **Micro-insurance** automatic coverage per trip (AICE integration)
+- QR delivery tokens for proof of delivery
 
 ### Multi-Language Support
 - **Amharic** (አማርኛ): Official language
@@ -98,7 +110,7 @@ cdk deploy --context env=dev
 - **English**: Urban educated population
 
 ### Optimized for Low-End Devices
-- Target: Android 8+ (API 26), 2GB RAM
+- Target: Android 8+ (API 26), 2GB RAM, $50 phones
 - APK size: <50MB
 - Memory usage: <100MB
 - Battery efficient: <5% per hour
@@ -203,7 +215,7 @@ See `infra/README.md` for details.
 ### Cultural Considerations
 - **Languages**: Amharic, Afan Oromo, English
 - **Literacy**: ~52% nationally, lower in rural areas
-- **Trust**: Low for new apps, especially civic tech
+- **Trust**: Low for new apps, especially those handling financial transactions
 - **Privacy**: Concerns about government surveillance
 
 See `docs/local_reality/README.md` for comprehensive context.

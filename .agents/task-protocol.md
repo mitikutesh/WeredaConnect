@@ -12,7 +12,7 @@ Tasks in `TASK.md` use this format:
 ```markdown
 - [ ] unclaimed task (any scope can claim)
 - [ ] `@Mobile` claimed by Mobile scope
-- [ ] `@Backend` claimed by Backend scope
+- [ ] `@Server` claimed by Server scope
 - [x] `@Mobile` completed by Mobile scope
 ```
 
@@ -23,7 +23,7 @@ Tasks in `TASK.md` use this format:
 ### 1. Claim Before You Start
 Before beginning work on any task, add your `@Scope` tag to it in `TASK.md` and commit the claim.
 
-**Valid scope tags:** `@Mobile`, `@Backend`, `@Infra`, `@Localization`, `@Testing`, `@Security`, `@Architect`
+**Valid scope tags:** `@Mobile`, `@Server`, `@Infra`, `@Localization`, `@Testing`, `@Security`, `@Architect`
 
 ### 2. One Scope Per Task
 A task can only have one `@Scope` tag. If a task needs work from multiple scopes, split it into separate tasks — one per scope.
@@ -56,8 +56,8 @@ Mark tasks `[x]` only when the work is done and committed. Don't mark tasks comp
 
 When your task depends on another scope's work:
 
-1. Create a task for the other scope: `- [ ] @Backend provide sync endpoint for crop listings`
-2. Add a note on your task: `Blocked by: @Backend sync endpoint`
+1. Create a task for the other scope: `- [ ] @Server provide sync endpoint for crop listings`
+2. Add a note on your task: `Blocked by: @Server sync endpoint`
 3. Work on other unblocked tasks while waiting
 4. When the dependency is resolved, resume your task
 

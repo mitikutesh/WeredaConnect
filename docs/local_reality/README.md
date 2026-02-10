@@ -70,15 +70,19 @@ This directory documents the **real-world constraints and cultural context** of 
 - ✅ Validate translations with rural users
 - ✅ Avoid urban-centric language
 
-#### Civic Engagement
-- **Community hierarchy**: Elders, religious leaders, government officials
-- **Decision-making**: Often collective, not individual
-- **Trust**: Built through personal relationships, not apps
+#### Agricultural & Market Context
+- **Crop seasons**: Meher (main), Belg (short rains)
+- **Market days**: Weekly markets (Gullit) in rural areas
+- **Trust networks**: Built through personal relationships, cooperatives
+- **Middlemen problem**: High commissions (30-40%) reduce farmer income
+- **Transport challenges**: Truck drivers travel with empty loads after delivery
 
 **Implications**:
-- ✅ Design for community use, not just individuals
+- ✅ Design for farmer-trucker-buyer workflows
+- ✅ Support cooperative/group listings
 - ✅ Allow offline sharing (Bluetooth, QR codes)
-- ✅ Build trust through transparency (show data usage, permissions)
+- ✅ Build trust through transparency (escrow, delivery verification)
+- ✅ Use local market terminology (Gullit, Kebele, Wereda)
 
 ---
 
@@ -108,7 +112,7 @@ This directory documents the **real-world constraints and cultural context** of 
 
 ### Privacy & Security
 - **Concerns**: Government surveillance, data misuse
-- **Trust**: Low for new apps, especially civic tech
+- **Trust**: Low for new apps, especially those handling financial transactions
 - **Sharing**: Devices often shared among family
 
 **Implications**:
@@ -140,7 +144,7 @@ This directory documents the **real-world constraints and cultural context** of 
 **Implications**:
 - ✅ Implement content moderation for user-generated content
 - ✅ Allow reporting of harmful content
-- ✅ Provide context/fact-checking for civic information
+- ✅ Verify crop listing accuracy and prevent fraudulent listings
 - ✅ Avoid political endorsements
 
 ---
@@ -160,11 +164,12 @@ This directory documents the **real-world constraints and cultural context** of 
 
 ### Payment Methods
 - **Cash-based economy**: Still dominant
-- **Mobile money**: Growing (M-Pesa, HelloCash)
+- **Mobile money**: Growing — **Telebirr** (dominant, used for escrow in WeredaConnect), M-Pesa, HelloCash
 - **Bank accounts**: Low penetration in rural areas
 
 **Implications**:
-- ✅ If monetizing, support mobile money
+- ✅ Telebirr is the primary payment integration (escrow for deliveries)
+- ✅ Support mobile money as primary digital payment
 - ✅ Avoid credit card requirements
 - ✅ Consider offline payment verification
 

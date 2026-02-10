@@ -10,11 +10,11 @@ Comprehensive guide to testing in WeredaConnect.
 - Contributors
 
 ## Prerequisites
-- Read [Testing Philosophy](.ai/testing.md)
+- Read [Testing Philosophy](../../.ai/testing.md)
 - Read technology-specific guides:
-  - [Mobile Testing](mobile/TESTING.md)
-  - [Server Testing](server/TESTING.md)
-  - [Infrastructure Testing](infra/TESTING.md)
+  - [Mobile Testing](../../mobile/TESTING.md)
+  - [Server Testing](../../server/TESTING.md)
+  - [Infrastructure Testing](../../infra/TESTING.md)
 
 ---
 
@@ -428,10 +428,10 @@ jobs:
 
 ## Related Documentation
 
-- **[Testing Philosophy](.ai/testing.md)** - Central testing strategy
-- **[Mobile Testing](mobile/TESTING.md)** - Flutter-specific guide
-- **[Server Testing](server/TESTING.md)** - .NET-specific guide
-- **[Infrastructure Testing](infra/TESTING.md)** - CDK-specific guide
+- **[Testing Philosophy](../../.ai/testing.md)** - Central testing strategy
+- **[Mobile Testing](../../mobile/TESTING.md)** - Flutter-specific guide
+- **[Server Testing](../../server/TESTING.md)** - .NET-specific guide
+- **[Infrastructure Testing](../../infra/TESTING.md)** - CDK-specific guide
 
 ---
 

@@ -1,7 +1,7 @@
 # 📱 WeredaConnect Mobile
 
 ## Overview
-Flutter-based Android application for hyperlocal civic engagement in Ethiopia. Built with **offline-first** architecture for 3G networks and low-end devices.
+Flutter-based Android application for WeredaConnect — an offline-first agritech logistics platform connecting Ethiopian farmers, transport providers, and wholesalers. Built with **offline-first** architecture for 3G networks and low-end devices.
 
 ---
 

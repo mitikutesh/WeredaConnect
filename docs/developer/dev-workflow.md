@@ -20,8 +20,8 @@ This guide describes the typical development workflow for WeredaConnect contribu
 git checkout main
 git pull origin main
 
-# Create feature branch
-git checkout -b feature/your-feature-name
+# Create scoped branch (see .agents/branch-protocol.md)
+git checkout -b mobile/your-feature-name  # or server/, infra/, etc.
 
 # Update dependencies (if needed)
 cd mobile && flutter pub get
@@ -68,7 +68,7 @@ git commit -m "feat: add offline sync for reports"
 
 ```bash
 # Push to remote
-git push origin feature/your-feature-name
+git push origin mobile/your-feature-name
 
 # Create Pull Request on GitHub
 # - Fill in PR template
@@ -82,20 +82,24 @@ git push origin feature/your-feature-name
 
 ### Branch Types
 
+WeredaConnect uses **scope-based branching** (see `.agents/branch-protocol.md` for full details):
+
 ```
 main
-  \u2514\u2500 feature/add-report-categories
-  \u2514\u2500 bugfix/sync-conflict-resolution
+  \u2514\u2500 mobile/add-crop-listing
+  \u2514\u2500 server/sync-endpoint
+  \u2514\u2500 infra/lambda-memory-optimization
   \u2514\u2500 hotfix/critical-crash-fix
   \u2514\u2500 release/v1.2.0
 ```
 
 ### Branch Naming
 
-- **Features**: `feature/short-description`
-- **Bug Fixes**: `bugfix/short-description`
-- **Hotfixes**: `hotfix/short-description`
+- **Scoped work**: `<scope>/<short-description>` (e.g., `mobile/crop-listing-ui`, `server/escrow-endpoint`)
+- **Hotfixes** (cross-scope): `hotfix/<description>`
 - **Releases**: `release/vX.Y.Z`
+
+**Valid scope prefixes**: `mobile`, `server`, `infra`, `l10n`, `testing`, `security`, `architect`
 
 ### Branch Lifecycle
 
@@ -210,7 +214,7 @@ Closes #123
 # Make requested changes
 git add .
 git commit -m "refactor: address PR feedback"
-git push origin feature/your-feature-name
+git push origin mobile/your-feature-name
 
 # PR automatically updates
 ```
@@ -228,7 +232,7 @@ git push origin feature/your-feature-name
 # Delete local branch
 git checkout main
 git pull origin main
-git branch -d feature/your-feature-name
+git branch -d mobile/your-feature-name
 ```
 
 ---
@@ -511,7 +515,7 @@ git checkout main
 git pull origin main
 
 # Rebase feature branch
-git checkout feature/your-feature
+git checkout mobile/your-feature
 git rebase main
 
 # Resolve conflicts
@@ -520,7 +524,7 @@ git add .
 git rebase --continue
 
 # Force push (rebase rewrites history)
-git push --force-with-lease origin feature/your-feature
+git push --force-with-lease origin mobile/your-feature
 ```
 
 ### Failed CI

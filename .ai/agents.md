@@ -59,7 +59,7 @@ capability using Isar for local storage."
 
 ---
 
-### 3. **Backend Agent** ⚡
+### 3. **Server Agent** ⚡
 
 **Expertise**: .NET 10, Native AOT, serverless architecture, AWS Lambda
 
@@ -79,7 +79,7 @@ capability using Isar for local storage."
 
 **Invocation Pattern**:
 ```
-"As the Backend Agent, create an AOT-compatible API endpoint for 
+"As the Server Agent, create an AOT-compatible API endpoint for 
 [feature X] that handles offline sync conflicts."
 ```
 
@@ -195,7 +195,7 @@ including offline scenarios and sync conflicts."
 1. **Architect** designs the feature and API contract
 2. **Security** reviews the design for threats
 3. **Mobile** implements client-side logic
-4. **Backend** implements server-side logic
+4. **Server** implements server-side logic
 5. **Localization** translates and adapts UX
 6. **Testing** validates all scenarios
 7. **Infrastructure** deploys to staging
@@ -204,6 +204,20 @@ including offline scenarios and sync conflicts."
 - If agents disagree, escalate to **human developer**
 - Document the disagreement in `specs/decisions/`
 - Use `CLAUDE.md` decision framework as tiebreaker
+
+---
+
+## Mapping to Project Background Roles
+
+The `docs/project-background.md` uses condensed role names for brevity. Here is the mapping:
+
+| Project Background Role | Agent(s) in This File |
+|------------------------|----------------------|
+| PM / Domain Agent | Architect + Localization |
+| Flutter Offline Agent | Mobile |
+| Backend / .NET AOT Agent | Server |
+| Cloud & Infra Agent | Infrastructure |
+| QA / Threat Modeling Agent | Security + Testing |
 
 ---
 

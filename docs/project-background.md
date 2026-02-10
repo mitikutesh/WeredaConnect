@@ -72,7 +72,7 @@ The system leverages:
 
 ### 4.2 Backend
 - **Serverless Functions**: AWS Lambda (.NET 10 Native AOT)
-- **DynamoDB Single-Table Design**: Fast, scalable, free-tier-friendly
+- **DynamoDB**: Purpose-built tables per entity (Listings, Users, Trips, Sync Metadata), on-demand billing, free-tier-friendly
 - **S3 Storage**: Secure hosting of audio files and image evidence
 - **Business Rules**:
   - Idempotent escrow release
@@ -99,7 +99,7 @@ The system leverages:
    - Minimize background memory footprint
 
 3. **Serverless Scalability**
-   - Lambda cold start <150ms
+   - Lambda cold start <2 seconds (Native AOT on ARM64)
    - ARM64 architecture for cost efficiency
    - Infrastructure as Code (AWS CDK) for deployment reproducibility
 

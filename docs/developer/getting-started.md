@@ -426,7 +426,7 @@ export AWS_DEFAULT_REGION=us-east-1
 ## Next Steps
 
 1. **Read the architecture docs**: [System Architecture](../architecture/system-architecture.md)
-2. **Review coding standards**: [Standards](.ai/standards.md)
+2. **Review coding standards**: [Standards](../../.ai/standards.md)
 3. **Understand the workflow**: [Development Workflow](./dev-workflow.md)
 4. **Start contributing**: [Contributing Guide](./contributing.md)
 5. **Run your first test**: [Testing Guidelines](./testing-guidelines.md)

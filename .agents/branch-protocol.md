@@ -14,7 +14,7 @@ Prevent merge conflicts and cross-scope interference by enforcing **one scope pe
 **Examples:**
 ```
 mobile/add-crop-listing
-backend/sync-endpoint
+server/sync-endpoint
 infra/lambda-memory-optimization
 l10n/amharic-market-terms
 testing/offline-sync-tests
@@ -22,7 +22,7 @@ security/threat-model-escrow
 architect/adr-sync-protocol
 ```
 
-**Scope prefixes:** `mobile`, `backend`, `infra`, `l10n`, `testing`, `security`, `architect`
+**Scope prefixes:** `mobile`, `server`, `infra`, `l10n`, `testing`, `security`, `architect`
 
 ---
 
@@ -41,12 +41,12 @@ Merge branches within a few days. Long-lived branches accumulate conflicts.
 When a feature spans multiple scopes, merge in this order:
 
 ```
-architect → backend → mobile → infra → l10n → testing → security
+architect → server → mobile → infra → l10n → testing → security
 ```
 
 **Why this order:**
 1. **Architect** defines contracts and specs first
-2. **Backend** implements the API (contracts must exist first)
+2. **Server** implements the API (contracts must exist first)
 3. **Mobile** implements the client (API must exist first)
 4. **Infra** deploys the backend (code must be ready)
 5. **L10n** translates the UI (strings must exist first)
@@ -54,7 +54,7 @@ architect → backend → mobile → infra → l10n → testing → security
 7. **Security** reviews the whole feature (everything must be testable)
 
 ### 5. No Cross-Scope File Edits
-A branch with scope `mobile/` should only modify files owned by the Mobile scope (see `.ai/ownership.md`). If you discover you need a server change, create a separate `backend/` branch.
+A branch with scope `mobile/` should only modify files owned by the Mobile scope (see `.ai/ownership.md`). If you discover you need a server change, create a separate `server/` branch.
 
 ---
 
@@ -64,7 +64,7 @@ For a feature like "crop listing with sync":
 
 ```
 1. architect/crop-listing-contract   → merge to main
-2. backend/crop-listing-sync         → merge to main (after #1)
+2. server/crop-listing-sync           → merge to main (after #1)
 3. mobile/crop-listing-ui            → merge to main (after #2)
 4. l10n/crop-listing-translations    → merge to main (after #3)
 5. testing/crop-listing-e2e          → merge to main (after #4)
