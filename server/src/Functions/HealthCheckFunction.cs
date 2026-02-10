@@ -3,6 +3,10 @@ using Amazon.Lambda.APIGatewayEvents;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+// Assembly attribute to enable AOT-compatible Lambda JSON serialization.
+// Uses source-generated serialization instead of reflection-based DefaultLambdaJsonSerializer.
+[assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.SourceGeneratorLambdaJsonSerializer<WeredaConnect.Server.Functions.HealthCheckJsonContext>))]
+
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
@@ -20,10 +24,6 @@ namespace WeredaConnect.Server.Functions;
 public partial class HealthCheckJsonContext : JsonSerializerContext
 {
 }
-
-// Assembly attribute to enable AOT-compatible Lambda JSON serialization.
-// Uses source-generated serialization instead of reflection-based DefaultLambdaJsonSerializer.
-[assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.SourceGeneratorLambdaJsonSerializer<WeredaConnect.Server.Functions.HealthCheckJsonContext>))]
 
 /// <summary>
 /// Health check Lambda function for monitoring and cold-start optimization.
