@@ -17,7 +17,7 @@ namespace WeredaConnect.Server.Functions;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
-internal partial class HealthCheckJsonContext : JsonSerializerContext
+public partial class HealthCheckJsonContext : JsonSerializerContext
 {
 }
 
