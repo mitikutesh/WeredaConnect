@@ -5,7 +5,7 @@ This document summarizes the fixes applied to resolve GitHub Actions failures fo
 
 **Date:** 2026-02-10
 **Status:** ✅ All CI/CD checks should now pass
-**Commits:** 4c3b071, 6bf7c9d, 6637f24, 38914e1
+**Commits:** 4c3b071, 6bf7c9d, 6637f24, 38914e1, [pending]
 
 ---
 
@@ -61,6 +61,8 @@ This document summarizes the fixes applied to resolve GitHub Actions failures fo
 - ✅ Enabled symbol stripping in CI/CD (Linux)
 - ✅ Made AOT configuration conditional on publish only (commit 38914e1)
 - ✅ Moved `PublishAot` and related settings to conditional PropertyGroup
+- ✅ Changed default RuntimeIdentifier from linux-arm64 to linux-x64 for CI/CD compatibility
+- ✅ GitHub Actions runners are x64, can't cross-compile to ARM64 without additional tools
 
 **Results:**
 - ✅ Build succeeds with 0 warnings, 0 errors
@@ -145,4 +147,21 @@ CI=true dotnet publish -c Release /p:PublishAot=true
 - **CI/CD on Linux** will compile AOT successfully with symbol stripping
 - **Test coverage** will improve as more features are implemented
 - **Integration tests** currently test basic app flow - expand as features are added
+
+### Runtime Identifier (RID) Configuration
+
+**Current:** `linux-x64` (default for CI/CD compatibility)
+- GitHub Actions runners are x64 (AMD64)
+- Can't cross-compile to ARM64 without additional tooling
+- Works perfectly for testing and validation
+
+**Production:** `linux-arm64` (recommended for AWS Lambda)
+- AWS Graviton2 processors (ARM64) are cheaper and often faster
+- To build for ARM64: `dotnet publish -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64`
+- Requires ARM64 build environment (AWS CodeBuild, self-hosted runner, or Docker)
+
+**Recommendation:**
+- Use `linux-x64` for CI/CD validation (current setup)
+- Use `linux-arm64` for production deployments to Lambda
+- Update CDK deployment to use ARM64 architecture
 

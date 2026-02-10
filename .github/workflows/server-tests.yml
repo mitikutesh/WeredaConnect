@@ -128,13 +128,14 @@ jobs:
       - name: Validate AOT compatibility
         working-directory: ./server
         run: dotnet publish -c Release /p:PublishAot=true
-      
+
       - name: Check binary size
         working-directory: ./server
         run: |
-          BINARY_SIZE=$(du -h bin/Release/net10.0/linux-arm64/publish/bootstrap | cut -f1)
+          BINARY_SIZE=$(du -h bin/Release/net10.0/linux-x64/publish/bootstrap | cut -f1)
           echo "Native AOT binary size: $BINARY_SIZE"
           echo "::notice::Native AOT binary size: $BINARY_SIZE"
+          echo "::notice::To build for ARM64 (Graviton2), use: dotnet publish -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64"
 
   coverage:
     name: Code Coverage
