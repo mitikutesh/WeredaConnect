@@ -5,6 +5,7 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "**/*.isar.dart"
+    - "lib/shared/l10n/app_localizations*.dart"
   
   language:
     strict-casts: true

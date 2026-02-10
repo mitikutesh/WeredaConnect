@@ -1,9 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
   imageCache.maximumSize = 50; // Max 50 images in memory
@@ -11,8 +12,7 @@ void main() {
 
   // Enable memory monitoring in debug mode
   if (kDebugMode) {
-    debugPrintBeginFrameBanner = true;
-    debugPrintEndFrameBanner = true;
+    debugPrint('WeredaConnect debug mode enabled');
   }
 
   // Add error boundary to prevent crashes on low-end devices
@@ -51,24 +51,14 @@ class WeredaConnectApp extends StatelessWidget {
     return MaterialApp(
       title: 'WeredaConnect',
       
-      // Localization
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('en', ''), // English
-        Locale('am', ''), // Amharic
-        Locale('om', ''), // Afan Oromo
-      ],
+      // Localization - delegates and locales defined in generated l10n code
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       
       // Theme
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.green,
-          brightness: Brightness.light,
         ),
         useMaterial3: true,
       ),
