@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/main.dart';
-import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 void main() {
   group('WeredaConnectApp', () {
