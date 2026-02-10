@@ -31,6 +31,9 @@ server/**/obj/
 server/.vs/
 server/*.user
 
+# LocalStack (prevent accidental commits of state/secrets)
+server/localstack-data/**
+
 # Node/CDK
 infra/node_modules/
 infra/cdk.out/
