@@ -3,15 +3,15 @@ using Amazon.Lambda.APIGatewayEvents;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-// Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
-[assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
-
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// JSON source generator context for AOT compatibility.
 /// This enables native AOT compilation without reflection.
+/// Includes all types that need to be serialized/deserialized by Lambda.
 /// </summary>
+[JsonSerializable(typeof(APIGatewayProxyRequest))]
+[JsonSerializable(typeof(APIGatewayProxyResponse))]
 [JsonSerializable(typeof(HealthCheckResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -20,6 +20,10 @@ namespace WeredaConnect.Server.Functions;
 public partial class HealthCheckJsonContext : JsonSerializerContext
 {
 }
+
+// Assembly attribute to enable AOT-compatible Lambda JSON serialization.
+// Uses source-generated serialization instead of reflection-based DefaultLambdaJsonSerializer.
+[assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.SourceGeneratorLambdaJsonSerializer<WeredaConnect.Server.Functions.HealthCheckJsonContext>))]
 
 /// <summary>
 /// Health check Lambda function for monitoring and cold-start optimization.
