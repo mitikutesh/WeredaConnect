@@ -139,7 +139,8 @@ jobs:
         working-directory: ./server
         env:
           COMPlus_CrossCompiling: 1
-        run: dotnet publish WeredaConnect.Server.csproj -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64
+          OBJCOPY: aarch64-linux-gnu-objcopy
+        run: dotnet publish WeredaConnect.Server.csproj -c Release /p:PublishAot=true /p:RuntimeIdentifier=linux-arm64 /p:StripSymbols=false
 
       - name: Check binary size
         working-directory: ./server
