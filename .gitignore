@@ -37,8 +37,17 @@ server/localstack-data/**
 # Node/CDK
 infra/node_modules/
 infra/cdk.out/
+infra/dist/
+infra/.cdk.staging
+infra/*.js
+infra/*.d.ts
+!infra/jest.config.js
 
 # Environment
 .env
 .env.*
 *.local
+
+# Coverage
+coverage/
+*.lcov
