@@ -11,13 +11,16 @@
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 
+    <!-- Native AOT -->
+    <PublishAot>true</PublishAot>
+
     <!-- Performance Optimizations -->
     <TieredCompilation>false</TieredCompilation>
     <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
   </PropertyGroup>
 
-  <!-- Native AOT Configuration - Only for Publish -->
-  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+  <!-- Native AOT Publish Configuration -->
+  <PropertyGroup Condition="'$(IsPublishing)' == 'true' or '$(PublishDir)' != ''">
     <InvariantGlobalization>false</InvariantGlobalization>
     <!-- Use linux-arm64 for AWS Lambda Graviton2 -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
