@@ -41,10 +41,11 @@ public class HealthCheckFunctionTests
         var response = function.FunctionHandler(request, context);
 
         // Assert
-        Assert.True(response.Headers.ContainsKey("Content-Type"));
         Assert.Equal("application/json", response.Headers["Content-Type"]);
-        Assert.True(response.Headers.ContainsKey("X-WeredaConnect-Version"));
-        Assert.Equal("0.1.0", response.Headers["X-WeredaConnect-Version"]);
+        Assert.Equal("nosniff", response.Headers["X-Content-Type-Options"]);
+        Assert.Equal("DENY", response.Headers["X-Frame-Options"]);
+        Assert.Equal("no-store", response.Headers["Cache-Control"]);
+        Assert.Contains("max-age=", response.Headers["Strict-Transport-Security"]);
     }
 
     [Fact]

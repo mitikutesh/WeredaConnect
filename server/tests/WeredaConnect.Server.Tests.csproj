@@ -24,9 +24,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     
-    <!-- Mocking Framework (AOT-Compatible) -->
-    <!-- ❌ BANNED: Moq (uses reflection) -->
-    <!-- ✅ USE: NSubstitute -->
+    <!-- Mocking Framework -->
+    <!-- ❌ BANNED: Moq (uses reflection — incompatible with AOT production code) -->
+    <!-- NSubstitute also uses reflection but is fine in tests (not AOT-compiled) -->
     <PackageReference Include="NSubstitute" Version="5.1.0" />
 
     <!-- Assertions -->
