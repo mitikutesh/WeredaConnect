@@ -2,7 +2,7 @@
   "name": "wereda-connect-infra",
   "version": "0.1.0",
   "description": "AWS CDK infrastructure for WeredaConnect - Offline-first agritech logistics platform",
-  "main": "lib/index.js",
+  "main": "dist/bin/wereda-connect.js",
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
