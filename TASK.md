@@ -80,6 +80,47 @@ Establish the foundational folder structure and governance files for WeredaConne
 - [x] `@Infra` Create CDK stack with DynamoDB tables and S3 bucket
 - [x] `@Infra` Configure TypeScript and CDK synth
 
+### Phase 8: QA & Security Audit ✅
+- [x] `@Security` Run QA validation across all three projects (47 PASS, 12 WARN, 0 FAIL)
+- [x] `@Security` Run security audit (1 CRITICAL, 7 HIGH, 9 MEDIUM, 5 LOW found)
+- [x] `@Server` Fix duplicate JSON serialization contexts (AppJsonContext + HealthCheckJsonContext)
+- [x] `@Server` Add security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Cache-Control)
+- [x] `@Server` Remove version disclosure header (X-WeredaConnect-Version)
+- [x] `@Server` Fix misleading AOT comment on NSubstitute in test .csproj
+- [x] `@Infra` Fix package.json main field (was pointing to nonexistent lib/index.js)
+- [x] `@Infra` Add test files to tsconfig.json include array
+- [x] `@Mobile` Add android:allowBackup="false" to AndroidManifest.xml
+- [x] `@Mobile` Add network_security_config.xml (HTTPS enforcement, cleartext blocked)
+
+---
+
+## 🔒 Security Remediation Backlog
+
+> Items from the security audit that require architectural decisions or production setup.
+
+### Before ANY Deployment (CRITICAL + HIGH)
+- [ ] `@Security` **S-01** Purge private key from git history (server/localstack-data/cache/server.test.pem.key committed in e3c2e8e, removed in 5ec0a1a — still in history)
+- [ ] `@Security` **X-02** Install pre-commit secret detection hooks (gitleaks or detect-secrets)
+- [ ] `@Infra` **I-01** Add API authentication (Cognito User Pool or JWT authorizer) to API Gateway
+- [ ] `@Infra` **I-02** Add API rate limiting (throttling on API Gateway stage)
+- [ ] `@Mobile` **M-01** Enable Isar database encryption with key stored in Android Keystore
+- [ ] `@Mobile` **M-03** Add certificate pinning for production API domain (pins in network_security_config.xml)
+
+### Before Production (MEDIUM)
+- [ ] `@Server` **S-04** Establish input validation pattern/middleware for Lambda handlers
+- [ ] `@Infra` **I-03** Apply least-privilege IAM per Lambda function (not blanket ReadWriteData on all tables)
+- [ ] `@Infra` **I-06** Enable S3 access logging on uploads bucket
+- [ ] `@Infra` **I-07** Enable S3 versioning on production uploads bucket
+- [ ] `@Infra` **I-08** Evaluate VPC deployment for Lambdas (test cold start impact)
+- [ ] `@Mobile` **M-04** Add ProGuard obfuscation rules; use --obfuscate --split-debug-info for release
+- [ ] `@Mobile` **M-05** Integrate crash reporting service (Sentry/Crashlytics) for production
+- [ ] `@Security` **X-03** Add security scanning (npm audit, dotnet list --vulnerable) before Dependabot auto-merge
+
+### Hardening (LOW)
+- [ ] `@Infra` **I-04** Upgrade DynamoDB encryption to KMS-managed keys for production
+- [ ] `@Infra` **I-05** Upgrade S3 encryption to KMS-managed for production
+- [ ] `@Mobile` **M-06** Dynamic image cache sizing based on device RAM
+
 ---
 
 ## 🚀 Next Immediate Actions
