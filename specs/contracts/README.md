@@ -57,6 +57,8 @@ Each contract file follows this structure:
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
 | Sync Protocol | `sync-protocol.md` | 1.0.0 | Mobile, Backend |
+| Authentication API | `auth-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
+| User Entity | `user-entity.md` | 1.0.0 | Mobile, Backend, Infrastructure |
 
 ---
 
@@ -69,5 +71,5 @@ Each contract file follows this structure:
 
 ---
 
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-02-12
 **Version**: 1.0.0

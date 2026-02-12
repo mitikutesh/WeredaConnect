@@ -1,3 +1,5 @@
+using WeredaConnect.Server.Models;
+
 namespace WeredaConnect.Server;
 
 /// <summary>
@@ -7,6 +9,22 @@ namespace WeredaConnect.Server;
 /// </summary>
 [JsonSerializable(typeof(APIGatewayProxyRequest))]
 [JsonSerializable(typeof(APIGatewayProxyResponse))]
+[JsonSerializable(typeof(UserDto))]
+[JsonSerializable(typeof(List<UserDto>))]
+[JsonSerializable(typeof(MinimalUserDto))]
+[JsonSerializable(typeof(RegisterRequest))]
+[JsonSerializable(typeof(RegisterResponse))]
+[JsonSerializable(typeof(VerifyOtpRequest))]
+[JsonSerializable(typeof(VerifyOtpResponse))]
+[JsonSerializable(typeof(LoginRequest))]
+[JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(TokenResponse))]
+[JsonSerializable(typeof(RefreshRequest))]
+[JsonSerializable(typeof(RefreshResponse))]
+[JsonSerializable(typeof(LogoutRequest))]
+[JsonSerializable(typeof(LogoutResponse))]
+[JsonSerializable(typeof(AuthErrorResponse))]
+[JsonSerializable(typeof(AuthError))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_FILE_PATHS\" =~ \\.cs$ ]]; then dotnet format --include $CLAUDE_FILE_PATHS; fi"
+          },
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_FILE_PATHS\" =~ \\.dart$ ]]; then dart format $CLAUDE_FILE_PATHS; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

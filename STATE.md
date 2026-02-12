@@ -7,7 +7,7 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 
 ## 🛑 Session Checkpoint
 
-**Timestamp:** 2026-02-11 20:55:09 EET  
+**Timestamp:** 2026-02-11 22:01:13 EET  
 **Status:** Checkpoint created by automation  
 **Active Branch:** Authentication-Encryptionministries  
 
@@ -16,11 +16,11 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 ## 📍 Current Context
 
 ### Last Git Commits
-- c7d834d: fix(ci): add permissions and fetch-depth for PR validation workflow (23 hours ago)
-- 74c26bf: fix(server): move assembly attribute before namespace declaration (23 hours ago)
-- f1eef97: fix(server): use source-generated serializer for Native AOT compatibility (23 hours ago)
-- 5ec0a1a: fix(server): remove private keys and ignore LocalStack data directory (23 hours ago)
-- c21e461: fix(mobile): replace debug signing with proper release signing config (23 hours ago)
+- 356a304: docs: add security remediation backlog from QA and security audit (14 minutes ago)
+- 78e3d53: fix(mobile): harden Android security configuration (14 minutes ago)
+- 480284a: fix(infra): correct package.json main field and include tests in tsconfig (15 minutes ago)
+- 25d5d08: fix(server): add security headers and deduplicate JSON serialization contexts (15 minutes ago)
+- de57af6: chore: update .gitignore with CDK build output and coverage artifacts (34 minutes ago)
 
 ---
 
@@ -29,6 +29,11 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 See `TASK.md` for detailed task breakdown.
 
 **Incomplete Tasks:**
+- [ ] `@Security` **S-01** Purge private key from git history (server/localstack-data/cache/server.test.pem.key committed in e3c2e8e, removed in 5ec0a1a — still in history)
+- [ ] `@Security` **X-02** Install pre-commit secret detection hooks (gitleaks or detect-secrets)
+- [ ] `@Infra` **I-01** Add API authentication (Cognito User Pool or JWT authorizer) to API Gateway
+- [ ] `@Infra` **I-02** Add API rate limiting (throttling on API Gateway stage)
+- [ ] `@Mobile` **M-01** Enable Isar database encryption with key stored in Android Keystore
 
 
 ---
@@ -36,30 +41,10 @@ See `TASK.md` for detailed task breakdown.
 ## 📦 Uncommitted Changes
 
 **Modified files:**
+ M .ai/agents.md
+D  DEPENDABOT_SETUP_COMPLETE.md
  M STATE.md
-?? DEPLOYMENT_DOCS_INDEX.md
-?? DEPLOYMENT_EXPLORATION_COMPLETE.md
-?? DEPLOYMENT_EXPLORATION_REPORT.md
-?? DEPLOYMENT_IMPLEMENTATION_PLAN.md
-?? DEPLOYMENT_INFRASTRUCTURE_SUMMARY.md
-?? DEPLOYMENT_QUICK_START.md
-?? DEPLOYMENT_TECHNICAL_REFERENCE.md
-?? DEPLOYMENT_WORKFLOWS_IMPLEMENTATION_PLAN.md
-?? EXPLORATION_COMPLETE.md
-?? EXPLORATION_SUMMARY.md
-?? PERFORMANCE_TESTING_IMPLEMENTATION_PLAN.md
-?? PERFORMANCE_TESTING_ROADMAP.md
-?? PERFORMANCE_TESTING_TECHNICAL_REFERENCE.md
-?? QUALITY_GATES_RECOMMENDATIONS.md
-?? SECURITY_AND_QUALITY_GATES_ASSESSMENT.md
-?? SECURITY_ASSESSMENT_INDEX.md
-?? SECURITY_FINDINGS_MATRIX.md
-?? SECURITY_IMPLEMENTATION_GAPS.md
-?? SECURITY_QUALITY_GATES_IMPLEMENTATION_PLAN.md
-?? TESTING_EXPLORATION_INDEX.md
-?? TESTING_INFRASTRUCTURE_ANALYSIS.md
-?? TESTING_INFRASTRUCTURE_SUMMARY.md
-?? TESTING_INFRASTRUCTURE_VISUAL_OVERVIEW.md
+?? specs/features/ROADMAP.md
 
 
 ---
@@ -71,7 +56,7 @@ See `TASK.md` for detailed task breakdown.
 ```
 Read STATE.md and TASK.md. Continue work based on the last commit and incomplete tasks.
 Current branch: Authentication-Encryptionministries
-Last commit: fix(ci): add permissions and fetch-depth for PR validation workflow
+Last commit: docs: add security remediation backlog from QA and security audit
 ```
 
 ---
