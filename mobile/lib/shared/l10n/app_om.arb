@@ -139,6 +139,22 @@
   "comingSoon": "Dhiyoo Dhufa",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "currentLanguage": "Afaan Oromoo",
+  "@currentLanguage": {
+    "description": "Current language display name"
+  },
+  "dataSaverDescription": "Itti fayyadama daataa hir'isi",
+  "@dataSaverDescription": {
+    "description": "Description for data saver mode"
+  },
+  "aboutDescription": "Waltajjii loojistikii qonnaa offline-first",
+  "@aboutDescription": {
+    "description": "About dialog description"
+  },
+  "aboutTagline": "Qonnaan buultota Itoophiyaa, konkolaatota fe'aa fi bitootaa walitti dhufeenya",
+  "@aboutTagline": {
+    "description": "About dialog tagline"
   }
 }
 

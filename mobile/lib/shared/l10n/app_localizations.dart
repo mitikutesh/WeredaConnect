@@ -309,6 +309,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Coming Soon'**
   String get comingSoon;
+
+  /// Current language display name
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get currentLanguage;
+
+  /// Description for data saver mode
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce data usage'**
+  String get dataSaverDescription;
+
+  /// About dialog description
+  ///
+  /// In en, this message translates to:
+  /// **'Offline-first agritech logistics platform'**
+  String get aboutDescription;
+
+  /// About dialog tagline
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting Ethiopian farmers, truckers, and buyers'**
+  String get aboutTagline;
 }
 
 class _AppLocalizationsDelegate

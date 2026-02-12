@@ -113,4 +113,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get comingSoon => 'Coming Soon';
+
+  @override
+  String get currentLanguage => 'English';
+
+  @override
+  String get dataSaverDescription => 'Reduce data usage';
+
+  @override
+  String get aboutDescription => 'Offline-first agritech logistics platform';
+
+  @override
+  String get aboutTagline =>
+      'Connecting Ethiopian farmers, truckers, and buyers';
 }

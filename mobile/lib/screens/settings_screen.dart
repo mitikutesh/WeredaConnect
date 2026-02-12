@@ -18,7 +18,7 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.language),
             title: Text(l10n.language),
-            subtitle: const Text('English'),
+            subtitle: Text(l10n.currentLanguage),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -41,7 +41,7 @@ class SettingsScreen extends StatelessWidget {
           SwitchListTile(
             secondary: const Icon(Icons.save_alt),
             title: Text(l10n.dataSaverMode),
-            subtitle: const Text('Reduce data usage'),
+            subtitle: Text(l10n.dataSaverDescription),
             value: true,
             onChanged: (value) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -61,9 +61,9 @@ class SettingsScreen extends StatelessWidget {
                 applicationVersion: '1.0.0',
                 applicationIcon: const Icon(Icons.agriculture, size: 48),
                 children: [
-                  const Text('Offline-first agritech logistics platform'),
+                  Text(l10n.aboutDescription),
                   const SizedBox(height: 8),
-                  const Text('Connecting Ethiopian farmers, truckers, and buyers'),
+                  Text(l10n.aboutTagline),
                 ],
               );
             },

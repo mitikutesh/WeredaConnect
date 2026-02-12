@@ -139,6 +139,22 @@
   "comingSoon": "በቅርቡ ይመጣል",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "currentLanguage": "አማርኛ",
+  "@currentLanguage": {
+    "description": "Current language display name"
+  },
+  "dataSaverDescription": "የውሂብ አጠቃቀምን ይቀንሱ",
+  "@dataSaverDescription": {
+    "description": "Description for data saver mode"
+  },
+  "aboutDescription": "ከመስመር ውጭ የሚሰራ የግብርና ሎጂስቲክስ መድረክ",
+  "@aboutDescription": {
+    "description": "About dialog description"
+  },
+  "aboutTagline": "የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
+  "@aboutTagline": {
+    "description": "About dialog tagline"
   }
 }
 

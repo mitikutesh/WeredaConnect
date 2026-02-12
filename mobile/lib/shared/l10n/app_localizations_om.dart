@@ -113,4 +113,17 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get comingSoon => 'Dhiyoo Dhufa';
+
+  @override
+  String get currentLanguage => 'Afaan Oromoo';
+
+  @override
+  String get dataSaverDescription => 'Itti fayyadama daataa hir\'isi';
+
+  @override
+  String get aboutDescription => 'Waltajjii loojistikii qonnaa offline-first';
+
+  @override
+  String get aboutTagline =>
+      'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
 }

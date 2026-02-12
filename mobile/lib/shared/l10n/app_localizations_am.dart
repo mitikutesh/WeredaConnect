@@ -112,4 +112,16 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get comingSoon => 'በቅርቡ ይመጣል';
+
+  @override
+  String get currentLanguage => 'አማርኛ';
+
+  @override
+  String get dataSaverDescription => 'የውሂብ አጠቃቀምን ይቀንሱ';
+
+  @override
+  String get aboutDescription => 'ከመስመር ውጭ የሚሰራ የግብርና ሎጂስቲክስ መድረክ';
+
+  @override
+  String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
 }

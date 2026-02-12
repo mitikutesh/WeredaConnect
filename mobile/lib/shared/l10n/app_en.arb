@@ -139,6 +139,22 @@
   "comingSoon": "Coming Soon",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "currentLanguage": "English",
+  "@currentLanguage": {
+    "description": "Current language display name"
+  },
+  "dataSaverDescription": "Reduce data usage",
+  "@dataSaverDescription": {
+    "description": "Description for data saver mode"
+  },
+  "aboutDescription": "Offline-first agritech logistics platform",
+  "@aboutDescription": {
+    "description": "About dialog description"
+  },
+  "aboutTagline": "Connecting Ethiopian farmers, truckers, and buyers",
+  "@aboutTagline": {
+    "description": "About dialog tagline"
   }
 }
 

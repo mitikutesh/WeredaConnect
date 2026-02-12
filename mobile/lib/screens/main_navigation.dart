@@ -141,10 +141,10 @@ class _MainNavigationState extends State<MainNavigation> {
                 applicationName: l10n.appName,
                 applicationVersion: '1.0.0',
                 applicationIcon: const Icon(Icons.agriculture, size: 48),
-                children: const [
-                  Text('Offline-first agritech logistics platform'),
-                  SizedBox(height: 8),
-                  Text('Connecting Ethiopian farmers, truckers, and buyers'),
+                children: [
+                  Text(l10n.aboutDescription),
+                  const SizedBox(height: 8),
+                  Text(l10n.aboutTagline),
                 ],
               );
             },
