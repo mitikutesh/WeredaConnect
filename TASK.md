@@ -98,6 +98,17 @@ Wire CDK infrastructure for server auth (169 tests passing, code + rate limiting
 - [x] `@Server` Add failed login attempt tracking + account lockout (3 failures → 15-min lockout, AUTH_015)
 - [x] `@Server` Add registration flood protection (5 per phone per day, AUTH_006)
 - [x] `@Server` Add OTP attempt limits (3 per code, AUTH_012)
+
+### Phase 10: Mobile Navigation & UI Foundation ✅
+- [x] `@Mobile` Create navigation structure with bottom nav bar (Home, Listings, Profile)
+- [x] `@Mobile` Create drawer menu with Settings and About
+- [x] `@Mobile` Create HomeScreen with quick action cards
+- [x] `@Mobile` Create ListingsScreen with empty state
+- [x] `@Mobile` Create ProfileScreen with login prompt
+- [x] `@Mobile` Create SettingsScreen with language/data preferences
+- [x] `@Localization` Add navigation strings to all 3 languages (en, am, om)
+- [x] `@Mobile` Add sync status indicator in app bar
+- [x] `@Mobile` Test hot reload and navigation flow on emulator
 - [x] `@Server` Add RateLimitService + RateLimitRepository (dedicated DynamoDB table, atomic counters, TTL auto-cleanup)
 - [x] `@Server` Add LambdaResponse.RateLimited() helper with Retry-After header
 - [x] `@Server` Wire rate limiting into LoginFunction, RegisterFunction, VerifyOtpFunction
@@ -226,10 +237,25 @@ Wire CDK infrastructure for server auth (169 tests passing, code + rate limiting
     - GET /listings/{id} — get single listing
     - PATCH /listings/{id} — update listing (owner only)
 
-15. **`@Mobile` Install Flutter SDK and verify mobile app builds**
-    - `flutter pub get`, `flutter gen-l10n`, `flutter run`
-    - Implement Isar schemas for User, CropListing, Trip
-    - Begin offline-first auth flow (PBKDF2 caching)
+15. ~~**`@Mobile` Install Flutter SDK and verify mobile app builds**~~ ✅ DONE
+    - Mobile app running on Android emulator (API 36)
+    - Navigation structure complete (bottom nav + drawer menu)
+    - 4 screens: Home, Listings, Profile, Settings
+    - Multi-language support working (en, am, om)
+    - LocalStack backend running and accessible
+
+16. **`@Mobile` Implement Isar database schemas**
+    - User schema (userId, phoneNumber, displayName, role, woreda, etc.)
+    - CropListing schema (listingId, farmerId, cropType, quantity, price, etc.)
+    - Trip schema (tripId, truckerId, origin, destination, capacity, etc.)
+    - SyncQueue schema (operationId, entityType, operation, data, retryCount, etc.)
+
+17. **`@Mobile` Build authentication screens**
+    - Phone number input screen with country code (+251)
+    - OTP verification screen with 6-digit input
+    - User profile setup (name, role, woreda, language)
+    - Connect to server auth endpoints (register, verify, login)
+    - Implement PBKDF2 password caching for offline login
 
 ### Priority 4 — CI/CD + Hardening
 

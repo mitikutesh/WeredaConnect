@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/screens/main_navigation.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,47 +64,8 @@ class WeredaConnectApp extends StatelessWidget {
         useMaterial3: true,
       ),
 
-      // Home
-      home: const HomePage(),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.appTitle),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.agriculture,
-              size: 100,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              l10n.welcomeMessage,
-              style: Theme.of(context).textTheme.headlineMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.offlineReady,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ],
-        ),
-      ),
+      // Home - use MainNavigation instead of HomePage
+      home: const MainNavigation(),
     );
   }
 }

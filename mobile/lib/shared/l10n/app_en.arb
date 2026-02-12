@@ -91,6 +91,54 @@
   "offlineReady": "Offline Ready",
   "@offlineReady": {
     "description": "Indicator that the app is ready to work offline"
+  },
+  "home": "Home",
+  "@home": {
+    "description": "Home navigation tab"
+  },
+  "listings": "Listings",
+  "@listings": {
+    "description": "Listings navigation tab"
+  },
+  "profile": "Profile",
+  "@profile": {
+    "description": "Profile navigation tab"
+  },
+  "about": "About",
+  "@about": {
+    "description": "About menu item"
+  },
+  "logout": "Logout",
+  "@logout": {
+    "description": "Logout menu item"
+  },
+  "cropListings": "Crop Listings",
+  "@cropListings": {
+    "description": "Crop listings screen title"
+  },
+  "noCropListings": "No crop listings yet",
+  "@noCropListings": {
+    "description": "Empty state message for crop listings"
+  },
+  "createListing": "Create Listing",
+  "@createListing": {
+    "description": "Button to create a new crop listing"
+  },
+  "myProfile": "My Profile",
+  "@myProfile": {
+    "description": "Profile screen title"
+  },
+  "notLoggedIn": "Not logged in",
+  "@notLoggedIn": {
+    "description": "Message when user is not logged in"
+  },
+  "login": "Login",
+  "@login": {
+    "description": "Login button"
+  },
+  "comingSoon": "Coming Soon",
+  "@comingSoon": {
+    "description": "Feature coming soon message"
   }
 }
 
