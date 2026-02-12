@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using WeredaConnect.Server.Validation;
 
@@ -10,12 +11,14 @@ namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// POST /auth/login Lambda handler.
-/// Flow: parse → validate → Cognito login → DynamoDB get user → 200 response with tokens + user.
+/// Flow: parse → validate → rate limit check → Cognito login → track result → DynamoDB get user → 200 response.
+/// Rate limiting: 3 consecutive failures → 15-minute account lockout (AUTH_015).
 /// </summary>
 public class LoginFunction
 {
     private readonly ICognitoAuthService _authService;
     private readonly IUserRepository _userRepository;
+    private readonly IRateLimitService _rateLimitService;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -26,21 +29,25 @@ public class LoginFunction
                        ?? throw new InvalidOperationException("COGNITO_CLIENT_ID is not set.");
         var tableName = Environment.GetEnvironmentVariable("USERS_TABLE")
                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
+        var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
+                             ?? throw new InvalidOperationException("RATE_LIMITS_TABLE is not set.");
 
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();
 
         _authService = new CognitoAuthService(cognito, clientId);
         _userRepository = new UserRepository(dynamoDb, tableName);
+        _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
     }
 
     /// <summary>
     /// Constructor for testing.
     /// </summary>
-    public LoginFunction(ICognitoAuthService authService, IUserRepository userRepository)
+    public LoginFunction(ICognitoAuthService authService, IUserRepository userRepository, IRateLimitService rateLimitService)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _rateLimitService = rateLimitService ?? throw new ArgumentNullException(nameof(rateLimitService));
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -67,15 +74,38 @@ public class LoginFunction
         if (!validation.IsValid)
             return LambdaResponse.ValidationError(validation);
 
+        // Rate limit check: is account locked?
+        var rateLimitCheck = await _rateLimitService.CheckLoginAllowedAsync(loginRequest!.PhoneNumber);
+        if (!rateLimitCheck.IsSuccess)
+        {
+            var rlError = rateLimitCheck.Error!;
+            return LambdaResponse.Error(rlError.HttpStatus, rlError.Code, rlError.Message);
+        }
+
         // Cognito login
         var loginResult = await _authService.LoginAsync(
-            loginRequest!.PhoneNumber, loginRequest.Password);
+            loginRequest.PhoneNumber, loginRequest.Password);
 
         if (!loginResult.IsSuccess)
         {
             var error = loginResult.Error!;
+
+            // Track failed login attempt (only for credential failures, not service errors)
+            if (error.Code == "AUTH_014")
+            {
+                var failCount = await _rateLimitService.RecordFailedLoginAsync(loginRequest.PhoneNumber);
+                if (failCount >= RateLimitService.MaxLoginFailures)
+                {
+                    return LambdaResponse.Error(403, "AUTH_015",
+                        $"Account locked due to too many failed attempts. Try again in {RateLimitService.LoginLockoutSeconds / 60} minutes.");
+                }
+            }
+
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
+
+        // Success: reset login failure counter
+        await _rateLimitService.ResetLoginAttemptsAsync(loginRequest.PhoneNumber);
 
         var tokens = loginResult.Value!;
 
@@ -88,7 +118,7 @@ public class LoginFunction
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to fetch user by phone {loginRequest.PhoneNumber}: {ex.Message}");
+                $"Failed to fetch user by phone: {ex.Message}");
             user = null;
         }
 

@@ -6,6 +6,7 @@ using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -15,6 +16,7 @@ public class RegisterFunctionTests
 {
     private readonly ICognitoAuthService _mockAuth;
     private readonly IUserRepository _mockRepo;
+    private readonly IRateLimitService _mockRateLimit;
     private readonly RegisterFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -22,8 +24,13 @@ public class RegisterFunctionTests
     {
         _mockAuth = Substitute.For<ICognitoAuthService>();
         _mockRepo = Substitute.For<IUserRepository>();
-        _function = new RegisterFunction(_mockAuth, _mockRepo);
+        _mockRateLimit = Substitute.For<IRateLimitService>();
+        _function = new RegisterFunction(_mockAuth, _mockRepo, _mockRateLimit);
         _context = new TestLambdaContext();
+
+        // Default: rate limit allows registration
+        _mockRateLimit.CheckRegistrationAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -62,6 +69,56 @@ public class RegisterFunctionTests
         Assert.Equal(201, response.StatusCode);
         Assert.Contains("user-abc", response.Body);
         Assert.Contains("nosniff", response.Headers["X-Content-Type-Options"]);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_ValidRequest_RecordsRegistration()
+    {
+        _mockAuth.RegisterAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .Returns(AuthResult<string>.Success("user-abc"));
+
+        _mockRepo.CreateUserAsync(Arg.Any<UserDto>())
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>()));
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123",
+            role = "farmer",
+            woreda = "Adama",
+            preferredLanguage = "am"
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockRateLimit.Received(1).RecordRegistrationAsync("+251912345678");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_RegistrationFloodLimited_Returns429()
+    {
+        _mockRateLimit.CheckRegistrationAllowedAsync("+251912345678")
+            .Returns(AuthResult<bool>.Failure(429, "AUTH_006", "Too many registration attempts."));
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123",
+            role = "farmer",
+            woreda = "Adama",
+            preferredLanguage = "am"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Contains("AUTH_006", response.Body);
+        // Cognito should NOT have been called
+        await _mockAuth.DidNotReceive().RegisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
     }
 
     [Fact]

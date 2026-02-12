@@ -83,4 +83,41 @@ public class LambdaResponseTests
         Assert.Contains("AUTH_001", response.Body);
         Assert.Contains("phoneNumber", response.Body);
     }
+
+    [Fact]
+    public void RateLimited_Returns429WithErrorBody()
+    {
+        var response = LambdaResponse.RateLimited("AUTH_006", "Too many requests.");
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Contains("AUTH_006", response.Body);
+        Assert.Contains("Too many requests", response.Body);
+    }
+
+    [Fact]
+    public void RateLimited_WithRetryAfter_IncludesHeader()
+    {
+        var response = LambdaResponse.RateLimited("AUTH_006", "Too many requests.", 900);
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Equal("900", response.Headers["Retry-After"]);
+    }
+
+    [Fact]
+    public void RateLimited_WithoutRetryAfter_OmitsHeader()
+    {
+        var response = LambdaResponse.RateLimited("AUTH_006", "Too many requests.");
+
+        Assert.False(response.Headers.ContainsKey("Retry-After"));
+    }
+
+    [Fact]
+    public void RateLimited_IncludesSecurityHeaders()
+    {
+        var response = LambdaResponse.RateLimited("AUTH_006", "Too many requests.");
+
+        Assert.Equal("nosniff", response.Headers["X-Content-Type-Options"]);
+        Assert.Equal("DENY", response.Headers["X-Frame-Options"]);
+        Assert.Equal("no-store", response.Headers["Cache-Control"]);
+    }
 }

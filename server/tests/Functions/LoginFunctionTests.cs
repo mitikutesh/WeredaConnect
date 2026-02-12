@@ -5,6 +5,7 @@ using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -14,6 +15,7 @@ public class LoginFunctionTests
 {
     private readonly ICognitoAuthService _mockAuth;
     private readonly IUserRepository _mockRepo;
+    private readonly IRateLimitService _mockRateLimit;
     private readonly LoginFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -21,8 +23,13 @@ public class LoginFunctionTests
     {
         _mockAuth = Substitute.For<ICognitoAuthService>();
         _mockRepo = Substitute.For<IUserRepository>();
-        _function = new LoginFunction(_mockAuth, _mockRepo);
+        _mockRateLimit = Substitute.For<IRateLimitService>();
+        _function = new LoginFunction(_mockAuth, _mockRepo, _mockRateLimit);
         _context = new TestLambdaContext();
+
+        // Default: rate limit allows login
+        _mockRateLimit.CheckLoginAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -76,10 +83,29 @@ public class LoginFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_ValidLogin_ResetsFailureCounter()
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(TestTokens));
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(TestUser);
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockRateLimit.Received(1).ResetLoginAttemptsAsync("+251912345678");
+    }
+
+    [Fact]
     public async Task FunctionHandler_InvalidCredentials_Returns401()
     {
         _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
             .Returns(AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_014", "Invalid credentials."));
+        _mockRateLimit.RecordFailedLoginAsync(Arg.Any<string>()).Returns(1);
 
         var request = MakeRequest(new
         {
@@ -91,6 +117,81 @@ public class LoginFunctionTests
 
         Assert.Equal(401, response.StatusCode);
         Assert.Contains("AUTH_014", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_InvalidCredentials_RecordsFailedAttempt()
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_014", "Invalid credentials."));
+        _mockRateLimit.RecordFailedLoginAsync(Arg.Any<string>()).Returns(1);
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "wrong"
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockRateLimit.Received(1).RecordFailedLoginAsync("+251912345678");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_ThirdFailedAttempt_Returns403Lockout()
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_014", "Invalid credentials."));
+        _mockRateLimit.RecordFailedLoginAsync(Arg.Any<string>()).Returns(3);
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "wrong"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_015", response.Body);
+        Assert.Contains("locked", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_AccountLocked_Returns403BeforeCognito()
+    {
+        _mockRateLimit.CheckLoginAllowedAsync("+251912345678")
+            .Returns(AuthResult<bool>.Failure(403, "AUTH_015", "Account locked."));
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_015", response.Body);
+        // Cognito should NOT have been called
+        await _mockAuth.DidNotReceive().LoginAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_ServiceError_DoesNotRecordFailedAttempt()
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Failure(503, "AUTH_008", "Service unavailable."));
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockRateLimit.DidNotReceive().RecordFailedLoginAsync(Arg.Any<string>());
     }
 
     [Fact]

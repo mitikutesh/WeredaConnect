@@ -5,6 +5,7 @@ using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -14,6 +15,7 @@ public class VerifyOtpFunctionTests
 {
     private readonly ICognitoAuthService _mockAuth;
     private readonly IUserRepository _mockRepo;
+    private readonly IRateLimitService _mockRateLimit;
     private readonly VerifyOtpFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -21,8 +23,13 @@ public class VerifyOtpFunctionTests
     {
         _mockAuth = Substitute.For<ICognitoAuthService>();
         _mockRepo = Substitute.For<IUserRepository>();
-        _function = new VerifyOtpFunction(_mockAuth, _mockRepo);
+        _mockRateLimit = Substitute.For<IRateLimitService>();
+        _function = new VerifyOtpFunction(_mockAuth, _mockRepo, _mockRateLimit);
         _context = new TestLambdaContext();
+
+        // Default: rate limit allows OTP attempts
+        _mockRateLimit.CheckOtpAttemptAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -72,7 +79,26 @@ public class VerifyOtpFunctionTests
     }
 
     [Fact]
-    public async Task FunctionHandler_InvalidOtp_Returns400()
+    public async Task FunctionHandler_ValidOtp_ResetsOtpAttemptCounter()
+    {
+        _mockAuth.ConfirmSignUpAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
+        _mockRepo.GetUserByIdAsync(Arg.Any<string>()).Returns((UserDto?)null);
+
+        var request = MakeRequest(new
+        {
+            userId = "user-123",
+            phoneNumber = "+251912345678",
+            otpCode = "123456"
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockRateLimit.Received(1).ResetOtpAttemptsAsync("+251912345678");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_InvalidOtp_Returns400AndRecordsAttempt()
     {
         _mockAuth.ConfirmSignUpAsync(Arg.Any<string>(), Arg.Any<string>())
             .Returns(AuthResult<bool>.Failure(400, "AUTH_011", "Invalid OTP code.", "otpCode"));
@@ -88,10 +114,11 @@ public class VerifyOtpFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("AUTH_011", response.Body);
+        await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251912345678");
     }
 
     [Fact]
-    public async Task FunctionHandler_ExpiredOtp_Returns400()
+    public async Task FunctionHandler_ExpiredOtp_Returns400WithoutRecordingAttempt()
     {
         _mockAuth.ConfirmSignUpAsync(Arg.Any<string>(), Arg.Any<string>())
             .Returns(AuthResult<bool>.Failure(400, "AUTH_010", "OTP expired.", "otpCode"));
@@ -107,6 +134,30 @@ public class VerifyOtpFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("AUTH_010", response.Body);
+        // Expired OTP should NOT count as a failed attempt
+        await _mockRateLimit.DidNotReceive().RecordFailedOtpAttemptAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_OtpAttemptsExceeded_Returns400BeforeCognito()
+    {
+        _mockRateLimit.CheckOtpAttemptAllowedAsync("+251912345678")
+            .Returns(AuthResult<bool>.Failure(400, "AUTH_012",
+                "Maximum OTP verification attempts exceeded.", "otpCode"));
+
+        var request = MakeRequest(new
+        {
+            userId = "user-123",
+            phoneNumber = "+251912345678",
+            otpCode = "123456"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("AUTH_012", response.Body);
+        // Cognito should NOT have been called
+        await _mockAuth.DidNotReceive().ConfirmSignUpAsync(Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Fact]

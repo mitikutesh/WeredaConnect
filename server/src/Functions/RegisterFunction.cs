@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using WeredaConnect.Server.Validation;
 
@@ -10,13 +11,14 @@ namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// POST /auth/register Lambda handler.
-/// Flow: parse → validate → Cognito register → DynamoDB create user → 201 response.
-/// Cognito is auth source of truth. If DB write fails, log warning and return success.
+/// Flow: parse → validate → rate limit check → Cognito register → track registration → DynamoDB create → 201 response.
+/// Rate limiting: 5 registrations per phone per day (AUTH_006).
 /// </summary>
 public class RegisterFunction
 {
     private readonly ICognitoAuthService _authService;
     private readonly IUserRepository _userRepository;
+    private readonly IRateLimitService _rateLimitService;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -27,21 +29,25 @@ public class RegisterFunction
                        ?? throw new InvalidOperationException("COGNITO_CLIENT_ID is not set.");
         var tableName = Environment.GetEnvironmentVariable("USERS_TABLE")
                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
+        var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
+                             ?? throw new InvalidOperationException("RATE_LIMITS_TABLE is not set.");
 
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();
 
         _authService = new CognitoAuthService(cognito, clientId);
         _userRepository = new UserRepository(dynamoDb, tableName);
+        _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
     }
 
     /// <summary>
     /// Constructor for testing.
     /// </summary>
-    public RegisterFunction(ICognitoAuthService authService, IUserRepository userRepository)
+    public RegisterFunction(ICognitoAuthService authService, IUserRepository userRepository, IRateLimitService rateLimitService)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _rateLimitService = rateLimitService ?? throw new ArgumentNullException(nameof(rateLimitService));
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -68,9 +74,17 @@ public class RegisterFunction
         if (!validation.IsValid)
             return LambdaResponse.ValidationError(validation);
 
+        // Rate limit check: registration flood protection
+        var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(registerRequest!.PhoneNumber);
+        if (!rateLimitCheck.IsSuccess)
+        {
+            var rlError = rateLimitCheck.Error!;
+            return LambdaResponse.RateLimited(rlError.Code, rlError.Message);
+        }
+
         // Cognito register
         var cognitoResult = await _authService.RegisterAsync(
-            registerRequest!.PhoneNumber,
+            registerRequest.PhoneNumber,
             registerRequest.Password,
             registerRequest.Role,
             registerRequest.Woreda,
@@ -82,6 +96,9 @@ public class RegisterFunction
             var error = cognitoResult.Error!;
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
+
+        // Track registration for flood protection
+        await _rateLimitService.RecordRegistrationAsync(registerRequest.PhoneNumber);
 
         var userId = cognitoResult.Value!;
         var now = DateTime.UtcNow.ToString("o");

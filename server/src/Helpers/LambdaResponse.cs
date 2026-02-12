@@ -77,4 +77,33 @@ public static class LambdaResponse
         var firstError = validationResult.Errors[0];
         return Error(400, firstError.Code, firstError.Message, firstError.Field);
     }
+
+    /// <summary>
+    /// 429 Too Many Requests response with Retry-After header.
+    /// Used for application-level rate limiting per auth-api.md contract.
+    /// </summary>
+    public static APIGatewayProxyResponse RateLimited(string code, string message, int? retryAfterSeconds = null)
+    {
+        var headers = SecurityHeaders;
+        if (retryAfterSeconds.HasValue)
+        {
+            headers["Retry-After"] = retryAfterSeconds.Value.ToString();
+        }
+
+        var errorResponse = new AuthErrorResponse
+        {
+            Error = new AuthError
+            {
+                Code = code,
+                Message = message
+            }
+        };
+
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = 429,
+            Body = JsonSerializer.Serialize(errorResponse, AppJsonContext.Default.AuthErrorResponse),
+            Headers = headers
+        };
+    }
 }
