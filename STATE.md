@@ -7,33 +7,47 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 
 ## 🛑 Session Checkpoint
 
-**Timestamp:** 2026-02-11 22:01:13 EET  
-**Status:** Checkpoint created by automation  
-**Active Branch:** Authentication-Encryptionministries  
+**Timestamp:** 2026-02-12 22:05:00 EET
+**Status:** Rate limiting committed, STATE.md + TASK.md updated
+**Active Branch:** Authentication-Encryptionministries
 
 ---
 
 ## 📍 Current Context
 
 ### Last Git Commits
-- 356a304: docs: add security remediation backlog from QA and security audit (14 minutes ago)
-- 78e3d53: fix(mobile): harden Android security configuration (14 minutes ago)
-- 480284a: fix(infra): correct package.json main field and include tests in tsconfig (15 minutes ago)
-- 25d5d08: fix(server): add security headers and deduplicate JSON serialization contexts (15 minutes ago)
-- de57af6: chore: update .gitignore with CDK build output and coverage artifacts (34 minutes ago)
+- 0de4726: feat(auth): add server-side rate limiting with DynamoDB counters
+- eb90ef0: chore(docs): remove TESTING_EXPLORATION_INDEX.md after exploration completion
+- 3ce37b9: chore(docs): remove EXPLORATION_COMPLETE.md to reduce redundancy
+- 6a85fe0: chore(docs): remove DEPLOYMENT_EXPLORATION_COMPLETE.md after completion
+- 3986179: feat(auth): implement server-side authentication logic with Cognito and DynamoDB integration
 
 ---
 
 ## 🚧 Current Task Status
 
-See `TASK.md` for detailed task breakdown.
+See `TASK.md` for full prioritized task list (updated 2026-02-12).
 
-**Incomplete Tasks:**
-- [ ] `@Security` **S-01** Purge private key from git history (server/localstack-data/cache/server.test.pem.key committed in e3c2e8e, removed in 5ec0a1a — still in history)
-- [ ] `@Security` **X-02** Install pre-commit secret detection hooks (gitleaks or detect-secrets)
-- [ ] `@Infra` **I-01** Add API authentication (Cognito User Pool or JWT authorizer) to API Gateway
-- [ ] `@Infra` **I-02** Add API rate limiting (throttling on API Gateway stage)
-- [ ] `@Mobile` **M-01** Enable Isar database encryption with key stored in Android Keystore
+**Server Auth Status:** Code + Rate Limiting COMPLETE ✅ (169 tests passing) — Infrastructure NOT wired ⚠️
+
+**Just Completed:**
+- [x] `@Server` Failed login tracking + account lockout (AUTH_015: 3 failures → 15-min lockout)
+- [x] `@Server` Registration flood protection (AUTH_006: 5/day per phone)
+- [x] `@Server` OTP attempt limits (AUTH_012: 3 per code)
+- [x] `@Server` Rate limiting via dedicated DynamoDB table (atomic counters + TTL)
+- [x] `@Server` 42 new tests (169 total passing)
+
+**Next Priority Tasks:**
+- [ ] `@Security` **S-01** CRITICAL — Purge private key from git history
+- [ ] `@Security` **X-02** Install pre-commit secret detection hooks
+- [ ] `@Infra` Create Cognito User Pool + App Client in CDK
+- [ ] `@Infra` Wire 7 Lambda functions in api-stack.ts (add RATE_LIMITS_TABLE env var)
+- [ ] `@Infra` Provision `rate_limits` DynamoDB table (pk: string, TTL-enabled)
+- [ ] `@Infra` Configure API Gateway routes + custom authorizer
+- [ ] `@Infra` Deploy to dev and smoke test end-to-end
+- [ ] `@Server` Add GET /auth/me and PATCH /auth/profile endpoints
+- [ ] `@Server` Begin core domain models (Crop, Trip entities)
+- [ ] `@Mobile` **M-01** Enable Isar database encryption
 
 
 ---
@@ -41,10 +55,8 @@ See `TASK.md` for detailed task breakdown.
 ## 📦 Uncommitted Changes
 
 **Modified files:**
- M .ai/agents.md
-D  DEPENDABOT_SETUP_COMPLETE.md
  M STATE.md
-?? specs/features/ROADMAP.md
+ M TASK.md
 
 
 ---
@@ -56,7 +68,10 @@ D  DEPENDABOT_SETUP_COMPLETE.md
 ```
 Read STATE.md and TASK.md. Continue work based on the last commit and incomplete tasks.
 Current branch: Authentication-Encryptionministries
-Last commit: docs: add security remediation backlog from QA and security audit
+Last commit: 0de4726 feat(auth): add server-side rate limiting with DynamoDB counters
+Server auth + rate limiting COMPLETE — 169 tests passing.
+Next priorities: security (S-01 key purge), infra wiring (Cognito + Lambda + rate_limits table in CDK),
+then GET /auth/me and PATCH /auth/profile endpoints.
 ```
 
 ---
