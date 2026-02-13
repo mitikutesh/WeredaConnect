@@ -1,8 +1,8 @@
+using System.Text.Json;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using WeredaConnect.Server.Functions;
 using Xunit;
-using System.Text.Json;
 
 namespace WeredaConnect.Server.Tests;
 
@@ -12,6 +12,7 @@ public class HealthCheckFunctionTests
     public void FunctionHandler_ReturnsHealthyStatus()
     {
         // Arrange
+        HealthCheckFunction.ResetColdStart();
         var function = new HealthCheckFunction();
         var request = new APIGatewayProxyRequest();
         var context = new TestLambdaContext();
@@ -33,6 +34,7 @@ public class HealthCheckFunctionTests
     public void FunctionHandler_IncludesCorrectHeaders()
     {
         // Arrange
+        HealthCheckFunction.ResetColdStart();
         var function = new HealthCheckFunction();
         var request = new APIGatewayProxyRequest();
         var context = new TestLambdaContext();
@@ -51,7 +53,7 @@ public class HealthCheckFunctionTests
     public void FunctionHandler_DetectsColdStart()
     {
         // Arrange
-        HealthCheckFunction.ResetColdStart(); // Reset state for this test
+        HealthCheckFunction.ResetColdStart();
         var function = new HealthCheckFunction();
         var request = new APIGatewayProxyRequest();
         var context = new TestLambdaContext();

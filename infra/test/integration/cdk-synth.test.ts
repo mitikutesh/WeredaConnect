@@ -1,26 +1,70 @@
 import * as cdk from 'aws-cdk-lib';
+import { DatabaseStack } from '../../lib/stacks/database-stack';
+import { ApiStack } from '../../lib/stacks/api-stack';
+import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
+import { environments } from '../../lib/config/environments';
 
 describe('CDK Integration Tests', () => {
-  test('CDK app can be instantiated', () => {
+  test('full stack wiring synthesizes without errors', () => {
     const app = new cdk.App();
-    expect(app).toBeDefined();
-  });
+    const envConfig = environments['dev'];
+    const envProps = { account: '123456789012', region: envConfig.region };
 
-  test('Stack can be added to app', () => {
-    const app = new cdk.App();
-    const stack = new cdk.Stack(app, 'IntegrationTestStack');
-    
-    expect(stack).toBeDefined();
-    expect(stack.stackName).toBe('IntegrationTestStack');
-  });
+    const dbStack = new DatabaseStack(app, 'IntegDb', {
+      env: envProps,
+      envConfig,
+    });
 
-  test('App can synthesize stacks', () => {
-    const app = new cdk.App();
-    new cdk.Stack(app, 'TestStack1');
-    new cdk.Stack(app, 'TestStack2');
-    
+    const apiStack = new ApiStack(app, 'IntegApi', {
+      env: envProps,
+      envConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    apiStack.addDependency(dbStack);
+
+    const monitoringStack = new MonitoringStack(app, 'IntegMonitoring', {
+      env: envProps,
+      envConfig,
+      apiUrl: apiStack.httpApiUrl,
+    });
+    monitoringStack.addDependency(apiStack);
+
     const assembly = app.synth();
-    expect(assembly.stacks.length).toBeGreaterThanOrEqual(2);
+    expect(assembly.stacks.length).toBe(3);
+  });
+
+  test('all environments can be instantiated', () => {
+    for (const [name, envConfig] of Object.entries(environments)) {
+      const app = new cdk.App();
+      const envProps = { account: '123456789012', region: envConfig.region };
+
+      const dbStack = new DatabaseStack(app, `${name}-Db`, {
+        env: envProps,
+        envConfig,
+      });
+
+      const apiStack = new ApiStack(app, `${name}-Api`, {
+        env: envProps,
+        envConfig,
+        usersTable: dbStack.usersTable,
+        cropsTable: dbStack.cropsTable,
+        tripsTable: dbStack.tripsTable,
+        rateLimitsTable: dbStack.rateLimitsTable,
+        uploadsBucket: dbStack.uploadsBucket,
+      });
+
+      new MonitoringStack(app, `${name}-Mon`, {
+        env: envProps,
+        envConfig,
+        apiUrl: apiStack.httpApiUrl,
+      });
+
+      const assembly = app.synth();
+      expect(assembly.stacks.length).toBe(3);
+    }
   });
 });
-

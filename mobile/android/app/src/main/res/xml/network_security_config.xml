@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Configuration for WeredaConnect.
+  Enforces HTTPS for all connections and enables certificate pinning
+  for the production API domain.
+
+  TODO: Add pin-set with actual API server certificate hashes before production.
+  Generate pins: openssl s_client -connect api.weredaconnect.com:443 | openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+-->
+<network-security-config>
+    <!-- Block all cleartext (HTTP) traffic by default -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Allow cleartext only for local development (10.0.2.2 = Android emulator host) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- Production API domain — add certificate pins before release -->
+    <!-- <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.weredaconnect.com</domain>
+        <pin-set expiration="2027-01-01">
+            <pin digest="SHA-256">REPLACE_WITH_ACTUAL_PIN_HASH=</pin>
+            <pin digest="SHA-256">REPLACE_WITH_BACKUP_PIN_HASH=</pin>
+        </pin-set>
+    </domain-config> -->
+</network-security-config>

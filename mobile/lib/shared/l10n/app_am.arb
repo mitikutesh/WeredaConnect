@@ -91,6 +91,70 @@
   "offlineReady": "ከመስመር ውጭ ዝግጁ",
   "@offlineReady": {
     "description": "Indicator that the app is ready to work offline"
+  },
+  "home": "መነሻ",
+  "@home": {
+    "description": "Home navigation tab"
+  },
+  "listings": "ዝርዝሮች",
+  "@listings": {
+    "description": "Listings navigation tab"
+  },
+  "profile": "መገለጫ",
+  "@profile": {
+    "description": "Profile navigation tab"
+  },
+  "about": "ስለ",
+  "@about": {
+    "description": "About menu item"
+  },
+  "logout": "ውጣ",
+  "@logout": {
+    "description": "Logout menu item"
+  },
+  "cropListings": "የሰብል ዝርዝሮች",
+  "@cropListings": {
+    "description": "Crop listings screen title"
+  },
+  "noCropListings": "እስካሁን ምንም የሰብል ዝርዝር የለም",
+  "@noCropListings": {
+    "description": "Empty state message for crop listings"
+  },
+  "createListing": "ዝርዝር ፍጠር",
+  "@createListing": {
+    "description": "Button to create a new crop listing"
+  },
+  "myProfile": "የእኔ መገለጫ",
+  "@myProfile": {
+    "description": "Profile screen title"
+  },
+  "notLoggedIn": "ገብተው አይደሉም",
+  "@notLoggedIn": {
+    "description": "Message when user is not logged in"
+  },
+  "login": "ግባ",
+  "@login": {
+    "description": "Login button"
+  },
+  "comingSoon": "በቅርቡ ይመጣል",
+  "@comingSoon": {
+    "description": "Feature coming soon message"
+  },
+  "currentLanguage": "አማርኛ",
+  "@currentLanguage": {
+    "description": "Current language display name"
+  },
+  "dataSaverDescription": "የውሂብ አጠቃቀምን ይቀንሱ",
+  "@dataSaverDescription": {
+    "description": "Description for data saver mode"
+  },
+  "aboutDescription": "ከመስመር ውጭ የሚሰራ የግብርና ሎጂስቲክስ መድረክ",
+  "@aboutDescription": {
+    "description": "About dialog description"
+  },
+  "aboutTagline": "የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
+  "@aboutTagline": {
+    "description": "About dialog tagline"
   }
 }
 

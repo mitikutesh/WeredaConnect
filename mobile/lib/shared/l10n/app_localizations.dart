@@ -237,6 +237,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Offline Ready'**
   String get offlineReady;
+
+  /// Home navigation tab
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get home;
+
+  /// Listings navigation tab
+  ///
+  /// In en, this message translates to:
+  /// **'Listings'**
+  String get listings;
+
+  /// Profile navigation tab
+  ///
+  /// In en, this message translates to:
+  /// **'Profile'**
+  String get profile;
+
+  /// About menu item
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get about;
+
+  /// Logout menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Logout'**
+  String get logout;
+
+  /// Crop listings screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Listings'**
+  String get cropListings;
+
+  /// Empty state message for crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'No crop listings yet'**
+  String get noCropListings;
+
+  /// Button to create a new crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Create Listing'**
+  String get createListing;
+
+  /// Profile screen title
+  ///
+  /// In en, this message translates to:
+  /// **'My Profile'**
+  String get myProfile;
+
+  /// Message when user is not logged in
+  ///
+  /// In en, this message translates to:
+  /// **'Not logged in'**
+  String get notLoggedIn;
+
+  /// Login button
+  ///
+  /// In en, this message translates to:
+  /// **'Login'**
+  String get login;
+
+  /// Feature coming soon message
+  ///
+  /// In en, this message translates to:
+  /// **'Coming Soon'**
+  String get comingSoon;
+
+  /// Current language display name
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get currentLanguage;
+
+  /// Description for data saver mode
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce data usage'**
+  String get dataSaverDescription;
+
+  /// About dialog description
+  ///
+  /// In en, this message translates to:
+  /// **'Offline-first agritech logistics platform'**
+  String get aboutDescription;
+
+  /// About dialog tagline
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting Ethiopian farmers, truckers, and buyers'**
+  String get aboutTagline;
 }
 
 class _AppLocalizationsDelegate

@@ -77,4 +77,53 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get offlineReady => 'Offline Ready';
+
+  @override
+  String get home => 'Home';
+
+  @override
+  String get listings => 'Listings';
+
+  @override
+  String get profile => 'Profile';
+
+  @override
+  String get about => 'About';
+
+  @override
+  String get logout => 'Logout';
+
+  @override
+  String get cropListings => 'Crop Listings';
+
+  @override
+  String get noCropListings => 'No crop listings yet';
+
+  @override
+  String get createListing => 'Create Listing';
+
+  @override
+  String get myProfile => 'My Profile';
+
+  @override
+  String get notLoggedIn => 'Not logged in';
+
+  @override
+  String get login => 'Login';
+
+  @override
+  String get comingSoon => 'Coming Soon';
+
+  @override
+  String get currentLanguage => 'English';
+
+  @override
+  String get dataSaverDescription => 'Reduce data usage';
+
+  @override
+  String get aboutDescription => 'Offline-first agritech logistics platform';
+
+  @override
+  String get aboutTagline =>
+      'Connecting Ethiopian farmers, truckers, and buyers';
 }

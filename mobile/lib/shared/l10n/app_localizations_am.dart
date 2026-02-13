@@ -76,4 +76,52 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get offlineReady => 'ከመስመር ውጭ ዝግጁ';
+
+  @override
+  String get home => 'መነሻ';
+
+  @override
+  String get listings => 'ዝርዝሮች';
+
+  @override
+  String get profile => 'መገለጫ';
+
+  @override
+  String get about => 'ስለ';
+
+  @override
+  String get logout => 'ውጣ';
+
+  @override
+  String get cropListings => 'የሰብል ዝርዝሮች';
+
+  @override
+  String get noCropListings => 'እስካሁን ምንም የሰብል ዝርዝር የለም';
+
+  @override
+  String get createListing => 'ዝርዝር ፍጠር';
+
+  @override
+  String get myProfile => 'የእኔ መገለጫ';
+
+  @override
+  String get notLoggedIn => 'ገብተው አይደሉም';
+
+  @override
+  String get login => 'ግባ';
+
+  @override
+  String get comingSoon => 'በቅርቡ ይመጣል';
+
+  @override
+  String get currentLanguage => 'አማርኛ';
+
+  @override
+  String get dataSaverDescription => 'የውሂብ አጠቃቀምን ይቀንሱ';
+
+  @override
+  String get aboutDescription => 'ከመስመር ውጭ የሚሰራ የግብርና ሎጂስቲክስ መድረክ';
+
+  @override
+  String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
 }

@@ -5,19 +5,23 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>13.0</LangVersion>
+    <OutputType>Exe</OutputType>
 
     <!-- Lambda Configuration -->
     <AWSProjectType>Lambda</AWSProjectType>
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 
+    <!-- Native AOT -->
+    <PublishAot>true</PublishAot>
+
     <!-- Performance Optimizations -->
     <TieredCompilation>false</TieredCompilation>
     <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
   </PropertyGroup>
 
-  <!-- Native AOT Configuration - Only for Publish -->
-  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+  <!-- Native AOT Publish Configuration -->
+  <PropertyGroup Condition="'$(IsPublishing)' == 'true' or '$(PublishDir)' != ''">
     <InvariantGlobalization>false</InvariantGlobalization>
     <!-- Use linux-arm64 for AWS Lambda Graviton2 -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
@@ -31,6 +35,7 @@
     <!-- AWS Lambda -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
     <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
 
     <!-- AWS SDK (AOT-Compatible) -->
@@ -41,6 +46,15 @@
     <!-- ❌ BANNED: Entity Framework Core -->
     <!-- ✅ USE: Dapper -->
     <PackageReference Include="Dapper" Version="2.1.1" />
+
+    <!-- JWT Validation (AOT-Compatible) -->
+    <!-- ❌ BANNED: Microsoft.AspNetCore.Authentication.JwtBearer -->
+    <!-- ✅ USE: System.IdentityModel.Tokens.Jwt -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.0" />
+
+    <!-- AWS Cognito -->
+    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.400" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,4 +70,3 @@
   </ItemGroup>
 
 </Project>
-

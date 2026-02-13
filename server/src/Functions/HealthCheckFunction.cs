@@ -1,8 +1,3 @@
-using Amazon.Lambda.Core;
-using Amazon.Lambda.APIGatewayEvents;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 // Assembly attribute to enable AOT-compatible Lambda JSON serialization.
 // Uses source-generated serialization instead of reflection-based DefaultLambdaJsonSerializer.
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.SourceGeneratorLambdaJsonSerializer<WeredaConnect.Server.Functions.HealthCheckJsonContext>))]
@@ -10,12 +5,10 @@ using System.Text.Json.Serialization;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// JSON source generator context for AOT compatibility.
-/// This enables native AOT compilation without reflection.
-/// Includes all types that need to be serialized/deserialized by Lambda.
+/// JSON source generator context for HealthCheck function types.
+/// Only registers types specific to this function — shared types
+/// (APIGatewayProxyRequest/Response) are in AppJsonContext.
 /// </summary>
-[JsonSerializable(typeof(APIGatewayProxyRequest))]
-[JsonSerializable(typeof(APIGatewayProxyResponse))]
 [JsonSerializable(typeof(HealthCheckResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -55,7 +48,11 @@ public class HealthCheckFunction
             Headers = new Dictionary<string, string>
             {
                 { "Content-Type", "application/json" },
-                { "X-WeredaConnect-Version", "0.1.0" }
+                { "X-WeredaConnect-Version", "0.1.0" },
+                { "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload" },
+                { "X-Content-Type-Options", "nosniff" },
+                { "X-Frame-Options", "DENY" },
+                { "Cache-Control", "no-store" }
             }
         };
     }

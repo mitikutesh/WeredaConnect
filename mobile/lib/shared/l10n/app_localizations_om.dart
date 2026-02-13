@@ -77,4 +77,53 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get offlineReady => 'Offline Qophaa\'eera';
+
+  @override
+  String get home => 'Mana';
+
+  @override
+  String get listings => 'Tarreewwan';
+
+  @override
+  String get profile => 'Ibsa';
+
+  @override
+  String get about => 'Waa\'ee';
+
+  @override
+  String get logout => 'Ba\'i';
+
+  @override
+  String get cropListings => 'Tarreewwan Midhaan';
+
+  @override
+  String get noCropListings => 'Tarreen midhaan amma hin jiru';
+
+  @override
+  String get createListing => 'Tarree Uumi';
+
+  @override
+  String get myProfile => 'Ibsa Koo';
+
+  @override
+  String get notLoggedIn => 'Hin seenne';
+
+  @override
+  String get login => 'Seeni';
+
+  @override
+  String get comingSoon => 'Dhiyoo Dhufa';
+
+  @override
+  String get currentLanguage => 'Afaan Oromoo';
+
+  @override
+  String get dataSaverDescription => 'Itti fayyadama daataa hir\'isi';
+
+  @override
+  String get aboutDescription => 'Waltajjii loojistikii qonnaa offline-first';
+
+  @override
+  String get aboutTagline =>
+      'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
 }

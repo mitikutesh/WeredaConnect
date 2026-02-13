@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/main.dart';
+import 'package:wereda_connect/screens/main_navigation.dart';
 
 void main() {
   group('WeredaConnectApp', () {
@@ -49,13 +50,13 @@ void main() {
     });
   });
 
-  group('HomePage', () {
+  group('MainNavigation', () {
     testWidgets('renders correctly', (WidgetTester tester) async {
       await tester.pumpWidget(const WeredaConnectApp());
       await tester.pumpAndSettle();
 
-      // Verify HomePage is rendered
-      expect(find.byType(HomePage), findsOneWidget);
+      // Verify MainNavigation is rendered
+      expect(find.byType(MainNavigation), findsOneWidget);
     });
   });
 
