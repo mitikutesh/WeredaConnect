@@ -1,16 +1,8 @@
 name: Mobile Tests (Flutter)
 
 on:
-  pull_request:
-    branches: [main, develop]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/mobile-tests.yml'
-  push:
-    branches: [main, develop]
-    paths:
-      - 'mobile/**'
-  workflow_call:  # Allow this workflow to be called from pr-validation.yml
+  workflow_call:  # Called from pr-validation.yml for PR checks
+  workflow_dispatch:  # Allow manual triggering for debugging
 
 jobs:
   unit-tests:
@@ -25,7 +17,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.1'
+          flutter-version: '3.38.9'
           channel: 'stable'
           cache: true
 
@@ -73,7 +65,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.1'
+          flutter-version: '3.38.9'
           channel: 'stable'
           cache: true
 
@@ -111,7 +103,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.1'
+          flutter-version: '3.38.9'
           channel: 'stable'
           cache: true
 
@@ -159,7 +151,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.1'
+          flutter-version: '3.38.9'
           channel: 'stable'
           cache: true
 
