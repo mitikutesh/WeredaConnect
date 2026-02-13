@@ -7,11 +7,9 @@ This file tracks the **active work** for the current development cycle. It's the
 
 ## 🎯 Current Sprint Goal
 
-**Deploy Authentication & Begin Core Domain (R1→R2→R3)**
+**Create Production-Ready Project Structure**
 
-Wire CDK infrastructure for server auth (169 tests passing, code + rate limiting complete), deploy to dev, then build core domain models (crops, trips) and sync engine.
-
-> Previous sprint "Create Production-Ready Project Structure" — **COMPLETE** ✅
+Establish the foundational folder structure and governance files for WeredaConnect, implementing the "Magnetic" AI-assisted development framework.
 
 ---
 
@@ -82,195 +80,32 @@ Wire CDK infrastructure for server auth (169 tests passing, code + rate limiting
 - [x] `@Infra` Create CDK stack with DynamoDB tables and S3 bucket
 - [x] `@Infra` Configure TypeScript and CDK synth
 
-### Phase 8: QA & Security Audit ✅
-- [x] `@Security` Run QA validation across all three projects (47 PASS, 12 WARN, 0 FAIL)
-- [x] `@Security` Run security audit (1 CRITICAL, 7 HIGH, 9 MEDIUM, 5 LOW found)
-- [x] `@Server` Fix duplicate JSON serialization contexts (AppJsonContext + HealthCheckJsonContext)
-- [x] `@Server` Add security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Cache-Control)
-- [x] `@Server` Remove version disclosure header (X-WeredaConnect-Version)
-- [x] `@Server` Fix misleading AOT comment on NSubstitute in test .csproj
-- [x] `@Infra` Fix package.json main field (was pointing to nonexistent lib/index.js)
-- [x] `@Infra` Add test files to tsconfig.json include array
-- [x] `@Mobile` Add android:allowBackup="false" to AndroidManifest.xml
-- [x] `@Mobile` Add network_security_config.xml (HTTPS enforcement, cleartext blocked)
-
-### Phase 9: Application-Level Rate Limiting ✅
-- [x] `@Server` Add failed login attempt tracking + account lockout (3 failures → 15-min lockout, AUTH_015)
-- [x] `@Server` Add registration flood protection (5 per phone per day, AUTH_006)
-- [x] `@Server` Add OTP attempt limits (3 per code, AUTH_012)
-
-### Phase 10: Mobile Navigation & UI Foundation ✅
-- [x] `@Mobile` Create navigation structure with bottom nav bar (Home, Listings, Profile)
-- [x] `@Mobile` Create drawer menu with Settings and About
-- [x] `@Mobile` Create HomeScreen with quick action cards
-- [x] `@Mobile` Create ListingsScreen with empty state
-- [x] `@Mobile` Create ProfileScreen with login prompt
-- [x] `@Mobile` Create SettingsScreen with language/data preferences
-- [x] `@Localization` Add navigation strings to all 3 languages (en, am, om)
-- [x] `@Mobile` Add sync status indicator in app bar
-- [x] `@Mobile` Test hot reload and navigation flow on emulator
-- [x] `@Server` Add RateLimitService + RateLimitRepository (dedicated DynamoDB table, atomic counters, TTL auto-cleanup)
-- [x] `@Server` Add LambdaResponse.RateLimited() helper with Retry-After header
-- [x] `@Server` Wire rate limiting into LoginFunction, RegisterFunction, VerifyOtpFunction
-- [x] `@Server` Add comprehensive tests (42 new tests — 169 total passing)
-
 ---
 
-## 🔒 Security Remediation Backlog
+## 🚀 Next Immediate Actions
 
-> Items from the security audit that require architectural decisions or production setup.
+1. **Install Flutter SDK** (currently not installed on this machine)
+    - Run `flutter pub get` in mobile/
+    - Run `flutter gen-l10n` to generate localization code
+    - Test app with `flutter run`
 
-### Before ANY Deployment (CRITICAL + HIGH)
-- [ ] `@Security` **S-01** Purge private key from git history (server/localstack-data/cache/server.test.pem.key committed in e3c2e8e, removed in 5ec0a1a — still in history)
-- [ ] `@Security` **X-02** Install pre-commit secret detection hooks (gitleaks or detect-secrets)
-- [ ] `@Infra` **I-01** Add API authentication (Cognito User Pool or JWT authorizer) to API Gateway
-- [ ] `@Infra` **I-02** Add API rate limiting (throttling on API Gateway stage)
-- [ ] `@Mobile` **M-01** Enable Isar database encryption with key stored in Android Keystore
-- [ ] `@Mobile` **M-03** Add certificate pinning for production API domain (pins in network_security_config.xml)
+2. **Implement Isar schemas** for crop listings, trips, users
+    - Define data models in `mobile/lib/core/database/`
+    - Generate Isar code with build_runner
 
-### Before Production (MEDIUM)
-- [ ] `@Server` **S-04** Establish input validation pattern/middleware for Lambda handlers
-- [ ] `@Infra` **I-03** Apply least-privilege IAM per Lambda function (not blanket ReadWriteData on all tables)
-- [ ] `@Infra` **I-06** Enable S3 access logging on uploads bucket
-- [ ] `@Infra` **I-07** Enable S3 versioning on production uploads bucket
-- [ ] `@Infra` **I-08** Evaluate VPC deployment for Lambdas (test cold start impact)
-- [ ] `@Mobile` **M-04** Add ProGuard obfuscation rules; use --obfuscate --split-debug-info for release
-- [ ] `@Mobile` **M-05** Integrate crash reporting service (Sentry/Crashlytics) for production
-- [ ] `@Security` **X-03** Add security scanning (npm audit, dotnet list --vulnerable) before Dependabot auto-merge
+3. **Create sync engine foundation**
+    - Implement offline queue in `mobile/lib/core/sync/`
+    - Add conflict resolution logic
 
-### Hardening (LOW)
-- [ ] `@Infra` **I-04** Upgrade DynamoDB encryption to KMS-managed keys for production
-- [ ] `@Infra` **I-05** Upgrade S3 encryption to KMS-managed for production
-- [ ] `@Mobile` **M-06** Dynamic image cache sizing based on device RAM
+4. **Publish .NET Lambda**
+    - Run `dotnet publish` with AOT
+    - Uncomment Lambda in CDK stack
+    - Deploy to AWS
 
----
-
-## 🚀 Next Planned Tasks (PO Review — 2026-02-12)
-
-> Ordered by priority. Based on roadmap phases R1→R2→R3.
-
-### Priority 0 — Security Critical (Blocks Everything)
-
-1. **`@Security` S-01: Purge private key from git history**
-   - `server/localstack-data/cache/server.test.pem.key` committed in e3c2e8e, removed in 5ec0a1a — still in git history
-   - Use `git filter-repo` or BFG Repo Cleaner
-   - Force-push required after cleanup
-   - **Status:** CRITICAL — must be done before any public/shared repo access
-
-2. **`@Security` X-02: Install pre-commit secret detection hooks**
-   - Install `gitleaks` or `detect-secrets` as pre-commit hook
-   - Prevents future accidental secret commits
-
-### Priority 1 — Infrastructure Wiring (Blocks Deployment)
-
-> Server auth code (169 tests passing, incl. rate limiting) is complete but cannot be deployed — CDK has zero wiring.
-
-3. **`@Infra` Create Cognito stack in CDK**
-   - Provision Cognito User Pool (phone-based username, SMS OTP via SNS)
-   - Configure custom attributes: `custom:role`, `custom:woreda`, `custom:language`, `custom:faydaId`
-   - Create App Client (USER_PASSWORD_AUTH + REFRESH_TOKEN_AUTH flows)
-   - Password policy: min 6 chars (per `specs/contracts/auth-api.md`)
-   - Token expiry: access 15 min, refresh 30 days
-
-4. **`@Infra` Wire Lambda functions in `api-stack.ts`**
-   - Uncomment/create Lambda constructs for all 7 handlers:
-     - RegisterFunction, VerifyOtpFunction, LoginFunction, RefreshFunction, LogoutFunction, AuthorizerFunction, HealthCheckFunction
-   - Set environment variables: COGNITO_CLIENT_ID, COGNITO_USER_POOL_ID, COGNITO_REGION, USERS_TABLE, RATE_LIMITS_TABLE
-   - Configure IAM: DynamoDB read/write on users table, Cognito IdP access
-   - Runtime: provided.al2023, Architecture: arm64, Memory: 512MB
-
-5. **`@Infra` Configure API Gateway routes + authorizer**
-   - Add routes: POST /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout, GET /health
-   - Create custom Lambda authorizer from AuthorizerFunction
-   - Attach authorizer to /auth/logout (only authenticated endpoint for now)
-   - Configure throttling: 10 req/s on auth endpoints (per auth-api.md contract)
-
-6. **`@Infra` Deploy to dev environment and smoke test**
-   - `cdk deploy --all` to dev (me-south-1)
-   - Verify end-to-end: register → OTP → login → refresh → logout
-   - Document API Gateway URL + Cognito pool IDs
-
-### Priority 2 — Auth Gaps (Contract Compliance)
-
-> Items defined in `specs/contracts/auth-api.md` but not yet implemented server-side.
-
-7. ~~**`@Server` Add failed login attempt tracking + account lockout**~~ ✅ DONE
-   - Dedicated `rate_limits` DynamoDB table with atomic counters + TTL
-   - 3 consecutive failures → 15-min lockout (AUTH_015), reset on success
-   - Wired into LoginFunction with lockout check before Cognito call
-
-8. ~~**`@Server` Add rate limiting middleware (server-side)**~~ ✅ DONE
-   - RateLimitService: login lockout, registration flood (5/day), OTP limits (3/code)
-   - 429 with Retry-After header via LambdaResponse.RateLimited()
-   - Wired into LoginFunction, RegisterFunction, VerifyOtpFunction
-   - 42 new tests (169 total passing)
-
-9. **`@Server` Add GET /auth/me endpoint**
-   - Return authenticated user profile from JWT claims + DynamoDB
-   - Required for mobile app to load user state after token refresh
-
-10. **`@Server` Add PATCH /auth/profile endpoint**
-    - Update displayName, preferredLanguage, faydaId
-    - Version-based optimistic concurrency (existing pattern)
-
-### Priority 3 — Next Feature Phase (R3: Sync + Core Domain)
-
-11. **`@Server` F-07: Core domain models — Crop entity**
-    - CropListing model: cropId, farmerId, cropType, quantity, unit, pricePerUnit, woreda, location, photos, status, createdAt, version
-    - DynamoDB schema (crops table already provisioned in CDK)
-    - CropRepository with CRUD + query by woreda/status
-
-12. **`@Server` F-07: Core domain models — Trip entity**
-    - Trip model: tripId, truckerId, origin, destination, capacity, pricePerKg, departureDate, status, createdAt, version
-    - DynamoDB schema (trips table already provisioned in CDK)
-    - TripRepository with CRUD + query by route/status
-
-13. **`@Server` F-08: Sync engine — batch sync endpoint**
-    - POST /sync endpoint accepting batched operations
-    - Version-based conflict resolution per `specs/contracts/sync-protocol.md`
-    - Idempotency key handling (UUID, 7-day expiry)
-    - Delta sync response (only changed records since last sync)
-
-14. **`@Server` F-10: Crop listing endpoints**
-    - POST /listings — create crop listing
-    - GET /listings — query by woreda, crop type, status
-    - GET /listings/{id} — get single listing
-    - PATCH /listings/{id} — update listing (owner only)
-
-15. ~~**`@Mobile` Install Flutter SDK and verify mobile app builds**~~ ✅ DONE
-    - Mobile app running on Android emulator (API 36)
-    - Navigation structure complete (bottom nav + drawer menu)
-    - 4 screens: Home, Listings, Profile, Settings
-    - Multi-language support working (en, am, om)
-    - LocalStack backend running and accessible
-
-16. **`@Mobile` Implement Isar database schemas**
-    - User schema (userId, phoneNumber, displayName, role, woreda, etc.)
-    - CropListing schema (listingId, farmerId, cropType, quantity, price, etc.)
-    - Trip schema (tripId, truckerId, origin, destination, capacity, etc.)
-    - SyncQueue schema (operationId, entityType, operation, data, retryCount, etc.)
-
-17. **`@Mobile` Build authentication screens**
-    - Phone number input screen with country code (+251)
-    - OTP verification screen with 6-digit input
-    - User profile setup (name, role, woreda, language)
-    - Connect to server auth endpoints (register, verify, login)
-    - Implement PBKDF2 password caching for offline login
-
-### Priority 4 — CI/CD + Hardening
-
-16. **`@Infra` Set up GitHub Actions CI/CD pipeline**
-    - .NET build + test + AOT publish
-    - Flutter build + test
+5. **Set up CI/CD with GitHub Actions**
+    - Flutter build and test
+    - .NET build and test
     - CDK synth validation
-    - Security scanning (npm audit, dotnet list --vulnerable)
-
-17. **`@Infra` I-03: Least-privilege IAM per Lambda**
-    - Each function gets only the permissions it needs (not blanket ReadWriteData)
-
-18. **`@Mobile` M-01: Enable Isar encryption**
-    - Device-bound AES key stored in Android Keystore
-    - Required before storing any user data locally
 
 ---
 
@@ -302,27 +137,19 @@ This task is complete when:
 ## 📝 Notes
 
 - **Initialization phase is COMPLETE** ✅
-- **Server auth code is COMPLETE** ✅ — 7 Lambda handlers + rate limiting, 169 tests passing, AOT-compliant
-- **Rate limiting is COMPLETE** ✅ — Login lockout, registration flood, OTP limits (dedicated DynamoDB table)
-- **Infrastructure is NOT wired** ⚠️ — Lambda functions commented out in CDK, no Cognito, no routes
-- **CDK needs `rate_limits` table** ⚠️ — New DynamoDB table required (pk: string, TTL-enabled)
+- All three projects (Flutter, .NET, CDK) are initialized and build successfully
 - All documentation has been audited for consistency (2026-02-10)
-
-### PO Review Summary (2026-02-12)
-- Server auth matches `specs/contracts/auth-api.md` — rate limiting + lockout now COMPLETE
-- Code quality: excellent (result types, source generators, security headers, no reflection)
-- Biggest risk: gap between complete server code and zero infrastructure deployment
-- Remaining auth gaps: device fingerprinting, GET /auth/me, PATCH /auth/profile
+- Focus on creating a framework that supports AI-assisted development
+- Automation (checkpoint.sh) is critical for solo developer efficiency
 
 ### Known Limitations
-- **Flutter SDK not installed** on this machine — need to install before running mobile app
+- **Flutter SDK not installed** on this machine - need to install before running mobile app
 - **Node.js 18.x** detected (should upgrade to 20.x LTS per tech stack)
-- **Lambda functions** commented out in CDK stack — zero deployment capability
-- **Cognito User Pool** not provisioned in CDK — no auth backend exists in AWS
-- **Private key in git history** (S-01) — CRITICAL, must purge before sharing repo
+- **.NET Lambda tests** have dependency issues (net10.0 vs net8.0) - need to fix
+- **Lambda function** commented out in CDK stack until .NET publish is ready
 
 ---
 
 **Created:** 2026-02-09
-**Last Updated:** 2026-02-12
-**Status:** Auth Code Complete — Awaiting Infrastructure Wiring & Deployment
+**Last Updated:** 2026-02-10
+**Status:** Initialization Complete — Ready for Feature Implementation
