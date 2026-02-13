@@ -1,8 +1,8 @@
+using System.Text.Json;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using WeredaConnect.Server.Functions;
 using Xunit;
-using System.Text.Json;
 
 namespace WeredaConnect.Server.Tests;
 

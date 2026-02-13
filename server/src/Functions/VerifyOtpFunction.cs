@@ -72,7 +72,9 @@ public class VerifyOtpFunction
         // Validate
         var validation = RequestValidator.ValidateVerifyOtpRequest(otpRequest);
         if (!validation.IsValid)
+        {
             return LambdaResponse.ValidationError(validation);
+        }
 
         // Rate limit check: OTP attempt limits
         var rateLimitCheck = await _rateLimitService.CheckOtpAttemptAllowedAsync(otpRequest!.PhoneNumber);
@@ -112,7 +114,9 @@ public class VerifyOtpFunction
                 var updatedUser = user with { IsPhoneVerified = true };
                 var updateResult = await _userRepository.UpdateUserAsync(updatedUser, user.Version);
                 if (updateResult.IsSuccess)
+                {
                     user = updateResult.Value;
+                }
             }
         }
         catch (Exception ex)

@@ -33,7 +33,9 @@ public sealed class RateLimitService : IRateLimitService
         var entry = await _repository.GetAsync(key);
 
         if (entry == null)
+        {
             return AuthResult<bool>.Success(true);
+        }
 
         // Check if account is locked
         if (entry.LockedUntil != null &&

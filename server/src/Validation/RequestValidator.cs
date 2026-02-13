@@ -222,16 +222,28 @@ public static partial class RequestValidator
         var errors = new List<ValidationError>();
 
         var phoneResult = ValidatePhoneNumber(request.PhoneNumber);
-        if (!phoneResult.IsValid) errors.AddRange(phoneResult.Errors);
+        if (!phoneResult.IsValid)
+        {
+            errors.AddRange(phoneResult.Errors);
+        }
 
         var passwordResult = ValidatePassword(request.Password);
-        if (!passwordResult.IsValid) errors.AddRange(passwordResult.Errors);
+        if (!passwordResult.IsValid)
+        {
+            errors.AddRange(passwordResult.Errors);
+        }
 
         var roleResult = ValidateRole(request.Role);
-        if (!roleResult.IsValid) errors.AddRange(roleResult.Errors);
+        if (!roleResult.IsValid)
+        {
+            errors.AddRange(roleResult.Errors);
+        }
 
         var weredaResult = ValidateWoreda(request.Woreda);
-        if (!weredaResult.IsValid) errors.AddRange(weredaResult.Errors);
+        if (!weredaResult.IsValid)
+        {
+            errors.AddRange(weredaResult.Errors);
+        }
 
         if (request.DisplayName is not null && request.DisplayName.Length > 100)
         {
@@ -276,7 +288,10 @@ public static partial class RequestValidator
         var errors = new List<ValidationError>();
 
         var phoneResult = ValidatePhoneNumber(request.PhoneNumber);
-        if (!phoneResult.IsValid) errors.AddRange(phoneResult.Errors);
+        if (!phoneResult.IsValid)
+        {
+            errors.AddRange(phoneResult.Errors);
+        }
 
         if (string.IsNullOrEmpty(request.Password))
         {
@@ -321,10 +336,16 @@ public static partial class RequestValidator
         }
 
         var phoneResult = ValidatePhoneNumber(request.PhoneNumber);
-        if (!phoneResult.IsValid) errors.AddRange(phoneResult.Errors);
+        if (!phoneResult.IsValid)
+        {
+            errors.AddRange(phoneResult.Errors);
+        }
 
         var otpResult = ValidateOtpCode(request.OtpCode);
-        if (!otpResult.IsValid) errors.AddRange(otpResult.Errors);
+        if (!otpResult.IsValid)
+        {
+            errors.AddRange(otpResult.Errors);
+        }
 
         return errors.Count > 0
             ? ValidationResult.Failure(errors)

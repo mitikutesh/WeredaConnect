@@ -58,7 +58,9 @@ public sealed class UserRepository : IUserRepository
         var response = await _dynamoDb.GetItemAsync(request);
 
         if (response.Item == null || response.Item.Count == 0)
+        {
             return null;
+        }
 
         return FromItem(response.Item);
     }
@@ -80,7 +82,9 @@ public sealed class UserRepository : IUserRepository
         var response = await _dynamoDb.QueryAsync(request);
 
         if (response.Items == null || response.Items.Count == 0)
+        {
             return null;
+        }
 
         return FromItem(response.Items[0]);
     }
@@ -168,13 +172,19 @@ public sealed class UserRepository : IUserRepository
         };
 
         if (user.DisplayName != null)
+        {
             item["displayName"] = new AttributeValue { S = user.DisplayName };
+        }
 
         if (user.FaydaId != null)
+        {
             item["faydaId"] = new AttributeValue { S = user.FaydaId };
+        }
 
         if (user.ProfilePhotoRef != null)
+        {
             item["profilePhotoRef"] = new AttributeValue { S = user.ProfilePhotoRef };
+        }
 
         return item;
     }

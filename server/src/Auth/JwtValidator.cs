@@ -125,16 +125,24 @@ public sealed class CognitoJwtValidator : IJwtValidator
             var woreda = principal.FindFirst("custom:woreda")?.Value;
 
             if (string.IsNullOrEmpty(userId))
+            {
                 return JwtValidationResult.Invalid("Token is missing required claim: sub.");
+            }
 
             if (string.IsNullOrEmpty(phoneNumber))
+            {
                 return JwtValidationResult.Invalid("Token is missing required claim: phone_number.");
+            }
 
             if (string.IsNullOrEmpty(role))
+            {
                 return JwtValidationResult.Invalid("Token is missing required claim: custom:role.");
+            }
 
             if (string.IsNullOrEmpty(woreda))
+            {
                 return JwtValidationResult.Invalid("Token is missing required claim: custom:woreda.");
+            }
 
             return JwtValidationResult.Valid(userId, phoneNumber, role, woreda);
         }

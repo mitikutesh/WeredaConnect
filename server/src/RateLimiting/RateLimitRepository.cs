@@ -34,7 +34,9 @@ public sealed class RateLimitRepository : IRateLimitRepository
         var response = await _dynamoDb.GetItemAsync(request);
 
         if (response.Item == null || response.Item.Count == 0)
+        {
             return null;
+        }
 
         return FromItem(response.Item);
     }

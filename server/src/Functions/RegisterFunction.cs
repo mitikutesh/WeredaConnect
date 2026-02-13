@@ -72,7 +72,9 @@ public class RegisterFunction
         // Validate
         var validation = RequestValidator.ValidateRegisterRequest(registerRequest);
         if (!validation.IsValid)
+        {
             return LambdaResponse.ValidationError(validation);
+        }
 
         // Rate limit check: registration flood protection
         var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(registerRequest!.PhoneNumber);

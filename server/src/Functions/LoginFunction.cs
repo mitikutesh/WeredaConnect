@@ -72,7 +72,9 @@ public class LoginFunction
         // Validate
         var validation = RequestValidator.ValidateLoginRequest(loginRequest);
         if (!validation.IsValid)
+        {
             return LambdaResponse.ValidationError(validation);
+        }
 
         // Rate limit check: is account locked?
         var rateLimitCheck = await _rateLimitService.CheckLoginAllowedAsync(loginRequest!.PhoneNumber);

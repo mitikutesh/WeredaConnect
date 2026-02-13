@@ -57,7 +57,9 @@ public class RefreshFunction
         // Validate
         var validation = RequestValidator.ValidateRefreshRequest(refreshRequest);
         if (!validation.IsValid)
+        {
             return LambdaResponse.ValidationError(validation);
+        }
 
         // Cognito refresh
         var refreshResult = await _authService.RefreshAsync(refreshRequest!.RefreshToken);

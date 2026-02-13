@@ -56,7 +56,9 @@ public class LogoutFunction
         // Validate
         var validation = RequestValidator.ValidateLogoutRequest(logoutRequest);
         if (!validation.IsValid)
+        {
             return LambdaResponse.ValidationError(validation);
+        }
 
         // Cognito logout (revoke refresh token)
         var logoutResult = await _authService.LogoutAsync(logoutRequest!.RefreshToken);

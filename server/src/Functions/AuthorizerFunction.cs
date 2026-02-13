@@ -89,10 +89,14 @@ public class AuthorizerFunction
     internal static string? ExtractBearerToken(string? authorizationToken)
     {
         if (string.IsNullOrWhiteSpace(authorizationToken))
+        {
             return null;
+        }
 
         if (authorizationToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
             return authorizationToken["Bearer ".Length..].Trim();
+        }
 
         // Some API Gateway configurations pass the token directly
         return authorizationToken.Trim();
@@ -159,7 +163,9 @@ public class AuthorizerFunction
     private static string BuildResourceArn(string methodArn)
     {
         if (string.IsNullOrEmpty(methodArn))
+        {
             return "*";
+        }
 
         var parts = methodArn.Split('/');
         return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}/*" : methodArn;
