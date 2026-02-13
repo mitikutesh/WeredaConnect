@@ -9,7 +9,7 @@ import { environments } from '../lib/config/environments';
 const app = new cdk.App();
 
 // Determine environment from context or default to dev
-const envName = app.node.tryGetContext('env') || 'dev';
+const envName = app.node.tryGetContext('environment') || 'dev';
 const envConfig = environments[envName] ?? environments['dev'];
 
 const envProps: cdk.Environment = {

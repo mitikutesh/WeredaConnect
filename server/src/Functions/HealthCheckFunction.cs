@@ -48,6 +48,7 @@ public class HealthCheckFunction
             Headers = new Dictionary<string, string>
             {
                 { "Content-Type", "application/json" },
+                { "X-WeredaConnect-Version", "0.1.0" },
                 { "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload" },
                 { "X-Content-Type-Options", "nosniff" },
                 { "X-Frame-Options", "DENY" },
