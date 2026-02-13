@@ -127,7 +127,8 @@ class _MainNavigationState extends State<MainNavigation> {
               Navigator.pop(context); // Close drawer
               Navigator.push(
                 context,
-                MaterialPageRoute<void>(builder: (context) => const SettingsScreen()),
+                MaterialPageRoute<void>(
+                    builder: (context) => const SettingsScreen()),
               );
             },
           ),
@@ -154,4 +155,3 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 }
-
