@@ -19,8 +19,8 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates three DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 3);
+  test('creates four DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 4);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -40,7 +40,9 @@ describe('DatabaseStack', () => {
 });
 
 describe('ApiStack', () => {
-  test('creates HTTP API Gateway', () => {
+  let template: Template;
+
+  beforeAll(() => {
     const app = new cdk.App();
     const dbStack = new DatabaseStack(app, 'DbStack', {
       env: { account: '123456789012', region: devConfig.region },
@@ -52,13 +54,40 @@ describe('ApiStack', () => {
       usersTable: dbStack.usersTable,
       cropsTable: dbStack.cropsTable,
       tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
+    template = Template.fromStack(apiStack);
+  });
 
-    const template = Template.fromStack(apiStack);
+  test('creates HTTP API Gateway', () => {
     template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
       ProtocolType: 'HTTP',
     });
+  });
+
+  test('creates Cognito User Pool with phone sign-in', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      UsernameAttributes: ['phone_number'],
+      AutoVerifiedAttributes: ['phone_number'],
+    });
+  });
+
+  test('creates Cognito User Pool Client', () => {
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
+  });
+
+  test('creates six Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 6);
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'provided.al2023',
+      Architectures: ['arm64'],
+    });
+  });
+
+  test('creates API Gateway routes for auth endpoints', () => {
+    // 6 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
   });
 });
 

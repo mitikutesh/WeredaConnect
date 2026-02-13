@@ -1,13 +1,59 @@
 # WeredaConnect Development Progress
 
-## Phase 2: Cognito Integration + Lambda Handlers (2026-02-12)
+## Phase 3: CDK Infrastructure + AOT Bootstrap (2026-02-13)
 
 **Branch**: `Authentication-Encryptionministries`
-**Status**: Complete — 127 tests passing, 0 build warnings
+**Status**: Complete — 169 server tests + 11 CDK tests passing
 
 ### What was built
 
-Implemented the full server-side auth business logic: Cognito service layer, DynamoDB user repository, and 5 Lambda handler functions — all AOT-compatible.
+Wired the server auth code into deployable infrastructure: Program.cs AOT bootstrap, CDK Cognito User Pool, auth Lambda functions, API Gateway routes, DynamoDB GSIs, and rate limiting table.
+
+### New/modified files
+
+**Server:**
+- `src/Program.cs` — AOT bootstrap entry point with `FUNCTION_HANDLER` routing to 7 handlers
+- `WeredaConnect.Server.csproj` — Added `OutputType=Exe`, `Amazon.Lambda.RuntimeSupport` package
+
+**CDK Infrastructure:**
+- `lib/stacks/api-stack.ts` — Full rewrite: Cognito User Pool (phone-based, SMS OTP), 6 Lambda functions, HTTP API Gateway with 6 routes, per-function least-privilege IAM, throttling (100 req/s, 200 burst)
+- `lib/stacks/database-stack.ts` — Added RateLimits table (pk/sk + TTL), PhoneIndex GSI, RoleWaredaIndex GSI on Users table
+- `lib/constructs/lambda-construct.ts` — Added `handlerName` prop for `FUNCTION_HANDLER` env var
+- `bin/wereda-connect.ts` — Updated stack wiring (3 stacks: Database → API → Monitoring)
+
+**CDK Tests (fixed):**
+- `test/unit/stack.test.ts` — Added `rateLimitsTable` prop, Cognito/Lambda/route assertions
+- `test/integration/cdk-synth.test.ts` — Removed deleted AuthStack, fixed stack count to 3
+- `test/snapshot/` — Regenerated snapshot
+
+**Governance:**
+- `specs/contracts/auth-api.md` — Verified complete (672 lines, all 5 endpoints)
+- `scripts/deploy.sh` — Deployment script
+- `.gitleaks.toml`, `.pre-commit-config.yaml` — Secret scanning
+
+### Key architecture decisions
+
+- **Consolidated ApiStack** — Cognito + auth Lambdas + routes in one stack (avoids cross-stack cyclic references)
+- **`FUNCTION_HANDLER` env var** — `_HANDLER` is reserved by Lambda runtime
+- **Least-privilege IAM** — Each Lambda gets only its specific Cognito actions
+- **ARM64 + provided.al2023** — Graviton2 for better price/performance
+
+### Bugs fixed
+
+1. **`_HANDLER` reserved** — CDK synth failed; renamed to `FUNCTION_HANDLER`
+2. **Cross-stack cyclic reference** — Separate AuthStack adding routes to ApiStack's HttpApi; consolidated into ApiStack
+3. **CDK tests stale** — Tests referenced deleted AuthStack and missing rateLimitsTable prop
+
+---
+
+## Phase 2: Cognito Integration + Lambda Handlers (2026-02-12)
+
+**Branch**: `Authentication-Encryptionministries`
+**Status**: Complete — 169 tests passing (including rate limiting), 0 build warnings
+
+### What was built
+
+Implemented the full server-side auth business logic: Cognito service layer, DynamoDB user repository, 5 Lambda handler functions, rate limiting, and input validation — all AOT-compatible.
 
 ### New files (14 source + 8 test)
 
@@ -95,9 +141,9 @@ ExpressionAttributeValues = new() { { ":expectedVersion", new AttributeValue { N
 2. **Anonymous types + source-generated JSON** — Tests can't use `AppJsonContext.Default.Options` for anonymous objects; switched to plain `JsonSerializerOptions`
 3. **Missing `preferredLanguage` in test data** — .NET 10 source-generated deserializer doesn't apply `init` property defaults when field absent from JSON
 
-### Not in scope (follow-up)
-- CDK: PhoneIndex + RoleWaredaIndex GSIs on users table
-- CDK: Cognito User Pool + App Client provisioning
-- CDK: API Gateway routes + authorizer wiring
-- CDK: Lambda function deployments
-- `Program.cs` / AOT bootstrap entry point
+### Follow-up (completed in Phase 3)
+- ~~CDK: PhoneIndex + RoleWaredaIndex GSIs on users table~~ ✅
+- ~~CDK: Cognito User Pool + App Client provisioning~~ ✅
+- ~~CDK: API Gateway routes + authorizer wiring~~ ✅
+- ~~CDK: Lambda function deployments~~ ✅
+- ~~`Program.cs` / AOT bootstrap entry point~~ ✅

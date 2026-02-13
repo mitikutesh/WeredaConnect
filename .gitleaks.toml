@@ -1,0 +1,31 @@
+# Gitleaks configuration for WeredaConnect
+# Extends the default ruleset with project-specific settings
+
+title = "WeredaConnect Secret Detection"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''node_modules/''',
+    '''.dart_tool/''',
+    '''build/''',
+    '''bin/''',
+    '''obj/''',
+    '''cdk\.out/''',
+    '''\.github/DEPENDABOT_QUICK_REFERENCE\.md''',
+    '''dist/''',
+    '''docs/developer/api-reference\.md''',
+    '''specs/contracts/.*\.md''',
+    '''server/\.idea/''',
+    '''__snapshots__/''',
+]
+
+# Allow test fixtures and documentation examples
+regexTarget = "line"
+regexes = [
+    '''EXAMPLE_KEY_DO_NOT_USE''',
+    '''test-secret-placeholder''',
+]

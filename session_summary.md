@@ -1,19 +1,25 @@
 # Session Summary — Consolidated Project Knowledge
 
-**Last Updated**: 2026-02-12
+**Last Updated**: 2026-02-13
 **Purpose**: Single reference for key decisions, implementation state, and security posture. Replaces 21 individual MD files.
 
 ---
 
 ## 1. Auth Implementation (Phase 2) — Branch: Authentication-Encryptionministries
 
-**Status**: 127 tests passing, 0 warnings
+**Status**: 169 tests passing, 0 warnings
 
 ### Files Created
 - `src/Services/AuthResult.cs` — Generic result type (Success/Failure), replaces exceptions for expected failures
 - `src/Helpers/LambdaResponse.cs` — AOT-safe response builder (Ok, Created, Error, ValidationError) with security headers
 - `src/Services/CognitoAuthService.cs` — Cognito SDK wrapper, maps exceptions to AUTH_* error codes
 - `src/Data/UserRepository.cs` — Manual DynamoDB marshalling (AOT-safe), optimistic concurrency via version field
+- `src/Auth/JwtValidator.cs` — AOT-compatible JWT validation
+- `src/Functions/AuthorizerFunction.cs` — Lambda authorizer for API Gateway
+- `src/Validation/RequestValidator.cs` — Input validation (Ethiopian phone format, field constraints)
+- `src/RateLimiting/RateLimitService.cs` + `IRateLimitService.cs` — Rate limiting logic (5 login/15min, 3 register/15min)
+- `src/RateLimiting/RateLimitRepository.cs` + `IRateLimitRepository.cs` — DynamoDB-backed rate limit storage
+- `src/RateLimiting/RateLimitEntry.cs` — Rate limit data model
 - 5 Lambda handlers: Register, VerifyOtp, Login, Refresh, Logout
 
 ### Key Design Decisions
@@ -32,8 +38,10 @@
 - Missing `preferredLanguage` in test data — .NET 10 source-gen doesn't apply `init` defaults for absent fields
 
 ### Not Yet Done
-- CDK: PhoneIndex + RoleWaredaIndex GSIs, Cognito User Pool provisioning, API Gateway routes, Lambda deployments
-- `Program.cs` / AOT bootstrap entry point (F-16)
+- `Program.cs` / AOT bootstrap entry point (F-16) — in progress
+- CDK: Cognito User Pool provisioning, API Gateway routes, Lambda deployments — in progress
+- CDK: PhoneIndex + RoleWaredaIndex GSIs, RateLimits table — in progress
+- Auth API contract (`specs/contracts/auth-api.md`) — in progress
 
 ---
 

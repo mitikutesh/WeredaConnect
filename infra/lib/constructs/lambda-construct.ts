@@ -6,6 +6,7 @@ import * as path from 'path';
 export interface WeredaLambdaProps {
   readonly functionName: string;
   readonly description: string;
+  readonly handlerName?: string;
   readonly environment?: Record<string, string>;
   readonly memorySize?: number;
   readonly timeout?: cdk.Duration;
@@ -34,7 +35,10 @@ export class WeredaLambda extends Construct {
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
       description: props.description,
-      environment: props.environment,
+      environment: {
+        ...props.environment,
+        ...(props.handlerName ? { FUNCTION_HANDLER: props.handlerName } : {}),
+      },
     });
   }
 }

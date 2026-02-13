@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>13.0</LangVersion>
+    <OutputType>Exe</OutputType>
 
     <!-- Lambda Configuration -->
     <AWSProjectType>Lambda</AWSProjectType>
@@ -34,6 +35,7 @@
     <!-- AWS Lambda -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
     <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
 
     <!-- AWS SDK (AOT-Compatible) -->
@@ -68,4 +70,3 @@
   </ItemGroup>
 
 </Project>
-

@@ -29,16 +29,17 @@ const databaseStack = new DatabaseStack(app, `${stackPrefix}-Database`, {
   envConfig,
 });
 
-// 2. API stack (depends on Database)
+// 2. API stack (depends on Database) — Cognito, auth Lambdas, API Gateway, routes
 const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   env: envProps,
   stackName: `wereda-connect-${envConfig.name}-api`,
-  description: `WeredaConnect ${envConfig.name} - API Gateway and Lambda functions`,
+  description: `WeredaConnect ${envConfig.name} - Cognito, API Gateway, and Lambda functions`,
   tags: envConfig.tags,
   envConfig,
   usersTable: databaseStack.usersTable,
   cropsTable: databaseStack.cropsTable,
   tripsTable: databaseStack.tripsTable,
+  rateLimitsTable: databaseStack.rateLimitsTable,
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);

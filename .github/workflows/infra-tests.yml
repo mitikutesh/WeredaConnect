@@ -17,7 +17,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -53,7 +53,7 @@ jobs:
     name: Snapshot Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -85,7 +85,7 @@ jobs:
     name: CDK Synth Validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [unit-tests]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -149,11 +149,41 @@ jobs:
         working-directory: infra
         run: npm test -- --testPathPattern=integration
 
+  vulnerability-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Check for vulnerable packages
+        working-directory: infra
+        run: |
+          echo "Scanning npm packages for known vulnerabilities..."
+          npm audit --audit-level=high || {
+            echo "::error::High or critical severity vulnerabilities found in npm packages"
+            exit 1
+          }
+          echo "No high/critical vulnerabilities found."
+
   smoke-tests:
     name: Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -176,4 +206,3 @@ jobs:
       - name: Verify CDK app can be synthesized
         working-directory: infra
         run: npx cdk synth --quiet > /dev/null
-

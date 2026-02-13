@@ -17,6 +17,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly usersTable: dynamodb.Table;
   public readonly cropsTable: dynamodb.Table;
   public readonly tripsTable: dynamodb.Table;
+  public readonly rateLimitsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
@@ -32,6 +33,36 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.usersTable = users.table;
+
+    // GSI: look up users by phone number (login, duplicate check)
+    this.usersTable.addGlobalSecondaryIndex({
+      indexName: 'PhoneIndex',
+      partitionKey: { name: 'phoneNumber', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: query users by role + woreda (matching, admin views)
+    this.usersTable.addGlobalSecondaryIndex({
+      indexName: 'RoleWaredaIndex',
+      partitionKey: { name: 'role', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'woreda', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Rate limits table (auth brute-force protection)
+    const rateLimits = new WeredaDynamoTable(this, 'RateLimitsTable', {
+      tableName: `${prefix}-rate-limits`,
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.rateLimitsTable = rateLimits.table;
+
+    // Enable TTL on rate limits table for automatic cleanup
+    (this.rateLimitsTable.node.defaultChild as dynamodb.CfnTable).addPropertyOverride(
+      'TimeToLiveSpecification',
+      { AttributeName: 'expiresAt', Enabled: true },
+    );
 
     // Crops table
     const crops = new WeredaDynamoTable(this, 'CropsTable', {
@@ -85,6 +116,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UploadsBucketName', {
       value: this.uploadsBucket.bucketName,
       description: 'S3 Uploads Bucket',
+    });
+
+    new cdk.CfnOutput(this, 'RateLimitsTableName', {
+      value: this.rateLimitsTable.tableName,
+      description: 'DynamoDB Rate Limits Table',
     });
   }
 }

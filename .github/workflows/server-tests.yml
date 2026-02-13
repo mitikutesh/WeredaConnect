@@ -21,28 +21,28 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
+
       - name: Restore dependencies
         working-directory: ./server
         run: dotnet restore
-      
+
       - name: Build
         working-directory: ./server
         run: dotnet build --no-restore --configuration Release
-      
+
       - name: Run unit tests
         working-directory: ./server
         run: dotnet test --no-build --configuration Release --filter "Category!=Integration" --logger "trx;LogFileName=test-results.trx"
-      
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,7 +53,7 @@ jobs:
   integration-tests:
     name: Integration Tests (LocalStack)
     runs-on: ubuntu-latest
-    
+
     services:
       localstack:
         image: localstack/localstack:latest
@@ -70,29 +70,29 @@ jobs:
           --health-timeout 5s
           --health-retries 5
           --health-start-period 10s
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
+
       - name: Restore dependencies
         working-directory: ./server
         run: dotnet restore
-      
+
       - name: Build
         working-directory: ./server
         run: dotnet build --no-restore --configuration Release
-      
+
       - name: Wait for LocalStack
         run: |
           echo "Waiting for LocalStack to be ready..."
           timeout 60 bash -c 'until curl -f http://localhost:4566/_localstack/health; do sleep 2; done'
-      
+
       - name: Run integration tests
         working-directory: ./server
         env:
@@ -101,7 +101,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
         run: dotnet test --no-build --configuration Release --filter "Category=Integration" --logger "trx;LogFileName=integration-test-results.trx"
-      
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,31 +150,62 @@ jobs:
           echo "Native AOT binary size: $BINARY_SIZE"
           echo "::notice::Native AOT binary size (ARM64): $BINARY_SIZE"
 
-  coverage:
-    name: Code Coverage
+  vulnerability-scan:
+    name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
+
       - name: Restore dependencies
         working-directory: ./server
         run: dotnet restore
-      
+
+      - name: Check for vulnerable packages
+        working-directory: ./server
+        run: |
+          echo "Scanning NuGet packages for known vulnerabilities..."
+          OUTPUT=$(dotnet list package --vulnerable --include-transitive 2>&1) || true
+          echo "$OUTPUT"
+
+          # Fail on critical or high severity vulnerabilities
+          if echo "$OUTPUT" | grep -qi "Critical\|High"; then
+            echo "::error::Critical or High severity vulnerabilities found in NuGet packages"
+            exit 1
+          fi
+
+          echo "No critical/high vulnerabilities found."
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        working-directory: ./server
+        run: dotnet restore
+
       - name: Run tests with coverage
         working-directory: ./server
         run: dotnet test --collect:"XPlat Code Coverage" --results-directory ./coverage
-      
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: ./server/coverage/**/coverage.cobertura.xml
           flags: server
           name: server-coverage
-

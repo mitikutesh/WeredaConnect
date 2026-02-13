@@ -21,6 +21,7 @@ describe('CDK Integration Tests', () => {
       usersTable: dbStack.usersTable,
       cropsTable: dbStack.cropsTable,
       tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -52,6 +53,7 @@ describe('CDK Integration Tests', () => {
         usersTable: dbStack.usersTable,
         cropsTable: dbStack.cropsTable,
         tripsTable: dbStack.tripsTable,
+        rateLimitsTable: dbStack.rateLimitsTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 
