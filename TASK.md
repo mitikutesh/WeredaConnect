@@ -162,10 +162,13 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 
 ### Priority Group A: Security & Deployment (MUST DO — Week 1)
 
-#### A1: F-01 — Purge Git History 🚨 CRITICAL BLOCKER
-> 🚨 **CI/CD BLOCKED**: Gitleaks is failing on PR validation due to secrets in git history.
-> Private key removed from working tree but still in git history (51 commits, 3 objects).
+#### A1: F-01 — Purge Git History & Fix Gitleaks False Positives
+> ⚠️ **Two issues found**:
+> 1. Private key still in git history (51 commits, 3 objects) - requires manual purge
+> 2. Gitleaks false positives on test fixtures (QR tokens, Telebirr refs) - **FIXED** in `.gitleaks.toml`
+>
 > **Scripts created**: `scripts/purge-git-history.sh` (BFG) and `scripts/purge-git-history-manual.sh` (git filter-branch)
+- [x] `@Security` Fix gitleaks false positives - added test file paths and regex patterns to `.gitleaks.toml`
 - [ ] `@Security` Run `./scripts/purge-git-history.sh` (BFG - recommended) OR `./scripts/purge-git-history-manual.sh` (manual)
 - [ ] `@Security` Verify with `git log --all --full-history --source -- "*pem*"` returns empty
 - [ ] `@Security` Force-push cleaned history: `git push --force-with-lease --all`
@@ -184,6 +187,7 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 - [x] `@Infra` Add `npm audit --audit-level=high` step to `infra-tests.yml` — fail on HIGH+ (lines 161-190)
 - [x] `@Infra` Add gitleaks secret scanning step to `pr-validation.yml` using `gitleaks/gitleaks-action@v2` (lines 157-170)
 - [x] `@Infra` Verify all workflow YAML is valid and references correct action versions
+- [x] `@Infra` Fix mobile integration tests — add `build_runner` step to integration-tests, build-apk, and smoke-tests jobs
 
 **R1 Exit Criteria:**
 - [ ] Zero secrets in git history (remote) — **PENDING A1**
