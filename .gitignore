@@ -26,10 +26,16 @@ mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.ja
 # .NET
 server/bin/
 server/obj/
+server/out/
 server/**/bin/
 server/**/obj/
+server/**/out/
 server/.vs/
 server/*.user
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
 
 # LocalStack (prevent accidental commits of state/secrets)
 server/localstack-data/**
@@ -51,3 +57,6 @@ infra/*.d.ts
 # Coverage
 coverage/
 *.lcov
+TestResults/
+*.coverage
+*.coveragexml
