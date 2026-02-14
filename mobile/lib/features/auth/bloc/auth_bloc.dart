@@ -1,7 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -12,6 +14,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 /// - Online/offline login
 /// - Token refresh
 /// - Logout
+/// - Session persistence across app restarts
 ///
 /// State transitions:
 /// - AuthInitial → AuthLoading → AuthAuthenticated/AuthUnauthenticated/AuthError
@@ -21,16 +24,25 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 /// Ethiopian context:
 /// - Supports offline authentication with cached credentials
 /// - Auto-detects connectivity and chooses appropriate auth method
+/// - Expired tokens still emit AuthAuthenticated (offline-first: lazy refresh)
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
+  final OfflineAuthCache _offlineCache;
   String? _currentPhoneNumber;
   // SECURITY: Password never stored in BLoC state to prevent memory exposure
   // On shared devices (common in Ethiopia), password in memory is a critical security risk
   // Password only exists in event parameters, never persisted in BLoC fields
 
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _currentUserPhoneKey = 'current_user_phone';
+
   AuthBloc({
     AuthService? authService,
+    OfflineAuthCache? offlineCache,
   })  : _authService = authService ?? AuthService(),
+        _offlineCache = offlineCache ?? OfflineAuthCache(),
         super(const AuthInitial()) {
     // Register event handlers
     on<AuthCheckRequested>(_onAuthCheckRequested);
@@ -43,16 +55,71 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
   }
 
+  /// Save the current session phone number to secure storage.
+  Future<void> _saveSession(String phoneNumber) async {
+    _currentPhoneNumber = phoneNumber;
+    await _secureStorage.write(
+      key: _currentUserPhoneKey,
+      value: phoneNumber,
+    );
+  }
+
+  /// Clear the current session from secure storage.
+  Future<void> _clearSession() async {
+    _currentPhoneNumber = null;
+    await _secureStorage.delete(key: _currentUserPhoneKey);
+  }
+
   /// Check if user is already authenticated.
+  ///
+  /// Reads stored phone number from secure storage, then checks for
+  /// cached tokens and user profile. Emits AuthAuthenticated if a
+  /// valid session exists, AuthUnauthenticated otherwise.
+  ///
+  /// Offline-first: expired tokens still emit AuthAuthenticated.
+  /// Token refresh happens lazily on API calls.
   Future<void> _onAuthCheckRequested(
     AuthCheckRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
 
-    // TODO: Check if valid tokens exist in secure storage
-    // For now, just emit unauthenticated
-    emit(const AuthUnauthenticated());
+    try {
+      // Read stored phone number
+      final phone = await _secureStorage.read(key: _currentUserPhoneKey);
+      if (phone == null || phone.isEmpty) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      _currentPhoneNumber = phone;
+
+      // Check for cached tokens
+      final tokens = await _offlineCache.getCachedTokens(phone);
+      if (tokens == null) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      // Check for cached user profile
+      final user = await _offlineCache.getCachedUser(phone);
+      if (user == null) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      // Offline-first: let user in even with expired tokens.
+      // Token refresh happens lazily on API calls.
+      emit(
+        AuthAuthenticated(
+          userId: user.userId,
+          tokens: tokens,
+          isOfflineAuth: tokens.isExpired,
+        ),
+      );
+    } on Exception {
+      emit(const AuthUnauthenticated());
+    }
   }
 
   /// Handle user registration.
@@ -107,9 +174,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      // SECURITY: After OTP verification, user must login separately to cache credentials
-      // We DO NOT auto-login because password was never stored in BLoC state
-      // This is intentional - users will be directed to login screen after registration
+      // Cache tokens for session persistence after OTP
+      if (result.tokens != null) {
+        await _offlineCache.updateTokens(event.phoneNumber, result.tokens!);
+      }
+      await _saveSession(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
@@ -139,6 +209,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
@@ -170,6 +242,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
@@ -200,6 +274,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
@@ -231,6 +307,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       // Update tokens in current authenticated state
       if (currentState is AuthAuthenticated) {
+        // Update cached tokens
+        if (_currentPhoneNumber != null) {
+          await _offlineCache.updateTokens(
+            _currentPhoneNumber!,
+            result.tokens!,
+          );
+        }
+
         emit(
           AuthAuthenticated(
             userId: currentState.userId,
@@ -260,6 +344,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         accessToken: currentState.tokens.accessToken,
         clearCache: event.clearCache,
       );
+
+      await _clearSession();
 
       emit(const AuthUnauthenticated());
     }

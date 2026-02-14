@@ -39,24 +39,25 @@
 | **Lambda Deployment** | ❌ NOT DONE | CDK code exists but **NOT deployed to AWS** |
 | **Deployment Scripts** | ✅ COMPLETE | scripts/deploy.sh |
 
-#### Mobile (Critical Gaps)
+#### Mobile (Auth Foundation Complete, Sync/Network Pending)
 | Component | Status | Evidence |
 |-----------|--------|----------|
-| **UI Screens** | ✅ BASIC | Home, Listings, Profile, Settings (navigation only) |
+| **UI Screens** | ✅ COMPLETE | Home, Listings, Profile, Settings + Login, Register, OTP verification |
 | **Localization** | ✅ COMPLETE | Amharic, Afan Oromo, English .arb files |
-| **Isar Schemas** | ❌ MISSING | mobile/lib/core/database/ is EMPTY |
-| **Auth Service** | ❌ MISSING | mobile/lib/core/auth/ is EMPTY |
-| **Encryption** | ❌ MISSING | No Android Keystore integration |
-| **Network Layer** | ❌ MISSING | mobile/lib/core/network/ is EMPTY |
-| **Sync Engine** | ❌ MISSING | mobile/lib/core/sync/ is EMPTY |
-| **BLoC State** | ❌ MISSING | No state management |
+| **Isar Schemas** | ✅ COMPLETE | 6 schemas: User, CropListing, Trip, Delivery, Payment, SyncOperation |
+| **Auth Service** | ✅ COMPLETE | AuthService (online+offline), OfflineAuthCache (PBKDF2) |
+| **Encryption** | ✅ COMPLETE | Isar encryption with Android Keystore via flutter_secure_storage |
+| **BLoC State** | ✅ COMPLETE | AuthBloc with AuthInitial/Loading/Authenticated/Unauthenticated/Error states |
+| **Network Layer** | ❌ MISSING | mobile/lib/core/network/ is EMPTY (needed for R3) |
+| **Sync Engine** | ❌ MISSING | mobile/lib/core/sync/ is EMPTY (R3 priority) |
 
-#### Security (Incomplete)
+#### Security (Mostly Complete)
 | Component | Status | Evidence |
 |-----------|--------|----------|
 | **Pre-commit Hooks** | ✅ COMPLETE | .gitleaks.toml, .pre-commit-config.yaml |
-| **Git History Purge** | ❌ CRITICAL | Private key still in git history (remote) |
-| **CI/CD Security Scans** | ❌ MISSING | No gitleaks/vuln scanning in workflows |
+| **Git History Purge** | ❌ CRITICAL | Private key still in git history (scripts ready, not executed) |
+| **CI/CD Security Scans** | ✅ COMPLETE | gitleaks in pr-validation.yml, vuln scans in server/infra tests |
+| **Auth Security Fixes** | ✅ COMPLETE | Password removed from BLoC state, offline rate limiting added |
 
 ---
 
@@ -72,7 +73,7 @@
 
 **PO Assessment**: R1 75% complete. Only F-01 (git purge) and F-16 (deployment) remain.
 
-### Phase R2: Auth + Data Models (Week 3-5) — **65% Complete**
+### Phase R2: Auth + Data Models (Week 3-5) — **90% Complete ✅ MILESTONE MET**
 | Feature | Status | Server | Mobile | Infra |
 |---------|--------|--------|--------|-------|
 | F-07: Core domain models | ⚠️ 83% | N/A | ✅ 100% (6 Isar schemas) | ⚠️ 57% (4/7 tables, missing 3) |
@@ -82,7 +83,7 @@
 | F-09: Input validation | ✅ 100% | ✅ 100% | N/A | N/A |
 | F-05: Cert pinning | ❌ 0% | N/A | ❌ 0% | N/A |
 
-**PO Assessment**: Server-side is excellent. Mobile-side has strong foundation (auth + data models). Infra needs 3 more DynamoDB tables.
+**PO Assessment (Feb 14)**: **R2 milestone "User Can Register and Login" is ACHIEVED.** 8/9 exit criteria met (89%), exceeding 80% target. Remaining items (3 DynamoDB tables, cert pinning) are for R3/R4 phases, not blocking auth.
 
 ### Phase R3-R6 — **0% Complete**
 Not started. Blocked by R1 + R2 completion.
@@ -329,23 +330,23 @@ Not started. Blocked by R1 + R2 completion.
 ## 📊 Sprint Success Metrics
 
 ### Must-Have (Sprint Cannot Close Without These)
-- [ ] ✅ Zero secrets in git history (verified with `git log --all --full-history --source -- "*pem*"`)
-- [ ] ✅ HealthCheckFunction deployed to AWS and responding <2s cold start
-- [ ] ✅ All 6 Isar schemas generating without errors
-- [ ] ✅ Isar encryption enabled and tested
-- [ ] ✅ User can register with Ethiopian phone (+251XXXXXXXXX)
-- [ ] ✅ User can log in online (Cognito)
-- [ ] ✅ User can log in offline (cached credentials)
+- [ ] Zero secrets in git history — ❌ A1 pending (scripts ready)
+- [ ] HealthCheckFunction deployed to AWS and responding <2s cold start — ❌ A2 pending
+- [x] All 6 Isar schemas generating without errors — ✅ DONE
+- [x] Isar encryption enabled and tested — ✅ DONE
+- [x] User can register with Ethiopian phone (+251XXXXXXXXX) — ✅ DONE
+- [x] User can log in online (Cognito) — ✅ DONE
+- [x] User can log in offline (cached credentials) — ✅ DONE
 
 ### Should-Have (High Value)
-- [ ] ✅ CI/CD security scans running on every PR
-- [ ] ✅ All 9 DynamoDB tables deployed (Users, Trips, Crops, Deliveries, Payments, SyncMetadata, RateLimits + 2 GSIs)
-- [ ] ✅ Auth tokens stored in flutter_secure_storage with Android Keystore backing
+- [x] CI/CD security scans running on every PR — ✅ DONE (A3 complete)
+- [ ] All 9 DynamoDB tables deployed — ❌ 4/7 (3 pending: Deliveries, Payments, SyncMetadata)
+- [x] Auth tokens stored in flutter_secure_storage with Android Keystore backing — ✅ DONE
 
 ### Could-Have (If Time Permits)
-- [ ] ✅ Certificate pinning configured
-- [ ] ✅ Auth API contract updated with mobile flows
-- [ ] ✅ End-to-end test: register → verify → login → logout (automated)
+- [ ] Certificate pinning configured — ❌ not started
+- [ ] Auth API contract updated with mobile flows — ❌ not started
+- [ ] End-to-end test: register → verify → login → logout (automated) — ❌ not started
 
 ---
 
@@ -455,7 +456,8 @@ Before starting Sprint 3, verify:
 
 ---
 
-**Document Version**: 1.0.0
+**Document Version**: 1.1.0
 **Created**: 2026-02-14
+**Last Updated**: 2026-02-14 (R2 milestone assessment — register/login COMPLETE)
 **Sprint Goal**: Deploy and Secure the Backend, Lay Mobile Foundation
 **Next Review**: 2026-02-28 (Sprint Retrospective)

@@ -29,6 +29,10 @@ class ApiClient {
   ApiClient._internal();
 
   late final Dio dio;
+  bool _isInitialized = false;
+
+  /// Whether the API client has been initialized.
+  bool get isInitialized => _isInitialized;
 
   /// Pinned SHA-256 certificate hashes for API Gateway.
   ///
@@ -50,6 +54,9 @@ class ApiClient {
   ///
   /// IMPORTANT: Do not enable cert pinning until real certificates are deployed!
   void initialize(String baseUrl, {bool enableCertPinning = false}) {
+    if (_isInitialized) return;
+    _isInitialized = true;
+
     dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,

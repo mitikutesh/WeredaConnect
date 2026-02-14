@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/main.dart';
-import 'package:wereda_connect/screens/main_navigation.dart';
 
 void main() {
+  setUpAll(() {
+    // Initialize API client before tests (normally done in main())
+    ApiClient().initialize(ApiConfig.baseUrl);
+  });
+
   group('WeredaConnectApp', () {
     testWidgets('renders without crashing', (WidgetTester tester) async {
       // Build the app
@@ -13,60 +20,22 @@ void main() {
       expect(find.byType(WeredaConnectApp), findsOneWidget);
     });
 
-    testWidgets('shows app title in app bar', (WidgetTester tester) async {
+    testWidgets('shows AuthGate as root', (WidgetTester tester) async {
       // Build the app
       await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
 
-      // Verify app title is displayed
-      expect(find.text('WeredaConnect'), findsOneWidget);
+      // AuthGate is the root routing widget
+      expect(find.byType(AuthGate), findsOneWidget);
     });
 
-    testWidgets('shows welcome message', (WidgetTester tester) async {
-      // Build the app
+    testWidgets('shows splash screen initially', (WidgetTester tester) async {
+      // Build the app (don't settle - splash is transient)
       await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
+      await tester.pump();
 
-      // Verify welcome message is displayed
-      expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
-    });
-
-    testWidgets('shows offline ready indicator', (WidgetTester tester) async {
-      // Build the app
-      await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
-
-      // Verify offline ready text is displayed
-      expect(find.text('Offline Ready'), findsOneWidget);
-    });
-
-    testWidgets('shows agriculture icon', (WidgetTester tester) async {
-      // Build the app
-      await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
-
-      // Verify agriculture icon is displayed
+      // Splash screen shows agriculture icon and app name
       expect(find.byIcon(Icons.agriculture), findsOneWidget);
-    });
-  });
-
-  group('MainNavigation', () {
-    testWidgets('renders correctly', (WidgetTester tester) async {
-      await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
-
-      // Verify MainNavigation is rendered
-      expect(find.byType(MainNavigation), findsOneWidget);
-    });
-  });
-
-  group('Localization', () {
-    testWidgets('supports English locale', (WidgetTester tester) async {
-      await tester.pumpWidget(const WeredaConnectApp());
-      await tester.pumpAndSettle();
-
-      // Verify English text is displayed
-      expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
+      expect(find.text('WeredaConnect'), findsWidgets);
     });
   });
 }
