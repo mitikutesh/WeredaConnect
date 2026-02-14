@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/screens/listings_screen.dart';
@@ -21,6 +25,38 @@ class _MainNavigationState extends State<MainNavigation> {
     ListingsScreen(),
     ProfileScreen(),
   ];
+
+  void _showLogoutConfirmation(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(l10n.logout),
+          content: Text(l10n.logoutConfirmation),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.cancel),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                // clearCache: false preserves offline credentials
+                // (important for Ethiopian rural users who share devices)
+                context.read<AuthBloc>().add(
+                      const AuthLogoutRequested(clearCache: false),
+                    );
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: Text(l10n.logout),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +185,18 @@ class _MainNavigationState extends State<MainNavigation> {
                   Text(l10n.aboutTagline),
                 ],
               );
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: Text(
+              l10n.logout,
+              style: const TextStyle(color: Colors.red),
+            ),
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              _showLogoutConfirmation(context);
             },
           ),
         ],

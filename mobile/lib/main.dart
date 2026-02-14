@@ -1,10 +1,24 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/screens/main_navigation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-void main() {
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize API client before AuthBloc creation
+  ApiClient().initialize(ApiConfig.baseUrl);
+
+  // Initialize Isar before runApp - required for AuthCheckRequested
+  // which reads cached user from Isar
+  await IsarService.instance.initialize();
 
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
@@ -49,23 +63,26 @@ class WeredaConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'WeredaConnect',
+    return BlocProvider<AuthBloc>(
+      create: (_) => AuthBloc()..add(const AuthCheckRequested()),
+      child: MaterialApp(
+        title: 'WeredaConnect',
 
-      // Localization - delegates and locales defined in generated l10n code
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
+        // Localization - delegates and locales defined in generated l10n code
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
 
-      // Theme
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
+        // Theme
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.green,
+          ),
+          useMaterial3: true,
         ),
-        useMaterial3: true,
-      ),
 
-      // Home - use MainNavigation instead of HomePage
-      home: const MainNavigation(),
+        // Auth gate handles routing based on authentication state
+        home: const AuthGate(),
+      ),
     );
   }
 }

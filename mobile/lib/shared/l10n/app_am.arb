@@ -155,6 +155,138 @@
   "aboutTagline": "የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "register": "ተመዝገብ",
+  "@register": {
+    "description": "Register button"
+  },
+  "phoneNumber": "ስልክ ቁጥር",
+  "@phoneNumber": {
+    "description": "Phone number input label"
+  },
+  "password": "የይለፍ ቃል",
+  "@password": {
+    "description": "Password input label"
+  },
+  "confirmPassword": "የይለፍ ቃል አረጋግጥ",
+  "@confirmPassword": {
+    "description": "Confirm password input label"
+  },
+  "fullName": "ሙሉ ስም",
+  "@fullName": {
+    "description": "Full name input label"
+  },
+  "selectRole": "ሚና ምረጥ",
+  "@selectRole": {
+    "description": "Role selection label"
+  },
+  "farmer": "ገበሬ",
+  "@farmer": {
+    "description": "Farmer role"
+  },
+  "trucker": "የጭነት መኪና ሹፌር",
+  "@trucker": {
+    "description": "Trucker/transport provider role"
+  },
+  "buyer": "ገዢ",
+  "@buyer": {
+    "description": "Buyer/wholesaler role"
+  },
+  "enterOtp": "የማረጋገጫ ኮድ አስገባ",
+  "@enterOtp": {
+    "description": "OTP input label"
+  },
+  "otpSent": "የማረጋገጫ ኮድ ወደ ስልክዎ ተልኳል",
+  "@otpSent": {
+    "description": "OTP sent confirmation message"
+  },
+  "verifyOtp": "አረጋግጥ",
+  "@verifyOtp": {
+    "description": "Verify OTP button"
+  },
+  "resendOtp": "እንደገና ላክ",
+  "@resendOtp": {
+    "description": "Resend OTP button"
+  },
+  "signUp": "ተመዝገብ",
+  "@signUp": {
+    "description": "Sign up button"
+  },
+  "alreadyHaveAccount": "አካውንት አለዎት?",
+  "@alreadyHaveAccount": {
+    "description": "Login prompt on register screen"
+  },
+  "dontHaveAccount": "አካውንት የለዎትም?",
+  "@dontHaveAccount": {
+    "description": "Register prompt on login screen"
+  },
+  "forgotPassword": "የይለፍ ቃል ረሳኽው?",
+  "@forgotPassword": {
+    "description": "Forgot password link"
+  },
+  "loginOnline": "መስመር ላይ ግባ",
+  "@loginOnline": {
+    "description": "Online login button"
+  },
+  "loginOffline": "ከመስመር ውጭ ግባ",
+  "@loginOffline": {
+    "description": "Offline login button"
+  },
+  "offlineModeIndicator": "ከመስመር ውጭ ነዎት",
+  "@offlineModeIndicator": {
+    "description": "Offline mode indicator message"
+  },
+  "passwordRequirements": "የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት",
+  "@passwordRequirements": {
+    "description": "Password requirements message"
+  },
+  "invalidPhoneFormat": "ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ",
+  "@invalidPhoneFormat": {
+    "description": "Error message for invalid phone format"
+  },
+  "invalidCredentials": "ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል",
+  "@invalidCredentials": {
+    "description": "Error message for invalid credentials"
+  },
+  "phoneAlreadyRegistered": "ይህ ስልክ ቁጥር ቀደም ብሎ ተመዝግቧል",
+  "@phoneAlreadyRegistered": {
+    "description": "Error message for duplicate phone number"
+  },
+  "invalidOtp": "ልክ ያልሆነ የማረጋገጫ ኮድ",
+  "@invalidOtp": {
+    "description": "Error message for invalid OTP"
+  },
+  "otpExpired": "የማረጋገጫ ኮድ ጊዜው አልፏል። አዲስ ይጠይቁ",
+  "@otpExpired": {
+    "description": "Error message for expired OTP"
+  },
+  "registrationSuccess": "ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ",
+  "@registrationSuccess": {
+    "description": "Success message after registration"
+  },
+  "loginSuccess": "መግባት ተሳክቷል!",
+  "@loginSuccess": {
+    "description": "Success message after login"
+  },
+  "logoutConfirmation": "መውጣት ይፈልጋሉ?",
+  "@logoutConfirmation": {
+    "description": "Logout confirmation dialog message"
+  },
+  "clearOfflineData": "ከመስመር ውጭ መረጃ ይሰረዝ?",
+  "@clearOfflineData": {
+    "description": "Option to clear cached data on logout"
+  },
+  "clearOfflineDataDescription": "ይህን መረጃ ካላጠፉ ከመስመር ውጭ መግባት ይችላሉ",
+  "@clearOfflineDataDescription": {
+    "description": "Description for clear offline data option"
+  },
+  "ethiopianPhoneExample": "ምሳሌ: +251911234567",
+  "@ethiopianPhoneExample": {
+    "description": "Example Ethiopian phone number"
+  },
+  "characters": "ቁምፊዎች",
+  "@characters": {
+    "description": "Characters (for password requirements)"
   }
 }
 

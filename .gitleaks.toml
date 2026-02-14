@@ -21,6 +21,8 @@ paths = [
     '''specs/contracts/.*\.md''',
     '''server/\.idea/''',
     '''__snapshots__/''',
+    '''mobile/integration_test/.*_test\.dart''',  # Allow test fixtures in integration tests
+    '''mobile/test/.*_test\.dart''',              # Allow test fixtures in unit tests
 ]
 
 # Allow test fixtures and documentation examples
@@ -28,4 +30,8 @@ regexTarget = "line"
 regexes = [
     '''EXAMPLE_KEY_DO_NOT_USE''',
     '''test-secret-placeholder''',
+    '''QR-\d{5}-[A-Z]{5}''',           # QR token test fixtures (e.g., QR-12345-ABCDE)
+    '''TB-\d{8}-\d{5}''',              # Telebirr reference test fixtures (e.g., TB-20260214-12345)
+    '''qrToken = ['"]QR-''',           # QR token assignments in tests
+    '''telebirrRef = ['"]TB-''',       # Telebirr ref assignments in tests
 ]

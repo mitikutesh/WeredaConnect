@@ -155,6 +155,138 @@
   "aboutTagline": "Connecting Ethiopian farmers, truckers, and buyers",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "register": "Register",
+  "@register": {
+    "description": "Register button"
+  },
+  "phoneNumber": "Phone Number",
+  "@phoneNumber": {
+    "description": "Phone number input label"
+  },
+  "password": "Password",
+  "@password": {
+    "description": "Password input label"
+  },
+  "confirmPassword": "Confirm Password",
+  "@confirmPassword": {
+    "description": "Confirm password input label"
+  },
+  "fullName": "Full Name",
+  "@fullName": {
+    "description": "Full name input label"
+  },
+  "selectRole": "Select Role",
+  "@selectRole": {
+    "description": "Role selection label"
+  },
+  "farmer": "Farmer",
+  "@farmer": {
+    "description": "Farmer role"
+  },
+  "trucker": "Trucker",
+  "@trucker": {
+    "description": "Trucker/transport provider role"
+  },
+  "buyer": "Buyer",
+  "@buyer": {
+    "description": "Buyer/wholesaler role"
+  },
+  "enterOtp": "Enter Verification Code",
+  "@enterOtp": {
+    "description": "OTP input label"
+  },
+  "otpSent": "Verification code sent to your phone",
+  "@otpSent": {
+    "description": "OTP sent confirmation message"
+  },
+  "verifyOtp": "Verify",
+  "@verifyOtp": {
+    "description": "Verify OTP button"
+  },
+  "resendOtp": "Resend Code",
+  "@resendOtp": {
+    "description": "Resend OTP button"
+  },
+  "signUp": "Sign Up",
+  "@signUp": {
+    "description": "Sign up button"
+  },
+  "alreadyHaveAccount": "Already have an account?",
+  "@alreadyHaveAccount": {
+    "description": "Login prompt on register screen"
+  },
+  "dontHaveAccount": "Don't have an account?",
+  "@dontHaveAccount": {
+    "description": "Register prompt on login screen"
+  },
+  "forgotPassword": "Forgot Password?",
+  "@forgotPassword": {
+    "description": "Forgot password link"
+  },
+  "loginOnline": "Login Online",
+  "@loginOnline": {
+    "description": "Online login button"
+  },
+  "loginOffline": "Login Offline",
+  "@loginOffline": {
+    "description": "Offline login button"
+  },
+  "offlineModeIndicator": "You are in offline mode",
+  "@offlineModeIndicator": {
+    "description": "Offline mode indicator message"
+  },
+  "passwordRequirements": "Password must be at least 6 characters",
+  "@passwordRequirements": {
+    "description": "Password requirements message"
+  },
+  "invalidPhoneFormat": "Invalid phone number format. Use +251XXXXXXXXX",
+  "@invalidPhoneFormat": {
+    "description": "Error message for invalid phone format"
+  },
+  "invalidCredentials": "Invalid phone number or password",
+  "@invalidCredentials": {
+    "description": "Error message for invalid credentials"
+  },
+  "phoneAlreadyRegistered": "This phone number is already registered",
+  "@phoneAlreadyRegistered": {
+    "description": "Error message for duplicate phone number"
+  },
+  "invalidOtp": "Invalid verification code",
+  "@invalidOtp": {
+    "description": "Error message for invalid OTP"
+  },
+  "otpExpired": "Verification code expired. Request a new one",
+  "@otpExpired": {
+    "description": "Error message for expired OTP"
+  },
+  "registrationSuccess": "Registration successful! Please verify your phone",
+  "@registrationSuccess": {
+    "description": "Success message after registration"
+  },
+  "loginSuccess": "Login successful!",
+  "@loginSuccess": {
+    "description": "Success message after login"
+  },
+  "logoutConfirmation": "Are you sure you want to logout?",
+  "@logoutConfirmation": {
+    "description": "Logout confirmation dialog message"
+  },
+  "clearOfflineData": "Clear offline data?",
+  "@clearOfflineData": {
+    "description": "Option to clear cached data on logout"
+  },
+  "clearOfflineDataDescription": "You can still access your account offline if you don't clear this data",
+  "@clearOfflineDataDescription": {
+    "description": "Description for clear offline data option"
+  },
+  "ethiopianPhoneExample": "Example: +251911234567",
+  "@ethiopianPhoneExample": {
+    "description": "Example Ethiopian phone number"
+  },
+  "characters": "characters",
+  "@characters": {
+    "description": "Characters (for password requirements)"
   }
 }
 

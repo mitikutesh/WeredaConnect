@@ -126,4 +126,110 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get aboutTagline =>
       'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
+
+  @override
+  String get register => 'Galmaa\'i';
+
+  @override
+  String get phoneNumber => 'Lakkoofsa Bilbilaa';
+
+  @override
+  String get password => 'Jecha Icciitii';
+
+  @override
+  String get confirmPassword => 'Jecha Icciitii Mirkaneessi';
+
+  @override
+  String get fullName => 'Maqaa Guutuu';
+
+  @override
+  String get selectRole => 'Ga\'ee Filadhu';
+
+  @override
+  String get farmer => 'Qonnaan Bultaa';
+
+  @override
+  String get trucker => 'Konkolaataa Fe\'aa';
+
+  @override
+  String get buyer => 'Bitaa';
+
+  @override
+  String get enterOtp => 'Koodii Mirkaneessaa Galchi';
+
+  @override
+  String get otpSent =>
+      'Koodiin mirkaneessaa gara bilbila keessaniitti ergameera';
+
+  @override
+  String get verifyOtp => 'Mirkaneessi';
+
+  @override
+  String get resendOtp => 'Irra Deebi\'ii Ergi';
+
+  @override
+  String get signUp => 'Galmaa\'i';
+
+  @override
+  String get alreadyHaveAccount => 'Akkaawuntii qabduu?';
+
+  @override
+  String get dontHaveAccount => 'Akkaawuntii hin qabduu?';
+
+  @override
+  String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
+
+  @override
+  String get loginOnline => 'Online ta\'ii Seeni';
+
+  @override
+  String get loginOffline => 'Offline ta\'ii Seeni';
+
+  @override
+  String get offlineModeIndicator => 'Haalata offline keessa jirtu';
+
+  @override
+  String get passwordRequirements =>
+      'Jecha icciitiin yoo xiqqaate qubeelee 6 ta\'uu qaba';
+
+  @override
+  String get invalidPhoneFormat =>
+      'Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami';
+
+  @override
+  String get invalidCredentials =>
+      'Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti';
+
+  @override
+  String get phoneAlreadyRegistered =>
+      'Lakkoofsi bilbilaa kun duraanuu galmaa\'eera';
+
+  @override
+  String get invalidOtp => 'Koodiin mirkaneessaa sirrii miti';
+
+  @override
+  String get otpExpired => 'Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu';
+
+  @override
+  String get registrationSuccess =>
+      'Galmaa\'uun milkaa\'eera! Maaloo bilbila keessan mirkaneessaa';
+
+  @override
+  String get loginSuccess => 'Seenuun milkaa\'eera!';
+
+  @override
+  String get logoutConfirmation => 'Dhugumatti ba\'uu barbaadduu?';
+
+  @override
+  String get clearOfflineData => 'Daataa offline haqamuu?';
+
+  @override
+  String get clearOfflineDataDescription =>
+      'Yoo daataa kana hin haqiin offline ta\'anii seenuu dandeessu';
+
+  @override
+  String get ethiopianPhoneExample => 'Fakkeenya: +251911234567';
+
+  @override
+  String get characters => 'qubeelee';
 }

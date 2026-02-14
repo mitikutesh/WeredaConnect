@@ -1,0 +1,353 @@
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+
+/// BLoC for managing authentication state.
+///
+/// This BLoC handles:
+/// - User registration with OTP verification
+/// - Online/offline login
+/// - Token refresh
+/// - Logout
+/// - Session persistence across app restarts
+///
+/// State transitions:
+/// - AuthInitial → AuthLoading → AuthAuthenticated/AuthUnauthenticated/AuthError
+/// - AuthUnauthenticated → AuthLoading → AuthOtpVerificationRequired (after registration)
+/// - AuthOtpVerificationRequired → AuthLoading → AuthAuthenticated/AuthError
+///
+/// Ethiopian context:
+/// - Supports offline authentication with cached credentials
+/// - Auto-detects connectivity and chooses appropriate auth method
+/// - Expired tokens still emit AuthAuthenticated (offline-first: lazy refresh)
+class AuthBloc extends Bloc<AuthEvent, AuthState> {
+  final AuthService _authService;
+  final OfflineAuthCache _offlineCache;
+  String? _currentPhoneNumber;
+  // SECURITY: Password never stored in BLoC state to prevent memory exposure
+  // On shared devices (common in Ethiopia), password in memory is a critical security risk
+  // Password only exists in event parameters, never persisted in BLoC fields
+
+  static const _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _currentUserPhoneKey = 'current_user_phone';
+
+  AuthBloc({
+    AuthService? authService,
+    OfflineAuthCache? offlineCache,
+  })  : _authService = authService ?? AuthService(),
+        _offlineCache = offlineCache ?? OfflineAuthCache(),
+        super(const AuthInitial()) {
+    // Register event handlers
+    on<AuthCheckRequested>(_onAuthCheckRequested);
+    on<AuthRegisterRequested>(_onAuthRegisterRequested);
+    on<AuthVerifyOtpRequested>(_onAuthVerifyOtpRequested);
+    on<AuthLoginRequested>(_onAuthLoginRequested);
+    on<AuthLoginOnlineRequested>(_onAuthLoginOnlineRequested);
+    on<AuthLoginOfflineRequested>(_onAuthLoginOfflineRequested);
+    on<AuthRefreshTokenRequested>(_onAuthRefreshTokenRequested);
+    on<AuthLogoutRequested>(_onAuthLogoutRequested);
+  }
+
+  /// Save the current session phone number to secure storage.
+  Future<void> _saveSession(String phoneNumber) async {
+    _currentPhoneNumber = phoneNumber;
+    await _secureStorage.write(
+      key: _currentUserPhoneKey,
+      value: phoneNumber,
+    );
+  }
+
+  /// Clear the current session from secure storage.
+  Future<void> _clearSession() async {
+    _currentPhoneNumber = null;
+    await _secureStorage.delete(key: _currentUserPhoneKey);
+  }
+
+  /// Check if user is already authenticated.
+  ///
+  /// Reads stored phone number from secure storage, then checks for
+  /// cached tokens and user profile. Emits AuthAuthenticated if a
+  /// valid session exists, AuthUnauthenticated otherwise.
+  ///
+  /// Offline-first: expired tokens still emit AuthAuthenticated.
+  /// Token refresh happens lazily on API calls.
+  Future<void> _onAuthCheckRequested(
+    AuthCheckRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    try {
+      // Read stored phone number
+      final phone = await _secureStorage.read(key: _currentUserPhoneKey);
+      if (phone == null || phone.isEmpty) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      _currentPhoneNumber = phone;
+
+      // Check for cached tokens
+      final tokens = await _offlineCache.getCachedTokens(phone);
+      if (tokens == null) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      // Check for cached user profile
+      final user = await _offlineCache.getCachedUser(phone);
+      if (user == null) {
+        emit(const AuthUnauthenticated());
+        return;
+      }
+
+      // Offline-first: let user in even with expired tokens.
+      // Token refresh happens lazily on API calls.
+      emit(
+        AuthAuthenticated(
+          userId: user.userId,
+          tokens: tokens,
+          isOfflineAuth: tokens.isExpired,
+        ),
+      );
+    } on Exception {
+      emit(const AuthUnauthenticated());
+    }
+  }
+
+  /// Handle user registration.
+  Future<void> _onAuthRegisterRequested(
+    AuthRegisterRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    // Store phone number for session tracking (not sensitive)
+    _currentPhoneNumber = event.phoneNumber;
+    // SECURITY: Password is NOT stored - it only exists in event.password
+    // After OTP verification, user will re-enter password for login
+
+    final result = await _authService.register(
+      phoneNumber: event.phoneNumber,
+      password: event.password,
+      name: event.name,
+      role: event.role,
+      woreda: event.woreda,
+    );
+
+    if (result.isSuccess) {
+      emit(
+        AuthOtpVerificationRequired(
+          phoneNumber: event.phoneNumber,
+          userId: result.userId!,
+        ),
+      );
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Registration failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
+    }
+  }
+
+  /// Handle OTP verification.
+  Future<void> _onAuthVerifyOtpRequested(
+    AuthVerifyOtpRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    // Verify OTP
+    final result = await _authService.verifyOtp(
+      phoneNumber: event.phoneNumber,
+      otp: event.otp,
+    );
+
+    if (result.isSuccess) {
+      // Cache tokens for session persistence after OTP
+      if (result.tokens != null) {
+        await _offlineCache.updateTokens(event.phoneNumber, result.tokens!);
+      }
+      await _saveSession(event.phoneNumber);
+
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+        ),
+      );
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'OTP verification failed',
+        ),
+      );
+    }
+  }
+
+  /// Handle login (auto-detect online/offline).
+  Future<void> _onAuthLoginRequested(
+    AuthLoginRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    final result = await _authService.login(
+      phoneNumber: event.phoneNumber,
+      password: event.password,
+    );
+
+    if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+          isOfflineAuth: result.isOfflineAuth,
+        ),
+      );
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
+    }
+  }
+
+  /// Handle online login.
+  Future<void> _onAuthLoginOnlineRequested(
+    AuthLoginOnlineRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    final result = await _authService.loginOnline(
+      phoneNumber: event.phoneNumber,
+      password: event.password,
+    );
+
+    if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+        ),
+      );
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
+    }
+  }
+
+  /// Handle offline login.
+  Future<void> _onAuthLoginOfflineRequested(
+    AuthLoginOfflineRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+
+    final result = await _authService.loginOffline(
+      phoneNumber: event.phoneNumber,
+      password: event.password,
+    );
+
+    if (result.isSuccess) {
+      await _saveSession(event.phoneNumber);
+
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+          isOfflineAuth: true,
+        ),
+      );
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Offline login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
+    }
+  }
+
+  /// Handle token refresh.
+  Future<void> _onAuthRefreshTokenRequested(
+    AuthRefreshTokenRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    // Don't emit loading state for background token refresh
+    final currentState = state;
+
+    final result = await _authService.refreshToken(event.refreshToken);
+
+    if (result.isSuccess) {
+      // Update tokens in current authenticated state
+      if (currentState is AuthAuthenticated) {
+        // Update cached tokens
+        if (_currentPhoneNumber != null) {
+          await _offlineCache.updateTokens(
+            _currentPhoneNumber!,
+            result.tokens!,
+          );
+        }
+
+        emit(
+          AuthAuthenticated(
+            userId: currentState.userId,
+            tokens: result.tokens!,
+            isOfflineAuth: currentState.isOfflineAuth,
+          ),
+        );
+      }
+    } else {
+      // Token refresh failed - logout user
+      emit(const AuthUnauthenticated());
+    }
+  }
+
+  /// Handle logout.
+  Future<void> _onAuthLogoutRequested(
+    AuthLogoutRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final currentState = state;
+
+    if (currentState is AuthAuthenticated) {
+      emit(const AuthLoading());
+
+      await _authService.logout(
+        phoneNumber: _currentPhoneNumber ?? '',
+        accessToken: currentState.tokens.accessToken,
+        clearCache: event.clearCache,
+      );
+
+      await _clearSession();
+
+      emit(const AuthUnauthenticated());
+    }
+  }
+}
