@@ -15,6 +15,9 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly cropsTable: dynamodb.Table;
   readonly tripsTable: dynamodb.Table;
   readonly rateLimitsTable: dynamodb.Table;
+  readonly syncMetadataTable: dynamodb.Table;
+  readonly deliveriesTable: dynamodb.Table;
+  readonly paymentsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 

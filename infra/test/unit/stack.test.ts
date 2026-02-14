@@ -19,8 +19,8 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates four DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 4);
+  test('creates seven DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 7);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -55,6 +55,9 @@ describe('ApiStack', () => {
       cropsTable: dbStack.cropsTable,
       tripsTable: dbStack.tripsTable,
       rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
