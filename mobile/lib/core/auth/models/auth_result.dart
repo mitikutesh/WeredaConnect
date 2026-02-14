@@ -1,4 +1,4 @@
-import 'auth_tokens.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 
 /// Result type for authentication operations.
 ///

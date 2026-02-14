@@ -1,11 +1,13 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
-import '../database/schemas/user.dart';
-import 'models/auth_error.dart';
-import 'models/auth_result.dart';
-import 'models/auth_tokens.dart';
-import 'offline_auth_cache.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/models/auth_result.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
 
 /// Main authentication service for WeredaConnect.
 ///
@@ -31,17 +33,18 @@ class AuthService {
   final OfflineAuthCache _offlineCache;
   final Connectivity _connectivity;
 
-  // API base URL (should come from config)
-  static const String _apiBaseUrl =
-      'https://api.weredaconnect.com'; // TODO: Use from config
-
   AuthService({
     Dio? dio,
     OfflineAuthCache? offlineCache,
     Connectivity? connectivity,
-  })  : _dio = dio ?? Dio(BaseOptions(baseUrl: _apiBaseUrl)),
+  })  : _dio = dio ?? ApiClient().dio,
         _offlineCache = offlineCache ?? OfflineAuthCache(),
-        _connectivity = connectivity ?? Connectivity();
+        _connectivity = connectivity ?? Connectivity() {
+    // Initialize ApiClient with base URL (cert pinning disabled by default)
+    if (dio == null) {
+      ApiClient().initialize(ApiConfig.baseUrl);
+    }
+  }
 
   /// Register a new user with phone number and password.
   ///
@@ -67,8 +70,8 @@ class AuthService {
   }) async {
     try {
       // Check connectivity
-      final connectivityResult = await _connectivity.checkConnectivity();
-      if (connectivityResult.contains(ConnectivityResult.none)) {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Registration requires internet connection',
@@ -76,8 +79,8 @@ class AuthService {
       }
 
       // Call registration API
-      final response = await _dio.post(
-        '/auth/register',
+      final response = await _dio.post<Map<String, dynamic>>(
+        ApiConfig.registerEndpoint,
         data: {
           'phoneNumber': phoneNumber,
           'password': password,
@@ -92,7 +95,7 @@ class AuthService {
 
       // Return success with userId (user must verify OTP next)
       return AuthResult.success(
-        AuthTokens(
+        const AuthTokens(
           accessToken: '', // Not available until OTP verified
           refreshToken: '',
           idToken: '',
@@ -101,7 +104,7 @@ class AuthService {
       );
     } on DioException catch (e) {
       return _handleDioError(e);
-    } catch (e) {
+    } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         e.toString(),
@@ -124,8 +127,8 @@ class AuthService {
   }) async {
     try {
       // Check connectivity
-      final connectivityResult = await _connectivity.checkConnectivity();
-      if (connectivityResult.contains(ConnectivityResult.none)) {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'OTP verification requires internet connection',
@@ -133,8 +136,8 @@ class AuthService {
       }
 
       // Call OTP verification API
-      final response = await _dio.post(
-        '/auth/verify-otp',
+      final response = await _dio.post<Map<String, dynamic>>(
+        ApiConfig.verifyOtpEndpoint,
         data: {
           'phoneNumber': phoneNumber,
           'otp': otp,
@@ -158,7 +161,7 @@ class AuthService {
       return AuthResult.success(tokens, userId: data['userId'] as String);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } catch (e) {
+    } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         e.toString(),
@@ -182,8 +185,8 @@ class AuthService {
   }) async {
     try {
       // Check connectivity
-      final connectivityResult = await _connectivity.checkConnectivity();
-      if (connectivityResult.contains(ConnectivityResult.none)) {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Online login requires internet connection',
@@ -191,8 +194,8 @@ class AuthService {
       }
 
       // Call login API
-      final response = await _dio.post(
-        '/auth/login',
+      final response = await _dio.post<Map<String, dynamic>>(
+        ApiConfig.loginEndpoint,
         data: {
           'phoneNumber': phoneNumber,
           'password': password,
@@ -227,7 +230,7 @@ class AuthService {
       return AuthResult.success(tokens, userId: user['userId'] as String);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } catch (e) {
+    } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         e.toString(),
@@ -289,7 +292,7 @@ class AuthService {
         userId: user.userId,
         isOfflineAuth: true,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.databaseError,
         e.toString(),
@@ -312,8 +315,8 @@ class AuthService {
     required String password,
   }) async {
     // Check connectivity
-    final connectivityResult = await _connectivity.checkConnectivity();
-    final isOnline = !connectivityResult.contains(ConnectivityResult.none);
+    final connectivityResults = await _connectivity.checkConnectivity();
+    final isOnline = connectivityResults.any((result) => result != ConnectivityResult.none);
 
     if (isOnline) {
       // Try online login
@@ -351,8 +354,8 @@ class AuthService {
   Future<AuthResult> refreshToken(String refreshToken) async {
     try {
       // Check connectivity
-      final connectivityResult = await _connectivity.checkConnectivity();
-      if (connectivityResult.contains(ConnectivityResult.none)) {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Token refresh requires internet connection',
@@ -360,8 +363,8 @@ class AuthService {
       }
 
       // Call refresh API
-      final response = await _dio.post(
-        '/auth/refresh',
+      final response = await _dio.post<Map<String, dynamic>>(
+        ApiConfig.refreshEndpoint,
         data: {
           'refreshToken': refreshToken,
         },
@@ -380,7 +383,7 @@ class AuthService {
       return AuthResult.success(tokens);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } catch (e) {
+    } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         e.toString(),
@@ -404,12 +407,12 @@ class AuthService {
     try {
       // Try to logout on server (invalidate tokens)
       if (accessToken != null) {
-        final connectivityResult = await _connectivity.checkConnectivity();
-        final isOnline = !connectivityResult.contains(ConnectivityResult.none);
+        final connectivityResults = await _connectivity.checkConnectivity();
+        final isOnline = connectivityResults.any((result) => result != ConnectivityResult.none);
 
         if (isOnline) {
-          await _dio.post(
-            '/auth/logout',
+          await _dio.post<Map<String, dynamic>>(
+            ApiConfig.logoutEndpoint,
             options: Options(
               headers: {
                 'Authorization': 'Bearer $accessToken',
@@ -418,7 +421,7 @@ class AuthService {
           );
         }
       }
-    } catch (e) {
+    } on Exception {
       // Ignore logout errors (tokens will expire anyway)
     } finally {
       // Clear cached credentials if requested

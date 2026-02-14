@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 
-import '../../../core/auth/auth_service.dart';
-import '../../../core/auth/models/auth_error.dart';
-import '../../../shared/l10n/app_localizations.dart';
-import 'register_screen.dart';
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
 ///
@@ -253,7 +252,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    minimumSize: const Size.fromHeight(48), // Large touch target
+                    minimumSize:
+                        const Size.fromHeight(48), // Large touch target
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -283,7 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextButton(
                       onPressed: () {
                         Navigator.of(context).push(
-                          MaterialPageRoute(
+                          MaterialPageRoute<void>(
                             builder: (_) => const RegisterScreen(),
                           ),
                         );

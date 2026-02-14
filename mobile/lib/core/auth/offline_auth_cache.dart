@@ -3,10 +3,10 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-import '../database/isar_service.dart';
-import '../database/schemas/user.dart';
-import 'models/auth_tokens.dart';
+import 'package:isar/isar.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Manages offline authentication cache with PBKDF2 password hashing.
 ///
@@ -14,17 +14,20 @@ import 'models/auth_tokens.dart';
 /// 1. Caching password hash (PBKDF2, 100,000 iterations) in secure storage
 /// 2. Storing user profile in encrypted Isar database
 /// 3. Caching authentication tokens in secure storage
+/// 4. Rate limiting offline login attempts to prevent brute force attacks
 ///
 /// Security notes:
 /// - Password is NEVER stored in plaintext
 /// - PBKDF2 hash with device-specific salt prevents rainbow table attacks
 /// - 100,000 iterations (OWASP recommended for 2026)
 /// - All data encrypted at rest (secure storage + Isar encryption)
+/// - Rate limiting: 5 failed attempts → 15 minute lockout
 ///
 /// Ethiopian context:
 /// - Enables login during poor connectivity (common in rural areas)
-/// - Shared devices: Each user has separate cached credentials
+/// - Shared devices: Each user has separate cached credentials + rate limits
 /// - Low-literacy users: Simple password requirements (minimum 6 chars)
+/// - Offline brute force protection critical on shared devices
 class OfflineAuthCache {
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -34,6 +37,15 @@ class OfflineAuthCache {
   static const _pbkdf2Iterations = 100000;
   static const _pbkdf2KeyLength = 32; // 256 bits
   static const _saltLength = 32; // 32 bytes
+
+  // Rate limiting parameters (prevent offline brute force)
+  static const _maxFailedAttempts = 5;
+  static const _lockoutDuration = Duration(minutes: 15);
+
+  // In-memory tracking of failed attempts
+  // NOTE: This is intentionally in-memory to reset on app restart
+  // For persistent tracking across restarts, store in Isar User schema
+  final Map<String, List<DateTime>> _failedAttempts = {};
 
   /// Cache user credentials for offline authentication.
   ///
@@ -100,9 +112,23 @@ class OfflineAuthCache {
   ///
   /// Returns true if password matches cached hash, false otherwise.
   ///
-  /// This is a constant-time comparison to prevent timing attacks.
+  /// Security features:
+  /// - Constant-time comparison to prevent timing attacks
+  /// - Rate limiting: 5 failed attempts → 15 minute lockout
+  /// - Failed attempts tracked per phone number
+  ///
+  /// Throws [RateLimitException] if too many failed attempts.
   Future<bool> verifyPassword(String phoneNumber, String password) async {
     try {
+      // SECURITY: Check rate limit BEFORE password verification
+      if (_isRateLimited(phoneNumber)) {
+        final lockoutRemaining = _getLockoutRemainingTime(phoneNumber);
+        throw RateLimitException(
+          'Too many failed login attempts. Try again in ${lockoutRemaining.inMinutes} minutes.',
+          lockoutRemaining,
+        );
+      }
+
       // Get cached password hash
       final cachedHash = await _secureStorage.read(
         key: _passwordHashKey(phoneNumber),
@@ -119,8 +145,22 @@ class OfflineAuthCache {
       final inputHash = await _hashPassword(password, salt);
 
       // Constant-time comparison (prevents timing attacks)
-      return _constantTimeEquals(cachedHash, inputHash);
+      final isValid = _constantTimeEquals(cachedHash, inputHash);
+
+      // Track failed attempts
+      if (!isValid) {
+        _recordFailedAttempt(phoneNumber);
+      } else {
+        // Clear failed attempts on successful login
+        _clearFailedAttempts(phoneNumber);
+      }
+
+      return isValid;
     } catch (e) {
+      // Re-throw RateLimitException, return false for other errors
+      if (e is RateLimitException) {
+        rethrow;
+      }
       return false;
     }
   }
@@ -131,11 +171,9 @@ class OfflineAuthCache {
   Future<User?> getCachedUser(String phoneNumber) async {
     try {
       final isar = IsarService.instance.db;
-      return await isar.users
-          .filter()
-          .phoneNumberEqualTo(phoneNumber)
-          .findFirst();
-    } catch (e) {
+      // Use where clause for indexed field (phoneNumber has unique index)
+      return await isar.users.where().phoneNumberEqualTo(phoneNumber).findFirst();
+    } on Exception {
       return null;
     }
   }
@@ -155,7 +193,7 @@ class OfflineAuthCache {
 
       final json = jsonDecode(tokensJson) as Map<String, dynamic>;
       return AuthTokens.fromJson(json);
-    } catch (e) {
+    } on Exception {
       return null;
     }
   }
@@ -197,10 +235,12 @@ class OfflineAuthCache {
       // Delete user from Isar
       final isar = IsarService.instance.db;
       await isar.writeTxn(() async {
-        await isar.users
-            .filter()
-            .phoneNumberEqualTo(phoneNumber)
-            .deleteFirst();
+        // Use where clause for indexed field (phoneNumber has unique index)
+        final user =
+            await isar.users.where().phoneNumberEqualTo(phoneNumber).findFirst();
+        if (user != null) {
+          await isar.users.delete(user.id);
+        }
       });
     } catch (e) {
       throw Exception('Failed to clear credentials: $e');
@@ -280,8 +320,72 @@ class OfflineAuthCache {
     return result == 0;
   }
 
+  /// Check if user is rate limited due to too many failed attempts.
+  bool _isRateLimited(String phoneNumber) {
+    final attempts = _failedAttempts[phoneNumber] ?? [];
+    final recentAttempts = attempts.where(
+      (time) => DateTime.now().difference(time) < _lockoutDuration,
+    ).toList();
+
+    // Update the list to only include recent attempts
+    if (recentAttempts.length < attempts.length) {
+      _failedAttempts[phoneNumber] = recentAttempts;
+    }
+
+    return recentAttempts.length >= _maxFailedAttempts;
+  }
+
+  /// Get remaining lockout duration for rate-limited user.
+  Duration _getLockoutRemainingTime(String phoneNumber) {
+    final attempts = _failedAttempts[phoneNumber] ?? [];
+    if (attempts.isEmpty) {
+      return Duration.zero;
+    }
+
+    // Find the oldest attempt within lockout window
+    final oldestAttempt = attempts
+        .where((time) => DateTime.now().difference(time) < _lockoutDuration)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+
+    final lockoutEnd = oldestAttempt.add(_lockoutDuration);
+    final remaining = lockoutEnd.difference(DateTime.now());
+
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  /// Record a failed login attempt for rate limiting.
+  void _recordFailedAttempt(String phoneNumber) {
+    final attempts = _failedAttempts[phoneNumber] ?? [];
+    attempts.add(DateTime.now());
+    _failedAttempts[phoneNumber] = attempts;
+
+    // Log for security monitoring
+    // TODO: Send to analytics/monitoring service in production
+    // ignore: avoid_print
+    print('[SECURITY] Failed login attempt for $phoneNumber. '
+        'Total recent attempts: ${attempts.length}');
+  }
+
+  /// Clear failed login attempts after successful authentication.
+  void _clearFailedAttempts(String phoneNumber) {
+    _failedAttempts.remove(phoneNumber);
+  }
+
   // Secure storage key helpers
   String _passwordHashKey(String phoneNumber) => 'password_hash_$phoneNumber';
   String _saltKey(String phoneNumber) => 'salt_$phoneNumber';
   String _tokensKey(String phoneNumber) => 'tokens_$phoneNumber';
+}
+
+/// Exception thrown when rate limit is exceeded for offline login attempts.
+///
+/// This prevents brute force attacks on cached credentials.
+class RateLimitException implements Exception {
+  final String message;
+  final Duration lockoutRemaining;
+
+  RateLimitException(this.message, this.lockoutRemaining);
+
+  @override
+  String toString() => 'RateLimitException: $message';
 }

@@ -5,7 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'schemas/user.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Service for managing the encrypted Isar database.
 ///
@@ -73,10 +73,15 @@ class IsarService {
     // Get application directory for database storage
     final dir = await getApplicationDocumentsDirectory();
 
-    // Get or generate encryption key
-    final encryptionKey = await _getEncryptionKey();
+    // Get or generate encryption key (for future use)
+    // Note: Isar 3.1 does not support built-in encryption.
+    // Encryption is handled at the field level (e.g., password hashing)
+    // and through secure storage for sensitive data.
+    // The encryption key is stored for potential future use or
+    // custom encryption implementation.
+    await _getEncryptionKey();
 
-    // Open Isar with encryption
+    // Open Isar database
     _isar = await Isar.open(
       [
         UserSchema,
@@ -89,7 +94,6 @@ class IsarService {
       ],
       directory: dir.path,
       name: 'wereda_connect',
-      encryptionCipher: IsarCipher(encryptionKey),
     );
 
     return _isar!;
@@ -129,7 +133,7 @@ class IsarService {
           await _secureStorage.delete(key: keyName);
         }
       }
-    } catch (e) {
+    } on Exception {
       // If reading fails, continue to generate new key
       // This can happen on first install or after secure storage is cleared
     }

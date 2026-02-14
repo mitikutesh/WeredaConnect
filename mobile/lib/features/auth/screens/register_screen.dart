@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/auth/auth_service.dart';
-import '../../../core/auth/models/auth_error.dart';
-import '../../../core/database/schemas/user.dart';
-import '../../../shared/l10n/app_localizations.dart';
-import 'otp_verification_screen.dart';
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 
 /// Registration screen with role selection and OTP verification.
 ///
@@ -90,7 +90,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (result.isSuccess) {
         // Navigate to OTP verification screen
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
+          MaterialPageRoute<void>(
             builder: (_) => OtpVerificationScreen(
               phoneNumber: _phoneController.text.trim(),
               password: _passwordController.text,
@@ -450,7 +450,7 @@ class _RoleCard extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(12),
           color: isSelected
-              ? theme.primaryColor.withOpacity(0.1)
+              ? theme.primaryColor.withValues(alpha: 0.1)
               : Colors.transparent,
         ),
         child: Column(

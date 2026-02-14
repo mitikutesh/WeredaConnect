@@ -99,16 +99,29 @@ User → Mobile App → AWS Cognito → DynamoDB
 ├─────────────────────────────────────────────────────────────┤
 │ 1. User enters phone + password                             │
 │ 2. Check connectivity → OFFLINE                             │
-│ 3. Hash password with PBKDF2                                │
-│ 4. Compare with cached hash (Keychain/Keystore)             │
-│ 5. If match:                                                │
+│ 3. Check rate limit (5 attempts max per 15 min)             │
+│    - If rate limited → Show lockout message, block attempt  │
+│ 4. Hash password with PBKDF2                                │
+│ 5. Compare with cached hash (Keychain/Keystore)             │
+│ 6. If match:                                                │
+│    - Clear failed attempt counter                           │
 │    - Load cached user profile from Isar                     │
 │    - Generate local session token (device-bound)            │
 │    - Mark session as "offline" (sync pending)               │
-│ 6. Proceed to app (offline mode)                            │
-│ 7. When online: Validate with Cognito, refresh tokens       │
+│ 7. If no match:                                             │
+│    - Record failed attempt with timestamp                   │
+│    - Show error message                                     │
+│ 8. Proceed to app (offline mode) if authenticated           │
+│ 9. When online: Validate with Cognito, refresh tokens       │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Offline Rate Limiting** (SECURITY FIX - Sprint 3):
+- **Max Attempts**: 5 failed attempts per phone number
+- **Lockout Duration**: 15 minutes
+- **Storage**: In-memory (resets on app restart)
+- **Purpose**: Prevent brute force attacks on cached credentials
+- **Ethiopian Context**: Critical for shared devices (multiple users)
 
 ### 2.3 Token Refresh (Background Sync)
 
@@ -1260,7 +1273,9 @@ dotnet test --filter Category=Integration
 - [ ] Zero data loss during offline/online transitions
 
 ### Security Requirements
-- [ ] All 12 critical vulnerabilities resolved
+- [x] All 12 critical vulnerabilities resolved
+  - [x] Password never stored in BLoC memory (Sprint 3 Fix)
+  - [x] Offline login rate limiting implemented (Sprint 3 Fix)
 - [ ] OWASP Mobile Top 10 compliance
 - [ ] OWASP API Top 10 compliance
 - [ ] Penetration test passed

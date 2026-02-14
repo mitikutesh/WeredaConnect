@@ -59,10 +59,8 @@ void main() {
       });
 
       // Query back by userId
-      final retrieved = await isar.users
-          .filter()
-          .userIdEqualTo('user-001')
-          .findFirst();
+      final retrieved =
+          await isar.users.filter().userIdEqualTo('user-001').findFirst();
 
       // Verify
       expect(retrieved, isNotNull);
@@ -134,10 +132,8 @@ void main() {
       });
 
       // Query back by trucker ID
-      final truckerTrip = await isar.trips
-          .filter()
-          .truckerIdEqualTo('user-002')
-          .findFirst();
+      final truckerTrip =
+          await isar.trips.filter().truckerIdEqualTo('user-002').findFirst();
 
       // Verify
       expect(truckerTrip, isNotNull);
@@ -170,10 +166,8 @@ void main() {
       });
 
       // Query back by trip ID
-      final tripDelivery = await isar.deliverys
-          .filter()
-          .tripIdEqualTo('trip-001')
-          .findFirst();
+      final tripDelivery =
+          await isar.deliverys.filter().tripIdEqualTo('trip-001').findFirst();
 
       // Verify
       expect(tripDelivery, isNotNull);
@@ -275,10 +269,8 @@ void main() {
       });
 
       // Verify first user was saved
-      final saved = await isar.users
-          .filter()
-          .userIdEqualTo('duplicate-user')
-          .findFirst();
+      final saved =
+          await isar.users.filter().userIdEqualTo('duplicate-user').findFirst();
       expect(saved, isNotNull);
 
       // Attempt to create second user with same userId should fail

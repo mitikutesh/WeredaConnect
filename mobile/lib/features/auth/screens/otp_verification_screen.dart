@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/auth/auth_service.dart';
-import '../../../core/auth/models/auth_error.dart';
-import '../../../shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// OTP verification screen for phone number verification.
 ///
@@ -22,9 +22,7 @@ class OtpVerificationScreen extends StatefulWidget {
   final String password;
 
   const OtpVerificationScreen({
-    super.key,
-    required this.phoneNumber,
-    required this.password,
+    required this.phoneNumber, required this.password, super.key,
   });
 
   @override
@@ -58,23 +56,22 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _canResend = false;
     });
 
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return false;
+    () async {
+      while (_countdown > 0) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
 
-      setState(() {
-        _countdown--;
-      });
+        setState(() {
+          _countdown--;
+        });
+      }
 
-      if (_countdown <= 0) {
+      if (mounted) {
         setState(() {
           _canResend = true;
         });
-        return false;
       }
-
-      return true;
-    });
+    }();
   }
 
   Future<void> _handleVerifyOtp() async {

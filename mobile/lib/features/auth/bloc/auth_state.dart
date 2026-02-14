@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 
 /// Base class for authentication states.
 abstract class AuthState extends Equatable {

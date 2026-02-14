@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../core/database/schemas/user.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Base class for authentication events.
 abstract class AuthEvent extends Equatable {

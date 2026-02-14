@@ -1,9 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../core/auth/auth_service.dart';
-import '../../../core/auth/models/auth_error.dart';
-import 'auth_event.dart';
-import 'auth_state.dart';
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
 /// BLoC for managing authentication state.
 ///
@@ -24,7 +24,9 @@ import 'auth_state.dart';
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   String? _currentPhoneNumber;
-  String? _currentPassword;
+  // SECURITY: Password never stored in BLoC state to prevent memory exposure
+  // On shared devices (common in Ethiopia), password in memory is a critical security risk
+  // Password only exists in event parameters, never persisted in BLoC fields
 
   AuthBloc({
     AuthService? authService,
@@ -60,9 +62,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(const AuthLoading());
 
-    // Store credentials for later use (after OTP verification)
+    // Store phone number for session tracking (not sensitive)
     _currentPhoneNumber = event.phoneNumber;
-    _currentPassword = event.password;
+    // SECURITY: Password is NOT stored - it only exists in event.password
+    // After OTP verification, user will re-enter password for login
 
     final result = await _authService.register(
       phoneNumber: event.phoneNumber,
@@ -76,13 +79,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthOtpVerificationRequired(
         phoneNumber: event.phoneNumber,
         userId: result.userId!,
-      ));
+      ),);
     } else {
       emit(AuthError(
         errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
         errorMessage: result.errorMessage ?? 'Registration failed',
         canRetry: result.errorCode?.isRecoverable ?? true,
-      ));
+      ),);
     }
   }
 
@@ -100,38 +103,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      // After OTP verification, login to cache credentials
-      if (_currentPassword != null) {
-        final loginResult = await _authService.loginOnline(
-          phoneNumber: event.phoneNumber,
-          password: _currentPassword!,
-        );
-
-        if (loginResult.isSuccess) {
-          emit(AuthAuthenticated(
-            userId: loginResult.userId!,
-            tokens: loginResult.tokens!,
-          ));
-        } else {
-          // Login failed after OTP verification - should not happen
-          emit(AuthError(
-            errorCode:
-                loginResult.errorCode ?? AuthErrorCode.internalServerError,
-            errorMessage: loginResult.errorMessage ?? 'Login failed',
-          ));
-        }
-      } else {
-        // OTP verified but no password stored - emit authenticated anyway
-        emit(AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-        ));
-      }
+      // SECURITY: After OTP verification, user must login separately to cache credentials
+      // We DO NOT auto-login because password was never stored in BLoC state
+      // This is intentional - users will be directed to login screen after registration
+      emit(AuthAuthenticated(
+        userId: result.userId!,
+        tokens: result.tokens!,
+      ),);
     } else {
       emit(AuthError(
         errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
         errorMessage: result.errorMessage ?? 'OTP verification failed',
-      ));
+      ),);
     }
   }
 
@@ -152,13 +135,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         userId: result.userId!,
         tokens: result.tokens!,
         isOfflineAuth: result.isOfflineAuth,
-      ));
+      ),);
     } else {
       emit(AuthError(
         errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
         errorMessage: result.errorMessage ?? 'Login failed',
         canRetry: result.errorCode?.isRecoverable ?? true,
-      ));
+      ),);
     }
   }
 
@@ -178,13 +161,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthAuthenticated(
         userId: result.userId!,
         tokens: result.tokens!,
-      ));
+      ),);
     } else {
       emit(AuthError(
         errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
         errorMessage: result.errorMessage ?? 'Login failed',
         canRetry: result.errorCode?.isRecoverable ?? true,
-      ));
+      ),);
     }
   }
 
@@ -205,13 +188,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         userId: result.userId!,
         tokens: result.tokens!,
         isOfflineAuth: true,
-      ));
+      ),);
     } else {
       emit(AuthError(
         errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
         errorMessage: result.errorMessage ?? 'Offline login failed',
         canRetry: result.errorCode?.isRecoverable ?? true,
-      ));
+      ),);
     }
   }
 
@@ -232,7 +215,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           userId: currentState.userId,
           tokens: result.tokens!,
           isOfflineAuth: currentState.isOfflineAuth,
-        ));
+        ),);
       }
     } else {
       // Token refresh failed - logout user
