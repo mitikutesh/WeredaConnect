@@ -76,16 +76,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      emit(AuthOtpVerificationRequired(
-        phoneNumber: event.phoneNumber,
-        userId: result.userId!,
-      ),);
+      emit(
+        AuthOtpVerificationRequired(
+          phoneNumber: event.phoneNumber,
+          userId: result.userId!,
+        ),
+      );
     } else {
-      emit(AuthError(
-        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-        errorMessage: result.errorMessage ?? 'Registration failed',
-        canRetry: result.errorCode?.isRecoverable ?? true,
-      ),);
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Registration failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
     }
   }
 
@@ -106,15 +110,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // SECURITY: After OTP verification, user must login separately to cache credentials
       // We DO NOT auto-login because password was never stored in BLoC state
       // This is intentional - users will be directed to login screen after registration
-      emit(AuthAuthenticated(
-        userId: result.userId!,
-        tokens: result.tokens!,
-      ),);
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+        ),
+      );
     } else {
-      emit(AuthError(
-        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-        errorMessage: result.errorMessage ?? 'OTP verification failed',
-      ),);
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'OTP verification failed',
+        ),
+      );
     }
   }
 
@@ -131,17 +139,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      emit(AuthAuthenticated(
-        userId: result.userId!,
-        tokens: result.tokens!,
-        isOfflineAuth: result.isOfflineAuth,
-      ),);
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+          isOfflineAuth: result.isOfflineAuth,
+        ),
+      );
     } else {
-      emit(AuthError(
-        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-        errorMessage: result.errorMessage ?? 'Login failed',
-        canRetry: result.errorCode?.isRecoverable ?? true,
-      ),);
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
     }
   }
 
@@ -158,16 +170,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      emit(AuthAuthenticated(
-        userId: result.userId!,
-        tokens: result.tokens!,
-      ),);
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+        ),
+      );
     } else {
-      emit(AuthError(
-        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-        errorMessage: result.errorMessage ?? 'Login failed',
-        canRetry: result.errorCode?.isRecoverable ?? true,
-      ),);
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
     }
   }
 
@@ -184,17 +200,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      emit(AuthAuthenticated(
-        userId: result.userId!,
-        tokens: result.tokens!,
-        isOfflineAuth: true,
-      ),);
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+          isOfflineAuth: true,
+        ),
+      );
     } else {
-      emit(AuthError(
-        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-        errorMessage: result.errorMessage ?? 'Offline login failed',
-        canRetry: result.errorCode?.isRecoverable ?? true,
-      ),);
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Offline login failed',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+        ),
+      );
     }
   }
 
@@ -211,11 +231,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       // Update tokens in current authenticated state
       if (currentState is AuthAuthenticated) {
-        emit(AuthAuthenticated(
-          userId: currentState.userId,
-          tokens: result.tokens!,
-          isOfflineAuth: currentState.isOfflineAuth,
-        ),);
+        emit(
+          AuthAuthenticated(
+            userId: currentState.userId,
+            tokens: result.tokens!,
+            isOfflineAuth: currentState.isOfflineAuth,
+          ),
+        );
       }
     } else {
       // Token refresh failed - logout user

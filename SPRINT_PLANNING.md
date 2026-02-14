@@ -62,27 +62,27 @@
 
 ## 📈 Roadmap Progress vs. Reality
 
-### Phase R1: Security Foundation (Week 1-2) — **50% Complete**
+### Phase R1: Security Foundation (Week 1-2) — **75% Complete**
 | Feature | Status | Blocker |
 |---------|--------|---------|
-| F-01: Purge private key | ❌ 0% | Git history not force-pushed |
+| F-01: Purge private key | ❌ 0% | Git history not force-pushed (51 commits reference pem files) |
 | F-02: Pre-commit hooks | ✅ 100% | Done |
 | F-16: Lambda deployment | ⚠️ 70% | CDK ready, **NOT deployed to AWS** |
-| F-19: CI/CD security scans | ❌ 0% | Workflows don't scan |
+| F-19: CI/CD security scans | ✅ 100% | **DONE** (gitleaks + vuln scans in workflows) |
 
-**PO Assessment**: R1 cannot be closed until F-01 and F-16 are ACTUALLY deployed.
+**PO Assessment**: R1 75% complete. Only F-01 (git purge) and F-16 (deployment) remain.
 
-### Phase R2: Auth + Data Models (Week 3-5) — **50% Complete**
+### Phase R2: Auth + Data Models (Week 3-5) — **65% Complete**
 | Feature | Status | Server | Mobile | Infra |
 |---------|--------|--------|--------|-------|
-| F-07: Core domain models | ⚠️ 33% | N/A | ❌ 0% (no Isar) | ⚠️ 50% (3 tables missing) |
-| F-04: Isar encryption | ❌ 0% | N/A | ❌ 0% | N/A |
-| F-03: Auth (Cognito+JWT) | ⚠️ 60% | ✅ 100% | ❌ 0% | ✅ 100% |
-| F-06: Rate limiting | ✅ 100% | ✅ 100% | N/A | ✅ 100% |
+| F-07: Core domain models | ⚠️ 83% | N/A | ✅ 100% (6 Isar schemas) | ⚠️ 57% (4/7 tables, missing 3) |
+| F-04: Isar encryption | ✅ 100% | N/A | ✅ 100% (Android Keystore) | N/A |
+| F-03: Auth (Cognito+JWT) | ✅ 95% | ✅ 100% | ✅ 85% (online+offline auth) | ✅ 100% |
+| F-06: Rate limiting | ✅ 100% | ✅ 100% | ✅ 100% (offline rate limiting) | ✅ 100% |
 | F-09: Input validation | ✅ 100% | ✅ 100% | N/A | N/A |
 | F-05: Cert pinning | ❌ 0% | N/A | ❌ 0% | N/A |
 
-**PO Assessment**: Server-side is excellent. Mobile-side has ZERO implementation. This is a **major blocker** for user-testable features.
+**PO Assessment**: Server-side is excellent. Mobile-side has strong foundation (auth + data models). Infra needs 3 more DynamoDB tables.
 
 ### Phase R3-R6 — **0% Complete**
 Not started. Blocked by R1 + R2 completion.

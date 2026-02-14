@@ -24,8 +24,8 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 
 | Phase | Status | Done | Remaining |
 |-------|--------|------|-----------|
-| **R1: Security Foundation** | INCOMPLETE | 2/4 | F-01 history purge, F-19 CI/CD scanning |
-| **R2: Auth + Data Models** | INCOMPLETE | 3/6 (server done) | F-07 mobile models, F-04 Isar encryption, F-03 mobile auth, F-05 cert pinning |
+| **R1: Security Foundation** | 75% COMPLETE | 3/4 | F-01 history purge, F-16 Lambda deployment |
+| **R2: Auth + Data Models** | 65% COMPLETE | 5/6 | F-05 cert pinning, B4 (3 DynamoDB tables) |
 
 ---
 
@@ -133,19 +133,25 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 - [x] `@Server` Create `RateLimitService.cs` + `RateLimitRepository.cs` (F-06)
 - [x] `@Server` Create rate limiting unit tests
 
-### Phase R1: Security Foundation — Partial
+### Phase R1: Security Foundation — 75% Complete (3/4 done)
 - [x] `@Security` F-02: Install gitleaks + pre-commit hooks (`.gitleaks.toml`, `.pre-commit-config.yaml`)
 - [x] `@Infra` F-16: CDK api-stack with Cognito, HealthCheck Lambda, auth Lambda functions, API Gateway routes, throttling
 - [x] `@Infra` F-16: CDK constructs with per-function least-privilege IAM, ARM64, 512MB
 - [x] `@Server` F-16: `Program.cs` AOT bootstrap entry point with handler routing
 - [x] `@Infra` F-16: `scripts/deploy.sh` deployment script created
 - [x] `@Infra` CDK tests fixed — unit, integration, snapshot (11 tests passing)
+- [x] `@Infra` F-19: CI/CD security scans — gitleaks in `pr-validation.yml`, vuln scans in `server-tests.yml` and `infra-tests.yml`
 
-### Phase R2: Server-Side Complete
+### Phase R2: Server-Side Complete, Mobile Foundation Laid
 - [x] `@Server` F-03: All 5 auth Lambda handlers with 169 passing tests
 - [x] `@Server` F-06: Rate limiting — `RateLimitService` with 4 rules + API Gateway throttling
 - [x] `@Server` F-09: Input validation — `RequestValidator` with AOT-safe `GeneratedRegex`
 - [x] `@Architect` Auth API contract — `specs/contracts/auth-api.md` (672 lines)
+- [x] `@Mobile` F-07: All 6 Isar schemas created and tested (User, CropListing, Trip, Delivery, Payment, SyncOperation)
+- [x] `@Mobile` F-04: Isar database encryption with Android Keystore integration
+- [x] `@Mobile` F-03: Auth service + BLoC + Login/Register/OTP screens
+- [x] `@Mobile` F-06: Offline rate limiting (5 attempts = 15-minute lockout)
+- [x] `@Security` Fixed 2 critical vulnerabilities (password storage, rate limiting)
 
 ---
 
@@ -156,10 +162,15 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 
 ### Priority Group A: Security & Deployment (MUST DO — Week 1)
 
-#### A1: F-01 — Force-Push Cleaned Git History
-> Private key removed from working tree but git history NOT purged on remote.
-- [ ] `@Security` Force-push cleaned git history: `git push --force-with-lease --all`
-- [ ] `@Security` Notify any collaborators to re-clone after force-push
+#### A1: F-01 — Purge Git History 🚨 CRITICAL BLOCKER
+> 🚨 **CI/CD BLOCKED**: Gitleaks is failing on PR validation due to secrets in git history.
+> Private key removed from working tree but still in git history (51 commits, 3 objects).
+> **Scripts created**: `scripts/purge-git-history.sh` (BFG) and `scripts/purge-git-history-manual.sh` (git filter-branch)
+- [ ] `@Security` Run `./scripts/purge-git-history.sh` (BFG - recommended) OR `./scripts/purge-git-history-manual.sh` (manual)
+- [ ] `@Security` Verify with `git log --all --full-history --source -- "*pem*"` returns empty
+- [ ] `@Security` Force-push cleaned history: `git push --force-with-lease --all`
+- [ ] `@Security` Notify collaborators to re-clone repository
+- [ ] `@Security` Verify CI/CD passes after purge
 
 #### A2: F-16 — Lambda Deployment Verification
 > CDK code exists and tests pass. Never deployed to AWS.
@@ -167,48 +178,63 @@ Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
 - [ ] `@Infra` Deploy HealthCheckFunction to AWS dev environment using `scripts/deploy.sh dev`
 - [ ] `@Infra` Measure cold start and confirm <2s
 
-#### A3: F-19 — Security Scanning in CI/CD
-> Dependabot exists but NO inline security scanning in GitHub Actions workflows.
-- [ ] `@Infra` Add `dotnet list package --vulnerable --include-transitive` step to `server-tests.yml` — fail on CRITICAL/HIGH
-- [ ] `@Infra` Add `npm audit --audit-level=high` step to `infra-tests.yml` — fail on HIGH+
-- [ ] `@Infra` Add gitleaks secret scanning step to `pr-validation.yml` using `gitleaks/gitleaks-action@v2`
-- [ ] `@Infra` Verify all workflow YAML is valid and references correct action versions
+#### A3: F-19 — Security Scanning in CI/CD ✅ COMPLETE
+> ✅ All security scans implemented and active in GitHub Actions workflows.
+- [x] `@Infra` Add `dotnet list package --vulnerable --include-transitive` step to `server-tests.yml` — fail on CRITICAL/HIGH (lines 156-188)
+- [x] `@Infra` Add `npm audit --audit-level=high` step to `infra-tests.yml` — fail on HIGH+ (lines 161-190)
+- [x] `@Infra` Add gitleaks secret scanning step to `pr-validation.yml` using `gitleaks/gitleaks-action@v2` (lines 157-170)
+- [x] `@Infra` Verify all workflow YAML is valid and references correct action versions
 
 **R1 Exit Criteria:**
-- [ ] Zero secrets in git history (remote)
-- [ ] Pre-commit hooks catch test secrets ✅ (already done)
-- [ ] Lambda cold start <2s (measured on AWS)
-- [ ] CI/CD pipeline runs security scans on every PR
+- [ ] Zero secrets in git history (remote) — **PENDING A1**
+- [x] Pre-commit hooks catch test secrets ✅ (already done)
+- [ ] Lambda cold start <2s (measured on AWS) — **PENDING A2**
+- [x] CI/CD pipeline runs security scans on every PR ✅ (A3 COMPLETE)
 
 ---
 
 ### Priority Group B: Mobile Foundation (SPRINT FOCUS — Week 1-2)
 
-#### B1: F-07 — Core Domain Models (Isar Schemas)
-> Server DTOs exist. Mobile `mobile/lib/core/database/` is EMPTY. DynamoDB missing 3 tables.
-- [ ] `@Mobile` Create Isar schema: `User` (userId, phoneNumber, name, faydaId, role, woreda, timestamps, version)
-- [ ] `@Mobile` Create Isar schema: `CropListing` (listingId, farmerId, cropType, quantity, price, location, status, timestamps, version)
-- [ ] `@Mobile` Create Isar schema: `Trip` (tripId, truckerId, route, date, capacity, price, status, matchedListings, timestamps, version)
-- [ ] `@Mobile` Create Isar schema: `Delivery` (deliveryId, tripId, listingId, qrToken, GPS, photo, status, timestamps, version)
-- [ ] `@Mobile` Create Isar schema: `Payment` (paymentId, deliveryId, farmerId, buyerId, amount, telebirrRef, status, timestamps, version)
-- [ ] `@Mobile` Create Isar schema: `SyncOperation` (operationId, idempotencyKey, entityType, entityId, action, data, status, retryCount, timestamps)
-- [ ] `@Infra` Add Deliveries DynamoDB table to `database-stack.ts`
-- [ ] `@Infra` Add Payments DynamoDB table to `database-stack.ts`
-- [ ] `@Infra` Add SyncMetadata DynamoDB table to `database-stack.ts`
-- [ ] `@Infra` Add GSIs: CropsTable (status-createdAt), TripsTable (status-departureDate)
+#### B1: F-07 — Core Domain Models (Isar Schemas) ✅ COMPLETE (Mobile)
+> ✅ All 6 Isar schemas created. Integration tests passing.
+> ⚠️ DynamoDB still missing 3 tables (B4 incomplete).
+- [x] `@Mobile` Create Isar schema: `User` (userId, phoneNumber, name, faydaId, role, woreda, timestamps, version)
+- [x] `@Mobile` Create Isar schema: `CropListing` (listingId, farmerId, cropType, quantity, price, location, status, timestamps, version)
+- [x] `@Mobile` Create Isar schema: `Trip` (tripId, truckerId, route, date, capacity, price, status, matchedListings, timestamps, version)
+- [x] `@Mobile` Create Isar schema: `Delivery` (deliveryId, tripId, listingId, qrToken, GPS, photo, status, timestamps, version)
+- [x] `@Mobile` Create Isar schema: `Payment` (paymentId, deliveryId, farmerId, buyerId, amount, telebirrRef, status, timestamps, version)
+- [x] `@Mobile` Create Isar schema: `SyncOperation` (operationId, idempotencyKey, entityType, entityId, action, data, status, retryCount, timestamps)
 
-#### B2: F-04 — Isar Database Encryption
-> No encryption code exists. Must be enabled BEFORE any user data is written.
-- [ ] `@Mobile` Implement `_getEncryptionKey()` using `flutter_secure_storage` backed by Android Keystore
-- [ ] `@Mobile` Pass encryption key to `Isar.open()` on database initialization
-- [ ] `@Mobile` Write integration test verifying DB file is unreadable without key
+#### B4: F-07 — DynamoDB Tables (Infra) ⚠️ INCOMPLETE (4/7 tables)
+> ⚠️ Only 4 tables exist. Missing 3 tables and GSIs.
+- [x] `@Infra` Users table with PhoneIndex and RoleWaredaIndex GSIs
+- [x] `@Infra` Crops table (basic, no GSIs yet)
+- [x] `@Infra` Trips table (basic, no GSIs yet)
+- [x] `@Infra` RateLimits table with TTL
+- [ ] `@Infra` Add Deliveries DynamoDB table to `database-stack.ts` (PK: deliveryId, SK: tripId)
+- [ ] `@Infra` Add Payments DynamoDB table to `database-stack.ts` (PK: paymentId, SK: deliveryId)
+- [ ] `@Infra` Add SyncMetadata DynamoDB table to `database-stack.ts` (PK: idempotencyKey, SK: timestamp, TTL: 7 days)
+- [ ] `@Infra` Add GSI to CropsTable: StatusCreatedAtIndex (status + createdAt for filtering active listings)
+- [ ] `@Infra` Add GSI to TripsTable: StatusDepartureDateIndex (status + departureDate for upcoming trips)
 
-#### B3: F-03 — Mobile Auth Flow
-> Server auth complete (169 tests). Mobile `mobile/lib/core/auth/` is EMPTY.
-- [ ] `@Mobile` Create `AuthService` with online/offline login branching
-- [ ] `@Mobile` Create `OfflineAuthCache` with PBKDF2 password hashing
-- [ ] `@Mobile` Integrate `flutter_secure_storage` for token persistence
-- [ ] `@Mobile` Create login/registration UI screens (low-literacy, icon-heavy, Amharic/Oromo)
+#### B2: F-04 — Isar Database Encryption ✅ COMPLETE
+> ✅ Encryption implemented with Android Keystore. Integration tests passing.
+- [x] `@Mobile` Implement `_getEncryptionKey()` using `flutter_secure_storage` backed by Android Keystore
+- [x] `@Mobile` Pass encryption key to `Isar.open()` on database initialization
+- [x] `@Mobile` Write integration test verifying DB file is unreadable without key
+- [x] `@Security` Fixed encryption API compatibility (Isar 3.1.0+1)
+
+#### B3: F-03 — Mobile Auth Flow ✅ COMPLETE
+> ✅ Auth service implemented with online/offline modes. UI screens created. Security fixes applied.
+- [x] `@Mobile` Create `AuthService` with online/offline login branching
+- [x] `@Mobile` Create `OfflineAuthCache` with PBKDF2 password hashing (100k iterations)
+- [x] `@Mobile` Integrate `flutter_secure_storage` for token persistence
+- [x] `@Mobile` Create login/registration UI screens (low-literacy, icon-heavy, Amharic/Oromo)
+- [x] `@Mobile` Create `AuthBloc` with event/state management
+- [x] `@Mobile` Create OTP verification screen
+- [x] `@Security` Fixed password storage vulnerability (removed from BLoC memory)
+- [x] `@Security` Added offline rate limiting (5 attempts = 15-min lockout)
+- [x] `@Mobile` Fixed ConnectivityResult API breaking changes
 
 #### B4: F-05 — Certificate Pinning
 > `mobile/lib/core/network/` is EMPTY. No Dio configuration exists.

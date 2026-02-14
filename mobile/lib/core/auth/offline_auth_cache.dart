@@ -172,7 +172,10 @@ class OfflineAuthCache {
     try {
       final isar = IsarService.instance.db;
       // Use where clause for indexed field (phoneNumber has unique index)
-      return await isar.users.where().phoneNumberEqualTo(phoneNumber).findFirst();
+      return await isar.users
+          .where()
+          .phoneNumberEqualTo(phoneNumber)
+          .findFirst();
     } on Exception {
       return null;
     }
@@ -236,8 +239,10 @@ class OfflineAuthCache {
       final isar = IsarService.instance.db;
       await isar.writeTxn(() async {
         // Use where clause for indexed field (phoneNumber has unique index)
-        final user =
-            await isar.users.where().phoneNumberEqualTo(phoneNumber).findFirst();
+        final user = await isar.users
+            .where()
+            .phoneNumberEqualTo(phoneNumber)
+            .findFirst();
         if (user != null) {
           await isar.users.delete(user.id);
         }
@@ -323,9 +328,11 @@ class OfflineAuthCache {
   /// Check if user is rate limited due to too many failed attempts.
   bool _isRateLimited(String phoneNumber) {
     final attempts = _failedAttempts[phoneNumber] ?? [];
-    final recentAttempts = attempts.where(
-      (time) => DateTime.now().difference(time) < _lockoutDuration,
-    ).toList();
+    final recentAttempts = attempts
+        .where(
+          (time) => DateTime.now().difference(time) < _lockoutDuration,
+        )
+        .toList();
 
     // Update the list to only include recent attempts
     if (recentAttempts.length < attempts.length) {

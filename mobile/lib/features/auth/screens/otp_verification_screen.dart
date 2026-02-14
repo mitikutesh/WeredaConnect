@@ -22,7 +22,9 @@ class OtpVerificationScreen extends StatefulWidget {
   final String password;
 
   const OtpVerificationScreen({
-    required this.phoneNumber, required this.password, super.key,
+    required this.phoneNumber,
+    required this.password,
+    super.key,
   });
 
   @override

@@ -71,7 +71,8 @@ class AuthService {
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
-      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Registration requires internet connection',
@@ -128,7 +129,8 @@ class AuthService {
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
-      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'OTP verification requires internet connection',
@@ -186,7 +188,8 @@ class AuthService {
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
-      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Online login requires internet connection',
@@ -316,7 +319,8 @@ class AuthService {
   }) async {
     // Check connectivity
     final connectivityResults = await _connectivity.checkConnectivity();
-    final isOnline = connectivityResults.any((result) => result != ConnectivityResult.none);
+    final isOnline =
+        connectivityResults.any((result) => result != ConnectivityResult.none);
 
     if (isOnline) {
       // Try online login
@@ -355,7 +359,8 @@ class AuthService {
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
-      if (!connectivityResults.any((result) => result != ConnectivityResult.none)) {
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
         return AuthResult.failure(
           AuthErrorCode.networkError,
           'Token refresh requires internet connection',
@@ -408,7 +413,8 @@ class AuthService {
       // Try to logout on server (invalidate tokens)
       if (accessToken != null) {
         final connectivityResults = await _connectivity.checkConnectivity();
-        final isOnline = connectivityResults.any((result) => result != ConnectivityResult.none);
+        final isOnline = connectivityResults
+            .any((result) => result != ConnectivityResult.none);
 
         if (isOnline) {
           await _dio.post<Map<String, dynamic>>(
