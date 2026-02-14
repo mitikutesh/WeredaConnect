@@ -1,10 +1,35 @@
 # WeredaConnect Product Roadmap
 
-**Version**: 1.0.0
-**Date**: 2026-02-11
+**Version**: 1.1.0
+**Date**: 2026-02-14
 **Author**: Product Owner Agent
-**Status**: Active -- Ready for Architect Handoff
+**Status**: Active — Sprint 3 in progress
 **Review Cadence**: Bi-weekly (every 2 sprints)
+**Last Review**: 2026-02-14 (Sprint 3 kickoff)
+
+---
+
+## 🎯 CURRENT SPRINT STATUS (Sprint 3: Feb 14-28, 2026)
+
+**Sprint Goal**: Deploy and Secure the Backend, Lay Mobile Foundation
+
+### Progress Overview
+| Phase | Target | Actual | Status |
+|-------|--------|--------|--------|
+| **R1: Security Foundation** | 100% by Week 1 | 50% (2/4 done) | 🟡 IN PROGRESS |
+| **R2: Auth + Data Models** | 80% by Week 2 | 50% (server done, mobile missing) | 🟡 IN PROGRESS |
+
+### Sprint 3 Completion Tracking
+- [ ] **A1**: F-01 Purge git history (2hr) — 🔴 BLOCKER
+- [ ] **A2**: F-16 Deploy Lambda to AWS (1 day) — 🔴 BLOCKER
+- [ ] **A3**: F-19 CI/CD security scans (4hr) — 🟡 HIGH
+- [ ] **B1**: F-07 Create Isar schemas (2 days) — 🔴 FOUNDATION
+- [ ] **B2**: F-04 Isar encryption (1 day) — 🔴 MUST DO
+- [ ] **B3**: F-03 Mobile auth service + UI (3 days) — 🔴 MUST DO
+- [ ] **B4**: F-07 Add 3 missing DynamoDB tables (3hr) — 🟡 HIGH
+- [ ] **C1**: F-05 Certificate pinning (4hr) — 🟢 STRETCH GOAL
+
+**See `SPRINT_PLANNING.md` for detailed sprint plan and acceptance criteria.**
 
 ---
 
@@ -681,53 +706,59 @@ Features failing 3+ gates are marked DEFERRED.
 
 ## 4. Prioritized Roadmap -- Sequenced Phases
 
-### Phase R1: Security Foundation (Week 1-2)
+### Phase R1: Security Foundation (Week 1-2) — **50% COMPLETE** ⚠️
+
 **Goal**: Eliminate critical security debt and establish trust infrastructure.
 **Layer**: 1 - Foundation (Trust)
+**Status**: In Progress (Sprint 3, Week 1)
 
-| Order | Feature | Score | Blocked By | Delivers |
-|-------|---------|-------|------------|----------|
-| R1.1 | F-01: Purge private key from git history | 7 | None | Security hygiene |
-| R1.2 | F-02: Pre-commit secret detection hooks | 6 | F-01 | Prevent recurrence |
-| R1.3 | F-16: Lambda deployment pipeline | 8 | None | Backend capability |
-| R1.4 | F-19: Security scanning in CI/CD | 6 | F-02 | Ongoing protection |
+| Order | Feature | Score | Blocked By | Status | Sprint 3 |
+|-------|---------|-------|------------|--------|----------|
+| R1.1 | F-01: Purge private key from git history | 7 | None | ❌ 0% | **A1** (Week 1) |
+| R1.2 | F-02: Pre-commit secret detection hooks | 6 | F-01 | ✅ 100% | Done |
+| R1.3 | F-16: Lambda deployment pipeline | 8 | None | ⚠️ 70% | **A2** (Week 1) |
+| R1.4 | F-19: Security scanning in CI/CD | 6 | F-02 | ❌ 0% | **A3** (Week 1) |
 
-**Exit Criteria**:
-- Git history clean of secrets
-- Pre-commit hooks installed and tested
-- HealthCheckFunction deployed to AWS dev environment
-- Cold start measured and <2s
-- CI/CD pipeline runs security scans on every PR
+**Exit Criteria** (Original):
+- ~~Git history clean of secrets~~ — ❌ NOT DONE (critical blocker)
+- ~~Pre-commit hooks installed and tested~~ — ✅ DONE
+- ~~HealthCheckFunction deployed to AWS dev environment~~ — ❌ NOT DONE (CDK ready, not deployed)
+- ~~Cold start measured and <2s~~ — ❌ NOT MEASURED
+- ~~CI/CD pipeline runs security scans on every PR~~ — ❌ NOT DONE
 
-**Estimated Effort**: 5-7 days (solo developer)
+**Exit Criteria Target**: Feb 21, 2026 (Sprint 3, Week 1)
+**Estimated Effort**: 5-7 days (solo developer) — **Currently on Day 5**
 
 ---
 
-### Phase R2: Authentication and Data Models (Week 3-5)
+### Phase R2: Authentication and Data Models (Week 3-5) — **50% COMPLETE** ⚠️
+
 **Goal**: Users can register, log in (online and offline), and the data layer is ready for features.
 **Layer**: 1 - Foundation (Trust + Data)
+**Status**: In Progress (Sprint 3, Week 1-2)
 
-| Order | Feature | Score | Blocked By | Delivers |
-|-------|---------|-------|------------|----------|
-| R2.1 | F-07: Core domain models (Isar + DynamoDB) | 14 | None | Data layer |
-| R2.2 | F-04: Isar database encryption | 10 | F-07 | Data security |
-| R2.3 | F-03: API authentication (Cognito + JWT) | 17 | F-16 | User identity |
-| R2.4 | F-06: API rate limiting | 8 | F-03 | Brute-force protection |
-| R2.5 | F-09: Input validation middleware | 10 | F-07 | Data integrity |
-| R2.6 | F-05: Certificate pinning | 7 | F-03 | MITM protection |
+| Order | Feature | Score | Server | Mobile | Infra | Overall | Sprint 3 |
+|-------|---------|-------|--------|--------|-------|---------|----------|
+| R2.1 | F-07: Core domain models | 14 | N/A | ❌ 0% | ⚠️ 70% | 33% | **B1+B4** (Week 1) |
+| R2.2 | F-04: Isar encryption | 10 | N/A | ❌ 0% | N/A | 0% | **B2** (Week 2) |
+| R2.3 | F-03: Auth (Cognito+JWT) | 17 | ✅ 100% | ❌ 0% | ✅ 100% | 60% | **B3** (Week 2) |
+| R2.4 | F-06: Rate limiting | 8 | ✅ 100% | N/A | ✅ 100% | 100% | Done |
+| R2.5 | F-09: Input validation | 10 | ✅ 100% | N/A | N/A | 100% | Done |
+| R2.6 | F-05: Cert pinning | 7 | N/A | ❌ 0% | N/A | 0% | **C1** (Week 2, stretch) |
 
-**Exit Criteria**:
-- All 6 Isar schemas generated and tested
-- DynamoDB tables updated with Deliveries, Payments, SyncMetadata
-- User can register with Ethiopian phone number (+251...)
-- User can log in online (Cognito) and offline (cached credentials)
-- JWT validation works in Lambda authorizer
-- All API endpoints require authentication
-- Rate limiting active on auth endpoints
-- Input validation on all Lambda handlers
-- Certificate pinning configured in Dio client
+**Exit Criteria Status**:
+- ~~All 6 Isar schemas generated and tested~~ — ❌ NOT DONE (Sprint 3 B1)
+- ~~DynamoDB tables updated with Deliveries, Payments, SyncMetadata~~ — ❌ NOT DONE (Sprint 3 B4)
+- ~~User can register with Ethiopian phone number (+251...)~~ — ⚠️ SERVER YES, MOBILE NO (Sprint 3 B3)
+- ~~User can log in online (Cognito) and offline (cached credentials)~~ — ⚠️ SERVER YES, MOBILE NO (Sprint 3 B3)
+- ~~JWT validation works in Lambda authorizer~~ — ✅ DONE (169 tests passing)
+- ~~All API endpoints require authentication~~ — ✅ DONE (CDK configured)
+- ~~Rate limiting active on auth endpoints~~ — ✅ DONE (RateLimitService + API Gateway)
+- ~~Input validation on all Lambda handlers~~ — ✅ DONE (RequestValidator)
+- ~~Certificate pinning configured in Dio client~~ — ❌ NOT DONE (Sprint 3 C1, stretch goal)
 
-**Estimated Effort**: 15-20 days (solo developer)
+**Exit Criteria Target**: Feb 28, 2026 (Sprint 3 end) — **80%+ completion**
+**Estimated Effort**: 15-20 days (solo developer) — **Currently on Day 10** (server complete, mobile starting)
 
 **Note on F-03 Sequencing**: The existing authentication-encryption plan (`specs/decisions/authentication-encryption-plan.md`) is **approved for implementation as designed**. Key evaluation:
 - Hybrid Cognito + offline caching: CORRECT for Ethiopian context
@@ -1048,8 +1079,10 @@ The sync protocol contract (`specs/contracts/sync-protocol.md`) already exists a
 
 ---
 
-**Document Version**: 1.0.0
+**Document Version**: 1.1.0
 **Created**: 2026-02-11
+**Last Updated**: 2026-02-14 (Sprint 3 kickoff assessment)
 **Author**: Product Owner Agent
-**Next Review**: After Phase R1 completion
-**Handoff To**: Architect Agent (for contract design and engineering task decomposition)
+**Current Sprint**: Sprint 3 (Feb 14-28, 2026)
+**Next Review**: Feb 28, 2026 (Sprint 3 retrospective)
+**Active Collaboration**: See `SPRINT_PLANNING.md` for detailed sprint breakdown

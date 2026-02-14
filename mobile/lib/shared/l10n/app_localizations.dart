@@ -333,6 +333,204 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connecting Ethiopian farmers, truckers, and buyers'**
   String get aboutTagline;
+
+  /// Register button
+  ///
+  /// In en, this message translates to:
+  /// **'Register'**
+  String get register;
+
+  /// Phone number input label
+  ///
+  /// In en, this message translates to:
+  /// **'Phone Number'**
+  String get phoneNumber;
+
+  /// Password input label
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get password;
+
+  /// Confirm password input label
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Password'**
+  String get confirmPassword;
+
+  /// Full name input label
+  ///
+  /// In en, this message translates to:
+  /// **'Full Name'**
+  String get fullName;
+
+  /// Role selection label
+  ///
+  /// In en, this message translates to:
+  /// **'Select Role'**
+  String get selectRole;
+
+  /// Farmer role
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer'**
+  String get farmer;
+
+  /// Trucker/transport provider role
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker'**
+  String get trucker;
+
+  /// Buyer/wholesaler role
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer'**
+  String get buyer;
+
+  /// OTP input label
+  ///
+  /// In en, this message translates to:
+  /// **'Enter Verification Code'**
+  String get enterOtp;
+
+  /// OTP sent confirmation message
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code sent to your phone'**
+  String get otpSent;
+
+  /// Verify OTP button
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get verifyOtp;
+
+  /// Resend OTP button
+  ///
+  /// In en, this message translates to:
+  /// **'Resend Code'**
+  String get resendOtp;
+
+  /// Sign up button
+  ///
+  /// In en, this message translates to:
+  /// **'Sign Up'**
+  String get signUp;
+
+  /// Login prompt on register screen
+  ///
+  /// In en, this message translates to:
+  /// **'Already have an account?'**
+  String get alreadyHaveAccount;
+
+  /// Register prompt on login screen
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account?'**
+  String get dontHaveAccount;
+
+  /// Forgot password link
+  ///
+  /// In en, this message translates to:
+  /// **'Forgot Password?'**
+  String get forgotPassword;
+
+  /// Online login button
+  ///
+  /// In en, this message translates to:
+  /// **'Login Online'**
+  String get loginOnline;
+
+  /// Offline login button
+  ///
+  /// In en, this message translates to:
+  /// **'Login Offline'**
+  String get loginOffline;
+
+  /// Offline mode indicator message
+  ///
+  /// In en, this message translates to:
+  /// **'You are in offline mode'**
+  String get offlineModeIndicator;
+
+  /// Password requirements message
+  ///
+  /// In en, this message translates to:
+  /// **'Password must be at least 6 characters'**
+  String get passwordRequirements;
+
+  /// Error message for invalid phone format
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid phone number format. Use +251XXXXXXXXX'**
+  String get invalidPhoneFormat;
+
+  /// Error message for invalid credentials
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid phone number or password'**
+  String get invalidCredentials;
+
+  /// Error message for duplicate phone number
+  ///
+  /// In en, this message translates to:
+  /// **'This phone number is already registered'**
+  String get phoneAlreadyRegistered;
+
+  /// Error message for invalid OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid verification code'**
+  String get invalidOtp;
+
+  /// Error message for expired OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code expired. Request a new one'**
+  String get otpExpired;
+
+  /// Success message after registration
+  ///
+  /// In en, this message translates to:
+  /// **'Registration successful! Please verify your phone'**
+  String get registrationSuccess;
+
+  /// Success message after login
+  ///
+  /// In en, this message translates to:
+  /// **'Login successful!'**
+  String get loginSuccess;
+
+  /// Logout confirmation dialog message
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to logout?'**
+  String get logoutConfirmation;
+
+  /// Option to clear cached data on logout
+  ///
+  /// In en, this message translates to:
+  /// **'Clear offline data?'**
+  String get clearOfflineData;
+
+  /// Description for clear offline data option
+  ///
+  /// In en, this message translates to:
+  /// **'You can still access your account offline if you don\'t clear this data'**
+  String get clearOfflineDataDescription;
+
+  /// Example Ethiopian phone number
+  ///
+  /// In en, this message translates to:
+  /// **'Example: +251911234567'**
+  String get ethiopianPhoneExample;
+
+  /// Characters (for password requirements)
+  ///
+  /// In en, this message translates to:
+  /// **'characters'**
+  String get characters;
 }
 
 class _AppLocalizationsDelegate

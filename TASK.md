@@ -7,11 +7,15 @@ This file tracks the **active work** for the current development cycle. It's the
 
 ## 🎯 Current Sprint Goal
 
-**Close out Phase R1 + Complete Phase R2**
+**Sprint 3: Deploy and Secure the Backend, Lay Mobile Foundation (Feb 14 - Feb 28, 2026)**
 
-Phase R1 (Security Foundation) has 2/4 items remaining. Phase R2 (Auth + Data Models) server-side is done but mobile-side is entirely unstarted. Close R1 gaps, then complete R2 mobile work.
+Close Phase R1 (100% completion) and achieve 80%+ completion of Phase R2 by:
+1. Eliminating critical security gaps (git history purge, Lambda deployment, CI/CD scanning)
+2. Building mobile foundation (Isar schemas, encryption, auth service)
+3. Enabling user registration and login (online + offline)
 
 **Branch:** `Authentication-Encryptionministries`
+**Sprint Plan**: `SPRINT_PLANNING.md`
 **Roadmap Reference**: `specs/features/ROADMAP.md` — Phase R1 (Week 1-2) + R2 (Week 3-5)
 
 ---
@@ -145,9 +149,12 @@ Phase R1 (Security Foundation) has 2/4 items remaining. Phase R2 (Auth + Data Mo
 
 ---
 
-## 🚧 Active Tasks — Prioritized Remaining Work
+## 🚧 Sprint 3 Active Tasks — Prioritized Backlog
 
-### Block A: Close Phase R1 Gaps (do FIRST)
+**Sprint Duration**: Feb 14 - Feb 28, 2026
+**Full Sprint Plan**: See `SPRINT_PLANNING.md` for detailed acceptance criteria and timeline
+
+### Priority Group A: Security & Deployment (MUST DO — Week 1)
 
 #### A1: F-01 — Force-Push Cleaned Git History
 > Private key removed from working tree but git history NOT purged on remote.
@@ -175,7 +182,7 @@ Phase R1 (Security Foundation) has 2/4 items remaining. Phase R2 (Auth + Data Mo
 
 ---
 
-### Block B: Complete Phase R2 Mobile + Infra Gaps
+### Priority Group B: Mobile Foundation (SPRINT FOCUS — Week 1-2)
 
 #### B1: F-07 — Core Domain Models (Isar Schemas)
 > Server DTOs exist. Mobile `mobile/lib/core/database/` is EMPTY. DynamoDB missing 3 tables.
@@ -222,13 +229,34 @@ Phase R1 (Security Foundation) has 2/4 items remaining. Phase R2 (Auth + Data Mo
 
 ---
 
-## 🚫 Blockers
+### Priority Group C: Nice-to-Have (If Time Permits — Week 2)
 
-| Blocker | Impact | Workaround |
-|---------|--------|------------|
-| **Flutter SDK not installed** | Blocks ALL mobile work (B1-B4) | Install Flutter SDK before starting Block B |
-| **Node.js 18.x** (should be 20.x LTS) | Potential CDK compatibility issues | Upgrade to 20.x LTS |
-| **AWS credentials** | Blocks deployment verification (A2) | Configure AWS CLI with dev account credentials |
+#### C1: F-05 — Certificate Pinning (Mobile)
+> 3G MITM protection. Configure after Lambda deployed (A2).
+- [ ] `@Mobile` Add `dio: ^5.4.0` to pubspec.yaml
+- [ ] `@Mobile` Configure `IOHttpClientAdapter` with SHA-256 certificate pinning
+- [ ] `@Mobile` Extract API Gateway cert hash after F-16 deployment
+- [ ] `@Mobile` Add backup pin for cert rotation
+- [ ] `@Mobile` Document rotation procedure in `specs/decisions/cert-pinning.md`
+
+#### C2: Update Auth API Contract
+> Documentation for mobile team reference.
+- [ ] `@Architect` Review `specs/contracts/auth-api.md`
+- [ ] `@Architect` Add offline auth flow documentation
+- [ ] `@Architect` Add token refresh strategy
+- [ ] `@Architect` Add sequence diagrams for register + login
+
+---
+
+## 🚫 Sprint 3 Blockers
+
+| Blocker | Impact | Probability | Mitigation |
+|---------|--------|-------------|------------|
+| **Flutter SDK not installed** | 🔴 HIGH (blocks B1-B4) | 100% (KNOWN) | **INSTALL BEFORE SPRINT START** (Day 1 priority) |
+| **AWS credentials missing** | 🔴 HIGH (blocks A2) | MEDIUM | Configure AWS CLI with dev account on Day 1 |
+| **Node.js 18.x** (should be 20.x LTS) | 🟡 MEDIUM (CDK compat) | LOW | Upgrade to 20.x LTS |
+| **.NET AOT publish failure** | 🟡 MEDIUM (blocks A2) | LOW | Test `dotnet publish -r linux-arm64` locally first |
+| **Cognito SMS in Ethiopia** | 🟡 MEDIUM (blocks B3 test) | MEDIUM | Use test phone numbers initially |
 
 ---
 
@@ -254,5 +282,6 @@ Phase R1 (Security Foundation) has 2/4 items remaining. Phase R2 (Auth + Data Mo
 ---
 
 **Created:** 2026-02-09
-**Last Updated:** 2026-02-13
-**Status:** R1 incomplete (2/4), R2 incomplete (3/6 server-side done, mobile unstarted)
+**Last Updated:** 2026-02-14
+**Sprint**: Sprint 3 (Feb 14 - Feb 28, 2026)
+**Status:** R1 incomplete (2/4), R2 incomplete (server 100%, mobile 0%, infra 70%)

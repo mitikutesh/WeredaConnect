@@ -126,4 +126,107 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get aboutTagline =>
       'Connecting Ethiopian farmers, truckers, and buyers';
+
+  @override
+  String get register => 'Register';
+
+  @override
+  String get phoneNumber => 'Phone Number';
+
+  @override
+  String get password => 'Password';
+
+  @override
+  String get confirmPassword => 'Confirm Password';
+
+  @override
+  String get fullName => 'Full Name';
+
+  @override
+  String get selectRole => 'Select Role';
+
+  @override
+  String get farmer => 'Farmer';
+
+  @override
+  String get trucker => 'Trucker';
+
+  @override
+  String get buyer => 'Buyer';
+
+  @override
+  String get enterOtp => 'Enter Verification Code';
+
+  @override
+  String get otpSent => 'Verification code sent to your phone';
+
+  @override
+  String get verifyOtp => 'Verify';
+
+  @override
+  String get resendOtp => 'Resend Code';
+
+  @override
+  String get signUp => 'Sign Up';
+
+  @override
+  String get alreadyHaveAccount => 'Already have an account?';
+
+  @override
+  String get dontHaveAccount => 'Don\'t have an account?';
+
+  @override
+  String get forgotPassword => 'Forgot Password?';
+
+  @override
+  String get loginOnline => 'Login Online';
+
+  @override
+  String get loginOffline => 'Login Offline';
+
+  @override
+  String get offlineModeIndicator => 'You are in offline mode';
+
+  @override
+  String get passwordRequirements => 'Password must be at least 6 characters';
+
+  @override
+  String get invalidPhoneFormat =>
+      'Invalid phone number format. Use +251XXXXXXXXX';
+
+  @override
+  String get invalidCredentials => 'Invalid phone number or password';
+
+  @override
+  String get phoneAlreadyRegistered =>
+      'This phone number is already registered';
+
+  @override
+  String get invalidOtp => 'Invalid verification code';
+
+  @override
+  String get otpExpired => 'Verification code expired. Request a new one';
+
+  @override
+  String get registrationSuccess =>
+      'Registration successful! Please verify your phone';
+
+  @override
+  String get loginSuccess => 'Login successful!';
+
+  @override
+  String get logoutConfirmation => 'Are you sure you want to logout?';
+
+  @override
+  String get clearOfflineData => 'Clear offline data?';
+
+  @override
+  String get clearOfflineDataDescription =>
+      'You can still access your account offline if you don\'t clear this data';
+
+  @override
+  String get ethiopianPhoneExample => 'Example: +251911234567';
+
+  @override
+  String get characters => 'characters';
 }

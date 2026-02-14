@@ -124,4 +124,103 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
+
+  @override
+  String get register => 'ተመዝገብ';
+
+  @override
+  String get phoneNumber => 'ስልክ ቁጥር';
+
+  @override
+  String get password => 'የይለፍ ቃል';
+
+  @override
+  String get confirmPassword => 'የይለፍ ቃል አረጋግጥ';
+
+  @override
+  String get fullName => 'ሙሉ ስም';
+
+  @override
+  String get selectRole => 'ሚና ምረጥ';
+
+  @override
+  String get farmer => 'ገበሬ';
+
+  @override
+  String get trucker => 'የጭነት መኪና ሹፌር';
+
+  @override
+  String get buyer => 'ገዢ';
+
+  @override
+  String get enterOtp => 'የማረጋገጫ ኮድ አስገባ';
+
+  @override
+  String get otpSent => 'የማረጋገጫ ኮድ ወደ ስልክዎ ተልኳል';
+
+  @override
+  String get verifyOtp => 'አረጋግጥ';
+
+  @override
+  String get resendOtp => 'እንደገና ላክ';
+
+  @override
+  String get signUp => 'ተመዝገብ';
+
+  @override
+  String get alreadyHaveAccount => 'አካውንት አለዎት?';
+
+  @override
+  String get dontHaveAccount => 'አካውንት የለዎትም?';
+
+  @override
+  String get forgotPassword => 'የይለፍ ቃል ረሳኽው?';
+
+  @override
+  String get loginOnline => 'መስመር ላይ ግባ';
+
+  @override
+  String get loginOffline => 'ከመስመር ውጭ ግባ';
+
+  @override
+  String get offlineModeIndicator => 'ከመስመር ውጭ ነዎት';
+
+  @override
+  String get passwordRequirements => 'የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት';
+
+  @override
+  String get invalidPhoneFormat => 'ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ';
+
+  @override
+  String get invalidCredentials => 'ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል';
+
+  @override
+  String get phoneAlreadyRegistered => 'ይህ ስልክ ቁጥር ቀደም ብሎ ተመዝግቧል';
+
+  @override
+  String get invalidOtp => 'ልክ ያልሆነ የማረጋገጫ ኮድ';
+
+  @override
+  String get otpExpired => 'የማረጋገጫ ኮድ ጊዜው አልፏል። አዲስ ይጠይቁ';
+
+  @override
+  String get registrationSuccess => 'ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ';
+
+  @override
+  String get loginSuccess => 'መግባት ተሳክቷል!';
+
+  @override
+  String get logoutConfirmation => 'መውጣት ይፈልጋሉ?';
+
+  @override
+  String get clearOfflineData => 'ከመስመር ውጭ መረጃ ይሰረዝ?';
+
+  @override
+  String get clearOfflineDataDescription => 'ይህን መረጃ ካላጠፉ ከመስመር ውጭ መግባት ይችላሉ';
+
+  @override
+  String get ethiopianPhoneExample => 'ምሳሌ: +251911234567';
+
+  @override
+  String get characters => 'ቁምፊዎች';
 }

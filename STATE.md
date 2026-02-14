@@ -7,66 +7,104 @@ This file serves as a **session checkpoint** for AI-assisted development. When t
 
 ## 🛑 Session Checkpoint
 
-**Timestamp:** 2026-02-13
-**Status:** Phase R1 incomplete, Phase R2 partially complete — server-side done, mobile + deployment pending
+**Timestamp:** 2026-02-14
+**Status:** Sprint 3 kickoff — R1 50% complete (security gaps), R2 50% complete (server done, mobile missing)
 **Active Branch:** Authentication-Encryptionministries
+**Current Sprint:** Sprint 3 (Feb 14 - Feb 28, 2026) — "Deploy and Secure the Backend, Lay Mobile Foundation"
 
 ---
 
 ## 📍 Current Context
 
 ### Last Git Commits
-- df0dd79: docs: update STATE.md and TASK.md to reflect project structure and navigation completion
-- ecbd524: docs: consolidate session summary into a single reference document
-- 8d08862: feat(mobile): UI foundation improvemetadd jenkin file
-- fb25373: feat(mobile): implement navigation structure and core UI foundation
-- d4981a7: chore(docs): remove outdated deployment and testing exploration documents
+- b4bbb33: fix(mobile): disable Jetifier to resolve Android build failure
+- a1f8a80: (fix): fix formatting
+- b691c04: (fix): fix pipeline
+- c3eacfd: (fix): fix failing tests
+- 19eb5eb: style(mobile): format screen files to pass CI checks
+- 105f823: (fix): fix failing tests
+- a4c2095: feat(infra): implement Cognito User Pool, auth Lambda functions, and API Gateway routes
+- eefd873: fix(server): remove private keys and ignore LocalStack data directory
 
 ---
 
-## 🚧 Current Task Status
+## 🚧 Current Sprint Status (Sprint 3)
 
-See `TASK.md` for detailed task breakdown.
+**Sprint Goal:** Close R1 (100%) and achieve R2 80%+ completion by enabling mobile foundation.
+**Sprint Plan:** See `SPRINT_PLANNING.md` for detailed breakdown.
+**Key Documents:** `TASK.md` (backlog), `ROADMAP.md` (full roadmap)
 
-### Phase R1: Security Foundation — INCOMPLETE (2/4 done)
+### Sprint 3 Priorities (Feb 14-28)
 
-| Item | Status | Detail |
-|------|--------|--------|
-| F-01: Purge private key | INCOMPLETE | Key removed from working tree, **git history NOT purged** (force-push pending) |
-| F-02: Pre-commit hooks | COMPLETE | `.pre-commit-config.yaml` + `.gitleaks.toml` configured |
-| F-16: Lambda pipeline | PARTIAL | CDK + deploy script exist, 11 tests pass. **Not deployed to AWS, cold start unmeasured** |
-| F-19: Security scanning CI/CD | MISSING | No gitleaks/vuln scanning in GitHub Actions workflows |
+**Week 1 Focus:** Security & Deployment
+- A1: Purge git history (F-01) — 🔴 BLOCKER
+- A2: Deploy Lambda to AWS (F-16) — 🔴 BLOCKER
+- A3: CI/CD security scans (F-19) — 🟡 HIGH
+- B1: Create Isar schemas (F-07 mobile) — 🔴 FOUNDATION
+- B4: Add DynamoDB tables (F-07 infra) — 🟡 HIGH
 
-### Phase R2: Auth + Data Models — INCOMPLETE (3/6 done)
+**Week 2 Focus:** Mobile Foundation
+- B2: Isar encryption (F-04) — 🔴 MUST DO
+- B3: Auth service + Login UI (F-03 mobile) — 🔴 MUST DO
+- C1: Certificate pinning (F-05) — 🟢 NICE TO HAVE
 
-| Item | Status | Detail |
-|------|--------|--------|
-| F-07: Domain models | PARTIAL | Server DTOs + DynamoDB tables done. **Mobile Isar schemas missing** (empty directory) |
-| F-04: Isar encryption | MISSING | No encryption key management, no Android Keystore integration |
-| F-03: Auth (Cognito+JWT) | PARTIAL | Server complete (169 tests). **Mobile auth missing** (no AuthService, no token storage, no login UI) |
-| F-06: Rate limiting | COMPLETE | `RateLimitService` + API Gateway throttling configured |
-| F-09: Input validation | COMPLETE | `RequestValidator` with AOT-safe `GeneratedRegex` |
-| F-05: Cert pinning | MISSING | `mobile/lib/core/network/` empty, no Dio config |
+### Phase R1: Security Foundation — 50% COMPLETE (2/4 done)
 
-**Summary:** Server-side infrastructure is strong. The gap is entirely on mobile (auth, database, encryption, networking all empty) and deployment/ops (AWS deploy, CI/CD scanning, git history purge).
+| Item | Status | Progress | Sprint 3 Action |
+|------|--------|----------|-----------------|
+| F-01: Purge private key | ❌ CRITICAL | 0% | **A1: Force-push cleaned history** |
+| F-02: Pre-commit hooks | ✅ COMPLETE | 100% | None (done) |
+| F-16: Lambda pipeline | ⚠️ PARTIAL | 70% | **A2: Deploy to AWS dev, measure cold start** |
+| F-19: Security scanning CI/CD | ❌ MISSING | 0% | **A3: Add gitleaks + vuln scans to workflows** |
+
+**R1 Target:** 100% complete by Feb 21 (mid-sprint)
+
+### Phase R2: Auth + Data Models — 50% COMPLETE
+
+| Item | Server | Mobile | Infra | Overall | Sprint 3 Action |
+|------|--------|--------|-------|---------|-----------------|
+| F-07: Domain models | N/A | ❌ 0% | ⚠️ 70% | 33% | **B1: Isar schemas + B4: 3 missing tables** |
+| F-04: Isar encryption | N/A | ❌ 0% | N/A | 0% | **B2: Android Keystore integration** |
+| F-03: Auth (Cognito+JWT) | ✅ 100% | ❌ 0% | ✅ 100% | 60% | **B3: Mobile AuthService + Login UI** |
+| F-06: Rate limiting | ✅ 100% | N/A | ✅ 100% | 100% | None (done) |
+| F-09: Input validation | ✅ 100% | N/A | N/A | 100% | None (done) |
+| F-05: Cert pinning | N/A | ❌ 0% | N/A | 0% | **C1: Dio cert pinning (stretch goal)** |
+
+**R2 Target:** 80%+ complete by Feb 28 (sprint end)
+
+### What's Actually Implemented ✅
+
+**Server:** 169 tests passing
+- ✅ All 6 auth Lambda functions (Register, VerifyOTP, Login, Refresh, Logout, Authorizer)
+- ✅ Rate limiting service + repository
+- ✅ Input validation (Ethiopian phone format)
+- ✅ JWT validation
+- ✅ DynamoDB UserRepository with optimistic concurrency
+- ✅ Program.cs AOT bootstrap with FUNCTION_HANDLER routing
+
+**Infrastructure:** 11 tests passing
+- ✅ CDK stacks (Database, API, Lambda constructs)
+- ✅ Cognito User Pool (phone-based, SMS OTP)
+- ✅ API Gateway with 6 routes
+- ✅ DynamoDB tables: Users, Trips, Crops, RateLimits
+- ⚠️ **Missing:** Deliveries, Payments, SyncMetadata tables
+- ⚠️ **NOT DEPLOYED:** Lambda code exists but not on AWS
+
+**Mobile:** Basic UI only, NO business logic
+- ✅ Navigation structure (Home, Listings, Profile, Settings screens)
+- ✅ Localization (Amharic, Afan Oromo, English)
+- ❌ **Missing:** ALL core functionality (Isar, auth, sync, networking)
+
+**Security:**
+- ✅ Pre-commit hooks (.gitleaks.toml, .pre-commit-config.yaml)
+- ❌ **CRITICAL:** Private key still in git history (remote)
 
 ---
 
 ## 📦 Uncommitted Changes
 
-**Modified files:**
-- STATE.md (this file)
-- TASK.md
-- docs/progress.md
-- infra/ (CDK stack changes — api-stack, database-stack, lambda-construct, tests)
-- server/WeredaConnect.Server.csproj
-- server/src/Program.cs (new)
-- session_summary.md
-
-**Untracked files:**
-- .gitleaks.toml
-- .pre-commit-config.yaml
-- scripts/deploy.sh
+**Status:** Clean working tree as of Feb 14
+**Note:** All previous changes committed on Authentication-Encryptionministries branch
 
 ---
 
@@ -75,23 +113,33 @@ See `TASK.md` for detailed task breakdown.
 **For Next AI Session:**
 
 ```
-Read STATE.md and TASK.md. Phase R1 and R2 are both incomplete.
+Sprint 3 is active (Feb 14-28, 2026). Read SPRINT_PLANNING.md for full details.
+
 Branch: Authentication-Encryptionministries
 
-REMAINING R1 WORK (do first):
-  1. Force-push cleaned git history (F-01 purge)
-  2. Add security scanning to CI/CD workflows (F-19)
-  3. Deploy Lambda to AWS dev, measure cold start <2s (F-16)
+CRITICAL FIRST STEPS:
+  1. Install Flutter SDK if not done (flutter doctor)
+  2. Verify AWS credentials (aws sts get-caller-identity)
+  3. Purge git history: F-01 (BLOCKER, 2 hours)
+  4. Deploy Lambda: F-16 (BLOCKER, 1 day)
 
-REMAINING R2 WORK (mobile-side):
-  4. Create 6 Isar schemas in mobile/lib/core/database/ (F-07)
-  5. Add Deliveries, Payments, SyncMetadata DynamoDB tables (F-07)
-  6. Implement Isar encryption with Android Keystore (F-04)
-  7. Create mobile AuthService + OfflineAuthCache + login UI (F-03)
-  8. Configure Dio certificate pinning (F-05)
+WEEK 1 PRIORITIES (Feb 14-21):
+  - A1: Purge private key from git history (F-01)
+  - A2: Deploy HealthCheckFunction to AWS, measure cold start (F-16)
+  - A3: Add CI/CD security scans (F-19)
+  - B1: Create 6 Isar schemas (F-07 mobile)
+  - B4: Add 3 missing DynamoDB tables (F-07 infra)
 
-NOTE: Flutter SDK not installed on this machine — blocks all mobile work.
-Server auth is code-complete (169 tests), CDK infra complete (11 tests).
+WEEK 2 PRIORITIES (Feb 24-28):
+  - B2: Implement Isar encryption (F-04)
+  - B3: Build AuthService + Login UI (F-03 mobile)
+  - C1: Certificate pinning if time permits (F-05)
+
+BLOCKERS: Flutter SDK installation, AWS credentials setup
+SERVER STATUS: 100% complete (169 tests passing)
+MOBILE STATUS: 0% business logic (only UI scaffolding exists)
+
+TARGET: R1 100% complete, R2 80% complete by Feb 28
 ```
 
 ---
