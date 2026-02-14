@@ -41,6 +41,10 @@ jobs:
         working-directory: mobile
         run: dart format --set-exit-if-changed .
 
+      - name: Stage Isar native library for unit tests
+        working-directory: mobile
+        run: cp $(find $HOME/.pub-cache/hosted/pub.dev/isar_flutter_libs-*/linux -name "libisar.so" | head -1) .
+
       - name: Run unit tests
         working-directory: mobile
         run: flutter test --coverage --reporter expanded

@@ -1,7 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:integration_test/integration_test.dart';
 import 'package:isar/isar.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -11,14 +11,18 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  group('Isar Schemas Integration Tests', () {
+  group('Isar Schemas Tests', () {
     late Isar isar;
+    late Directory tempDir;
 
     setUpAll(() async {
-      // Get application documents directory
-      final dir = await getApplicationDocumentsDirectory();
+      // Initialize Isar native library for unit tests.
+      // Downloads the binary from GitHub releases if not already present.
+      await Isar.initializeIsarCore(download: true);
+
+      // Use a temp directory instead of getApplicationDocumentsDirectory()
+      // so the test runs in flutter test without a device/app context.
+      tempDir = Directory.systemTemp.createTempSync('isar_schema_test_');
 
       // Open Isar database with all schemas
       isar = await Isar.open(
@@ -30,7 +34,7 @@ void main() {
           PaymentSchema,
           SyncOperationSchema,
         ],
-        directory: dir.path,
+        directory: tempDir.path,
         name: 'test_schemas',
       );
     });
@@ -38,6 +42,9 @@ void main() {
     tearDownAll(() async {
       // Clean up database
       await isar.close(deleteFromDisk: true);
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
     });
 
     test('User schema: create, read, and query', () async {
