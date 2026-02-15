@@ -18,10 +18,23 @@ class AppLocalizationsOm extends AppLocalizations {
   String get welcomeMessage => 'Gara WeredaConnect baga nagaan dhuftan';
 
   @override
+  String get welcomeTitle => 'Gara WeredaConnect Baga Nagaan Dhuftan';
+
+  @override
+  String get worksOffline => 'Oflaayiniin Hojjeta';
+
+  @override
   String get offlineMode => 'Haalata Offline';
 
   @override
   String get syncPending => 'Walsimsiisuun Eegaa Jira';
+
+  @override
+  String get taglineShort =>
+      'Qonnaan Bultootaa, Konkolaataa fi Bitootaa Walitti Hidhuu';
+
+  @override
+  String get telebirrPayment => 'Kaffaltii Telebirr';
 
   @override
   String get syncInProgress => 'Walsimsiisuun Itti Fufeera...';
@@ -36,6 +49,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get retry => 'Irra Deebi\'ii Yaali';
 
   @override
+  String get selectLanguagePrompt => 'Afaan Kee Filadhu';
+
+  @override
   String get cancel => 'Dhiisi';
 
   @override
@@ -48,7 +64,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String get edit => 'Gulaal';
 
   @override
+  String get editProfile => 'Piroofaayilii Gulaaluu';
+
+  @override
   String get settings => 'Qindaa\'ina';
+
+  @override
+  String get skip => 'Utaalu';
 
   @override
   String get language => 'Afaan';
@@ -82,6 +104,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get home => 'Mana';
 
   @override
+  String get howItWorks => 'Akkamitti akka hojjetu';
+
+  @override
   String get listings => 'Tarreewwan';
 
   @override
@@ -106,13 +131,25 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myProfile => 'Ibsa Koo';
 
   @override
+  String get next => 'Itti Aanuu';
+
+  @override
   String get notLoggedIn => 'Hin seenne';
+
+  @override
+  String get notifications => 'Beeksisa';
 
   @override
   String get login => 'Seeni';
 
   @override
   String get comingSoon => 'Dhiyoo Dhufa';
+
+  @override
+  String get connectWithMarkets => 'Gabaa Naannoo waliin Walquunnamuu';
+
+  @override
+  String get createAccount => 'Herrega Uumuu';
 
   @override
   String get currentLanguage => 'Afaan Oromoo';
@@ -126,6 +163,9 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get aboutTagline =>
       'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
+
+  @override
+  String get activeListings => 'tarreewwan socho\'oo';
 
   @override
   String get register => 'Galmaa\'i';
@@ -152,6 +192,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trucker => 'Konkolaataa Fe\'aa';
 
   @override
+  String get updateDetails => 'Maqaa fi ibsa kee haaromsi';
+
+  @override
   String get buyer => 'Bitaa';
 
   @override
@@ -163,6 +206,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get verifyOtp => 'Mirkaneessi';
+
+  @override
+  String get viewOrderHistory => 'Seenaa ajaja kee ilaali';
+
+  @override
+  String get voiceSupport => 'Afaan Keetiin Deeggarsa Sagalee';
 
   @override
   String get resendOtp => 'Irra Deebi\'ii Ergi';
@@ -178,6 +227,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
+
+  @override
+  String get getStarted => 'Jalqabi';
 
   @override
   String get loginOnline => 'Online ta\'ii Seeni';
@@ -219,6 +271,15 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get logoutConfirmation => 'Dhugumatti ba\'uu barbaadduu?';
+
+  @override
+  String get manageAlerts => 'Beeksisa bulchi';
+
+  @override
+  String get myListings => 'Tarree Koo';
+
+  @override
+  String get myOrders => 'Ajaja Koo';
 
   @override
   String get clearOfflineData => 'Daataa offline haqamuu?';
@@ -309,6 +370,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get etbPerKg => 'Birrii/kg';
 
   @override
+  String get exploreAsGuest => 'Akka Keessummaatti Qoradhu';
+
+  @override
   String get notAuthenticated => 'Tarkaanfii kana fudhachuuf seenuu qabdu';
 
   @override
@@ -333,4 +397,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get listingStatusExpired => 'Darbe';
+
+  @override
+  String get backToHome => 'Gara Manatti Deebi\'i';
 }

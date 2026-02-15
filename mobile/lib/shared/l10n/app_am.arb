@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "እንኳን ወደ ወረዳ ኮነክት በደህና መጡ",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "ከመስመር ውጭ ይሰራል",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "ከመስመር ውጭ",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "ማመሳሰል በመጠባበቅ ላይ",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "ገበሬዎችን፣ መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "ቴሌብር ክፍያ",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "በማመሳሰል ላይ...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "ቋንቋዎን ይምረጡ",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "ሰርዝ",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "መገለጫ አርትዕ",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "ቅንብሮች",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "ዝለል",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "ቋንቋ",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "እንዴት እንደሚሰራ",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "ዝርዝሮች",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "ቀጣይ",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "ገብተው አይደሉም",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "ማሳወቂያዎች",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "ግባ",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "በቅርቡ ይመጣል",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "ከአካባቢ ገበያዎች ጋር ይገናኙ",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "መለያ ፍጠር",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "አማርኛ",
   "@currentLanguage": {
@@ -155,6 +203,10 @@
   "aboutTagline": "የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "activeListings": "ንቁ ዝርዝሮች",
+  "@activeListings": {
+    "description": "Active listings count label"
   },
   "register": "ተመዝገብ",
   "@register": {
@@ -188,6 +240,10 @@
   "@trucker": {
     "description": "Trucker/transport provider role"
   },
+  "updateDetails": "ስምዎን እና ዝርዝሮችዎን ያዘምኑ",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "ገዢ",
   "@buyer": {
     "description": "Buyer/wholesaler role"
@@ -203,6 +259,14 @@
   "verifyOtp": "አረጋግጥ",
   "@verifyOtp": {
     "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "የትዕዛዝ ታሪክዎን ይመልከቱ",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "በቋንቋዎ የድምፅ ድጋፍ",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
   },
   "resendOtp": "እንደገና ላክ",
   "@resendOtp": {
@@ -223,6 +287,10 @@
   "forgotPassword": "የይለፍ ቃል ረሳኽው?",
   "@forgotPassword": {
     "description": "Forgot password link"
+  },
+  "getStarted": "ጀምር",
+  "@getStarted": {
+    "description": "Get started button"
   },
   "loginOnline": "መስመር ላይ ግባ",
   "@loginOnline": {
@@ -271,6 +339,18 @@
   "logoutConfirmation": "መውጣት ይፈልጋሉ?",
   "@logoutConfirmation": {
     "description": "Logout confirmation dialog message"
+  },
+  "manageAlerts": "ማንቂያዎችን ያስተዳድሩ",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "የእኔ ዝርዝሮች",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "የእኔ ትዕዛዞች",
+  "@myOrders": {
+    "description": "My orders menu item"
   },
   "clearOfflineData": "ከመስመር ውጭ መረጃ ይሰረዝ?",
   "@clearOfflineData": {
@@ -388,6 +468,10 @@
   "@etbPerKg": {
     "description": "Ethiopian Birr per kilogram"
   },
+  "exploreAsGuest": "እንደ እንግዳ ያስሱ",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
   "notAuthenticated": "ይህን እርምጃ ለመውሰድ መግባት አለብዎት",
   "passwordsDoNotMatch": "የይለፍ ቃል ቁምፊዎች አይዛመዱም",
   "@passwordsDoNotMatch": {
@@ -422,6 +506,10 @@
   "listingStatusExpired": "ጊዜው አልፏል",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "backToHome": "ወደ መነሻ ይመለሱ",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
   }
 }
 

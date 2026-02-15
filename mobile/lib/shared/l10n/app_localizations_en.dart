@@ -18,10 +18,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeMessage => 'Welcome to WeredaConnect';
 
   @override
+  String get welcomeTitle => 'Welcome to WeredaConnect';
+
+  @override
+  String get worksOffline => 'Works Offline';
+
+  @override
   String get offlineMode => 'Offline Mode';
 
   @override
   String get syncPending => 'Sync Pending';
+
+  @override
+  String get taglineShort => 'Connecting Farmers, Truckers & Buyers';
+
+  @override
+  String get telebirrPayment => 'Telebirr Payment';
 
   @override
   String get syncInProgress => 'Syncing...';
@@ -36,6 +48,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get retry => 'Retry';
 
   @override
+  String get selectLanguagePrompt => 'Select Your Language';
+
+  @override
   String get cancel => 'Cancel';
 
   @override
@@ -48,7 +63,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get edit => 'Edit';
 
   @override
+  String get editProfile => 'Edit Profile';
+
+  @override
   String get settings => 'Settings';
+
+  @override
+  String get skip => 'Skip';
 
   @override
   String get language => 'Language';
@@ -82,6 +103,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get home => 'Home';
 
   @override
+  String get howItWorks => 'How it works';
+
+  @override
   String get listings => 'Listings';
 
   @override
@@ -106,13 +130,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myProfile => 'My Profile';
 
   @override
+  String get next => 'Next';
+
+  @override
   String get notLoggedIn => 'Not logged in';
+
+  @override
+  String get notifications => 'Notifications';
 
   @override
   String get login => 'Login';
 
   @override
   String get comingSoon => 'Coming Soon';
+
+  @override
+  String get connectWithMarkets => 'Connect with Local Markets';
+
+  @override
+  String get createAccount => 'Create Account';
 
   @override
   String get currentLanguage => 'English';
@@ -126,6 +162,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get aboutTagline =>
       'Connecting Ethiopian farmers, truckers, and buyers';
+
+  @override
+  String get activeListings => 'active listings';
 
   @override
   String get register => 'Register';
@@ -152,6 +191,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trucker => 'Trucker';
 
   @override
+  String get updateDetails => 'Update your name and details';
+
+  @override
   String get buyer => 'Buyer';
 
   @override
@@ -162,6 +204,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get verifyOtp => 'Verify';
+
+  @override
+  String get viewOrderHistory => 'View your order history';
+
+  @override
+  String get voiceSupport => 'Voice Support in Your Language';
 
   @override
   String get resendOtp => 'Resend Code';
@@ -177,6 +225,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get forgotPassword => 'Forgot Password?';
+
+  @override
+  String get getStarted => 'Get Started';
 
   @override
   String get loginOnline => 'Login Online';
@@ -216,6 +267,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get logoutConfirmation => 'Are you sure you want to logout?';
+
+  @override
+  String get manageAlerts => 'Manage your alerts';
+
+  @override
+  String get myListings => 'My Listings';
+
+  @override
+  String get myOrders => 'My Orders';
 
   @override
   String get clearOfflineData => 'Clear offline data?';
@@ -306,6 +366,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get etbPerKg => 'ETB/kg';
 
   @override
+  String get exploreAsGuest => 'Explore as Guest';
+
+  @override
   String get notAuthenticated => 'You must be logged in to perform this action';
 
   @override
@@ -330,4 +393,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get listingStatusExpired => 'Expired';
+
+  @override
+  String get backToHome => 'Back to Home';
 }

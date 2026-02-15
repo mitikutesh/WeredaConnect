@@ -29,7 +29,7 @@ class WelcomeActions extends StatelessWidget {
         // Primary: Login button
         ElevatedButton(
           onPressed: () {
-            onWelcomeComplete?.call();
+            // Don't mark welcome as seen yet - only mark when user completes auth
             Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const LoginScreen(),
@@ -56,7 +56,7 @@ class WelcomeActions extends StatelessWidget {
         // Secondary: Create Account button
         OutlinedButton(
           onPressed: () {
-            onWelcomeComplete?.call();
+            // Don't mark welcome as seen yet - only mark when user completes auth
             Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const RegisterScreen(),

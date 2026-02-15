@@ -118,6 +118,18 @@ abstract class AppLocalizations {
   /// **'Welcome to WeredaConnect'**
   String get welcomeMessage;
 
+  /// Main title on welcome screen
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome to WeredaConnect'**
+  String get welcomeTitle;
+
+  /// Feature description for offline capability
+  ///
+  /// In en, this message translates to:
+  /// **'Works Offline'**
+  String get worksOffline;
+
   /// Indicator that the app is currently offline
   ///
   /// In en, this message translates to:
@@ -129,6 +141,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync Pending'**
   String get syncPending;
+
+  /// Short tagline for welcome screen
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting Farmers, Truckers & Buyers'**
+  String get taglineShort;
+
+  /// Feature description for Telebirr payment
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr Payment'**
+  String get telebirrPayment;
 
   /// Indicator that sync is currently in progress
   ///
@@ -154,6 +178,12 @@ abstract class AppLocalizations {
   /// **'Retry'**
   String get retry;
 
+  /// Language selection prompt on welcome screen
+  ///
+  /// In en, this message translates to:
+  /// **'Select Your Language'**
+  String get selectLanguagePrompt;
+
   /// Button to cancel an operation
   ///
   /// In en, this message translates to:
@@ -178,11 +208,23 @@ abstract class AppLocalizations {
   /// **'Edit'**
   String get edit;
 
+  /// Edit profile button/menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Profile'**
+  String get editProfile;
+
   /// Settings menu item
   ///
   /// In en, this message translates to:
   /// **'Settings'**
   String get settings;
+
+  /// Skip button
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get skip;
 
   /// Language selection setting
   ///
@@ -244,6 +286,12 @@ abstract class AppLocalizations {
   /// **'Home'**
   String get home;
 
+  /// How it works section title
+  ///
+  /// In en, this message translates to:
+  /// **'How it works'**
+  String get howItWorks;
+
   /// Listings navigation tab
   ///
   /// In en, this message translates to:
@@ -292,11 +340,23 @@ abstract class AppLocalizations {
   /// **'My Profile'**
   String get myProfile;
 
+  /// Next button
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get next;
+
   /// Message when user is not logged in
   ///
   /// In en, this message translates to:
   /// **'Not logged in'**
   String get notLoggedIn;
+
+  /// Notifications menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notifications;
 
   /// Login button
   ///
@@ -309,6 +369,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Coming Soon'**
   String get comingSoon;
+
+  /// Feature description for market connection
+  ///
+  /// In en, this message translates to:
+  /// **'Connect with Local Markets'**
+  String get connectWithMarkets;
+
+  /// Create account button
+  ///
+  /// In en, this message translates to:
+  /// **'Create Account'**
+  String get createAccount;
 
   /// Current language display name
   ///
@@ -333,6 +405,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connecting Ethiopian farmers, truckers, and buyers'**
   String get aboutTagline;
+
+  /// Active listings count label
+  ///
+  /// In en, this message translates to:
+  /// **'active listings'**
+  String get activeListings;
 
   /// Register button
   ///
@@ -382,6 +460,12 @@ abstract class AppLocalizations {
   /// **'Trucker'**
   String get trucker;
 
+  /// Description for edit profile menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Update your name and details'**
+  String get updateDetails;
+
   /// Buyer/wholesaler role
   ///
   /// In en, this message translates to:
@@ -405,6 +489,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Verify'**
   String get verifyOtp;
+
+  /// Description for my orders menu item
+  ///
+  /// In en, this message translates to:
+  /// **'View your order history'**
+  String get viewOrderHistory;
+
+  /// Feature description for voice support
+  ///
+  /// In en, this message translates to:
+  /// **'Voice Support in Your Language'**
+  String get voiceSupport;
 
   /// Resend OTP button
   ///
@@ -435,6 +531,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Forgot Password?'**
   String get forgotPassword;
+
+  /// Get started button
+  ///
+  /// In en, this message translates to:
+  /// **'Get Started'**
+  String get getStarted;
 
   /// Online login button
   ///
@@ -507,6 +609,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Are you sure you want to logout?'**
   String get logoutConfirmation;
+
+  /// Description for notifications menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Manage your alerts'**
+  String get manageAlerts;
+
+  /// My listings menu item
+  ///
+  /// In en, this message translates to:
+  /// **'My Listings'**
+  String get myListings;
+
+  /// My orders menu item
+  ///
+  /// In en, this message translates to:
+  /// **'My Orders'**
+  String get myOrders;
 
   /// Option to clear cached data on logout
   ///
@@ -682,6 +802,12 @@ abstract class AppLocalizations {
   /// **'ETB/kg'**
   String get etbPerKg;
 
+  /// Button to explore app without login
+  ///
+  /// In en, this message translates to:
+  /// **'Explore as Guest'**
+  String get exploreAsGuest;
+
   /// Error message when user is not authenticated
   ///
   /// In en, this message translates to:
@@ -729,6 +855,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Expired'**
   String get listingStatusExpired;
+
+  /// Button to navigate back to welcome/landing screen
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Home'**
+  String get backToHome;
 }
 
 class _AppLocalizationsDelegate

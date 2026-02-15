@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "Welcome to WeredaConnect",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "Works Offline",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "Offline Mode",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "Sync Pending",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "Connecting Farmers, Truckers & Buyers",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "Telebirr Payment",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "Syncing...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "Select Your Language",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "Cancel",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "Edit Profile",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "Settings",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "Skip",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "Language",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "How it works",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "Listings",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "Next",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "Not logged in",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "Notifications",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "Login",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "Coming Soon",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "Connect with Local Markets",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "Create Account",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "English",
   "@currentLanguage": {
@@ -155,6 +203,10 @@
   "aboutTagline": "Connecting Ethiopian farmers, truckers, and buyers",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "activeListings": "active listings",
+  "@activeListings": {
+    "description": "Active listings count label"
   },
   "register": "Register",
   "@register": {
@@ -188,6 +240,10 @@
   "@trucker": {
     "description": "Trucker/transport provider role"
   },
+  "updateDetails": "Update your name and details",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "Buyer",
   "@buyer": {
     "description": "Buyer/wholesaler role"
@@ -203,6 +259,14 @@
   "verifyOtp": "Verify",
   "@verifyOtp": {
     "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "View your order history",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "Voice Support in Your Language",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
   },
   "resendOtp": "Resend Code",
   "@resendOtp": {
@@ -223,6 +287,10 @@
   "forgotPassword": "Forgot Password?",
   "@forgotPassword": {
     "description": "Forgot password link"
+  },
+  "getStarted": "Get Started",
+  "@getStarted": {
+    "description": "Get started button"
   },
   "loginOnline": "Login Online",
   "@loginOnline": {
@@ -271,6 +339,18 @@
   "logoutConfirmation": "Are you sure you want to logout?",
   "@logoutConfirmation": {
     "description": "Logout confirmation dialog message"
+  },
+  "manageAlerts": "Manage your alerts",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "My Listings",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "My Orders",
+  "@myOrders": {
+    "description": "My orders menu item"
   },
   "clearOfflineData": "Clear offline data?",
   "@clearOfflineData": {
@@ -388,6 +468,10 @@
   "@etbPerKg": {
     "description": "Ethiopian Birr per kilogram"
   },
+  "exploreAsGuest": "Explore as Guest",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
   "notAuthenticated": "You must be logged in to perform this action",
   "@notAuthenticated": {
     "description": "Error message when user is not authenticated"
@@ -425,6 +509,10 @@
   "listingStatusExpired": "Expired",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "backToHome": "Back to Home",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
   }
 }
 

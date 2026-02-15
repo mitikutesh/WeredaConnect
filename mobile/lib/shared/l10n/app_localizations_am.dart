@@ -18,10 +18,22 @@ class AppLocalizationsAm extends AppLocalizations {
   String get welcomeMessage => 'ወደ ወረዳ ኮነክት እንኳን በደህና መጡ';
 
   @override
+  String get welcomeTitle => 'እንኳን ወደ ወረዳ ኮነክት በደህና መጡ';
+
+  @override
+  String get worksOffline => 'ከመስመር ውጭ ይሰራል';
+
+  @override
   String get offlineMode => 'ከመስመር ውጭ';
 
   @override
   String get syncPending => 'ማመሳሰል በመጠባበቅ ላይ';
+
+  @override
+  String get taglineShort => 'ገበሬዎችን፣ መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
+
+  @override
+  String get telebirrPayment => 'ቴሌብር ክፍያ';
 
   @override
   String get syncInProgress => 'በማመሳሰል ላይ...';
@@ -36,6 +48,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get retry => 'እንደገና ሞክር';
 
   @override
+  String get selectLanguagePrompt => 'ቋንቋዎን ይምረጡ';
+
+  @override
   String get cancel => 'ሰርዝ';
 
   @override
@@ -48,7 +63,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String get edit => 'አርትዕ';
 
   @override
+  String get editProfile => 'መገለጫ አርትዕ';
+
+  @override
   String get settings => 'ቅንብሮች';
+
+  @override
+  String get skip => 'ዝለል';
 
   @override
   String get language => 'ቋንቋ';
@@ -81,6 +102,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get home => 'መነሻ';
 
   @override
+  String get howItWorks => 'እንዴት እንደሚሰራ';
+
+  @override
   String get listings => 'ዝርዝሮች';
 
   @override
@@ -105,13 +129,25 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myProfile => 'የእኔ መገለጫ';
 
   @override
+  String get next => 'ቀጣይ';
+
+  @override
   String get notLoggedIn => 'ገብተው አይደሉም';
+
+  @override
+  String get notifications => 'ማሳወቂያዎች';
 
   @override
   String get login => 'ግባ';
 
   @override
   String get comingSoon => 'በቅርቡ ይመጣል';
+
+  @override
+  String get connectWithMarkets => 'ከአካባቢ ገበያዎች ጋር ይገናኙ';
+
+  @override
+  String get createAccount => 'መለያ ፍጠር';
 
   @override
   String get currentLanguage => 'አማርኛ';
@@ -124,6 +160,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
+
+  @override
+  String get activeListings => 'ንቁ ዝርዝሮች';
 
   @override
   String get register => 'ተመዝገብ';
@@ -150,6 +189,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trucker => 'የጭነት መኪና ሹፌር';
 
   @override
+  String get updateDetails => 'ስምዎን እና ዝርዝሮችዎን ያዘምኑ';
+
+  @override
   String get buyer => 'ገዢ';
 
   @override
@@ -160,6 +202,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get verifyOtp => 'አረጋግጥ';
+
+  @override
+  String get viewOrderHistory => 'የትዕዛዝ ታሪክዎን ይመልከቱ';
+
+  @override
+  String get voiceSupport => 'በቋንቋዎ የድምፅ ድጋፍ';
 
   @override
   String get resendOtp => 'እንደገና ላክ';
@@ -175,6 +223,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get forgotPassword => 'የይለፍ ቃል ረሳኽው?';
+
+  @override
+  String get getStarted => 'ጀምር';
 
   @override
   String get loginOnline => 'መስመር ላይ ግባ';
@@ -211,6 +262,15 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get logoutConfirmation => 'መውጣት ይፈልጋሉ?';
+
+  @override
+  String get manageAlerts => 'ማንቂያዎችን ያስተዳድሩ';
+
+  @override
+  String get myListings => 'የእኔ ዝርዝሮች';
+
+  @override
+  String get myOrders => 'የእኔ ትዕዛዞች';
 
   @override
   String get clearOfflineData => 'ከመስመር ውጭ መረጃ ይሰረዝ?';
@@ -300,6 +360,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get etbPerKg => 'ብር/ኪግ';
 
   @override
+  String get exploreAsGuest => 'እንደ እንግዳ ያስሱ';
+
+  @override
   String get notAuthenticated => 'ይህን እርምጃ ለመውሰድ መግባት አለብዎት';
 
   @override
@@ -324,4 +387,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get listingStatusExpired => 'ጊዜው አልፏል';
+
+  @override
+  String get backToHome => 'ወደ መነሻ ይመለሱ';
 }

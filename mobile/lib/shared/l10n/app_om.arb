@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "Gara WeredaConnect Baga Nagaan Dhuftan",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "Oflaayiniin Hojjeta",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "Haalata Offline",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "Walsimsiisuun Eegaa Jira",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "Qonnaan Bultootaa, Konkolaataa fi Bitootaa Walitti Hidhuu",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "Kaffaltii Telebirr",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "Walsimsiisuun Itti Fufeera...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "Afaan Kee Filadhu",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "Dhiisi",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "Piroofaayilii Gulaaluu",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "Qindaa'ina",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "Utaalu",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "Afaan",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "Akkamitti akka hojjetu",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "Tarreewwan",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "Itti Aanuu",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "Hin seenne",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "Beeksisa",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "Seeni",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "Dhiyoo Dhufa",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "Gabaa Naannoo waliin Walquunnamuu",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "Herrega Uumuu",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "Afaan Oromoo",
   "@currentLanguage": {
@@ -155,6 +203,10 @@
   "aboutTagline": "Qonnaan buultota Itoophiyaa, konkolaatota fe'aa fi bitootaa walitti dhufeenya",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "activeListings": "tarreewwan socho'oo",
+  "@activeListings": {
+    "description": "Active listings count label"
   },
   "register": "Galmaa'i",
   "@register": {
@@ -188,6 +240,10 @@
   "@trucker": {
     "description": "Trucker/transport provider role"
   },
+  "updateDetails": "Maqaa fi ibsa kee haaromsi",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "Bitaa",
   "@buyer": {
     "description": "Buyer/wholesaler role"
@@ -203,6 +259,14 @@
   "verifyOtp": "Mirkaneessi",
   "@verifyOtp": {
     "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "Seenaa ajaja kee ilaali",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "Afaan Keetiin Deeggarsa Sagalee",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
   },
   "resendOtp": "Irra Deebi'ii Ergi",
   "@resendOtp": {
@@ -223,6 +287,10 @@
   "forgotPassword": "Jecha Icciitii Irraanfatteettaa?",
   "@forgotPassword": {
     "description": "Forgot password link"
+  },
+  "getStarted": "Jalqabi",
+  "@getStarted": {
+    "description": "Get started button"
   },
   "loginOnline": "Online ta'ii Seeni",
   "@loginOnline": {
@@ -271,6 +339,18 @@
   "logoutConfirmation": "Dhugumatti ba'uu barbaadduu?",
   "@logoutConfirmation": {
     "description": "Logout confirmation dialog message"
+  },
+  "manageAlerts": "Beeksisa bulchi",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "Tarree Koo",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "Ajaja Koo",
+  "@myOrders": {
+    "description": "My orders menu item"
   },
   "clearOfflineData": "Daataa offline haqamuu?",
   "@clearOfflineData": {
@@ -388,6 +468,10 @@
   "@etbPerKg": {
     "description": "Ethiopian Birr per kilogram"
   },
+  "exploreAsGuest": "Akka Keessummaatti Qoradhu",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
   "notAuthenticated": "Tarkaanfii kana fudhachuuf seenuu qabdu",
   "passwordsDoNotMatch": "Jecha icciitiin wal hin simne",
   "@passwordsDoNotMatch": {
@@ -422,6 +506,10 @@
   "listingStatusExpired": "Darbe",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "backToHome": "Gara Manatti Deebi'i",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
   }
 }
 
