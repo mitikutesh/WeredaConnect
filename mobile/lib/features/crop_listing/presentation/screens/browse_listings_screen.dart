@@ -43,7 +43,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     if (authState is AuthAuthenticated) {
       return authState.userId;
     }
-    return null;
+    // TEMPORARY: Mock farmer ID for demo (bypass auth)
+    return 'demo-farmer-001';
   }
 
   @override

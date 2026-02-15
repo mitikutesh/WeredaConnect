@@ -19,24 +19,29 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, state) {
-        if (state is AuthAuthenticated) {
-          return const MainNavigation();
-        }
+    // TEMPORARY: Skip authentication to demo crop listing UI
+    // TODO: Remove this bypass when backend is ready
+    return const MainNavigation();
 
-        if (state is AuthOtpVerificationRequired) {
-          return OtpVerificationScreen(phoneNumber: state.phoneNumber);
-        }
-
-        if (state is AuthInitial || state is AuthLoading) {
-          return const _SplashScreen();
-        }
-
-        // AuthUnauthenticated or AuthError
-        return const LoginScreen();
-      },
-    );
+    // Original auth flow (commented out for demo)
+    // return BlocBuilder<AuthBloc, AuthState>(
+    //   builder: (context, state) {
+    //     if (state is AuthAuthenticated) {
+    //       return const MainNavigation();
+    //     }
+    //
+    //     if (state is AuthOtpVerificationRequired) {
+    //       return OtpVerificationScreen(phoneNumber: state.phoneNumber);
+    //     }
+    //
+    //     if (state is AuthInitial || state is AuthLoading) {
+    //       return const _SplashScreen();
+    //     }
+    //
+    //     // AuthUnauthenticated or AuthError
+    //     return const LoginScreen();
+    //   },
+    // );
   }
 }
 

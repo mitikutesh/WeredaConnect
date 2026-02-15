@@ -55,11 +55,14 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     }
 
     final authState = context.read<AuthBloc>().state;
-    if (authState is! AuthAuthenticated) return;
+    // TEMPORARY: Use mock farmer ID for demo (bypass auth)
+    final farmerId = authState is AuthAuthenticated
+        ? authState.userId
+        : 'demo-farmer-001';
 
     context.read<CropListingBloc>().add(
           CreateCropListing(
-            farmerId: authState.userId,
+            farmerId: farmerId,
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),

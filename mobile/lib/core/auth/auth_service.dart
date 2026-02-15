@@ -42,7 +42,7 @@ class AuthService {
         _connectivity = connectivity ?? Connectivity() {
     // Initialize ApiClient with base URL (cert pinning disabled by default)
     if (dio == null) {
-      ApiClient().initialize(ApiConfig.baseUrl);
+      ApiClient().initialize();
     }
   }
 

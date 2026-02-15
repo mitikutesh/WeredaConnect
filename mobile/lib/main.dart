@@ -17,7 +17,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize API client before AuthBloc creation
-  ApiClient().initialize(ApiConfig.baseUrl);
+  ApiClient().initialize();
 
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
