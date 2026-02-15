@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
@@ -12,6 +13,7 @@ import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 Future<void> main() async {
@@ -97,8 +99,17 @@ class WeredaConnectApp extends StatelessWidget {
 
             // Localization - use dynamic locale from provider
             locale: languageProvider.locale,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: const [
+              Locale('en'), // English
+              Locale('am'), // Amharic (app text + English Material widgets)
+              Locale('om'), // Afan Oromo (app text + English Material widgets)
+            ],
 
             // Theme
             theme: ThemeData(
