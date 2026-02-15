@@ -291,4 +291,84 @@ public sealed class CropRepository : ICropRepository
 
         return result;
     }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
+        string? woreda = null,
+        string? cropType = null,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        // Validate limit
+        if (limit < 1 || limit > 100)
+        {
+            limit = 20;
+        }
+
+        // Build the query based on available filters
+        // Note: For this implementation, we'll use a Scan with filters since we don't have
+        // a specific GSI configured yet. In production, you'd want a GSI on status+createdAt
+        // or woreda+createdAt for better performance.
+
+        var request = new ScanRequest
+        {
+            TableName = _tableName,
+            Limit = limit
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        // Build filter expression
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>();
+
+        // Exclude deleted items by default
+        filterParts.Add("attribute_not_exists(#deletedAt)");
+        attrNames["#deletedAt"] = "deletedAt";
+
+        if (!string.IsNullOrEmpty(woreda))
+        {
+            filterParts.Add("#woreda = :woreda");
+            attrNames["#woreda"] = "woreda";
+            attrValues[":woreda"] = new AttributeValue { S = woreda };
+        }
+
+        if (!string.IsNullOrEmpty(cropType))
+        {
+            filterParts.Add("#cropType = :cropType");
+            attrNames["#cropType"] = "cropType";
+            attrValues[":cropType"] = new AttributeValue { S = cropType };
+        }
+
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            attrNames["#status"] = "status";
+            attrValues[":status"] = new AttributeValue { S = status };
+        }
+
+        if (filterParts.Count > 0)
+        {
+            request.FilterExpression = string.Join(" AND ", filterParts);
+            request.ExpressionAttributeNames = attrNames;
+
+            if (attrValues.Count > 0)
+            {
+                request.ExpressionAttributeValues = attrValues;
+            }
+        }
+
+        var response = await _dynamoDb.ScanAsync(request);
+
+        var items = response.Items
+            .Select(FromItem)
+            .ToList();
+
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
 }

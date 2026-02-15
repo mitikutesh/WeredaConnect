@@ -178,6 +178,21 @@ export class ApiStack extends cdk.Stack {
     props.cropsTable.grantReadWriteData(syncFn.function);
     props.usersTable.grantReadData(syncFn.function);
 
+    // ─── Crop Function ───────────────────────────────────────────────
+
+    const cropFn = new WeredaLambda(this, 'CropFunction', {
+      functionName: `${prefix}-crops`,
+      description: 'GET /crops — browse crop listings (read-only)',
+      handlerName: 'CropFunction',
+      environment: {
+        CROPS_TABLE: props.cropsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+    });
+    // Crop function needs read-only access to crops table
+    props.cropsTable.grantReadData(cropFn.function);
+
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
     const httpApi = new apigateway.HttpApi(this, 'HttpApi', {
@@ -233,7 +248,25 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: '/sync',
       methods: [apigateway.HttpMethod.POST],
-      integration: new integrations.HttpLambdaIntegration('SyncInt', syncFn.function),
+      integration: new integrations.HttpLambdaIntegration('SyncInt', syncFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/crops',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('CropsListInt', cropFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/crops/{id}',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('CropsGetInt', cropFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
     });
 
     // ─── API Gateway Throttling ──────────────────────────────────────

@@ -32,6 +32,12 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(SyncOperationResult))]
 [JsonSerializable(typeof(List<SyncOperationResult>))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(GetCropsRequest))]
+[JsonSerializable(typeof(GetCropsResponse))]
+[JsonSerializable(typeof(GetCropResponse))]
+[JsonSerializable(typeof(CropDto))]
+[JsonSerializable(typeof(List<CropDto>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

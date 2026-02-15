@@ -26,7 +26,7 @@ Build and validate the offline-first sync engine and prove the architecture with
 |-------|--------|------|-----------|
 | **R1: Security Foundation** | ⚠️ 75% | 3/4 | **A1 + A2 MUST complete before Sprint 4** |
 | **R2: Auth + Data Models** | ✅ 90% MILESTONE MET | 8/9 exit criteria | 3 DynamoDB tables, cert pinning |
-| **R3: Sync + First Feature** | 🆕 0% STARTING | 0/20 tasks | Sprint 4+5 scope (4 weeks) |
+| **R3: Sync + First Feature** | 🚧 55% IN PROGRESS | 11/20 tasks | Mobile complete, server pending |
 
 **R2 Milestone "User Can Register and Login": ACHIEVED** ✅ (PO assessment Feb 14, 2026)
 **R3 Target**: First end-to-end demo of offline-first architecture by Mar 28, 2026
@@ -206,110 +206,117 @@ Build and validate the offline-first sync engine and prove the architecture with
 
 **Why Critical**: Sync engine depends on SyncMetadata for idempotency.
 
-#### Task A2: Network Layer Foundation (Dio Client) 🔴 CRITICAL
+#### Task A2: Network Layer Foundation (Dio Client) ✅ COMPLETE
 **Feature**: F-08 (Sync Engine dependency)
 **Effort**: 1 day | **Owner**: @Mobile | **Days**: Week 1, Days 1-2
 
 **Phase 1: Basic Dio Setup (4 hours)**
-- [ ] Add `dio: ^5.4.3` to `mobile/pubspec.yaml`
-- [ ] Create `mobile/lib/core/network/api_client.dart` with GET/POST/PUT/DELETE methods
-- [ ] Create `mobile/lib/core/network/api_exception.dart` (NetworkException, ServerException, etc.)
+- [x] Add `dio: ^5.4.3` to `mobile/pubspec.yaml`
+- [x] Create `mobile/lib/core/network/api_client.dart` with GET/POST/PUT/DELETE methods
+- [x] Create `mobile/lib/core/network/api_exception.dart` (NetworkException, ServerException, etc.)
 
 **Phase 2: Auth Token Interceptor (2 hours)**
-- [ ] Create `mobile/lib/core/network/interceptors/auth_interceptor.dart`
-- [ ] Inject access token into Authorization header
-- [ ] On 401, refresh token and retry
+- [x] Create `mobile/lib/core/network/interceptors/auth_interceptor.dart`
+- [x] Inject access token into Authorization header
+- [x] On 401, refresh token and retry
 
 **Phase 3: Logging Interceptor (1 hour)**
-- [ ] Create `mobile/lib/core/network/interceptors/logging_interceptor.dart`
-- [ ] Log requests/responses (debug mode only)
+- [x] Create `mobile/lib/core/network/interceptors/logging_interceptor.dart`
+- [x] Log requests/responses (debug mode only)
 
 **Phase 4: Environment Configuration (1 hour)**
-- [ ] Create `mobile/lib/core/config/environment.dart`
-- [ ] Document environment variables in `mobile/README.md`
+- [x] Create `mobile/lib/core/config/environment.dart`
+- [x] Document environment variables in `mobile/README.md`
 
 **Phase 5: Unit Tests (2 hours)**
-- [ ] Create `mobile/test/core/network/api_client_test.dart` (5+ test cases)
+- [x] Create `mobile/test/core/network/api_client_test.dart` (5+ test cases)
 
+**Completed**: Feb 15, 2026
 **Why Critical**: All server communication depends on this client.
 
 ---
 
 ### Priority Group B: Sync Engine Phase A - Local Queue (Week 1, Days 3-5)
 
-#### Task B1: Sync Queue Service (Local Persistence)
+#### Task B1: Sync Queue Service (Local Persistence) ✅ COMPLETE
 **Feature**: F-08 Phase A
 **Effort**: 2 days | **Owner**: @Mobile | **Days**: Week 1, Days 3-4
 
 **Phase 1: SyncQueue Class (1 day)**
-- [ ] Create `mobile/lib/core/sync/sync_queue.dart`
-- [ ] Implement methods: `enqueue()`, `getPendingOperations()`, `markAsSyncing()`, `markAsSynced()`, `markAsFailed()`, `retryFailed()`, `getPendingCount()`
-- [ ] Generate unique `operationId` (UUID v4)
-- [ ] Generate `idempotencyKey`: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`
-- [ ] Store operation with status `pending`, retryCount `0`
+- [x] Create `mobile/lib/core/sync/sync_queue.dart`
+- [x] Implement methods: `enqueue()`, `getPendingOperations()`, `markAsSyncing()`, `markAsSynced()`, `markAsFailed()`, `retryFailed()`, `getPendingCount()`
+- [x] Generate unique `operationId` (UUID v4)
+- [x] Generate `idempotencyKey`: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`
+- [x] Store operation with status `pending`, retryCount `0`
 
 **Phase 2: Idempotency Key Generation (4 hours)**
-- [ ] Create `mobile/lib/core/sync/idempotency_key_generator.dart`
-- [ ] Document format in `specs/contracts/sync-protocol.md`
+- [x] Create `mobile/lib/core/sync/idempotency_key_generator.dart`
+- [x] Document format in `specs/contracts/sync-protocol.md`
 
 **Phase 3: Unit Tests (4 hours)**
-- [ ] Create `mobile/test/core/sync/sync_queue_test.dart` (5+ test cases)
+- [x] Create `mobile/test/core/sync/sync_queue_test.dart` (5+ test cases)
 
+**Completed**: Feb 15, 2026
 **Why Now**: Foundation of offline-first. All user actions needing sync go through this queue.
 
-#### Task B2: Connectivity Monitor
+#### Task B2: Connectivity Monitor ✅ COMPLETE
 **Feature**: F-08 Phase A
 **Effort**: 1 day | **Owner**: @Mobile | **Day**: Week 1, Day 5
 
 **Phase 1: ConnectivityMonitor Class (4 hours)**
-- [ ] Add `connectivity_plus: ^6.0.0` to `mobile/pubspec.yaml`
-- [ ] Create `mobile/lib/core/sync/connectivity_monitor.dart`
-- [ ] Implement `onConnectivityChanged` stream
-- [ ] Implement `isConnected()` and `hasInternetAccess()` (ping /health endpoint)
+- [x] Add `connectivity_plus: ^6.0.0` to `mobile/pubspec.yaml`
+- [x] Create `mobile/lib/core/sync/connectivity_monitor.dart`
+- [x] Implement `onConnectivityChanged` stream
+- [x] Implement `isConnected()` and `hasInternetAccess()` (ping /health endpoint)
 
 **Phase 2: Stream Debouncing (2 hours)**
-- [ ] Debounce connectivity changes by 2 seconds
+- [x] Debounce connectivity changes by 2 seconds
 
 **Phase 3: Unit Tests (2 hours)**
-- [ ] Create `mobile/test/core/sync/connectivity_monitor_test.dart` (5+ test cases)
+- [x] Create `mobile/test/core/sync/connectivity_monitor_test.dart` (5+ test cases)
 
+**Completed**: Feb 15, 2026
 **Why Now**: Sync executor needs to know when to start syncing.
 
 ---
 
 ### Priority Group C: Sync Engine Phase B - Sync Executor (Week 2, Days 1-3)
 
-#### Task C1: Sync Executor (Batch Processing)
+#### Task C1: Sync Executor (Batch Processing) ✅ COMPLETE
 **Feature**: F-08 Phase B
 **Effort**: 2 days | **Owner**: @Mobile | **Days**: Week 2, Days 1-2
 
 **Phase 1: SyncExecutor Class (1 day)**
-- [ ] Create `mobile/lib/core/sync/sync_executor.dart`
-- [ ] Implement `start()`, `syncNow()`, `executeBatch()` methods
-- [ ] On connectivity detected, call `syncNow()`
-- [ ] Batch operations: fetch up to 50 pending operations
-- [ ] Send each operation to POST `/sync` endpoint
+- [x] Create `mobile/lib/core/sync/sync_executor.dart`
+- [x] Implement `start()`, `syncNow()`, `executeBatch()` methods
+- [x] On connectivity detected, call `syncNow()`
+- [x] Batch operations: fetch up to 50 pending operations
+- [x] Send each operation to POST `/sync` endpoint
 
 **Phase 2: Retry Logic with Exponential Backoff (4 hours)**
-- [ ] On failure, increment `retryCount`
-- [ ] Retry schedule: 5s, 15s, 45s (max 3 retries)
-- [ ] If retryCount >= 3, mark as `failed` permanently
+- [x] On failure, increment `retryCount`
+- [x] Retry schedule: 5s, 15s, 45s (max 3 retries)
+- [x] If retryCount >= 3, mark as `failed` permanently
 
 **Phase 3: Error Handling (4 hours)**
-- [ ] Network error → retry | 401 → refresh token | 409 → conflict handler
-- [ ] 400 → failed permanent | 5xx → retry with backoff
+- [x] Network error → retry | 401 → refresh token | 409 → conflict handler
+- [x] 400 → failed permanent | 5xx → retry with backoff
 
 **Phase 4: Unit Tests (4 hours)**
-- [ ] Create `mobile/test/core/sync/sync_executor_test.dart` (6+ test cases)
+- [x] Create `mobile/test/core/sync/sync_executor_test.dart` (6+ test cases)
 
-#### Task C2: Integration with User Actions
+**Completed**: Feb 15, 2026
+
+#### Task C2: Integration with User Actions ✅ COMPLETE
 **Feature**: F-08 Phase B
 **Effort**: 1 day | **Owner**: @Mobile | **Day**: Week 2, Day 3
 
-- [ ] Update CropListingBLoC to enqueue sync operations on create/update/delete
-- [ ] Create `mobile/lib/core/sync/sync_worker.dart` (background sync every 15 min)
-- [ ] Trigger sync on app foreground and connectivity restored
-- [ ] Unit tests: verify operations enqueue correctly
+- [x] Update CropListingBLoC to enqueue sync operations on create/update/delete
+- [x] Create `mobile/lib/core/sync/sync_worker.dart` (background sync every 15 min)
+- [x] Trigger sync on app foreground and connectivity restored
+- [x] Unit tests: verify operations enqueue correctly
+
+**Completed**: Feb 15, 2026
 
 ---
 
@@ -356,36 +363,44 @@ Build and validate the offline-first sync engine and prove the architecture with
 
 ### Priority Group E: Crop Listing - Mobile UI (Week 3, Days 1-3)
 
-#### Task E1: Crop Listing Creation Screen
+#### Task E1: Crop Listing Creation Screen ✅ COMPLETE
 **Feature**: F-10
 **Effort**: 2 days | **Owner**: @Mobile | **Days**: Week 3, Days 1-2
 
 **Phase 1: CropListingBloc (1 day)**
-- [ ] Create `mobile/lib/features/crop_listing/bloc/crop_listing_bloc.dart`
-- [ ] Events: `CreateCropListing`, `UpdateCropListing`, `DeleteCropListing`, `LoadCropListings`
-- [ ] States: `CropListingInitial`, `CropListingLoading`, `CropListingCreated`, `CropListingError`, `CropListingsLoaded`
-- [ ] On `CreateCropListing`: save to Isar, enqueue sync operation, emit state
+- [x] Create `mobile/lib/features/crop_listing/bloc/crop_listing_bloc.dart`
+- [x] Events: `CreateCropListing`, `UpdateCropListing`, `DeleteCropListing`, `LoadCropListings`
+- [x] States: `CropListingInitial`, `CropListingLoading`, `CropListingCreated`, `CropListingError`, `CropListingsLoaded`
+- [x] On `CreateCropListing`: save to Isar, enqueue sync operation, emit state
 
 **Phase 2: Create Listing Screen UI (1 day)**
-- [ ] Create `mobile/lib/features/crop_listing/screens/create_crop_listing_screen.dart`
-- [ ] Fields: Crop Type dropdown, Quantity, Price, Location (GPS + manual), Description, Audio Note placeholder
-- [ ] Form validation: crop type required, quantity > 0, price > 0, location required
-- [ ] Save button: dispatch `CreateCropListing` event
-- [ ] Show snackbar: "Listing saved. Will sync when online." (localized)
+- [x] Create `mobile/lib/features/crop_listing/screens/create_crop_listing_screen.dart`
+- [x] Fields: Crop Type dropdown, Quantity, Price, Location (GPS + manual), Description, Audio Note placeholder
+- [x] Form validation: crop type required, quantity > 0, price > 0, location required
+- [x] Save button: dispatch `CreateCropListing` event
+- [x] Show snackbar: "Listing saved. Will sync when online." (localized)
 
 **Phase 3: Unit Tests (4 hours)**
-- [ ] Create `mobile/test/features/crop_listing/bloc/crop_listing_bloc_test.dart` (4+ test cases)
+- [x] Create `mobile/test/features/crop_listing/bloc/crop_listing_bloc_test.dart` (4+ test cases)
 
-#### Task E2: Crop Listing Browse Screen
+**Completed**: Feb 15, 2026
+**Files Created**: 13 new files including BLoC, repository, widgets, screens, tests
+**Tests Passing**: 10/10 (5 repository + 5 BLoC tests)
+
+#### Task E2: Crop Listing Browse Screen ✅ COMPLETE
 **Feature**: F-10
 **Effort**: 1 day | **Owner**: @Mobile | **Day**: Week 3, Day 3
 
-- [ ] Create `mobile/lib/features/crop_listing/screens/crop_listings_screen.dart`
-- [ ] App bar with title (localized), filter chips (crop type)
-- [ ] List view with cards showing: icon, crop type, quantity, price, location, date
-- [ ] Empty state message, FAB "+" to create listing
-- [ ] Offline indicator banner (yellow/orange) when offline
-- [ ] Widget tests: `mobile/test/features/crop_listing/screens/crop_listings_screen_test.dart`
+- [x] Create `mobile/lib/features/crop_listing/screens/browse_listings_screen.dart`
+- [x] App bar with title (localized), filter chips (crop type)
+- [x] List view with cards showing: icon, crop type, quantity, price, location, date
+- [x] Empty state message, FAB "+" to create listing
+- [x] Offline indicator banner (yellow/orange) when offline
+- [x] Widget tests: `mobile/test/features/crop_listing/screens/browse_listings_screen_test.dart`
+
+**Completed**: Feb 15, 2026
+**Integration**: Wired into main_navigation.dart, home_screen.dart
+**Localization**: All 3 languages (English, Amharic, Afan Oromo) - 25 new keys
 
 ---
 
@@ -564,6 +579,6 @@ By March 28, 2026:
 ---
 
 **Created:** 2026-02-09
-**Last Updated:** 2026-02-28 (Sprint 4 start - Phase R3 planning)
+**Last Updated:** 2026-02-15 (Phase R3 mobile tasks completed)
 **Sprint**: Sprint 4 & 5 (Mar 1 - Mar 28, 2026)
-**Status:** R1 75% (A1+A2 pending), R2 90% (MILESTONE MET), **R3 0% STARTING**
+**Status:** R1 75% (A1+A2 pending), R2 90% (MILESTONE MET), **R3 55% IN PROGRESS** (11/20 tasks done - mobile complete, server pending)

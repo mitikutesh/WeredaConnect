@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Data;
@@ -34,4 +35,20 @@ public interface ICropRepository
     /// Get a crop listing by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string cropId);
+
+    /// <summary>
+    /// Query crop listings with optional filters.
+    /// </summary>
+    /// <param name="woreda">Filter by woreda (administrative district).</param>
+    /// <param name="cropType">Filter by crop type.</param>
+    /// <param name="status">Filter by status.</param>
+    /// <param name="limit">Maximum number of results to return (1-100).</param>
+    /// <param name="exclusiveStartKey">Pagination token (DynamoDB exclusive start key).</param>
+    /// <returns>List of crop listings and optional pagination token.</returns>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
+        string? woreda = null,
+        string? cropType = null,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
 }

@@ -61,6 +61,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new SyncFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("CropFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new CropFunction().FunctionHandler, serializer),
+
             var h when h.Contains("HealthCheckFunction") =>
                 HandlerWrapper.GetHandlerWrapper(
                     (Func<APIGatewayProxyRequest, ILambdaContext, APIGatewayProxyResponse>)

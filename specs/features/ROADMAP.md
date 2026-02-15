@@ -1,43 +1,75 @@
 # WeredaConnect Product Roadmap
 
-**Version**: 1.1.0
-**Date**: 2026-02-14
+**Version**: 1.2.0
+**Date**: 2026-02-15
 **Author**: Product Owner Agent
-**Status**: Active — Sprint 3 in progress
+**Status**: Active — Sprint 4-5 (Phase R3) in progress
 **Review Cadence**: Bi-weekly (every 2 sprints)
-**Last Review**: 2026-02-14 (Sprint 3 kickoff)
+**Last Review**: 2026-02-15 (Phase R3 mid-point assessment)
 
 ---
 
-## 🎯 CURRENT SPRINT STATUS (Sprint 3: Feb 14-28, 2026)
+## 🎯 CURRENT SPRINT STATUS (Sprint 4-5: Mar 1-28, 2026 - Phase R3)
 
-**Sprint Goal**: Deploy and Secure the Backend, Lay Mobile Foundation
+**Sprint Goal**: Make Offline-First Real - Sync Engine + First Feature (Crop Listings)
 
 ### Progress Overview
 | Phase | Target | Actual | Status |
 |-------|--------|--------|--------|
-| **R1: Security Foundation** | 100% by Week 1 | 75% (3/4 done) | 🟡 IN PROGRESS (A1 + A2 remaining) |
-| **R2: Auth + Data Models** | 80% by Week 2 | **90%** (register/login COMPLETE) | ✅ MILESTONE MET |
+| **R1: Security Foundation** | 100% by Sprint 3 | 75% (3/4 done) | 🟡 BLOCKED (A1 + A2 not started) |
+| **R2: Auth + Data Models** | 100% by Sprint 3 | **90%** (register/login COMPLETE) | ✅ MILESTONE MET |
+| **R3: Sync + First Feature** | 100% by Sprint 5 | **55%** (11/20 tasks) | 🚧 IN PROGRESS (mobile complete, server pending) |
 
-### Sprint 3 Completion Tracking
-- [ ] **A1**: F-01 Purge git history (2hr) — 🔴 BLOCKER (scripts ready, not executed)
-- [ ] **A2**: F-16 Deploy Lambda to AWS (1 day) — 🔴 BLOCKER (CDK ready, needs AWS deploy)
-- [x] **A3**: F-19 CI/CD security scans (4hr) — ✅ COMPLETE
-- [x] **B1**: F-07 Create Isar schemas (2 days) — ✅ COMPLETE (6 schemas, tests passing)
-- [x] **B2**: F-04 Isar encryption (1 day) — ✅ COMPLETE (Android Keystore)
-- [x] **B3**: F-03 Mobile auth service + UI (3 days) — ✅ COMPLETE (online+offline auth, BLoC, 3 screens)
-- [ ] **B4**: F-07 Add 3 missing DynamoDB tables (3hr) — ⚠️ PARTIAL (4/7 tables)
-- [ ] **C1**: F-05 Certificate pinning (4hr) — 🟢 STRETCH GOAL (not started)
+### Phase R3 Completion Tracking (11/20 complete)
 
-**R2 Milestone "User Can Register and Login": ACHIEVED**
-- User can register with Ethiopian phone (+251XXXXXXXXX)
-- User can verify via SMS OTP
-- User can login online (Cognito)
-- User can login offline (PBKDF2 cached credentials)
-- Rate limiting protects against brute force (server + mobile)
-- Auth tokens stored securely (flutter_secure_storage + Android Keystore)
+**Mobile Tasks (6/8 complete) ✅**
+- [x] **A2**: Network Layer (Dio client) — ✅ COMPLETE (Feb 15)
+- [x] **B1**: Sync Queue Service — ✅ COMPLETE (Feb 15)
+- [x] **B2**: Connectivity Monitor — ✅ COMPLETE (Feb 15)
+- [x] **C1**: Sync Executor — ✅ COMPLETE (Feb 15)
+- [x] **C2**: Sync Integration — ✅ COMPLETE (Feb 15)
+- [x] **E1**: Crop Listing Create Screen — ✅ COMPLETE (Feb 15, 13 files, 10 tests passing)
+- [x] **E2**: Crop Listing Browse Screen — ✅ COMPLETE (Feb 15, localized in 3 languages)
+- [ ] **G1**: Conflict Resolution Handler — ⚠️ NOT STARTED
 
-**See `SPRINT_PLANNING.md` for detailed sprint plan and acceptance criteria.**
+**Server Tasks (0/4 complete) ❌**
+- [ ] **D1**: Server Sync Function — 🔴 BLOCKER (not started)
+- [ ] **F1**: Server Crop Listing Functions — 🔴 BLOCKER (not started)
+- [ ] **D2**: API Gateway /sync route — 🔴 BLOCKER (not started)
+- [ ] **F2**: API Gateway /crops routes — 🔴 BLOCKER (not started)
+
+**Infrastructure Tasks (1/4 complete) ⚠️**
+- [x] **A2**: Network Layer — ✅ COMPLETE (mobile-side)
+- [ ] **A1**: DynamoDB tables (SyncMetadata + 2 others) — 🔴 CRITICAL BLOCKER (not started)
+- [ ] **H1**: Least-Privilege IAM — ⚠️ NOT STARTED
+
+**Testing & Documentation (0/2 complete) ❌**
+- [ ] **I1**: End-to-End Integration Tests — 🔴 BLOCKER (requires server)
+- [ ] **I2**: Documentation and ADRs — ⚠️ NOT STARTED
+
+### Phase R3 Status Summary
+
+**✅ What Works Today (Offline)**:
+- Users can create crop listings offline (9 Ethiopian crops: Teff, Wheat, Barley, Maize, Chickpea, Lentils, Sorghum, Coffee, Sesame)
+- Listings save to Isar immediately with icon-based UI
+- Sync operations enqueue with idempotency keys
+- Browse listings with filter chips (All, by crop type)
+- Offline banner shows connectivity status
+- Form validation with localized error messages (English, Amharic, Afan Oromo)
+
+**❌ What Doesn't Work Yet (Requires Server)**:
+- Sync to server (no POST /sync endpoint)
+- Browse listings from server (no GET /crops endpoint)
+- Conflict resolution (no 409 handling)
+- End-to-end integration (no server deployed)
+
+**🎯 Next Priority** (Week 1):
+1. Deploy DynamoDB SyncMetadata table (Task A1)
+2. Implement SyncFunction Lambda handler (Task D1)
+3. Add POST /sync API Gateway route (Task D2)
+4. Test mobile → server sync
+
+**See `docs/R3-PROGRESS-SUMMARY.md` for detailed breakdown.**
 
 ---
 

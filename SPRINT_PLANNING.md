@@ -145,18 +145,19 @@ By March 28, 2026:
 
 ---
 
-#### **Task A2: Network Layer Foundation (Dio Client)** 🔴 CRITICAL
+#### **Task A2: Network Layer Foundation (Dio Client)** ✅ COMPLETE
 **Feature**: F-08 (Sync Engine dependency)
 **Priority**: P0 (BLOCKER for sync)
 **Effort**: 1 day
 **Owner**: @Mobile
 **Sprint**: Sprint 4, Week 1, Days 1-2
 **Dependencies**: Lambda deployed (A2 from Sprint 3)
+**Completed**: Feb 15, 2026
 
 **Acceptance Criteria**:
 
 **Phase 1: Basic Dio Setup (4 hours)**
-- [ ] Add `dio: ^5.4.3` to `mobile/pubspec.yaml`
+- [x] Add `dio: ^5.4.3` to `mobile/pubspec.yaml`
 - [ ] Create `mobile/lib/core/network/api_client.dart`:
   ```dart
   class ApiClient {
