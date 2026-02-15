@@ -232,4 +232,79 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get characters => 'qubeelee';
+
+  @override
+  String get cropTypeTeff => 'Xaafii';
+
+  @override
+  String get cropTypeWheat => 'Qamadii';
+
+  @override
+  String get cropTypeBarley => 'Garbuu';
+
+  @override
+  String get cropTypeMaize => 'Boqqolloo';
+
+  @override
+  String get cropTypeChickpea => 'Shumburaa';
+
+  @override
+  String get cropTypeLentils => 'Misira';
+
+  @override
+  String get cropTypeSorghum => 'Mashilaa';
+
+  @override
+  String get cropTypeCoffee => 'Buna';
+
+  @override
+  String get cropTypeSesame => 'Saliixaa';
+
+  @override
+  String get selectCropType => 'Gosa Midhaan Filadhu';
+
+  @override
+  String get quantityInQuintals => 'Hamma (kuuntaalii)';
+
+  @override
+  String get priceInBirr => 'Gatii (Birrii/kg)';
+
+  @override
+  String get location => 'Bakka';
+
+  @override
+  String get description => 'Ibsa';
+
+  @override
+  String get audioNote => 'Yaadannoo Sagalee';
+
+  @override
+  String get recordAudioNote => 'Yaadannoo Sagalee Galmeessi';
+
+  @override
+  String get cropTypeRequired => 'Maaloo gosa midhaan filadhaa';
+
+  @override
+  String get quantityRequired => 'Maaloo hamma galchaa';
+
+  @override
+  String get priceRequired => 'Maaloo gatii galchaa';
+
+  @override
+  String get locationRequired => 'Maaloo bakka galchaa';
+
+  @override
+  String get listingSaved => 'Tarreen milkaa\'inaan olkaa\'ameera';
+
+  @override
+  String get listingDeleted => 'Tarreen haqameera';
+
+  @override
+  String get allCrops => 'Hunda';
+
+  @override
+  String get quintals => 'kuuntaalii';
+
+  @override
+  String get etbPerKg => 'Birrii/kg';
 }

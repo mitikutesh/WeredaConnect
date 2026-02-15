@@ -229,4 +229,79 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get characters => 'characters';
+
+  @override
+  String get cropTypeTeff => 'Teff';
+
+  @override
+  String get cropTypeWheat => 'Wheat';
+
+  @override
+  String get cropTypeBarley => 'Barley';
+
+  @override
+  String get cropTypeMaize => 'Maize';
+
+  @override
+  String get cropTypeChickpea => 'Chickpea';
+
+  @override
+  String get cropTypeLentils => 'Lentils';
+
+  @override
+  String get cropTypeSorghum => 'Sorghum';
+
+  @override
+  String get cropTypeCoffee => 'Coffee';
+
+  @override
+  String get cropTypeSesame => 'Sesame';
+
+  @override
+  String get selectCropType => 'Select Crop Type';
+
+  @override
+  String get quantityInQuintals => 'Quantity (quintals)';
+
+  @override
+  String get priceInBirr => 'Price (ETB/kg)';
+
+  @override
+  String get location => 'Location';
+
+  @override
+  String get description => 'Description';
+
+  @override
+  String get audioNote => 'Audio Note';
+
+  @override
+  String get recordAudioNote => 'Record Audio Note';
+
+  @override
+  String get cropTypeRequired => 'Please select a crop type';
+
+  @override
+  String get quantityRequired => 'Please enter the quantity';
+
+  @override
+  String get priceRequired => 'Please enter the price';
+
+  @override
+  String get locationRequired => 'Please enter the location';
+
+  @override
+  String get listingSaved => 'Listing saved successfully';
+
+  @override
+  String get listingDeleted => 'Listing deleted';
+
+  @override
+  String get allCrops => 'All';
+
+  @override
+  String get quintals => 'quintals';
+
+  @override
+  String get etbPerKg => 'ETB/kg';
 }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Home screen - main landing page after login
@@ -38,10 +40,14 @@ class HomeScreen extends StatelessWidget {
                 _QuickActionCard(
                   icon: Icons.add_circle_outline,
                   title: l10n.createListing,
-                  subtitle: l10n.comingSoon,
+                  subtitle: l10n.cropListings,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.comingSoon)),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (context) =>
+                            const CreateCropListingScreen(),
+                      ),
                     );
                   },
                 ),

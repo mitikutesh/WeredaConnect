@@ -287,6 +287,31 @@
   "characters": "ቁምፊዎች",
   "@characters": {
     "description": "Characters (for password requirements)"
-  }
+  },
+  "cropTypeTeff": "ጤፍ",
+  "cropTypeWheat": "ስንዴ",
+  "cropTypeBarley": "ገብስ",
+  "cropTypeMaize": "በቆሎ",
+  "cropTypeChickpea": "ሽምብራ",
+  "cropTypeLentils": "ምስር",
+  "cropTypeSorghum": "ማሽላ",
+  "cropTypeCoffee": "ቡና",
+  "cropTypeSesame": "ሰሊጥ",
+  "selectCropType": "የሰብል ዓይነት ይምረጡ",
+  "quantityInQuintals": "መጠን (ኩንታል)",
+  "priceInBirr": "ዋጋ (ብር/ኪግ)",
+  "location": "ቦታ",
+  "description": "መግለጫ",
+  "audioNote": "የድምጽ ማስታወሻ",
+  "recordAudioNote": "የድምጽ ማስታወሻ ቅዳ",
+  "cropTypeRequired": "እባክዎ የሰብል ዓይነት ይምረጡ",
+  "quantityRequired": "እባክዎ መጠኑን ያስገቡ",
+  "priceRequired": "እባክዎ ዋጋውን ያስገቡ",
+  "locationRequired": "እባክዎ ቦታውን ያስገቡ",
+  "listingSaved": "ዝርዝሩ በተሳካ ሁኔታ ተቀምጧል",
+  "listingDeleted": "ዝርዝሩ ተሰርዟል",
+  "allCrops": "ሁሉም",
+  "quintals": "ኩንታል",
+  "etbPerKg": "ብር/ኪግ"
 }
 

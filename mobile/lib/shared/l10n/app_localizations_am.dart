@@ -223,4 +223,79 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get characters => 'ቁምፊዎች';
+
+  @override
+  String get cropTypeTeff => 'ጤፍ';
+
+  @override
+  String get cropTypeWheat => 'ስንዴ';
+
+  @override
+  String get cropTypeBarley => 'ገብስ';
+
+  @override
+  String get cropTypeMaize => 'በቆሎ';
+
+  @override
+  String get cropTypeChickpea => 'ሽምብራ';
+
+  @override
+  String get cropTypeLentils => 'ምስር';
+
+  @override
+  String get cropTypeSorghum => 'ማሽላ';
+
+  @override
+  String get cropTypeCoffee => 'ቡና';
+
+  @override
+  String get cropTypeSesame => 'ሰሊጥ';
+
+  @override
+  String get selectCropType => 'የሰብል ዓይነት ይምረጡ';
+
+  @override
+  String get quantityInQuintals => 'መጠን (ኩንታል)';
+
+  @override
+  String get priceInBirr => 'ዋጋ (ብር/ኪግ)';
+
+  @override
+  String get location => 'ቦታ';
+
+  @override
+  String get description => 'መግለጫ';
+
+  @override
+  String get audioNote => 'የድምጽ ማስታወሻ';
+
+  @override
+  String get recordAudioNote => 'የድምጽ ማስታወሻ ቅዳ';
+
+  @override
+  String get cropTypeRequired => 'እባክዎ የሰብል ዓይነት ይምረጡ';
+
+  @override
+  String get quantityRequired => 'እባክዎ መጠኑን ያስገቡ';
+
+  @override
+  String get priceRequired => 'እባክዎ ዋጋውን ያስገቡ';
+
+  @override
+  String get locationRequired => 'እባክዎ ቦታውን ያስገቡ';
+
+  @override
+  String get listingSaved => 'ዝርዝሩ በተሳካ ሁኔታ ተቀምጧል';
+
+  @override
+  String get listingDeleted => 'ዝርዝሩ ተሰርዟል';
+
+  @override
+  String get allCrops => 'ሁሉም';
+
+  @override
+  String get quintals => 'ኩንታል';
+
+  @override
+  String get etbPerKg => 'ብር/ኪግ';
 }

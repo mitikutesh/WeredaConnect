@@ -531,6 +531,156 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'characters'**
   String get characters;
+
+  /// Teff crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Teff'**
+  String get cropTypeTeff;
+
+  /// Wheat crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Wheat'**
+  String get cropTypeWheat;
+
+  /// Barley crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Barley'**
+  String get cropTypeBarley;
+
+  /// Maize/corn crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Maize'**
+  String get cropTypeMaize;
+
+  /// Chickpea crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Chickpea'**
+  String get cropTypeChickpea;
+
+  /// Lentils crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Lentils'**
+  String get cropTypeLentils;
+
+  /// Sorghum crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Sorghum'**
+  String get cropTypeSorghum;
+
+  /// Coffee crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Coffee'**
+  String get cropTypeCoffee;
+
+  /// Sesame crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Sesame'**
+  String get cropTypeSesame;
+
+  /// Crop type selection label
+  ///
+  /// In en, this message translates to:
+  /// **'Select Crop Type'**
+  String get selectCropType;
+
+  /// Quantity input label in quintals
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (quintals)'**
+  String get quantityInQuintals;
+
+  /// Price input label in Ethiopian Birr per kg
+  ///
+  /// In en, this message translates to:
+  /// **'Price (ETB/kg)'**
+  String get priceInBirr;
+
+  /// Location input label
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get location;
+
+  /// Description input label
+  ///
+  /// In en, this message translates to:
+  /// **'Description'**
+  String get description;
+
+  /// Audio note label
+  ///
+  /// In en, this message translates to:
+  /// **'Audio Note'**
+  String get audioNote;
+
+  /// Button to record voice description
+  ///
+  /// In en, this message translates to:
+  /// **'Record Audio Note'**
+  String get recordAudioNote;
+
+  /// Validation error for missing crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a crop type'**
+  String get cropTypeRequired;
+
+  /// Validation error for missing quantity
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter the quantity'**
+  String get quantityRequired;
+
+  /// Validation error for missing price
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter the price'**
+  String get priceRequired;
+
+  /// Validation error for missing location
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter the location'**
+  String get locationRequired;
+
+  /// Success message after saving listing
+  ///
+  /// In en, this message translates to:
+  /// **'Listing saved successfully'**
+  String get listingSaved;
+
+  /// Message after deleting listing
+  ///
+  /// In en, this message translates to:
+  /// **'Listing deleted'**
+  String get listingDeleted;
+
+  /// Filter label for all crop types
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get allCrops;
+
+  /// Unit of measurement (100kg)
+  ///
+  /// In en, this message translates to:
+  /// **'quintals'**
+  String get quintals;
+
+  /// Ethiopian Birr per kilogram
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/kg'**
+  String get etbPerKg;
 }
 
 class _AppLocalizationsDelegate

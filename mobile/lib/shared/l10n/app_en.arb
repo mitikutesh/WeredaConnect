@@ -287,6 +287,106 @@
   "characters": "characters",
   "@characters": {
     "description": "Characters (for password requirements)"
+  },
+  "cropTypeTeff": "Teff",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
+  "cropTypeWheat": "Wheat",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
+  "cropTypeBarley": "Barley",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
+  "cropTypeMaize": "Maize",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
+  "cropTypeChickpea": "Chickpea",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
+  "cropTypeLentils": "Lentils",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
+  "cropTypeSorghum": "Sorghum",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
+  "cropTypeCoffee": "Coffee",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
+  "cropTypeSesame": "Sesame",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
+  "selectCropType": "Select Crop Type",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
+  "quantityInQuintals": "Quantity (quintals)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
+  "priceInBirr": "Price (ETB/kg)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
+  "location": "Location",
+  "@location": {
+    "description": "Location input label"
+  },
+  "description": "Description",
+  "@description": {
+    "description": "Description input label"
+  },
+  "audioNote": "Audio Note",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
+  "recordAudioNote": "Record Audio Note",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
+  "cropTypeRequired": "Please select a crop type",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
+  "quantityRequired": "Please enter the quantity",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
+  "priceRequired": "Please enter the price",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
+  "locationRequired": "Please enter the location",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
+  "listingSaved": "Listing saved successfully",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
+  "listingDeleted": "Listing deleted",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
+  "allCrops": "All",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
+  "quintals": "quintals",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
+  "etbPerKg": "ETB/kg",
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
   }
 }
 

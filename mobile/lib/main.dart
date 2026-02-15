@@ -5,9 +5,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
+import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 Future<void> main() async {
@@ -63,8 +66,20 @@ class WeredaConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<AuthBloc>(
-      create: (_) => AuthBloc()..add(const AuthCheckRequested()),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>(
+          create: (_) => AuthBloc()..add(const AuthCheckRequested()),
+        ),
+        BlocProvider<CropListingBloc>(
+          create: (_) => CropListingBloc(
+            repository: CropListingRepository(
+              isar: IsarService.instance.db,
+              syncQueue: SyncQueue(IsarService.instance.db),
+            ),
+          ),
+        ),
+      ],
       child: MaterialApp(
         title: 'WeredaConnect',
 
