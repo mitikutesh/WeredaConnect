@@ -5,6 +5,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Service for managing the encrypted Isar database.
@@ -85,12 +90,11 @@ class IsarService {
     _isar = await Isar.open(
       [
         UserSchema,
-        // TODO: Add other schemas as they are created:
-        // CropListingSchema,
-        // TripSchema,
-        // DeliverySchema,
-        // PaymentSchema,
-        // SyncOperationSchema,
+        CropListingSchema,
+        TripSchema,
+        DeliverySchema,
+        PaymentSchema,
+        SyncOperationSchema,
       ],
       directory: dir.path,
       name: 'wereda_connect',
