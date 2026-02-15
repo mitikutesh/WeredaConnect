@@ -146,4 +146,11 @@ class Environment {
 
   /// Is production environment
   bool get isProduction => environment == AppEnvironment.production;
+
+  /// Enable mock auth for local development (bypasses real API)
+  /// Set to true to test UI without server dependency
+  static const bool useMockAuth = bool.fromEnvironment(
+    'USE_MOCK_AUTH',
+    defaultValue: true, // Default to true for easier development
+  );
 }

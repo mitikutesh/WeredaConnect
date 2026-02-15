@@ -1,10 +1,12 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
+import 'package:wereda_connect/core/auth/mock_auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
@@ -32,6 +34,7 @@ class AuthService {
   final Dio _dio;
   final OfflineAuthCache _offlineCache;
   final Connectivity _connectivity;
+  late final MockAuthService _mockAuthService;
 
   AuthService({
     Dio? dio,
@@ -44,6 +47,7 @@ class AuthService {
     if (dio == null) {
       ApiClient().initialize();
     }
+    _mockAuthService = MockAuthService(offlineCache: _offlineCache);
   }
 
   /// Register a new user with phone number and password.
@@ -68,6 +72,18 @@ class AuthService {
     required String woreda,
     String preferredLanguage = 'am',
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.register(
+        phoneNumber: phoneNumber,
+        password: password,
+        name: name,
+        role: role,
+        woreda: woreda,
+        preferredLanguage: preferredLanguage,
+      );
+    }
+
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
@@ -126,6 +142,14 @@ class AuthService {
     required String phoneNumber,
     required String otp,
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.verifyOtp(
+        phoneNumber: phoneNumber,
+        otp: otp,
+      );
+    }
+
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
@@ -185,6 +209,14 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.login(
+        phoneNumber: phoneNumber,
+        password: password,
+      );
+    }
+
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
@@ -356,6 +388,11 @@ class AuthService {
   ///
   /// Returns [AuthResult] with new tokens on success.
   Future<AuthResult> refreshToken(String refreshToken) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.refreshToken(refreshToken);
+    }
+
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
@@ -409,6 +446,16 @@ class AuthService {
     String? accessToken,
     bool clearCache = true,
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      await _mockAuthService.logout(
+        phoneNumber: phoneNumber,
+        accessToken: accessToken,
+        clearCache: clearCache,
+      );
+      return;
+    }
+
     try {
       // Try to logout on server (invalidate tokens)
       if (accessToken != null) {
