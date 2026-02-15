@@ -160,6 +160,24 @@ export class ApiStack extends cdk.Stack {
       'cognito-idp:AdminUserGlobalSignOut',
     ]);
 
+    // ─── Sync Function ───────────────────────────────────────────────
+
+    const syncFn = new WeredaLambda(this, 'SyncFunction', {
+      functionName: `${prefix}-sync`,
+      description: 'POST /sync — offline-first sync engine batch processor',
+      handlerName: 'SyncFunction',
+      environment: {
+        SYNC_METADATA_TABLE: props.syncMetadataTable.tableName,
+        CROPS_TABLE: props.cropsTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+    // Sync needs read-write on entity tables and sync metadata
+    props.syncMetadataTable.grantReadWriteData(syncFn.function);
+    props.cropsTable.grantReadWriteData(syncFn.function);
+    props.usersTable.grantReadData(syncFn.function);
+
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
     const httpApi = new apigateway.HttpApi(this, 'HttpApi', {
@@ -210,6 +228,12 @@ export class ApiStack extends cdk.Stack {
       path: '/auth/logout',
       methods: [apigateway.HttpMethod.POST],
       integration: new integrations.HttpLambdaIntegration('LogoutInt', logoutFn.function),
+    });
+
+    httpApi.addRoutes({
+      path: '/sync',
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration('SyncInt', syncFn.function),
     });
 
     // ─── API Gateway Throttling ──────────────────────────────────────

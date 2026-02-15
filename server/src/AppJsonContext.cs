@@ -25,6 +25,13 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(LogoutResponse))]
 [JsonSerializable(typeof(AuthErrorResponse))]
 [JsonSerializable(typeof(AuthError))]
+[JsonSerializable(typeof(SyncRequest))]
+[JsonSerializable(typeof(SyncOperationRequest))]
+[JsonSerializable(typeof(List<SyncOperationRequest>))]
+[JsonSerializable(typeof(SyncResponse))]
+[JsonSerializable(typeof(SyncOperationResult))]
+[JsonSerializable(typeof(List<SyncOperationResult>))]
+[JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
