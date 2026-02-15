@@ -106,8 +106,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           });
         }
         if (state is AuthOtpVerificationRequired) {
-          // Pop register screen - AuthGate will show OTP screen
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          // Clear all routes from navigation stack to return to AuthGate
+          // AuthGate will then show OTP screen based on the new state
+          while (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
         }
       },
       child: Scaffold(
