@@ -391,6 +391,40 @@
   "notAuthenticated": "You must be logged in to perform this action",
   "@notAuthenticated": {
     "description": "Error message when user is not authenticated"
+  },
+  "passwordsDoNotMatch": "Passwords do not match",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "Please enter 6-digit code",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "Resend code in {seconds} seconds",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "Active",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "Draft",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "Sold",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "Expired",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
   }
 }
 

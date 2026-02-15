@@ -289,30 +289,139 @@
     "description": "Characters (for password requirements)"
   },
   "cropTypeTeff": "ጤፍ",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
   "cropTypeWheat": "ስንዴ",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
   "cropTypeBarley": "ገብስ",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
   "cropTypeMaize": "በቆሎ",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
   "cropTypeChickpea": "ሽምብራ",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
   "cropTypeLentils": "ምስር",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
   "cropTypeSorghum": "ማሽላ",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
   "cropTypeCoffee": "ቡና",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
   "cropTypeSesame": "ሰሊጥ",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
   "selectCropType": "የሰብል ዓይነት ይምረጡ",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
   "quantityInQuintals": "መጠን (ኩንታል)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
   "priceInBirr": "ዋጋ (ብር/ኪግ)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
   "location": "ቦታ",
+  "@location": {
+    "description": "Location input label"
+  },
   "description": "መግለጫ",
+  "@description": {
+    "description": "Description input label"
+  },
   "audioNote": "የድምጽ ማስታወሻ",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
   "recordAudioNote": "የድምጽ ማስታወሻ ቅዳ",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
   "cropTypeRequired": "እባክዎ የሰብል ዓይነት ይምረጡ",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
   "quantityRequired": "እባክዎ መጠኑን ያስገቡ",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
   "priceRequired": "እባክዎ ዋጋውን ያስገቡ",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
   "locationRequired": "እባክዎ ቦታውን ያስገቡ",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
   "listingSaved": "ዝርዝሩ በተሳካ ሁኔታ ተቀምጧል",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
   "listingDeleted": "ዝርዝሩ ተሰርዟል",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
   "allCrops": "ሁሉም",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
   "quintals": "ኩንታል",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
   "etbPerKg": "ብር/ኪግ",
-  "notAuthenticated": "ይህን እርምጃ ለመውሰድ መግባት አለብዎት"
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
+  },
+  "notAuthenticated": "ይህን እርምጃ ለመውሰድ መግባት አለብዎት",
+  "passwordsDoNotMatch": "የይለፍ ቃል ቁምፊዎች አይዛመዱም",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "እባክዎ 6 አሃዝ ኮድ ያስገቡ",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "ኮድ እንደገና መላክ በ {seconds} ሰከንድ",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "ንቁ",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "ረቂቅ",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "ተሽጧል",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "ጊዜው አልፏል",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
+  }
 }
 

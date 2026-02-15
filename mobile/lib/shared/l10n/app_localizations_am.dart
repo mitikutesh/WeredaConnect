@@ -301,4 +301,27 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get notAuthenticated => 'ይህን እርምጃ ለመውሰድ መግባት አለብዎት';
+
+  @override
+  String get passwordsDoNotMatch => 'የይለፍ ቃል ቁምፊዎች አይዛመዱም';
+
+  @override
+  String get enterSixDigitCode => 'እባክዎ 6 አሃዝ ኮድ ያስገቡ';
+
+  @override
+  String resendCodeCountdown(int seconds) {
+    return 'ኮድ እንደገና መላክ በ $seconds ሰከንድ';
+  }
+
+  @override
+  String get listingStatusActive => 'ንቁ';
+
+  @override
+  String get listingStatusDraft => 'ረቂቅ';
+
+  @override
+  String get listingStatusSold => 'ተሽጧል';
+
+  @override
+  String get listingStatusExpired => 'ጊዜው አልፏል';
 }

@@ -107,11 +107,12 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
-      ListingStatus.active => (Colors.green, 'Active'),
-      ListingStatus.draft => (Colors.grey, 'Draft'),
-      ListingStatus.sold => (Colors.blue, 'Sold'),
-      ListingStatus.expired => (Colors.red, 'Expired'),
+      ListingStatus.active => (Colors.green, l10n.listingStatusActive),
+      ListingStatus.draft => (Colors.grey, l10n.listingStatusDraft),
+      ListingStatus.sold => (Colors.blue, l10n.listingStatusSold),
+      ListingStatus.expired => (Colors.red, l10n.listingStatusExpired),
     };
 
     return Container(

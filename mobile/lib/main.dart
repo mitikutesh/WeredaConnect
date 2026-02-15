@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
-import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,10 @@ Future<void> main() async {
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
   await IsarService.instance.initialize();
+
+  // Initialize language provider and load saved language preference
+  final languageProvider = LanguageProvider();
+  await languageProvider.initialize();
 
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
@@ -45,7 +50,12 @@ Future<void> main() async {
   // Add lifecycle observer for resource cleanup
   WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
 
-  runApp(const WeredaConnectApp());
+  runApp(
+    ChangeNotifierProvider.value(
+      value: languageProvider,
+      child: const WeredaConnectApp(),
+    ),
+  );
 }
 
 /// Manages app lifecycle to optimize memory usage on low-end devices
@@ -80,23 +90,28 @@ class WeredaConnectApp extends StatelessWidget {
           ),
         ),
       ],
-      child: MaterialApp(
-        title: 'WeredaConnect',
+      child: Consumer<LanguageProvider>(
+        builder: (context, languageProvider, child) {
+          return MaterialApp(
+            title: 'WeredaConnect',
 
-        // Localization - delegates and locales defined in generated l10n code
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
+            // Localization - use dynamic locale from provider
+            locale: languageProvider.locale,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
 
-        // Theme
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.green,
-          ),
-          useMaterial3: true,
-        ),
+            // Theme
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: Colors.green,
+              ),
+              useMaterial3: true,
+            ),
 
-        // Auth gate handles routing based on authentication state
-        home: const AuthGate(),
+            // Auth gate handles routing based on authentication state
+            home: const AuthGate(),
+          );
+        },
       ),
     );
   }

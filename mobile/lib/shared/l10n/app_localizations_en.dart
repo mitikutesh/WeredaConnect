@@ -307,4 +307,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notAuthenticated => 'You must be logged in to perform this action';
+
+  @override
+  String get passwordsDoNotMatch => 'Passwords do not match';
+
+  @override
+  String get enterSixDigitCode => 'Please enter 6-digit code';
+
+  @override
+  String resendCodeCountdown(int seconds) {
+    return 'Resend code in $seconds seconds';
+  }
+
+  @override
+  String get listingStatusActive => 'Active';
+
+  @override
+  String get listingStatusDraft => 'Draft';
+
+  @override
+  String get listingStatusSold => 'Sold';
+
+  @override
+  String get listingStatusExpired => 'Expired';
 }

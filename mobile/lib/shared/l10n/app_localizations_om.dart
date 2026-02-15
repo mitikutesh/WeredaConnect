@@ -310,4 +310,27 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get notAuthenticated => 'Tarkaanfii kana fudhachuuf seenuu qabdu';
+
+  @override
+  String get passwordsDoNotMatch => 'Jecha icciitiin wal hin simne';
+
+  @override
+  String get enterSixDigitCode => 'Maaloo koodii lakkoofsota 6 galchaa';
+
+  @override
+  String resendCodeCountdown(int seconds) {
+    return 'Koodii irra deebi\'ii erguu sekoondii $seconds keessatti';
+  }
+
+  @override
+  String get listingStatusActive => 'Ka\'aa Jiru';
+
+  @override
+  String get listingStatusDraft => 'Qophii';
+
+  @override
+  String get listingStatusSold => 'Gurguramee Jira';
+
+  @override
+  String get listingStatusExpired => 'Darbe';
 }

@@ -157,63 +157,271 @@
     "description": "About dialog tagline"
   },
   "register": "Galmaa'i",
+  "@register": {
+    "description": "Register button"
+  },
   "phoneNumber": "Lakkoofsa Bilbilaa",
+  "@phoneNumber": {
+    "description": "Phone number input label"
+  },
   "password": "Jecha Icciitii",
+  "@password": {
+    "description": "Password input label"
+  },
   "confirmPassword": "Jecha Icciitii Mirkaneessi",
+  "@confirmPassword": {
+    "description": "Confirm password input label"
+  },
   "fullName": "Maqaa Guutuu",
+  "@fullName": {
+    "description": "Full name input label"
+  },
   "selectRole": "Ga'ee Filadhu",
+  "@selectRole": {
+    "description": "Role selection label"
+  },
   "farmer": "Qonnaan Bultaa",
+  "@farmer": {
+    "description": "Farmer role"
+  },
   "trucker": "Konkolaataa Fe'aa",
+  "@trucker": {
+    "description": "Trucker/transport provider role"
+  },
   "buyer": "Bitaa",
+  "@buyer": {
+    "description": "Buyer/wholesaler role"
+  },
   "enterOtp": "Koodii Mirkaneessaa Galchi",
+  "@enterOtp": {
+    "description": "OTP input label"
+  },
   "otpSent": "Koodiin mirkaneessaa gara bilbila keessaniitti ergameera",
+  "@otpSent": {
+    "description": "OTP sent confirmation message"
+  },
   "verifyOtp": "Mirkaneessi",
+  "@verifyOtp": {
+    "description": "Verify OTP button"
+  },
   "resendOtp": "Irra Deebi'ii Ergi",
+  "@resendOtp": {
+    "description": "Resend OTP button"
+  },
   "signUp": "Galmaa'i",
+  "@signUp": {
+    "description": "Sign up button"
+  },
   "alreadyHaveAccount": "Akkaawuntii qabduu?",
+  "@alreadyHaveAccount": {
+    "description": "Login prompt on register screen"
+  },
   "dontHaveAccount": "Akkaawuntii hin qabduu?",
+  "@dontHaveAccount": {
+    "description": "Register prompt on login screen"
+  },
   "forgotPassword": "Jecha Icciitii Irraanfatteettaa?",
+  "@forgotPassword": {
+    "description": "Forgot password link"
+  },
   "loginOnline": "Online ta'ii Seeni",
+  "@loginOnline": {
+    "description": "Online login button"
+  },
   "loginOffline": "Offline ta'ii Seeni",
+  "@loginOffline": {
+    "description": "Offline login button"
+  },
   "offlineModeIndicator": "Haalata offline keessa jirtu",
+  "@offlineModeIndicator": {
+    "description": "Offline mode indicator message"
+  },
   "passwordRequirements": "Jecha icciitiin yoo xiqqaate qubeelee 6 ta'uu qaba",
+  "@passwordRequirements": {
+    "description": "Password requirements message"
+  },
   "invalidPhoneFormat": "Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami",
+  "@invalidPhoneFormat": {
+    "description": "Error message for invalid phone format"
+  },
   "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
+  "@invalidCredentials": {
+    "description": "Error message for invalid credentials"
+  },
   "phoneAlreadyRegistered": "Lakkoofsi bilbilaa kun duraanuu galmaa'eera",
+  "@phoneAlreadyRegistered": {
+    "description": "Error message for duplicate phone number"
+  },
   "invalidOtp": "Koodiin mirkaneessaa sirrii miti",
+  "@invalidOtp": {
+    "description": "Error message for invalid OTP"
+  },
   "otpExpired": "Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu",
+  "@otpExpired": {
+    "description": "Error message for expired OTP"
+  },
   "registrationSuccess": "Galmaa'uun milkaa'eera! Maaloo bilbila keessan mirkaneessaa",
+  "@registrationSuccess": {
+    "description": "Success message after registration"
+  },
   "loginSuccess": "Seenuun milkaa'eera!",
+  "@loginSuccess": {
+    "description": "Success message after login"
+  },
   "logoutConfirmation": "Dhugumatti ba'uu barbaadduu?",
+  "@logoutConfirmation": {
+    "description": "Logout confirmation dialog message"
+  },
   "clearOfflineData": "Daataa offline haqamuu?",
+  "@clearOfflineData": {
+    "description": "Option to clear cached data on logout"
+  },
   "clearOfflineDataDescription": "Yoo daataa kana hin haqiin offline ta'anii seenuu dandeessu",
+  "@clearOfflineDataDescription": {
+    "description": "Description for clear offline data option"
+  },
   "ethiopianPhoneExample": "Fakkeenya: +251911234567",
+  "@ethiopianPhoneExample": {
+    "description": "Example Ethiopian phone number"
+  },
   "characters": "qubeelee",
+  "@characters": {
+    "description": "Characters (for password requirements)"
+  },
   "cropTypeTeff": "Xaafii",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
   "cropTypeWheat": "Qamadii",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
   "cropTypeBarley": "Garbuu",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
   "cropTypeMaize": "Boqqolloo",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
   "cropTypeChickpea": "Shumburaa",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
   "cropTypeLentils": "Misira",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
   "cropTypeSorghum": "Mashilaa",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
   "cropTypeCoffee": "Buna",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
   "cropTypeSesame": "Saliixaa",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
   "selectCropType": "Gosa Midhaan Filadhu",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
   "quantityInQuintals": "Hamma (kuuntaalii)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
   "priceInBirr": "Gatii (Birrii/kg)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
   "location": "Bakka",
+  "@location": {
+    "description": "Location input label"
+  },
   "description": "Ibsa",
+  "@description": {
+    "description": "Description input label"
+  },
   "audioNote": "Yaadannoo Sagalee",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
   "recordAudioNote": "Yaadannoo Sagalee Galmeessi",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
   "cropTypeRequired": "Maaloo gosa midhaan filadhaa",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
   "quantityRequired": "Maaloo hamma galchaa",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
   "priceRequired": "Maaloo gatii galchaa",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
   "locationRequired": "Maaloo bakka galchaa",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
   "listingSaved": "Tarreen milkaa'inaan olkaa'ameera",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
   "listingDeleted": "Tarreen haqameera",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
   "allCrops": "Hunda",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
   "quintals": "kuuntaalii",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
   "etbPerKg": "Birrii/kg",
-  "notAuthenticated": "Tarkaanfii kana fudhachuuf seenuu qabdu"
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
+  },
+  "notAuthenticated": "Tarkaanfii kana fudhachuuf seenuu qabdu",
+  "passwordsDoNotMatch": "Jecha icciitiin wal hin simne",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "Maaloo koodii lakkoofsota 6 galchaa",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "Koodii irra deebi'ii erguu sekoondii {seconds} keessatti",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "Ka'aa Jiru",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "Qophii",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "Gurguramee Jira",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "Darbe",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
+  }
 }
 

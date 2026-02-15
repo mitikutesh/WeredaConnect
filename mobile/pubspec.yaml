@@ -18,6 +18,7 @@ dependencies:
   isar_flutter_libs: ^3.1.0
   path_provider: ^2.1.0
   flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.0
 
   # Networking & Sync
   dio: ^5.4.0
@@ -33,6 +34,7 @@ dependencies:
   # State Management
   flutter_bloc: ^8.1.0
   equatable: ^2.0.5
+  provider: ^6.1.0
 
   # Localization
   intl: any # version provided by flutter_localizations

@@ -687,6 +687,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You must be logged in to perform this action'**
   String get notAuthenticated;
+
+  /// Error message when password and confirm password don't match
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords do not match'**
+  String get passwordsDoNotMatch;
+
+  /// Hint text for OTP input field
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter 6-digit code'**
+  String get enterSixDigitCode;
+
+  /// Countdown message before resend OTP button is enabled
+  ///
+  /// In en, this message translates to:
+  /// **'Resend code in {seconds} seconds'**
+  String resendCodeCountdown(int seconds);
+
+  /// Status label for active crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get listingStatusActive;
+
+  /// Status label for draft crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Draft'**
+  String get listingStatusDraft;
+
+  /// Status label for sold crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Sold'**
+  String get listingStatusSold;
+
+  /// Status label for expired crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get listingStatusExpired;
 }
 
 class _AppLocalizationsDelegate

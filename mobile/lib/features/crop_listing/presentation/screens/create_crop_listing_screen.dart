@@ -46,8 +46,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   void _handleSave() {
     if (!_formKey.currentState!.validate()) return;
 
+    final l10n = AppLocalizations.of(context)!;
+
     if (_selectedCropType == null) {
-      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.cropTypeRequired)),
       );
