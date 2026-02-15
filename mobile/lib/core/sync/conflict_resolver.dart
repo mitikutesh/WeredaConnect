@@ -1,0 +1,206 @@
+import 'dart:convert';
+
+import 'package:isar/isar.dart';
+
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+
+/// Service for resolving sync conflicts when server reports version mismatch.
+///
+/// Strategy: Server wins (accept server version, update local Isar).
+///
+/// When the server returns a conflict (status: 'conflict'), it means:
+/// - Client's version was behind server's version
+/// - Server provides authoritative data in 'serverData' field
+/// - Client must accept server version and update local entity
+///
+/// Conflict resolution flow:
+/// 1. Server returns status: 'conflict' with serverData and serverVersion
+/// 2. ConflictResolver extracts the entity from serverData
+/// 3. Local Isar record is updated with server version
+/// 4. Sync operation is marked as synced (not failed)
+///
+/// Ethiopian context:
+/// - Conflicts are rare in offline-first scenarios (most users work solo)
+/// - When they occur (e.g., family sharing a device), server wins is safest
+/// - Alternative strategies (merge, manual) add complexity for minimal benefit
+///
+/// See: `specs/contracts/sync-protocol.md`
+class ConflictResolver {
+  final Isar _isar;
+
+  ConflictResolver(this._isar);
+
+  /// Resolve a conflict by accepting the server's version.
+  ///
+  /// This method:
+  /// 1. Parses the server data based on entity type
+  /// 2. Updates the local Isar entity with server version
+  /// 3. Returns the resolved entity data for logging/audit
+  ///
+  /// Parameters:
+  /// - [operation]: The sync operation that conflicted
+  /// - [serverData]: The server's authoritative entity data
+  /// - [serverVersion]: The server's current entity version
+  ///
+  /// Returns the resolved entity as Map for audit logging.
+  ///
+  /// Throws [ConflictResolutionException] if:
+  /// - Entity type is unsupported
+  /// - Server data is malformed
+  /// - Local entity not found (shouldn't happen)
+  Future<Map<String, dynamic>> resolve({
+    required SyncOperation operation,
+    required Map<String, dynamic> serverData,
+    required int serverVersion,
+  }) async {
+    switch (operation.entityType) {
+      case 'crop_listing':
+        return _resolveCropListing(operation, serverData, serverVersion);
+
+      case 'trip':
+      case 'delivery':
+      case 'payment':
+      case 'user':
+        // Future entity types - not yet implemented
+        throw ConflictResolutionException(
+          'Conflict resolution not yet implemented for ${operation.entityType}',
+        );
+
+      default:
+        throw ConflictResolutionException(
+          'Unknown entity type: ${operation.entityType}',
+        );
+    }
+  }
+
+  /// Resolve a CropListing conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolveCropListing(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      // Find the local CropListing entity
+      final listing = await _isar.cropListings
+          .filter()
+          .listingIdEqualTo(operation.entityId)
+          .findFirst();
+
+      if (listing == null) {
+        throw ConflictResolutionException(
+          'CropListing not found in local database: ${operation.entityId}',
+        );
+      }
+
+      // Update local entity with server data
+      await _isar.writeTxn(() async {
+        // Update all fields from server
+        listing.farmerId = serverData['farmerId'] as String;
+        listing.cropType = serverData['cropType'] as String;
+        listing.quantity = (serverData['quantity'] as num).toDouble();
+        listing.pricePerKg = (serverData['pricePerKg'] as num).toDouble();
+
+        // Update location if present
+        final locationData = serverData['location'] as Map<String, dynamic>?;
+        if (locationData != null) {
+          listing.location = LatLng()
+            ..latitude = (locationData['latitude'] as num).toDouble()
+            ..longitude = (locationData['longitude'] as num).toDouble();
+        }
+
+        listing.description = serverData['description'] as String;
+        listing.audioNoteRef = serverData['audioNoteRef'] as String?;
+
+        // Parse status enum
+        final statusStr = serverData['status'] as String;
+        listing.status = ListingStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => ListingStatus.draft,
+        );
+
+        // Update timestamps (ensure UTC)
+        listing.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+        listing.updatedAt =
+            DateTime.parse(serverData['updatedAt'] as String).toUtc();
+
+        // CRITICAL: Update version to server version
+        listing.version = serverVersion;
+
+        await _isar.cropListings.put(listing);
+      });
+
+      // Return resolved data for audit logging
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve CropListing conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve a Trip conflict by accepting server version.
+  ///
+  /// TODO: Implement when Trip entity sync is enabled.
+  Future<Map<String, dynamic>> _resolveTrip(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    throw UnimplementedError('Trip conflict resolution not yet implemented');
+  }
+
+  /// Resolve a Delivery conflict by accepting server version.
+  ///
+  /// TODO: Implement when Delivery entity sync is enabled.
+  Future<Map<String, dynamic>> _resolveDelivery(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    throw UnimplementedError(
+      'Delivery conflict resolution not yet implemented',
+    );
+  }
+
+  /// Resolve a Payment conflict by accepting server version.
+  ///
+  /// TODO: Implement when Payment entity sync is enabled.
+  Future<Map<String, dynamic>> _resolvePayment(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    throw UnimplementedError('Payment conflict resolution not yet implemented');
+  }
+
+  /// Resolve a User conflict by accepting server version.
+  ///
+  /// TODO: Implement when User entity sync is enabled.
+  Future<Map<String, dynamic>> _resolveUser(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    throw UnimplementedError('User conflict resolution not yet implemented');
+  }
+}
+
+/// Exception thrown when conflict resolution fails.
+class ConflictResolutionException implements Exception {
+  final String message;
+
+  const ConflictResolutionException(this.message);
+
+  @override
+  String toString() => 'ConflictResolutionException: $message';
+}

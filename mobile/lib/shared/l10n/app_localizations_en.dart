@@ -304,4 +304,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get etbPerKg => 'ETB/kg';
+
+  @override
+  String get notAuthenticated => 'You must be logged in to perform this action';
 }

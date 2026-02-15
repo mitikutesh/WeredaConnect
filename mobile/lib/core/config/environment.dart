@@ -16,6 +16,9 @@ class Environment {
     required this.enableLogging,
     required this.connectTimeout,
     required this.receiveTimeout,
+    required this.cognitoUserPoolId,
+    required this.cognitoClientId,
+    required this.cognitoRegion,
   });
 
   /// Current environment (set via --dart-define at build time)
@@ -39,7 +42,7 @@ class Environment {
     }
   }
 
-  /// Development environment configuration
+  /// Development environment configuration (AWS Deployment - me-south-1)
   static const development = Environment._(
     apiBaseUrl: String.fromEnvironment(
       'API_BASE_URL',
@@ -49,6 +52,18 @@ class Environment {
     enableLogging: true,
     connectTimeout: Duration(seconds: 30),
     receiveTimeout: Duration(seconds: 30),
+    cognitoUserPoolId: String.fromEnvironment(
+      'COGNITO_USER_POOL_ID',
+      defaultValue: 'me-south-1_lKHy1XJrd',
+    ),
+    cognitoClientId: String.fromEnvironment(
+      'COGNITO_CLIENT_ID',
+      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
+    ),
+    cognitoRegion: String.fromEnvironment(
+      'COGNITO_REGION',
+      defaultValue: 'me-south-1',
+    ),
   );
 
   /// Staging environment configuration
@@ -61,6 +76,18 @@ class Environment {
     enableLogging: true,
     connectTimeout: Duration(seconds: 20),
     receiveTimeout: Duration(seconds: 20),
+    cognitoUserPoolId: String.fromEnvironment(
+      'COGNITO_USER_POOL_ID',
+      defaultValue: 'me-south-1_lKHy1XJrd',
+    ),
+    cognitoClientId: String.fromEnvironment(
+      'COGNITO_CLIENT_ID',
+      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
+    ),
+    cognitoRegion: String.fromEnvironment(
+      'COGNITO_REGION',
+      defaultValue: 'me-south-1',
+    ),
   );
 
   /// Production environment configuration
@@ -73,6 +100,18 @@ class Environment {
     enableLogging: false,
     connectTimeout: Duration(seconds: 15),
     receiveTimeout: Duration(seconds: 15),
+    cognitoUserPoolId: String.fromEnvironment(
+      'COGNITO_USER_POOL_ID',
+      defaultValue: 'me-south-1_lKHy1XJrd',
+    ),
+    cognitoClientId: String.fromEnvironment(
+      'COGNITO_CLIENT_ID',
+      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
+    ),
+    cognitoRegion: String.fromEnvironment(
+      'COGNITO_REGION',
+      defaultValue: 'me-south-1',
+    ),
   );
 
   /// Base URL for API requests
@@ -89,6 +128,15 @@ class Environment {
 
   /// Receive timeout
   final Duration receiveTimeout;
+
+  /// AWS Cognito User Pool ID
+  final String cognitoUserPoolId;
+
+  /// AWS Cognito Client ID
+  final String cognitoClientId;
+
+  /// AWS Cognito Region
+  final String cognitoRegion;
 
   /// Is development environment
   bool get isDevelopment => environment == AppEnvironment.development;

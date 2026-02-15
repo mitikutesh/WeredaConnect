@@ -6,6 +6,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
@@ -181,6 +182,7 @@ class SyncExecutor {
   final Dio _dio;
   final String _clientId;
   final ConflictHandler? _onConflict;
+  final ConflictResolver? _conflictResolver;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _isSyncing = false;
@@ -215,18 +217,21 @@ class SyncExecutor {
   /// - [connectivityMonitor]: Network connectivity monitor
   /// - [dio]: Dio HTTP client (should have AuthInterceptor attached)
   /// - [clientId]: Unique device identifier for the sync protocol
-  /// - [onConflict]: Optional callback for conflict resolution (default: server wins)
+  /// - [onConflict]: Optional callback for conflict resolution (legacy, use conflictResolver)
+  /// - [conflictResolver]: Service for resolving conflicts (updates local Isar with server data)
   SyncExecutor({
     required SyncQueue syncQueue,
     required ConnectivityMonitor connectivityMonitor,
     required Dio dio,
     required String clientId,
     ConflictHandler? onConflict,
+    ConflictResolver? conflictResolver,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
         _clientId = clientId,
-        _onConflict = onConflict;
+        _onConflict = onConflict,
+        _conflictResolver = conflictResolver;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -438,9 +443,27 @@ class SyncExecutor {
           succeeded++;
 
         case 'conflict':
-          // Server wins by default — invoke conflict handler if provided
-          if (_onConflict != null && serverData != null) {
-            await _onConflict(operation, serverData, serverVersion ?? 0);
+          // Server wins — resolve conflict by updating local Isar
+          if (serverData != null) {
+            // Use ConflictResolver if available (preferred)
+            if (_conflictResolver != null) {
+              try {
+                await _conflictResolver.resolve(
+                  operation: operation,
+                  serverData: serverData,
+                  serverVersion: serverVersion ?? 0,
+                );
+              } on ConflictResolutionException catch (e) {
+                // If conflict resolution fails, mark as failed for retry
+                await _syncQueue.markAsFailed(operationId);
+                failed++;
+                continue;
+              }
+            }
+            // Fall back to legacy conflict handler if provided
+            else if (_onConflict != null) {
+              await _onConflict(operation, serverData, serverVersion ?? 0);
+            }
           }
           await _syncQueue.markAsSynced(operationId);
           conflicted++;

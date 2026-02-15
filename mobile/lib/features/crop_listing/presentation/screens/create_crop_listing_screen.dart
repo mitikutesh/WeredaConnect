@@ -55,14 +55,16 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     }
 
     final authState = context.read<AuthBloc>().state;
-    // TEMPORARY: Use mock farmer ID for demo (bypass auth)
-    final farmerId = authState is AuthAuthenticated
-        ? authState.userId
-        : 'demo-farmer-001';
+    if (authState is! AuthAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.notAuthenticated)),
+      );
+      return;
+    }
 
     context.read<CropListingBloc>().add(
           CreateCropListing(
-            farmerId: farmerId,
+            farmerId: authState.userId,
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),

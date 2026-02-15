@@ -298,4 +298,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get etbPerKg => 'ብር/ኪግ';
+
+  @override
+  String get notAuthenticated => 'ይህን እርምጃ ለመውሰድ መግባት አለብዎት';
 }

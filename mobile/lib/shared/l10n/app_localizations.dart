@@ -681,6 +681,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ETB/kg'**
   String get etbPerKg;
+
+  /// Error message when user is not authenticated
+  ///
+  /// In en, this message translates to:
+  /// **'You must be logged in to perform this action'**
+  String get notAuthenticated;
 }
 
 class _AppLocalizationsDelegate

@@ -213,6 +213,7 @@
   "listingDeleted": "Tarreen haqameera",
   "allCrops": "Hunda",
   "quintals": "kuuntaalii",
-  "etbPerKg": "Birrii/kg"
+  "etbPerKg": "Birrii/kg",
+  "notAuthenticated": "Tarkaanfii kana fudhachuuf seenuu qabdu"
 }
 

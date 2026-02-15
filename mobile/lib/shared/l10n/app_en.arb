@@ -387,6 +387,10 @@
   "etbPerKg": "ETB/kg",
   "@etbPerKg": {
     "description": "Ethiopian Birr per kilogram"
+  },
+  "notAuthenticated": "You must be logged in to perform this action",
+  "@notAuthenticated": {
+    "description": "Error message when user is not authenticated"
   }
 }
 

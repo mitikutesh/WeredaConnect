@@ -14,6 +14,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -214,6 +215,170 @@ void main() {
         expect(op!.status, SyncStatus.synced);
 
         executorWithConflict.dispose();
+      });
+
+      test('resolves conflicts using ConflictResolver service', () async {
+        // Create a local CropListing entity to be updated by conflict resolution
+        final listing = CropListing()
+          ..listingId = 'listing-resolver'
+          ..farmerId = 'farmer-001'
+          ..cropType = 'teff'
+          ..quantity = 10.0
+          ..pricePerKg = 25.0
+          ..location = (LatLng()
+            ..latitude = 9.0
+            ..longitude = 38.0)
+          ..description = 'Local version'
+          ..audioNoteRef = null
+          ..status = ListingStatus.draft
+          ..createdAt = DateTime.parse('2026-02-14T10:00:00Z')
+          ..updatedAt = DateTime.parse('2026-02-14T10:00:00Z')
+          ..version = 1;
+
+        await isar.writeTxn(() async {
+          await isar.cropListings.put(listing);
+        });
+
+        // Create executor with ConflictResolver
+        final resolver = ConflictResolver(isar);
+        final executorWithResolver = SyncExecutor(
+          syncQueue: syncQueue,
+          connectivityMonitor: connectivityMonitor,
+          dio: dio,
+          clientId: 'test-device-001',
+          conflictResolver: resolver,
+        );
+
+        await _enqueueTestOperation(
+          operationId: 'op-resolver',
+          entityId: 'listing-resolver',
+          action: 'update',
+        );
+
+        // Server returns conflict with updated data (version 5)
+        dioAdapter.onPost(
+          '/sync',
+          (server) => server.reply(200, {
+            'syncBatchId': 'batch-001',
+            'results': [
+              {
+                'operationId': 'op-resolver',
+                'status': 'conflict',
+                'serverVersion': 5,
+                'serverData': {
+                  'listingId': 'listing-resolver',
+                  'farmerId': 'farmer-001',
+                  'cropType': 'wheat',
+                  'quantity': 50.0,
+                  'pricePerKg': 30.0,
+                  'location': {'latitude': 9.5, 'longitude': 38.5},
+                  'description': 'Server version',
+                  'audioNoteRef': 'audio/farmer-001/listing-resolver.m4a',
+                  'status': 'active',
+                  'createdAt': '2026-02-14T10:00:00Z',
+                  'updatedAt': '2026-02-15T12:00:00Z',
+                },
+                'message': 'Client version behind',
+              }
+            ],
+          }),
+          data: Matchers.any,
+        );
+
+        final result = await executorWithResolver.executeBatch();
+
+        // Verify batch result
+        expect(result.total, 1);
+        expect(result.conflicted, 1);
+        expect(result.succeeded, 0);
+        expect(result.failed, 0);
+        expect(result.allSucceeded, isTrue);
+
+        // Operation should be marked as synced
+        final op = await syncQueue.getOperation('op-resolver');
+        expect(op!.status, SyncStatus.synced);
+
+        // Verify local entity was updated with server data
+        final updated = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('listing-resolver')
+            .findFirst();
+
+        expect(updated, isNotNull);
+        expect(updated!.version, equals(5)); // Server version
+        expect(updated.cropType, equals('wheat')); // Server data
+        expect(updated.quantity, equals(50.0));
+        expect(updated.pricePerKg, equals(30.0));
+        expect(updated.description, equals('Server version'));
+        expect(
+          updated.audioNoteRef,
+          equals('audio/farmer-001/listing-resolver.m4a'),
+        );
+        expect(updated.status, equals(ListingStatus.active));
+        expect(updated.location.latitude, equals(9.5));
+        expect(updated.location.longitude, equals(38.5));
+
+        executorWithResolver.dispose();
+      });
+
+      test('marks operation as failed when ConflictResolver throws', () async {
+        // Create executor with ConflictResolver
+        final resolver = ConflictResolver(isar);
+        final executorWithResolver = SyncExecutor(
+          syncQueue: syncQueue,
+          connectivityMonitor: connectivityMonitor,
+          dio: dio,
+          clientId: 'test-device-001',
+          conflictResolver: resolver,
+        );
+
+        // Enqueue operation for non-existent entity
+        await _enqueueTestOperation(
+          operationId: 'op-bad-conflict',
+          entityId: 'listing-nonexistent',
+          action: 'update',
+        );
+
+        // Server returns conflict but local entity doesn't exist
+        dioAdapter.onPost(
+          '/sync',
+          (server) => server.reply(200, {
+            'syncBatchId': 'batch-001',
+            'results': [
+              {
+                'operationId': 'op-bad-conflict',
+                'status': 'conflict',
+                'serverVersion': 2,
+                'serverData': {
+                  'listingId': 'listing-nonexistent',
+                  'farmerId': 'farmer-001',
+                  'cropType': 'wheat',
+                  'quantity': 10.0,
+                  'pricePerKg': 25.0,
+                  'location': {'latitude': 9.0, 'longitude': 38.0},
+                  'description': 'Test',
+                  'audioNoteRef': null,
+                  'status': 'active',
+                  'createdAt': '2026-02-14T10:00:00Z',
+                  'updatedAt': '2026-02-14T10:00:00Z',
+                },
+              }
+            ],
+          }),
+          data: Matchers.any,
+        );
+
+        final result = await executorWithResolver.executeBatch();
+
+        // Conflict resolution failed — operation should be marked as failed
+        expect(result.total, 1);
+        expect(result.failed, 1);
+        expect(result.conflicted, 0);
+
+        final op = await syncQueue.getOperation('op-bad-conflict');
+        expect(op!.retryCount, 1);
+
+        executorWithResolver.dispose();
       });
 
       test('handles duplicate response by marking as synced', () async {

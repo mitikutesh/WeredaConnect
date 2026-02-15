@@ -47,9 +47,46 @@ flutter pub get
 # Generate code (Isar, l10n)
 flutter pub run build_runner build --delete-conflicting-outputs
 
-# Run on device/emulator
+# Run on device/emulator (uses deployed AWS infrastructure by default)
 flutter run
 ```
+
+### Environment Configuration
+
+The mobile app is configured to connect to the deployed AWS infrastructure in the `me-south-1` region by default.
+
+**Default Configuration (Development)**:
+- API Endpoint: `https://s0om0hib4i.execute-api.me-south-1.amazonaws.com`
+- Cognito User Pool ID: `me-south-1_lKHy1XJrd`
+- Cognito Client ID: `7g3kbk30cmbc297ghmid8pu1nm`
+- Region: `me-south-1` (Middle East - Bahrain)
+
+**Override Configuration at Build Time**:
+```bash
+# Use custom API endpoint
+flutter run --dart-define=API_BASE_URL=https://custom-api.example.com
+
+# Use custom Cognito credentials
+flutter run \
+  --dart-define=API_BASE_URL=https://custom-api.example.com \
+  --dart-define=COGNITO_USER_POOL_ID=your-pool-id \
+  --dart-define=COGNITO_CLIENT_ID=your-client-id \
+  --dart-define=COGNITO_REGION=your-region
+
+# Use local development server (LocalStack)
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
+# Note: 10.0.2.2 is Android emulator's way to access host localhost
+# For iOS simulator: http://localhost:4566
+# For physical device: http://YOUR_COMPUTER_IP:4566
+```
+
+**Environment Variables**:
+All environment configuration is managed in `/Users/mitiku.geleta/Projects/WeredaConnect/mobile/lib/core/config/environment.dart`. You can override any of the following at build time:
+- `API_BASE_URL` - Backend API endpoint
+- `COGNITO_USER_POOL_ID` - AWS Cognito User Pool ID
+- `COGNITO_CLIENT_ID` - AWS Cognito Client ID
+- `COGNITO_REGION` - AWS Cognito Region
+- `ENVIRONMENT` - Environment mode (development, staging, production)
 
 ---
 

@@ -307,4 +307,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get etbPerKg => 'Birrii/kg';
+
+  @override
+  String get notAuthenticated => 'Tarkaanfii kana fudhachuuf seenuu qabdu';
 }

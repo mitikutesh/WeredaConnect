@@ -312,6 +312,7 @@
   "listingDeleted": "ዝርዝሩ ተሰርዟል",
   "allCrops": "ሁሉም",
   "quintals": "ኩንታል",
-  "etbPerKg": "ብር/ኪግ"
+  "etbPerKg": "ብር/ኪግ",
+  "notAuthenticated": "ይህን እርምጃ ለመውሰድ መግባት አለብዎት"
 }
 
