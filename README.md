@@ -84,189 +84,36 @@ cdk deploy --context env=dev
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-### Voice-to-Text Crop Listings
-- Record voice notes in **Amharic**, **Afan Oromo**, or **English**
-- Auto-categorize into searchable listings with map location
-- Designed for low-literacy rural users
-- Example: *"I have 50 quintals of Teff in Ada'a ready for pickup"*
+- **Voice-to-Text Crop Listings** — Record in Amharic, Afan Oromo, or English; auto-categorized into searchable map
+- **Offline-First Logistics** — List crops, find transport, connect with buyers without connectivity; auto-sync when online
+- **Telebirr Escrow** — Funds locked on trip acceptance, released on verified delivery (GPS + photo + QR)
+- **Fayda ID Verification** — Biometric identity verification for all financial transactions
+- **Multi-Language** — Amharic (አማርኛ), Afan Oromo (Afaan Oromoo), English
+- **Low-End Device Optimized** — Android 8+ (API 26), 2GB RAM, <50MB APK, <100MB memory
 
-### Offline-First Logistics Marketplace
-- List crops, find transport, connect with buyers—all offline
-- Local-first data storage with Isar database
-- Automatic sync when connection is restored
-- Conflict resolution for concurrent edits
+## AI-Assisted Development
 
-### Telebirr Escrow & Fayda ID Integration
-- Secure payments via **Telebirr escrow** (funds released on verified delivery)
-- **Fayda ID** biometric verification for all users
-- **Micro-insurance** automatic coverage per trip (AICE integration)
-- QR delivery tokens for proof of delivery
+Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then read `STATE.md` → `TASK.md` for current context.
 
-### Multi-Language Support
-- **Amharic** (አማርኛ): Official language
-- **Afan Oromo** (Afaan Oromoo): Largest ethnic group
-- **English**: Urban educated population
+## Component Documentation
 
-### Optimized for Low-End Devices
-- Target: Android 8+ (API 26), 2GB RAM, $50 phones
-- APK size: <50MB
-- Memory usage: <100MB
-- Battery efficient: <5% per hour
+| Component | README | Testing | Key Constraint |
+|-----------|--------|---------|----------------|
+| **Mobile** (Flutter) | `mobile/README.md` | `mobile/TESTING.md` | Offline-first, 2GB RAM, BLoC pattern |
+| **Server** (.NET 10 AOT) | `server/README.md` | `server/TESTING.md` | No reflection libs — see `server/AOT_COMPLIANCE.md` |
+| **Infrastructure** (CDK) | `infra/README.md` | `infra/TESTING.md` | ARM64, on-demand billing, me-south-1 |
 
-### Cost-Conscious
-- Minimal data usage (<1MB per session)
-- Data saver mode
-- Compressed payloads (gzip/brotli)
-- On-demand AWS billing (low traffic optimized)
+## More Documentation
+
+- **Full docs index**: `docs/README.md`
+- **Ethiopian context**: `docs/local_reality/README.md`
+- **Security & QA**: `qa/README.md`
+- **API contracts**: `specs/contracts/`
 
 ---
 
-## 🧠 AI-Assisted Development
-
-This project uses a **"Magnetic" framework** for AI-assisted development:
-
-### Core Documents
-- **`CLAUDE.md`**: Constitutional principles, decision framework
-- **`STATE.md`**: Session checkpoint for context preservation
-- **`TASK.md`**: Current active tasks and priorities
-
-### Before Starting Work
-1. Read `CLAUDE.md` for project principles
-2. Read `STATE.md` for current context
-3. Check `TASK.md` for active priorities
-4. Review `.ai/standards.md` for coding patterns
-
-### Before Ending Session
-```bash
-./scripts/checkpoint.sh
-```
-This updates `STATE.md` with current progress for seamless handoff.
-
----
-
-## 📱 Mobile Architecture
-
-### Tech Stack
-- **Framework**: Flutter 3.27.x
-- **Database**: Isar (offline-first NoSQL)
-- **State Management**: BLoC pattern
-- **Networking**: Dio with retry logic
-- **Localization**: flutter_localizations
-
-### Key Patterns
-- **Offline-first repository**: Local DB → Sync queue → Server
-- **Clean architecture**: Data, Domain, Presentation layers
-- **Sync engine**: Conflict resolution with server
-
-See `mobile/README.md` for details.
-
----
-
-## ⚡ Server Architecture
-
-### Tech Stack
-- **Framework**: .NET 10 with Native AOT
-- **Runtime**: AWS Lambda (ARM64)
-- **Database**: DynamoDB (on-demand billing)
-- **API**: API Gateway (HTTP API)
-
-### Key Patterns
-- **Idempotent APIs**: Safe to retry operations
-- **Conflict resolution**: Server wins, client merges
-- **Event-driven**: DynamoDB Streams for async processing
-
-### ⚠️ Critical
-**Before adding dependencies, check `server/AOT_COMPLIANCE.md`**  
-Native AOT has strict limitations (no reflection, no EF Core, etc.)
-
-See `server/README.md` for details.
-
----
-
-## ☁️ Infrastructure
-
-### AWS Services
-- **Lambda**: Serverless compute (.NET 10 AOT, ARM64)
-- **DynamoDB**: NoSQL database (on-demand)
-- **S3 + CloudFront**: Static assets, CDN
-- **API Gateway**: HTTP API (cost-optimized)
-- **CloudWatch**: Monitoring, logs, alarms
-
-### Cost Optimization
-- ARM64 Lambda (20% cheaper)
-- On-demand DynamoDB (no wasted capacity)
-- HTTP API (70% cheaper than REST API)
-- Reserved concurrency limits (prevent runaway costs)
-
-See `infra/README.md` for details.
-
----
-
-## 🌍 Ethiopian Context
-
-### Infrastructure Constraints
-- **Network**: 3G (1-5 Mbps), intermittent connectivity
-- **Devices**: 2-4GB RAM, Android 8-12
-- **Data costs**: ~$0.50-1.00 per GB (expensive)
-- **Power**: Unreliable electricity, degraded batteries
-
-### Cultural Considerations
-- **Languages**: Amharic, Afan Oromo, English
-- **Literacy**: ~52% nationally, lower in rural areas
-- **Trust**: Low for new apps, especially those handling financial transactions
-- **Privacy**: Concerns about government surveillance
-
-See `docs/local_reality/README.md` for comprehensive context.
-
----
-
-## 🔐 Security & Quality
-
-### Security Practices
-- End-to-end encryption for sensitive data
-- Minimal data collection (privacy by design)
-- Regular dependency updates
-- Threat modeling for all features
-
-### Testing
-- **Unit tests**: >80% coverage target
-- **Integration tests**: Critical offline flows
-- **Manual testing**: Low-end Android devices
-- **Penetration testing**: Before production launch
-
-See `qa/README.md` for security checklists and threat models.
-
----
-
-## 🤝 Contributing
-
-This is currently a **solo developer project**, but contributions are welcome!
-
-1. Read `CLAUDE.md` for project principles
-2. Check `TASK.md` for current priorities
-3. Follow `.ai/standards.md` for coding patterns
-4. Test offline scenarios thoroughly
-5. Validate against Ethiopian context (`docs/local_reality/`)
-
----
-
-## 📄 License
-
-TBD (To be determined)
-
----
-
-## 📞 Contact
-
-- **Developer**: Mitiku Teshome
-- **Email**: mitikutes@gmail.com
-- **Security**: security@weredaconnect.com (to be set up)
-
----
-
-**Last Updated**: 2026-02-09  
-**Version**: 0.1.0 (pre-alpha)  
-**Status**: Initial structure setup
+**Developer**: Mitiku Teshome | **Email**: mitikutes@gmail.com
+**Last Updated**: 2026-02-16 | **Version**: 0.1.0 (pre-alpha)
 

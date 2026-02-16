@@ -1,14 +1,5 @@
 # API Reference
 
-## Backend API Documentation
-
-Complete reference for the WeredaConnect REST API. WeredaConnect is an offline-first agritech logistics platform connecting Ethiopian farmers, transport providers, and urban wholesalers.
-
-## Audience
-- Mobile developers
-- Integration partners
-- API consumers
-
 ## Base URL
 
 - **Development**: `https://dev-api.weredaconnect.com`
@@ -86,30 +77,7 @@ Content-Type: application/json
 - `role` -- one of `farmer`, `transporter`, `buyer`
 - `preferredLanguage` -- one of `am` (Amharic), `om` (Afan Oromo), `en` (English)
 
-**Response** (201 Created):
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "e5g9b3d2-0c4f-5g8b-c6d7-2345bcde6789",
-  "expiresIn": 3600,
-  "user": {
-    "id": "usr-e5f6g7h8",
-    "name": "Abebe Kebede",
-    "phoneNumber": "+251912345678",
-    "role": "farmer",
-    "faydaId": "FID-1234-5678-9012",
-    "location": {
-      "latitude": 9.0320,
-      "longitude": 38.7469,
-      "woreda": "Bako Tibe",
-      "zone": "West Shewa",
-      "region": "Oromia"
-    },
-    "preferredLanguage": "am",
-    "createdAt": "2026-02-09T10:00:00Z"
-  }
-}
-```
+**Response** (201 Created): Same structure as Login response, with full user profile including `faydaId`, `location`, `preferredLanguage`, and `createdAt`.
 
 ### Refresh Token
 
@@ -172,7 +140,7 @@ Content-Type: application/json
 - `currency` -- always `ETB` (Ethiopian Birr)
 - `idempotencyKey` -- UUIDv4, client-generated at time of user action
 
-**Response** (201 Created):
+**Response** (201 Created): Returns full listing object with server-generated fields:
 ```json
 {
   "id": "lst-a1b2c3d4",
@@ -183,26 +151,8 @@ Content-Type: application/json
   "unit": "kg",
   "pricePerUnit": 85.00,
   "currency": "ETB",
-  "description": "Fresh teff from Bako Tibe, harvested this week",
-  "harvestDate": "2026-02-05",
-  "location": {
-    "latitude": 9.0320,
-    "longitude": 38.7469,
-    "woreda": "Bako Tibe",
-    "zone": "West Shewa",
-    "region": "Oromia"
-  },
   "photos": [
-    {
-      "id": "media-id-001",
-      "url": "https://cdn.weredaconnect.com/media/media-id-001.jpg",
-      "thumbnail": "https://cdn.weredaconnect.com/media/media-id-001-thumb.jpg"
-    },
-    {
-      "id": "media-id-002",
-      "url": "https://cdn.weredaconnect.com/media/media-id-002.jpg",
-      "thumbnail": "https://cdn.weredaconnect.com/media/media-id-002-thumb.jpg"
-    }
+    { "id": "media-id-001", "url": "https://cdn.weredaconnect.com/media/media-id-001.jpg", "thumbnail": "...thumb.jpg" }
   ],
   "status": "active",
   "availableUntil": "2026-02-28T23:59:59Z",
@@ -230,36 +180,11 @@ Authorization: Bearer <token>
 - `offset` (optional): Pagination offset (default: 0)
 - `sortBy` (optional): `recent`, `nearby`, `price_asc`, `price_desc` (default: `recent`)
 
-**Response** (200 OK):
+**Response** (200 OK): Paginated list of listing summaries (includes `distanceKm`, `farmerName`, thumbnail-only photos).
 ```json
 {
-  "listings": [
-    {
-      "id": "lst-a1b2c3d4",
-      "farmerId": "usr-e5f6g7h8",
-      "farmerName": "Abebe Kebede",
-      "cropType": "teff",
-      "variety": "magna",
-      "quantity": 500,
-      "unit": "kg",
-      "pricePerUnit": 85.00,
-      "currency": "ETB",
-      "location": {
-        "latitude": 9.0320,
-        "longitude": 38.7469,
-        "woreda": "Bako Tibe"
-      },
-      "distanceKm": 12.5,
-      "photos": ["https://cdn.weredaconnect.com/media/media-id-001-thumb.jpg"],
-      "status": "active",
-      "availableUntil": "2026-02-28T23:59:59Z",
-      "createdAt": "2026-02-09T10:30:00Z"
-    }
-  ],
-  "total": 87,
-  "limit": 20,
-  "offset": 0,
-  "hasMore": true
+  "listings": [ { "id": "lst-a1b2c3d4", "farmerName": "Abebe Kebede", "cropType": "teff", "..." : "..." } ],
+  "total": 87, "limit": 20, "offset": 0, "hasMore": true
 }
 ```
 
@@ -341,40 +266,7 @@ Content-Type: application/json
 }
 ```
 
-**Response** (201 Created):
-```json
-{
-  "id": "trp-b2c3d4e5",
-  "requesterId": "usr-e5f6g7h8",
-  "listingId": "lst-a1b2c3d4",
-  "origin": {
-    "latitude": 9.0320,
-    "longitude": 38.7469,
-    "woreda": "Bako Tibe",
-    "zone": "West Shewa",
-    "region": "Oromia",
-    "address": "Bako Tibe grain collection point"
-  },
-  "destination": {
-    "latitude": 9.0054,
-    "longitude": 38.7636,
-    "woreda": "Arada",
-    "zone": "Addis Ababa",
-    "region": "Addis Ababa",
-    "address": "Ehil Berenda (Grain Market)"
-  },
-  "cargoType": "teff",
-  "cargoWeightKg": 500,
-  "requestedPickupDate": "2026-02-12T06:00:00Z",
-  "offeredPriceETB": 3500.00,
-  "notes": "Needs to arrive before market opens at noon",
-  "status": "pending",
-  "transporterId": null,
-  "createdAt": "2026-02-09T11:00:00Z",
-  "updatedAt": "2026-02-09T11:00:00Z",
-  "version": 1
-}
-```
+**Response** (201 Created): Returns full trip object with `status: "pending"`, `transporterId: null`, `version: 1`, plus server timestamps.
 
 ### Browse Trips
 
@@ -395,38 +287,7 @@ Authorization: Bearer <token>
 - `offset` (optional): Pagination offset (default: 0)
 - `sortBy` (optional): `recent`, `nearby`, `price_desc` (default: `recent`)
 
-**Response** (200 OK):
-```json
-{
-  "trips": [
-    {
-      "id": "trp-b2c3d4e5",
-      "requesterId": "usr-e5f6g7h8",
-      "requesterName": "Abebe Kebede",
-      "origin": {
-        "latitude": 9.0320,
-        "longitude": 38.7469,
-        "woreda": "Bako Tibe"
-      },
-      "destination": {
-        "latitude": 9.0054,
-        "longitude": 38.7636,
-        "woreda": "Arada"
-      },
-      "cargoType": "teff",
-      "cargoWeightKg": 500,
-      "requestedPickupDate": "2026-02-12T06:00:00Z",
-      "offeredPriceETB": 3500.00,
-      "status": "pending",
-      "createdAt": "2026-02-09T11:00:00Z"
-    }
-  ],
-  "total": 34,
-  "limit": 20,
-  "offset": 0,
-  "hasMore": true
-}
-```
+**Response** (200 OK): Paginated list of trip summaries (same pagination as Listings).
 
 ### Get Trip by ID
 
@@ -564,21 +425,7 @@ GET /escrow/{tripId}
 Authorization: Bearer <token>
 ```
 
-**Response** (200 OK):
-```json
-{
-  "escrowId": "esc-d4e5f6g7",
-  "tripId": "trp-b2c3d4e5",
-  "amountETB": 3500.00,
-  "payerPhone": "+251912345678",
-  "recipientPhone": "+251922334455",
-  "status": "locked",
-  "telebirrRef": "TBR-2026-0209-001234",
-  "lockedAt": "2026-02-09T12:05:00Z",
-  "expiresAt": "2026-02-16T12:05:00Z",
-  "releasedAt": null
-}
-```
+**Response** (200 OK): Same structure as Lock Funds response, with additional `recipientPhone` and `releasedAt` fields.
 
 **Escrow Statuses**: `pending`, `locked`, `released`, `disputed`, `expired`, `refunded`
 
@@ -625,16 +472,7 @@ Content-Type: application/json
   "qrTokenValid": true,
   "gpsProximityValid": true,
   "gpsDistanceMeters": 45.2,
-  "photoEvidence": [
-    {
-      "id": "media-id-101",
-      "url": "https://cdn.weredaconnect.com/media/media-id-101.jpg"
-    },
-    {
-      "id": "media-id-102",
-      "url": "https://cdn.weredaconnect.com/media/media-id-102.jpg"
-    }
-  ],
+  "photoEvidence": [ { "id": "media-id-101", "url": "..." } ],
   "receiverConfirmation": true,
   "verifiedAt": "2026-02-13T11:30:00Z"
 }
@@ -675,43 +513,13 @@ Content-Type: application/json
       "clientVersion": 0,
       "data": {
         "cropType": "teff",
-        "variety": "magna",
         "quantity": 500,
         "unit": "kg",
         "pricePerUnit": 85.00,
         "currency": "ETB",
-        "description": "Fresh teff from Bako Tibe",
-        "location": {
-          "latitude": 9.0320,
-          "longitude": 38.7469,
-          "woreda": "Bako Tibe"
-        }
+        "location": { "latitude": 9.0320, "longitude": 38.7469, "woreda": "Bako Tibe" }
       },
       "timestamp": "2026-02-09T08:00:00Z"
-    },
-    {
-      "operationId": "880f0733-h51e-74g7-d049-779988773333",
-      "idempotencyKey": "990f1844-i62f-85h8-e150-880099884444",
-      "entityType": "trip",
-      "entityId": "trp-b2c3d4e5",
-      "action": "update",
-      "clientVersion": 2,
-      "data": {
-        "notes": "Changed pickup time to afternoon"
-      },
-      "timestamp": "2026-02-09T09:15:00Z"
-    },
-    {
-      "operationId": "aa0f2955-j73g-96i9-f261-991100995555",
-      "idempotencyKey": "bb0f3066-k84h-07j0-g372-002211006666",
-      "entityType": "profile",
-      "entityId": "usr-e5f6g7h8",
-      "action": "update",
-      "clientVersion": 1,
-      "data": {
-        "preferredLanguage": "om"
-      },
-      "timestamp": "2026-02-09T09:30:00Z"
     }
   ]
 }
@@ -737,43 +545,15 @@ Content-Type: application/json
       "operationId": "660f9511-f39c-52e5-b827-557766551111",
       "status": "success",
       "serverVersion": 1,
-      "serverData": {
-        "id": "lst-a1b2c3d4",
-        "cropType": "teff",
-        "variety": "magna",
-        "quantity": 500,
-        "unit": "kg",
-        "pricePerUnit": 85.00,
-        "status": "active",
-        "createdAt": "2026-02-09T10:30:00Z",
-        "version": 1
-      },
+      "serverData": { "id": "lst-a1b2c3d4", "version": 1, "..." : "..." },
       "message": null
     },
     {
       "operationId": "880f0733-h51e-74g7-d049-779988773333",
       "status": "conflict",
       "serverVersion": 3,
-      "serverData": {
-        "id": "trp-b2c3d4e5",
-        "notes": "Pickup confirmed for morning",
-        "status": "accepted",
-        "updatedAt": "2026-02-09T09:00:00Z",
-        "version": 3
-      },
+      "serverData": { "id": "trp-b2c3d4e5", "version": 3, "..." : "..." },
       "message": "Client version 2 is behind server version 3"
-    },
-    {
-      "operationId": "aa0f2955-j73g-96i9-f261-991100995555",
-      "status": "success",
-      "serverVersion": 2,
-      "serverData": {
-        "id": "usr-e5f6g7h8",
-        "preferredLanguage": "om",
-        "updatedAt": "2026-02-09T10:30:05Z",
-        "version": 2
-      },
-      "message": null
     }
   ]
 }
@@ -928,6 +708,4 @@ Rate limits are designed to accommodate offline-first sync patterns where client
 
 ---
 
-**Last Updated**: 2026-02-09
-**Version**: 1.0.0
-**API Version**: v1
+**Last Updated**: 2026-02-16 | **API Version**: v1
