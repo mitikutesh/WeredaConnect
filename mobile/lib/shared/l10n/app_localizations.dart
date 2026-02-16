@@ -760,10 +760,10 @@ abstract class AppLocalizations {
   /// **'Please enter the quantity'**
   String get quantityRequired;
 
-  /// Validation error for missing price
+  /// Validation error when price is not entered
   ///
   /// In en, this message translates to:
-  /// **'Please enter the price'**
+  /// **'Price is required'**
   String get priceRequired;
 
   /// Validation error for missing location
@@ -861,6 +861,186 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Back to Home'**
   String get backToHome;
+
+  /// Title for trip listings screen
+  ///
+  /// In en, this message translates to:
+  /// **'Trip Listings'**
+  String get tripListings;
+
+  /// Button to create a new trip
+  ///
+  /// In en, this message translates to:
+  /// **'Create Trip'**
+  String get createTrip;
+
+  /// Button to browse available trips
+  ///
+  /// In en, this message translates to:
+  /// **'Browse Trips'**
+  String get browseTrips;
+
+  /// Navigation item for user's own trips
+  ///
+  /// In en, this message translates to:
+  /// **'My Trips'**
+  String get myTrips;
+
+  /// Title for trip details screen
+  ///
+  /// In en, this message translates to:
+  /// **'Trip Details'**
+  String get tripDetails;
+
+  /// Label for origin woreda selection
+  ///
+  /// In en, this message translates to:
+  /// **'From (Origin)'**
+  String get fromWoreda;
+
+  /// Label for destination woreda selection
+  ///
+  /// In en, this message translates to:
+  /// **'To (Destination)'**
+  String get toWoreda;
+
+  /// Label for departure date picker
+  ///
+  /// In en, this message translates to:
+  /// **'Departure Date'**
+  String get departureDate;
+
+  /// Label for truck capacity input in quintals
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity (quintals)'**
+  String get capacity;
+
+  /// Label for price per quintal input in Ethiopian Birr
+  ///
+  /// In en, this message translates to:
+  /// **'Price per Quintal (ETB)'**
+  String get pricePerQuintal;
+
+  /// Trip status label when trip is open for booking
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get tripStatusOpen;
+
+  /// Trip status label when trip is matched with a farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Matched'**
+  String get tripStatusMatched;
+
+  /// Trip status label when shipment is in transit
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get tripStatusInTransit;
+
+  /// Trip status label when shipment has been delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get tripStatusDelivered;
+
+  /// Trip status label when trip has been cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get tripStatusCancelled;
+
+  /// Empty state message when no trips match the filter
+  ///
+  /// In en, this message translates to:
+  /// **'No trips found'**
+  String get noTripsFound;
+
+  /// Success message after creating a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Trip created successfully!'**
+  String get tripCreatedSuccess;
+
+  /// Success message after cancelling a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Trip cancelled'**
+  String get tripCancelledSuccess;
+
+  /// Label for route filter control
+  ///
+  /// In en, this message translates to:
+  /// **'Filter by route'**
+  String get filterByRoute;
+
+  /// Label showing remaining truck capacity
+  ///
+  /// In en, this message translates to:
+  /// **'Available capacity'**
+  String get availableCapacity;
+
+  /// Placeholder text for departure date picker
+  ///
+  /// In en, this message translates to:
+  /// **'Select departure date'**
+  String get selectDepartureDate;
+
+  /// Label for trucker contact information
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker Contact'**
+  String get truckerContact;
+
+  /// Validation error when origin woreda is not selected
+  ///
+  /// In en, this message translates to:
+  /// **'Origin woreda is required'**
+  String get fromWoredaRequired;
+
+  /// Validation error when destination woreda is not selected
+  ///
+  /// In en, this message translates to:
+  /// **'Destination woreda is required'**
+  String get toWoredaRequired;
+
+  /// Validation error when departure date is not selected
+  ///
+  /// In en, this message translates to:
+  /// **'Departure date is required'**
+  String get departureDateRequired;
+
+  /// Validation error when capacity is not entered
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity is required'**
+  String get capacityRequired;
+
+  /// Validation error for out-of-range capacity value
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity must be between 0.1 and 1000 quintals'**
+  String get invalidCapacity;
+
+  /// Validation error for out-of-range price value
+  ///
+  /// In en, this message translates to:
+  /// **'Price must be between 0.01 and 10000 ETB'**
+  String get invalidPrice;
+
+  /// Validation error when origin and destination woredas are identical
+  ///
+  /// In en, this message translates to:
+  /// **'Origin and destination cannot be the same'**
+  String get sameOriginDestination;
+
+  /// Ethiopian Birr currency abbreviation for price display
+  ///
+  /// In en, this message translates to:
+  /// **'ETB'**
+  String get etbCurrency;
 }
 
 class _AppLocalizationsDelegate

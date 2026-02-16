@@ -38,6 +38,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetCropResponse))]
 [JsonSerializable(typeof(CropDto))]
 [JsonSerializable(typeof(List<CropDto>))]
+[JsonSerializable(typeof(TripDto))]
+[JsonSerializable(typeof(List<TripDto>))]
+[JsonSerializable(typeof(GetTripsResponse))]
+[JsonSerializable(typeof(GetTripResponse))]
+[JsonSerializable(typeof(List<string>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

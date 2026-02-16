@@ -510,6 +510,130 @@
   "backToHome": "Gara Manatti Deebi'i",
   "@backToHome": {
     "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "Tarree Imaltuu",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "Imala Uumi",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "Imala Barbaadi",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "Imala Koo",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "Bal'ina Imaltuu",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "Irraa (Ka'umsaa)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "Gara (Ga'umsaa)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "Guyyaa Ka'umsaa",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "Dandeettii (Kuintaalii)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "Gatii Kuintaalii (ETB)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "Banaa",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "Walsiimame",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "Karaa Irra",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "Ga'e",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "Haqame",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "Imalti hin argamne",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "Imalti milkaa'inaan uumame!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "Imalti haqame",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "Karaan cali",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "Dandeettii jiru",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "Guyyaa ka'umsaa filadhu",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "Quunnamtii Konkolaachisaa",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "Aanaan ka'umsaa barbaachisaadha",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "Aanaan ga'umsaa barbaachisaadha",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "Guyyaan ka'umsaa barbaachisaadha",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "Dandeettiin barbaachisaadha",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "Gatiin barbaachisaadha",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "Dandeettiin 0.1 hanga 1000 kuintaalii ta'uu qaba",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "Gatiin 0.01 hanga 10000 ETB ta'uu qaba",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "Ka'umsaa fi ga'umsaan tokko ta'uu hin danda'u",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
   }
 }
 

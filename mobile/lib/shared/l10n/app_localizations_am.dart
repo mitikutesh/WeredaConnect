@@ -339,7 +339,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get quantityRequired => 'እባክዎ መጠኑን ያስገቡ';
 
   @override
-  String get priceRequired => 'እባክዎ ዋጋውን ያስገቡ';
+  String get priceRequired => 'ዋጋ ያስፈልጋል';
 
   @override
   String get locationRequired => 'እባክዎ ቦታውን ያስገቡ';
@@ -390,4 +390,94 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get backToHome => 'ወደ መነሻ ይመለሱ';
+
+  @override
+  String get tripListings => 'የጉዞ ዝርዝሮች';
+
+  @override
+  String get createTrip => 'ጉዞ ፍጠር';
+
+  @override
+  String get browseTrips => 'ጉዞዎችን ያስሱ';
+
+  @override
+  String get myTrips => 'የእኔ ጉዞዎች';
+
+  @override
+  String get tripDetails => 'የጉዞ ዝርዝር';
+
+  @override
+  String get fromWoreda => 'ከ (መነሻ)';
+
+  @override
+  String get toWoreda => 'ወደ (መድረሻ)';
+
+  @override
+  String get departureDate => 'የመነሻ ቀን';
+
+  @override
+  String get capacity => 'አቅም (ኩንታል)';
+
+  @override
+  String get pricePerQuintal => 'በኩንታል ዋጋ (ብር)';
+
+  @override
+  String get tripStatusOpen => 'ክፍት';
+
+  @override
+  String get tripStatusMatched => 'ተመዛግቦ';
+
+  @override
+  String get tripStatusInTransit => 'በመንገድ ላይ';
+
+  @override
+  String get tripStatusDelivered => 'ደርሷል';
+
+  @override
+  String get tripStatusCancelled => 'ተሰርዟል';
+
+  @override
+  String get noTripsFound => 'ጉዞ አልተገኘም';
+
+  @override
+  String get tripCreatedSuccess => 'ጉዞ በተሳካ ሁኔታ ተፈጠረ!';
+
+  @override
+  String get tripCancelledSuccess => 'ጉዞ ተሰርዟል';
+
+  @override
+  String get filterByRoute => 'በመንገድ ያጣሩ';
+
+  @override
+  String get availableCapacity => 'ያለ አቅም';
+
+  @override
+  String get selectDepartureDate => 'የመነሻ ቀን ይምረጡ';
+
+  @override
+  String get truckerContact => 'የጭነት ሹፌር አድራሻ';
+
+  @override
+  String get fromWoredaRequired => 'የመነሻ ወረዳ ያስፈልጋል';
+
+  @override
+  String get toWoredaRequired => 'የመድረሻ ወረዳ ያስፈልጋል';
+
+  @override
+  String get departureDateRequired => 'የመነሻ ቀን ያስፈልጋል';
+
+  @override
+  String get capacityRequired => 'አቅም ያስፈልጋል';
+
+  @override
+  String get invalidCapacity => 'አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት';
+
+  @override
+  String get invalidPrice => 'ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት';
+
+  @override
+  String get sameOriginDestination => 'መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም';
+
+  @override
+  String get etbCurrency => 'ብር';
 }

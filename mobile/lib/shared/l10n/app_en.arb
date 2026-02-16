@@ -513,6 +513,130 @@
   "backToHome": "Back to Home",
   "@backToHome": {
     "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "Trip Listings",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "Create Trip",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "Browse Trips",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "My Trips",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "Trip Details",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "From (Origin)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "To (Destination)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "Departure Date",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "Capacity (quintals)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "Price per Quintal (ETB)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "Open",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "Matched",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "In Transit",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "Delivered",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "Cancelled",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "No trips found",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "Trip created successfully!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "Trip cancelled",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "Filter by route",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "Available capacity",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "Select departure date",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "Trucker Contact",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "Origin woreda is required",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "Destination woreda is required",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "Departure date is required",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "Capacity is required",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "Price is required",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "Capacity must be between 0.1 and 1000 quintals",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "Price must be between 0.01 and 10000 ETB",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "Origin and destination cannot be the same",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
   }
 }
 

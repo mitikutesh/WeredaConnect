@@ -1,0 +1,406 @@
+using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Models;
+
+namespace WeredaConnect.Server.Functions;
+
+/// <summary>
+/// GET /trips and GET /trips/{id} Lambda handler.
+/// Provides read-only access to trip listings.
+/// Create/update/delete operations are handled through /sync endpoint.
+///
+/// Endpoints:
+/// - GET /trips - Query trip listings with optional filters (fromWoreda, toWoreda, status, etc.)
+/// - GET /trips/{id} - Get a single trip listing by ID
+///
+/// Error codes:
+/// - 400: TRIP_VALIDATION - Invalid query parameters
+/// - 404: TRIP_NOT_FOUND - Trip listing does not exist
+/// - 500: TRIP_SERVER_ERROR - Unexpected server failure
+///
+/// See: specs/contracts/trip-listing-api.md
+/// </summary>
+public class TripFunction
+{
+    private readonly ITripRepository _tripRepo;
+
+    /// <summary>
+    /// Default constructor for Lambda runtime.
+    /// Reads table names from environment variables.
+    /// </summary>
+    public TripFunction()
+    {
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE")
+                         ?? throw new InvalidOperationException("TRIPS_TABLE is not set.");
+
+        var dynamoDb = new AmazonDynamoDBClient();
+        _tripRepo = new TripRepository(dynamoDb, tripsTable);
+    }
+
+    /// <summary>
+    /// Constructor for testing with mocked dependencies.
+    /// </summary>
+    public TripFunction(ITripRepository tripRepo)
+    {
+        _tripRepo = tripRepo ?? throw new ArgumentNullException(nameof(tripRepo));
+    }
+
+    public async Task<APIGatewayProxyResponse> FunctionHandler(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        context.Logger.LogInformation($"TripFunction invoked: {request.HttpMethod} {request.Path}");
+
+        // Route based on HTTP method and path
+        return request.HttpMethod switch
+        {
+            "GET" when request.PathParameters?.ContainsKey("id") == true
+                => await HandleGetTripByIdAsync(request, context),
+            "GET" => await HandleGetTripsAsync(request, context),
+            _ => LambdaResponse.Error(405, "TRIP_VALIDATION", "Method not allowed.")
+        };
+    }
+
+    /// <summary>
+    /// GET /trips - Query trip listings with optional filters.
+    /// Query parameters: fromWoreda, toWoreda, status, minCapacity, maxPrice,
+    /// departureDateFrom, departureDateTo, limit, nextToken
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        // Parse query parameters
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+
+        queryParams.TryGetValue("fromWoreda", out var fromWoreda);
+        queryParams.TryGetValue("toWoreda", out var toWoreda);
+        queryParams.TryGetValue("status", out var status);
+
+        // Parse limit (default 20, max 50)
+        var limit = 20;
+        if (queryParams.TryGetValue("limit", out var limitStr))
+        {
+            if (!int.TryParse(limitStr, out limit) || limit < 1 || limit > 50)
+            {
+                return LambdaResponse.Error(400, "TRIP_VALIDATION",
+                    "Invalid limit parameter. Must be between 1 and 50.");
+            }
+        }
+
+        // Parse nextToken (base64-encoded DynamoDB LastEvaluatedKey)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null;
+        if (queryParams.TryGetValue("nextToken", out var nextToken) && !string.IsNullOrEmpty(nextToken))
+        {
+            try
+            {
+                exclusiveStartKey = DecodeNextToken(nextToken);
+            }
+            catch
+            {
+                return LambdaResponse.Error(400, "TRIP_VALIDATION", "Invalid nextToken parameter.");
+            }
+        }
+
+        try
+        {
+            // Query trips
+            var queryResult = await _tripRepo.QueryTripsAsync(
+                fromWoreda, toWoreda, status, limit, exclusiveStartKey);
+            var items = queryResult.Items;
+            var lastEvaluatedKey = queryResult.LastEvaluatedKey;
+
+            // Apply client-side filters that DynamoDB FilterExpression doesn't handle efficiently
+            queryParams.TryGetValue("minCapacity", out var minCapacityStr);
+            queryParams.TryGetValue("maxPrice", out var maxPriceStr);
+            queryParams.TryGetValue("departureDateFrom", out var departureDateFrom);
+            queryParams.TryGetValue("departureDateTo", out var departureDateTo);
+
+            if (!string.IsNullOrEmpty(minCapacityStr))
+            {
+                if (!double.TryParse(minCapacityStr, out var minCapacity) || minCapacity < 0)
+                {
+                    return LambdaResponse.Error(400, "TRIP_VALIDATION",
+                        "Invalid minCapacity parameter. Must be a non-negative number.");
+                }
+                items = items.Where(i => GetDouble(i, "capacity") >= minCapacity).ToList();
+            }
+
+            if (!string.IsNullOrEmpty(maxPriceStr))
+            {
+                if (!double.TryParse(maxPriceStr, out var maxPrice) || maxPrice < 0)
+                {
+                    return LambdaResponse.Error(400, "TRIP_VALIDATION",
+                        "Invalid maxPrice parameter. Must be a non-negative number.");
+                }
+                items = items.Where(i => GetDouble(i, "pricePerQuintal") <= maxPrice).ToList();
+            }
+
+            if (!string.IsNullOrEmpty(departureDateFrom))
+            {
+                items = items.Where(i =>
+                    string.Compare(GetString(i, "departureDate"), departureDateFrom, StringComparison.Ordinal) >= 0)
+                    .ToList();
+            }
+
+            if (!string.IsNullOrEmpty(departureDateTo))
+            {
+                items = items.Where(i =>
+                    string.Compare(GetString(i, "departureDate"), departureDateTo, StringComparison.Ordinal) <= 0)
+                    .ToList();
+            }
+
+            // Determine if the request is authenticated
+            var isAuthenticated = IsAuthenticated(request);
+
+            // Map to DTOs (hide phone for unauthenticated users)
+            var trips = items.Select(i => MapToTripDto(i, isAuthenticated)).ToList();
+
+            // Encode nextToken if more results available
+            string? nextTokenResponse = null;
+            var hasMore = lastEvaluatedKey != null;
+            if (hasMore)
+            {
+                nextTokenResponse = EncodeNextToken(lastEvaluatedKey!);
+            }
+
+            var response = new GetTripsResponse
+            {
+                Trips = trips,
+                NextToken = nextTokenResponse,
+                HasMore = hasMore,
+                Total = trips.Count
+            };
+
+            return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripsResponse);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error querying trips: {ex.Message}");
+            return LambdaResponse.Error(500, "TRIP_SERVER_ERROR", "Failed to query trip listings.");
+        }
+    }
+
+    /// <summary>
+    /// GET /trips/{id} - Get a single trip listing by ID.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleGetTripByIdAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!request.PathParameters.TryGetValue("id", out var tripId) || string.IsNullOrEmpty(tripId))
+        {
+            return LambdaResponse.Error(400, "TRIP_VALIDATION", "Missing trip ID in path.");
+        }
+
+        try
+        {
+            var trip = await _tripRepo.GetByIdAsync(tripId);
+
+            if (trip == null)
+            {
+                return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing not found.");
+            }
+
+            // Check if deleted
+            if (trip.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+            {
+                return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
+            }
+
+            var isAuthenticated = IsAuthenticated(request);
+            var tripDto = MapToTripDto(trip, isAuthenticated);
+            var response = new GetTripResponse { Trip = tripDto };
+
+            return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripResponse);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error getting trip {tripId}: {ex.Message}");
+            return LambdaResponse.Error(500, "TRIP_SERVER_ERROR", "Failed to retrieve trip listing.");
+        }
+    }
+
+    /// <summary>
+    /// Map a DynamoDB item dictionary to a TripDto.
+    /// Handles type conversions from string/number representations.
+    /// </summary>
+    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone = true)
+    {
+        return new TripDto
+        {
+            TripId = GetString(item, "tripId"),
+            TruckerId = GetString(item, "truckerId"),
+            TruckerName = GetString(item, "truckerName"),
+            TruckerPhone = includePhone ? GetStringOrNull(item, "truckerPhone") : null,
+            FromWoreda = GetString(item, "fromWoreda"),
+            ToWoreda = GetString(item, "toWoreda"),
+            DepartureDate = GetString(item, "departureDate"),
+            Capacity = GetDouble(item, "capacity"),
+            PricePerQuintal = GetDouble(item, "pricePerQuintal"),
+            Status = GetString(item, "status"),
+            MatchedListings = GetStringList(item, "matchedListings"),
+            CreatedAt = GetString(item, "createdAt"),
+            UpdatedAt = GetString(item, "updatedAt"),
+            DeletedAt = GetStringOrNull(item, "deletedAt"),
+            Version = GetInt(item, "version")
+        };
+    }
+
+    /// <summary>
+    /// Check if the request is authenticated by looking for an Authorization header
+    /// or JWT authorizer claims in the request context.
+    /// </summary>
+    private static bool IsAuthenticated(APIGatewayProxyRequest request)
+    {
+        // Check for Authorization header (case-insensitive lookup)
+        if (request.Headers != null)
+        {
+            foreach (var header in request.Headers)
+            {
+                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(header.Value))
+                {
+                    return true;
+                }
+            }
+        }
+
+        // Check for JWT authorizer claims in request context
+        if (request.RequestContext?.Authorizer != null
+            && request.RequestContext.Authorizer.Count > 0)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Get a required string value from the item dictionary.
+    /// </summary>
+    private static string GetString(Dictionary<string, object> item, string key)
+    {
+        return item.TryGetValue(key, out var value) ? value.ToString() ?? "" : "";
+    }
+
+    /// <summary>
+    /// Get an optional string value from the item dictionary.
+    /// </summary>
+    private static string? GetStringOrNull(Dictionary<string, object> item, string key)
+    {
+        return item.TryGetValue(key, out var value) ? value.ToString() : null;
+    }
+
+    /// <summary>
+    /// Get a required int value from the item dictionary.
+    /// DynamoDB stores numbers as strings, so we need to parse.
+    /// </summary>
+    private static int GetInt(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value))
+            return 0;
+
+        return value switch
+        {
+            int i => i,
+            string s => int.TryParse(s, out var result) ? result : 0,
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Get a required double value from the item dictionary.
+    /// DynamoDB stores numbers as strings, so we need to parse.
+    /// </summary>
+    private static double GetDouble(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value))
+            return 0.0;
+
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal dec => (double)dec,
+            string s => double.TryParse(s, out var result) ? result : 0.0,
+            _ => 0.0
+        };
+    }
+
+    /// <summary>
+    /// Get a string list from the item dictionary.
+    /// Handles JSON arrays stored as strings from DynamoDB.
+    /// </summary>
+    private static List<string> GetStringList(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value))
+            return new List<string>();
+
+        if (value is string s)
+        {
+            if (string.IsNullOrEmpty(s) || s == "[]")
+                return new List<string>();
+
+            // Try to parse as JSON array
+            try
+            {
+                var list = JsonSerializer.Deserialize(s, AppJsonContext.Default.ListString);
+                return list ?? new List<string>();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        return new List<string>();
+    }
+
+    /// <summary>
+    /// Encode DynamoDB LastEvaluatedKey as a base64 nextToken.
+    /// Format: base64(JSON of key attributes)
+    /// AOT-safe: uses System.Text.Json with explicit serialization.
+    /// </summary>
+    private static string EncodeNextToken(Dictionary<string, AttributeValue> lastEvaluatedKey)
+    {
+        var tokenData = new Dictionary<string, string>();
+
+        foreach (var kvp in lastEvaluatedKey)
+        {
+            if (kvp.Value.S != null)
+                tokenData[kvp.Key] = kvp.Value.S;
+            else if (kvp.Value.N != null)
+                tokenData[kvp.Key] = kvp.Value.N;
+        }
+
+        var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        return Convert.ToBase64String(bytes);
+    }
+
+    /// <summary>
+    /// Decode base64 nextToken back to DynamoDB LastEvaluatedKey.
+    /// </summary>
+    private static Dictionary<string, AttributeValue> DecodeNextToken(string nextToken)
+    {
+        var bytes = Convert.FromBase64String(nextToken);
+        var json = System.Text.Encoding.UTF8.GetString(bytes);
+
+        var tokenData = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
+        if (tokenData == null)
+        {
+            throw new InvalidOperationException("Invalid nextToken format.");
+        }
+
+        var result = new Dictionary<string, AttributeValue>();
+        foreach (var kvp in tokenData)
+        {
+            result[kvp.Key] = new AttributeValue { S = kvp.Value };
+        }
+
+        return result;
+    }
+}

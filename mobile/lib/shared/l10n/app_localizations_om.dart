@@ -349,7 +349,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get quantityRequired => 'Maaloo hamma galchaa';
 
   @override
-  String get priceRequired => 'Maaloo gatii galchaa';
+  String get priceRequired => 'Gatiin barbaachisaadha';
 
   @override
   String get locationRequired => 'Maaloo bakka galchaa';
@@ -400,4 +400,96 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get backToHome => 'Gara Manatti Deebi\'i';
+
+  @override
+  String get tripListings => 'Tarree Imaltuu';
+
+  @override
+  String get createTrip => 'Imala Uumi';
+
+  @override
+  String get browseTrips => 'Imala Barbaadi';
+
+  @override
+  String get myTrips => 'Imala Koo';
+
+  @override
+  String get tripDetails => 'Bal\'ina Imaltuu';
+
+  @override
+  String get fromWoreda => 'Irraa (Ka\'umsaa)';
+
+  @override
+  String get toWoreda => 'Gara (Ga\'umsaa)';
+
+  @override
+  String get departureDate => 'Guyyaa Ka\'umsaa';
+
+  @override
+  String get capacity => 'Dandeettii (Kuintaalii)';
+
+  @override
+  String get pricePerQuintal => 'Gatii Kuintaalii (ETB)';
+
+  @override
+  String get tripStatusOpen => 'Banaa';
+
+  @override
+  String get tripStatusMatched => 'Walsiimame';
+
+  @override
+  String get tripStatusInTransit => 'Karaa Irra';
+
+  @override
+  String get tripStatusDelivered => 'Ga\'e';
+
+  @override
+  String get tripStatusCancelled => 'Haqame';
+
+  @override
+  String get noTripsFound => 'Imalti hin argamne';
+
+  @override
+  String get tripCreatedSuccess => 'Imalti milkaa\'inaan uumame!';
+
+  @override
+  String get tripCancelledSuccess => 'Imalti haqame';
+
+  @override
+  String get filterByRoute => 'Karaan cali';
+
+  @override
+  String get availableCapacity => 'Dandeettii jiru';
+
+  @override
+  String get selectDepartureDate => 'Guyyaa ka\'umsaa filadhu';
+
+  @override
+  String get truckerContact => 'Quunnamtii Konkolaachisaa';
+
+  @override
+  String get fromWoredaRequired => 'Aanaan ka\'umsaa barbaachisaadha';
+
+  @override
+  String get toWoredaRequired => 'Aanaan ga\'umsaa barbaachisaadha';
+
+  @override
+  String get departureDateRequired => 'Guyyaan ka\'umsaa barbaachisaadha';
+
+  @override
+  String get capacityRequired => 'Dandeettiin barbaachisaadha';
+
+  @override
+  String get invalidCapacity =>
+      'Dandeettiin 0.1 hanga 1000 kuintaalii ta\'uu qaba';
+
+  @override
+  String get invalidPrice => 'Gatiin 0.01 hanga 10000 ETB ta\'uu qaba';
+
+  @override
+  String get sameOriginDestination =>
+      'Ka\'umsaa fi ga\'umsaan tokko ta\'uu hin danda\'u';
+
+  @override
+  String get etbCurrency => 'ETB';
 }

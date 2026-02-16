@@ -510,6 +510,130 @@
   "backToHome": "ወደ መነሻ ይመለሱ",
   "@backToHome": {
     "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "የጉዞ ዝርዝሮች",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "ጉዞ ፍጠር",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "ጉዞዎችን ያስሱ",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "የእኔ ጉዞዎች",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "የጉዞ ዝርዝር",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "ከ (መነሻ)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "ወደ (መድረሻ)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "የመነሻ ቀን",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "አቅም (ኩንታል)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "በኩንታል ዋጋ (ብር)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "ክፍት",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "ተመዛግቦ",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "በመንገድ ላይ",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "ደርሷል",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "ተሰርዟል",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "ጉዞ አልተገኘም",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "ጉዞ በተሳካ ሁኔታ ተፈጠረ!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "ጉዞ ተሰርዟል",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "በመንገድ ያጣሩ",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "ያለ አቅም",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "የመነሻ ቀን ይምረጡ",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "የጭነት ሹፌር አድራሻ",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "የመነሻ ወረዳ ያስፈልጋል",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "የመድረሻ ወረዳ ያስፈልጋል",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "የመነሻ ቀን ያስፈልጋል",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "አቅም ያስፈልጋል",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "ዋጋ ያስፈልጋል",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ብር",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
   }
 }
 

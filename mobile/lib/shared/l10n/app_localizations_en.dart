@@ -345,7 +345,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quantityRequired => 'Please enter the quantity';
 
   @override
-  String get priceRequired => 'Please enter the price';
+  String get priceRequired => 'Price is required';
 
   @override
   String get locationRequired => 'Please enter the location';
@@ -396,4 +396,96 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backToHome => 'Back to Home';
+
+  @override
+  String get tripListings => 'Trip Listings';
+
+  @override
+  String get createTrip => 'Create Trip';
+
+  @override
+  String get browseTrips => 'Browse Trips';
+
+  @override
+  String get myTrips => 'My Trips';
+
+  @override
+  String get tripDetails => 'Trip Details';
+
+  @override
+  String get fromWoreda => 'From (Origin)';
+
+  @override
+  String get toWoreda => 'To (Destination)';
+
+  @override
+  String get departureDate => 'Departure Date';
+
+  @override
+  String get capacity => 'Capacity (quintals)';
+
+  @override
+  String get pricePerQuintal => 'Price per Quintal (ETB)';
+
+  @override
+  String get tripStatusOpen => 'Open';
+
+  @override
+  String get tripStatusMatched => 'Matched';
+
+  @override
+  String get tripStatusInTransit => 'In Transit';
+
+  @override
+  String get tripStatusDelivered => 'Delivered';
+
+  @override
+  String get tripStatusCancelled => 'Cancelled';
+
+  @override
+  String get noTripsFound => 'No trips found';
+
+  @override
+  String get tripCreatedSuccess => 'Trip created successfully!';
+
+  @override
+  String get tripCancelledSuccess => 'Trip cancelled';
+
+  @override
+  String get filterByRoute => 'Filter by route';
+
+  @override
+  String get availableCapacity => 'Available capacity';
+
+  @override
+  String get selectDepartureDate => 'Select departure date';
+
+  @override
+  String get truckerContact => 'Trucker Contact';
+
+  @override
+  String get fromWoredaRequired => 'Origin woreda is required';
+
+  @override
+  String get toWoredaRequired => 'Destination woreda is required';
+
+  @override
+  String get departureDateRequired => 'Departure date is required';
+
+  @override
+  String get capacityRequired => 'Capacity is required';
+
+  @override
+  String get invalidCapacity =>
+      'Capacity must be between 0.1 and 1000 quintals';
+
+  @override
+  String get invalidPrice => 'Price must be between 0.01 and 10000 ETB';
+
+  @override
+  String get sameOriginDestination =>
+      'Origin and destination cannot be the same';
+
+  @override
+  String get etbCurrency => 'ETB';
 }

@@ -1,0 +1,237 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+/// Browse screen for viewing and filtering trip listings.
+///
+/// Shows offline banner, filter fields, and a lazy-loaded list of trip cards.
+class BrowseTripsScreen extends StatefulWidget {
+  const BrowseTripsScreen({super.key});
+
+  @override
+  State<BrowseTripsScreen> createState() => _BrowseTripsScreenState();
+}
+
+class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
+  final _fromWoredaFilterController = TextEditingController();
+  final _toWoredaFilterController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTrips();
+  }
+
+  @override
+  void dispose() {
+    _fromWoredaFilterController.dispose();
+    _toWoredaFilterController.dispose();
+    super.dispose();
+  }
+
+  void _loadTrips() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      context.read<TripListingBloc>().add(
+            LoadTrips(truckerId: authState.userId),
+          );
+    }
+  }
+
+  String? _getTruckerId() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.userId;
+    }
+    return null;
+  }
+
+  void _applyFilters() {
+    final truckerId = _getTruckerId();
+    if (truckerId == null) return;
+
+    final fromWoreda = _fromWoredaFilterController.text.trim();
+    final toWoreda = _toWoredaFilterController.text.trim();
+
+    context.read<TripListingBloc>().add(
+          FilterTrips(
+            truckerId: truckerId,
+            fromWoreda: fromWoreda.isNotEmpty ? fromWoreda : null,
+            toWoreda: toWoreda.isNotEmpty ? toWoreda : null,
+          ),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    return Column(
+      children: [
+        const TripOfflineBanner(),
+        // Filter row
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _fromWoredaFilterController,
+                  decoration: InputDecoration(
+                    hintText: l10n.fromWoreda,
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  onSubmitted: (_) => _applyFilters(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _toWoredaFilterController,
+                  decoration: InputDecoration(
+                    hintText: l10n.toWoreda,
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  onSubmitted: (_) => _applyFilters(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _applyFilters,
+                icon: const Icon(Icons.search),
+                tooltip: l10n.filterByRoute,
+              ),
+            ],
+          ),
+        ),
+        // Trip list
+        Expanded(
+          child: BlocBuilder<TripListingBloc, TripListingState>(
+            builder: (context, state) {
+              if (state is TripListingLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (state is TripListingError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48),
+                      const SizedBox(height: 16),
+                      Text(state.message),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: _loadTrips,
+                        child: Text(l10n.retry),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (state is TripsLoaded) {
+                if (state.trips.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.local_shipping_outlined,
+                          size: 80,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          l10n.noTripsFound,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.dataWillSyncWhenOnline,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.6),
+                                  ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    _loadTrips();
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(top: 8, bottom: 80),
+                    itemCount: state.trips.length,
+                    itemBuilder: (context, index) {
+                      final trip = state.trips[index];
+                      return TripCard(
+                        trip: trip,
+                        onCancel: () {
+                          final truckerId = _getTruckerId();
+                          if (truckerId == null) return;
+                          context.read<TripListingBloc>().add(
+                                CancelTrip(
+                                  tripId: trip.tripId,
+                                  truckerId: truckerId,
+                                ),
+                              );
+                        },
+                      );
+                    },
+                  ),
+                );
+              }
+
+              // Initial state
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.local_shipping_outlined,
+                      size: 80,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      l10n.noTripsFound,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
