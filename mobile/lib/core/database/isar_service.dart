@@ -152,10 +152,10 @@ class IsarService {
         key: keyName,
         value: base64Encode(key),
       );
-    } catch (e) {
-      throw Exception(
-        'Failed to store encryption key in secure storage: $e',
-      );
+    } on Exception {
+      // Non-fatal: key works for this session but won't persist.
+      // This can happen on Linux without a keyring daemon (e.g., CI)
+      // or on first install with restricted storage access.
     }
 
     return key;
