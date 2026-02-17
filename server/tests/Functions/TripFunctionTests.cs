@@ -732,4 +732,193 @@ public class TripFunctionTests
         Assert.True(response.Headers.ContainsKey("Content-Type"));
         Assert.Equal("application/json", response.Headers["Content-Type"]);
     }
+
+    // --- Phone Number Visibility Tests (Contract: truckerPhone hidden for unauthenticated) ---
+
+    [Fact]
+    public async Task HandleGetTripById_Unauthenticated_HidesPhoneNumber()
+    {
+        var trip = CreateTripItem("trip-001");
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        // No Authorization header or authorizer context
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeGetRequest("/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
+        // Phone should NOT be present for unauthenticated users
+        Assert.DoesNotContain("+251912345678", response.Body);
+    }
+
+    [Fact]
+    public void MapToTripDto_IncludePhone_ShowsPhoneNumber()
+    {
+        var trip = CreateTripItem("trip-001");
+
+        var dto = TripFunction.MapToTripDto(trip, includePhone: true);
+
+        Assert.Equal("+251912345678", dto.TruckerPhone);
+    }
+
+    [Fact]
+    public void MapToTripDto_ExcludePhone_HidesPhoneNumber()
+    {
+        var trip = CreateTripItem("trip-001");
+
+        var dto = TripFunction.MapToTripDto(trip, includePhone: false);
+
+        Assert.Null(dto.TruckerPhone);
+    }
+
+    // --- Amharic/Multilingual Woreda Names ---
+
+    [Fact]
+    public void MapToTripDto_AmharicWoredaNames_PreservedCorrectly()
+    {
+        var trip = CreateTripItem("trip-amharic");
+        trip["fromWoreda"] = "ቢሾፍቱ";
+        trip["toWoreda"] = "አዲስ አበባ";
+        trip["truckerName"] = "ታደሰ ወርቁ";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal("ቢሾፍቱ", dto.FromWoreda);
+        Assert.Equal("አዲስ አበባ", dto.ToWoreda);
+        Assert.Equal("ታደሰ ወርቁ", dto.TruckerName);
+    }
+
+    // --- Capacity Boundary Tests (Contract: 0.1-1000 quintals) ---
+
+    [Fact]
+    public void MapToTripDto_MinimumCapacity_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-min-cap");
+        trip["capacity"] = "0.1";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(0.1, dto.Capacity, precision: 3);
+    }
+
+    [Fact]
+    public void MapToTripDto_MaximumCapacity_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-max-cap");
+        trip["capacity"] = "1000";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(1000.0, dto.Capacity);
+    }
+
+    [Fact]
+    public void MapToTripDto_DecimalCapacity_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-dec-cap");
+        trip["capacity"] = "150.75";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(150.75, dto.Capacity, precision: 2);
+    }
+
+    // --- Price Boundary Tests (Contract: 0.01-10000 ETB) ---
+
+    [Fact]
+    public void MapToTripDto_MinimumPrice_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-min-price");
+        trip["pricePerQuintal"] = "0.01";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(0.01, dto.PricePerQuintal, precision: 3);
+    }
+
+    [Fact]
+    public void MapToTripDto_MaximumPrice_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-max-price");
+        trip["pricePerQuintal"] = "10000";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(10000.0, dto.PricePerQuintal);
+    }
+
+    // --- Status Value Tests (Contract: all valid status values) ---
+
+    [Theory]
+    [InlineData("open")]
+    [InlineData("matched")]
+    [InlineData("inTransit")]
+    [InlineData("delivered")]
+    [InlineData("cancelled")]
+    public void MapToTripDto_AllStatuses_ParsedCorrectly(string status)
+    {
+        var trip = CreateTripItem("trip-status-test", status);
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(status, dto.Status);
+    }
+
+    // --- Version Handling Tests ---
+
+    [Fact]
+    public void MapToTripDto_VersionAsInteger_ParsesCorrectly()
+    {
+        var trip = CreateTripItem("trip-ver");
+        trip["version"] = "5";
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(5, dto.Version);
+    }
+
+    [Fact]
+    public void MapToTripDto_MissingVersion_DefaultsToZero()
+    {
+        var trip = CreateTripItem("trip-no-ver");
+        trip.Remove("version");
+
+        var dto = TripFunction.MapToTripDto(trip);
+
+        Assert.Equal(0, dto.Version);
+    }
+
+    // --- Edge Case: Empty Query Params ---
+
+    [Fact]
+    public async Task HandleGetTrips_NullQueryParams_UsesDefaults()
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            20,
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = "/trips",
+            QueryStringParameters = null
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    // --- Constructor Tests ---
+
+    [Fact]
+    public void Constructor_NullRepo_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new TripFunction(null!));
+    }
 }

@@ -219,5 +219,180 @@ void main() {
       await subscription.cancel();
       await bloc.close();
     });
+
+    // --- Edge Case: Load Empty Trucker ---
+
+    test('LoadTrips for nonexistent trucker emits empty list', () async {
+      final bloc = TripListingBloc(repository: repository);
+      final states = <TripListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      bloc.add(const LoadTrips(truckerId: 'nonexistent-trucker'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(states.length, 2);
+      expect(states[0], isA<TripListingLoading>());
+      expect(states[1], isA<TripsLoaded>());
+      expect((states[1] as TripsLoaded).trips, isEmpty);
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
+    // --- Edge Case: Sequential Events ---
+
+    test('Create then Load shows the created trip', () async {
+      final bloc = TripListingBloc(repository: repository);
+      final states = <TripListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      // Create a trip
+      bloc.add(
+        CreateTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      // Now load trips
+      bloc.add(const LoadTrips(truckerId: 'trucker-001'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      // Should have: Loading, Created, Loading, Loaded(1 trip)
+      expect(states.length, 4);
+      expect(states[1], isA<TripCreated>());
+      expect(states[3], isA<TripsLoaded>());
+      expect((states[3] as TripsLoaded).trips.length, 1);
+      expect(
+        (states[3] as TripsLoaded).trips.first.fromWoreda,
+        'Bishoftu',
+      );
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
+    // --- Edge Case: FilterTrips with toWoreda Only ---
+
+    test('FilterTrips with toWoreda only filters correctly', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
+        fromWoreda: 'Adama',
+        toWoreda: 'Hawassa',
+        departureDate: departure,
+        capacity: 100.0,
+        pricePerQuintal: 80.0,
+      );
+
+      final bloc = TripListingBloc(repository: repository);
+      final states = <TripListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      bloc.add(
+        const FilterTrips(
+          truckerId: 'trucker-001',
+          toWoreda: 'Hawassa',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(states.length, 2);
+      expect(states[1], isA<TripsLoaded>());
+      final loaded = states[1] as TripsLoaded;
+      expect(loaded.toWoredaFilter, 'Hawassa');
+      expect(loaded.trips.length, 1);
+      expect(loaded.trips.first.toWoreda, 'Hawassa');
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
+    // --- Edge Case: CancelTrip then LoadTrips Shows Cancelled ---
+
+    test('CancelTrip then LoadTrips includes cancelled trip', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      final bloc = TripListingBloc(repository: repository);
+      final states = <TripListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      bloc.add(
+        CancelTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      // CancelTrip emits Loading then TripsLoaded (reloads trucker trips)
+      expect(states.length, 2);
+      expect(states[1], isA<TripsLoaded>());
+      final loaded = states[1] as TripsLoaded;
+      expect(loaded.trips.length, 1);
+      expect(loaded.trips.first.status, TripStatus.cancelled);
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
+    // --- Edge Case: Multilingual Trip ---
+
+    test('CreateTrip with Amharic names preserves characters', () async {
+      final bloc = TripListingBloc(repository: repository);
+      final states = <TripListingState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      bloc.add(
+        CreateTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'ታደሰ ወርቁ',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'ቢሾፍቱ',
+          toWoreda: 'አዲስ አበባ',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(states[1], isA<TripCreated>());
+      final created = states[1] as TripCreated;
+      expect(created.trip.fromWoreda, 'ቢሾፍቱ');
+      expect(created.trip.toWoreda, 'አዲስ አበባ');
+
+      await subscription.cancel();
+      await bloc.close();
+    });
   });
 }
