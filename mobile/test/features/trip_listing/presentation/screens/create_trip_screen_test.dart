@@ -67,7 +67,7 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: CreateTripScreen(
-            truckerName: 'Test Trucker', truckerPhone: '+251911000000'),
+            truckerName: 'Test Trucker', truckerPhone: '+251911000000',),
       ),
     );
   }

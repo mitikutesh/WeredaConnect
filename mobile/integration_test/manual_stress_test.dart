@@ -168,7 +168,7 @@ void main() {
           print(
               '   Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(1)}%',);
           print(
-              '   Average cycle time: ${_averageDuration(results).inSeconds}s\n');
+              '   Average cycle time: ${_averageDuration(results).inSeconds}s\n',);
         }
 
         // Clean up synced operations periodically
@@ -189,12 +189,12 @@ void main() {
       print('Total succeeded: $totalSucceeded');
       print('Total failed: $totalFailed');
       print(
-          'Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(2)}%');
+          'Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(2)}%',);
       print(
-          'Total duration: ${totalDuration.inMinutes}m ${totalDuration.inSeconds % 60}s');
+          'Total duration: ${totalDuration.inMinutes}m ${totalDuration.inSeconds % 60}s',);
       print('Average cycle time: ${_averageDuration(results).inSeconds}s');
       print(
-          'Average operations per cycle: ${(totalOperations / cycleCount).toStringAsFixed(2)}');
+          'Average operations per cycle: ${(totalOperations / cycleCount).toStringAsFixed(2)}',);
       print('=' * 60);
 
       // Performance analysis
@@ -206,11 +206,11 @@ void main() {
       final slowCycles = results.where((r) => r.duration.inSeconds >= 5).length;
 
       print(
-          'Fast cycles (<3s): $fastCycles (${(fastCycles / cycleCount * 100).toStringAsFixed(1)}%)');
+          'Fast cycles (<3s): $fastCycles (${(fastCycles / cycleCount * 100).toStringAsFixed(1)}%)',);
       print(
-          'Medium cycles (3-5s): $mediumCycles (${(mediumCycles / cycleCount * 100).toStringAsFixed(1)}%)');
+          'Medium cycles (3-5s): $mediumCycles (${(mediumCycles / cycleCount * 100).toStringAsFixed(1)}%)',);
       print(
-          'Slow cycles (>5s): $slowCycles (${(slowCycles / cycleCount * 100).toStringAsFixed(1)}%)');
+          'Slow cycles (>5s): $slowCycles (${(slowCycles / cycleCount * 100).toStringAsFixed(1)}%)',);
 
       // Memory check (approximate)
       final finalQueueSize = await syncQueue.getPendingCount();
@@ -225,13 +225,13 @@ void main() {
       // ASSERTIONS
       expect(totalFailed, equals(0), reason: 'All operations should succeed');
       expect(finalQueueSize, equals(0),
-          reason: 'Queue should be empty after sync');
+          reason: 'Queue should be empty after sync',);
       expect(failedOps, equals(0), reason: 'No permanently failed operations');
 
       // Success rate should be 100% (or very close)
       final successRate = totalSucceeded / totalOperations;
       expect(successRate, greaterThan(0.95),
-          reason: 'Success rate should be >95%');
+          reason: 'Success rate should be >95%',);
 
       print('\n✅ STRESS TEST PASSED!');
     },

@@ -171,7 +171,7 @@ void main() {
         );
 
         final response = await dio.post<dynamic>('/auth/refresh',
-            data: {'refreshToken': 'refresh-123'});
+            data: {'refreshToken': 'refresh-123'},);
 
         expect(response.statusCode, 200);
       });
@@ -181,7 +181,7 @@ void main() {
       test('calls refresh callback with correct token on 401', () async {
         await fakeStorage.write(key: 'access_token', value: 'expired-token');
         await fakeStorage.write(
-            key: 'refresh_token', value: 'valid-refresh-token');
+            key: 'refresh_token', value: 'valid-refresh-token',);
 
         // Request fails with 401
         dioAdapter.onGet(

@@ -387,7 +387,7 @@ void main() {
 
       print('✅ Conflict resolution test passed');
       print(
-          '   - Local version updated: v${listing.version} → v$serverVersion');
+          '   - Local version updated: v${listing.version} → v$serverVersion',);
       print('   - Server data accepted (server-wins strategy)');
     });
 

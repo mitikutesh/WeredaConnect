@@ -75,16 +75,16 @@ class LoggingInterceptor extends Interceptor {
 
   @override
   void onResponse(
-      Response<dynamic> response, ResponseInterceptorHandler handler) {
+      Response<dynamic> response, ResponseInterceptorHandler handler,) {
     if (logResponses) {
       final buffer = StringBuffer();
       buffer.writeln('┌─────────────────────────────────────────────');
       buffer.writeln('│ RESPONSE');
       buffer.writeln('├─────────────────────────────────────────────');
       buffer.writeln(
-          '│ ${response.requestOptions.method} ${response.requestOptions.uri}');
+          '│ ${response.requestOptions.method} ${response.requestOptions.uri}',);
       buffer.writeln(
-          '│ Status: ${response.statusCode} ${response.statusMessage}');
+          '│ Status: ${response.statusCode} ${response.statusMessage}',);
 
       if (response.headers.map.isNotEmpty) {
         buffer.writeln('│ Headers:');
@@ -119,7 +119,7 @@ class LoggingInterceptor extends Interceptor {
 
       if (err.response != null) {
         buffer.writeln(
-            '│ Status: ${err.response?.statusCode} ${err.response?.statusMessage}');
+            '│ Status: ${err.response?.statusCode} ${err.response?.statusMessage}',);
         if (err.response?.data != null) {
           final body = _truncateBody(err.response!.data.toString());
           buffer.writeln('│ Response: $body');

@@ -110,13 +110,13 @@ void main() {
 
         expect(updated, isNotNull);
         expect(
-            updated!.version, equals(5)); // Version updated to server version
+            updated!.version, equals(5),); // Version updated to server version
         expect(updated.cropType, equals('wheat')); // Server data accepted
         expect(updated.quantity, equals(15.5));
         expect(updated.pricePerKg, equals(30.0));
         expect(updated.description, equals('Server version description'));
         expect(
-            updated.audioNoteRef, equals('audio/farmer-001/listing-001.m4a'));
+            updated.audioNoteRef, equals('audio/farmer-001/listing-001.m4a'),);
         expect(updated.status, equals(ListingStatus.active));
         expect(updated.location.latitude, equals(9.1));
         expect(updated.location.longitude, equals(38.8));
@@ -262,7 +262,7 @@ void main() {
             .findFirst();
 
         expect(
-            updated!.audioNoteRef, equals('audio/farmer-003/listing-003.m4a'));
+            updated!.audioNoteRef, equals('audio/farmer-003/listing-003.m4a'),);
         expect(updated.status, equals(ListingStatus.active));
       });
 
