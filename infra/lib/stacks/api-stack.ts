@@ -178,6 +178,7 @@ export class ApiStack extends cdk.Stack {
         CROPS_TABLE: props.cropsTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
         TRIPS_TABLE: props.tripsTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
     });
@@ -186,6 +187,7 @@ export class ApiStack extends cdk.Stack {
     props.cropsTable.grantReadWriteData(syncFn.function);
     props.usersTable.grantReadData(syncFn.function);
     props.tripsTable.grantReadWriteData(syncFn.function);
+    props.deliveriesTable.grantReadWriteData(syncFn.function);
 
     // ─── Crop Function ───────────────────────────────────────────────
 

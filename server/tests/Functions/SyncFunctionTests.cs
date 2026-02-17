@@ -31,7 +31,7 @@ public class SyncFunctionTests
         _mockSyncMeta = Substitute.For<ISyncMetadataRepository>();
         _mockCropRepo = Substitute.For<ICropRepository>();
         _mockDynamoDb = Substitute.For<IAmazonDynamoDB>();
-        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table");
+        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table");
         _context = new TestLambdaContext();
 
         // Default: no duplicate idempotency keys

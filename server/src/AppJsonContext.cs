@@ -43,6 +43,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetTripsResponse))]
 [JsonSerializable(typeof(GetTripResponse))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(DeliveryDto))]
+[JsonSerializable(typeof(List<DeliveryDto>))]
+[JsonSerializable(typeof(GetDeliveriesResponse))]
+[JsonSerializable(typeof(GetDeliveryResponse))]
+[JsonSerializable(typeof(LatLngDto))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

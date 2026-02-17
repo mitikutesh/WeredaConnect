@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
@@ -56,8 +57,10 @@ class ConflictResolver {
       case 'crop_listing':
         return _resolveCropListing(operation, serverData, serverVersion);
 
-      case 'trip':
       case 'delivery':
+        return _resolveDelivery(operation, serverData, serverVersion);
+
+      case 'trip':
       case 'payment':
       case 'user':
         // Future entity types - not yet implemented
@@ -142,6 +145,102 @@ class ConflictResolver {
     } on Object catch (e) {
       throw ConflictResolutionException(
         'Failed to resolve CropListing conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve a Delivery conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolveDelivery(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      final delivery = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(operation.entityId)
+          .findFirst();
+
+      if (delivery == null) {
+        throw ConflictResolutionException(
+          'Delivery not found in local database: ${operation.entityId}',
+        );
+      }
+
+      await _isar.writeTxn(() async {
+        delivery.tripId = serverData['tripId'] as String;
+        delivery.listingId = serverData['listingId'] as String;
+        delivery.farmerId = serverData['farmerId'] as String;
+        delivery.farmerName = serverData['farmerName'] as String;
+        delivery.truckerId = serverData['truckerId'] as String;
+        delivery.truckerName = serverData['truckerName'] as String;
+        delivery.buyerId = serverData['buyerId'] as String;
+        delivery.buyerName = serverData['buyerName'] as String;
+        delivery.qrToken = serverData['qrToken'] as String;
+
+        // Parse status enum
+        final statusStr = serverData['status'] as String;
+        delivery.status = DeliveryStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => DeliveryStatus.pending,
+        );
+
+        // GPS fields
+        final pickupData = serverData['gpsPickup'] as Map<String, dynamic>?;
+        if (pickupData != null) {
+          delivery.gpsPickup = LatLng()
+            ..latitude = (pickupData['latitude'] as num).toDouble()
+            ..longitude = (pickupData['longitude'] as num).toDouble();
+        } else {
+          delivery.gpsPickup = null;
+        }
+
+        final dropoffData = serverData['gpsDropoff'] as Map<String, dynamic>?;
+        if (dropoffData != null) {
+          delivery.gpsDropoff = LatLng()
+            ..latitude = (dropoffData['latitude'] as num).toDouble()
+            ..longitude = (dropoffData['longitude'] as num).toDouble();
+        } else {
+          delivery.gpsDropoff = null;
+        }
+
+        delivery.pickupPhotoRef = serverData['pickupPhotoRef'] as String?;
+        delivery.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String?;
+        delivery.disputeReason = serverData['disputeReason'] as String?;
+
+        // Timestamps
+        final pickedUpAtStr = serverData['pickedUpAt'] as String?;
+        delivery.pickedUpAt = pickedUpAtStr != null
+            ? DateTime.parse(pickedUpAtStr).toUtc()
+            : null;
+
+        final confirmedAtStr = serverData['confirmedAt'] as String?;
+        delivery.confirmedAt = confirmedAtStr != null
+            ? DateTime.parse(confirmedAtStr).toUtc()
+            : null;
+
+        delivery.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+        delivery.updatedAt =
+            DateTime.parse(serverData['updatedAt'] as String).toUtc();
+
+        delivery.version = serverVersion;
+
+        await _isar.deliverys.put(delivery);
+      });
+
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve Delivery conflict: $e',
       );
     }
   }

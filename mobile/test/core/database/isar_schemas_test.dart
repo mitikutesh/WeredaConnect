@@ -122,6 +122,8 @@ void main() {
       final trip = Trip()
         ..tripId = 'trip-001'
         ..truckerId = 'user-002'
+        ..truckerName = 'Tadesse Worku'
+        ..truckerPhone = '+251912345678'
         ..fromWoreda = 'Bishoftu'
         ..toWoreda = 'Addis Ababa'
         ..departureDate = DateTime.now().add(const Duration(days: 2)).toUtc()
@@ -153,18 +155,27 @@ void main() {
 
     test('Delivery schema: create with GPS tracking', () async {
       // Create a delivery
+      final now = DateTime.now().toUtc();
       final delivery = Delivery()
         ..deliveryId = 'delivery-001'
         ..tripId = 'trip-001'
         ..listingId = 'listing-001'
+        ..farmerId = 'farmer-001'
+        ..farmerName = 'Abebe Kebede'
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Tadesse Worku'
+        ..buyerId = 'buyer-001'
+        ..buyerName = 'Mekonnen Tadesse'
         ..qrToken = 'QR-12345-ABCDE'
         ..gpsPickup = (LatLng()
           ..latitude = 8.7519
           ..longitude = 38.9811)
         ..gpsDropoff = null // Not yet delivered
-        ..photoEvidenceRef = 'photos/delivery-001/pickup.jpg'
+        ..pickupPhotoRef = 'photos/delivery-001/pickup.jpg'
         ..status = DeliveryStatus.pickedUp
         ..confirmedAt = null
+        ..createdAt = now
+        ..updatedAt = now
         ..version = 1;
 
       // Save to database
@@ -262,16 +273,26 @@ void main() {
     // --- R4 Delivery Schema Edge Cases ---
 
     test('Delivery schema: create with null GPS (offline scenario)', () async {
+      final now = DateTime.now().toUtc();
       final delivery = Delivery()
         ..deliveryId = 'delivery-gps-null'
         ..tripId = 'trip-001'
         ..listingId = 'listing-001'
+        ..farmerId = 'farmer-001'
+        ..farmerName = 'Abebe'
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Tadesse'
+        ..buyerId = 'buyer-001'
+        ..buyerName = 'Mekonnen'
         ..qrToken = 'QR-TOKEN-OFFLINE'
         ..gpsPickup = null
         ..gpsDropoff = null
-        ..photoEvidenceRef = null
+        ..pickupPhotoRef = null
+        ..dropoffPhotoRef = null
         ..status = DeliveryStatus.pending
         ..confirmedAt = null
+        ..createdAt = now
+        ..updatedAt = now
         ..version = 1;
 
       await isar.writeTxn(() async {
@@ -286,7 +307,8 @@ void main() {
       expect(fromDb, isNotNull);
       expect(fromDb!.gpsPickup, isNull);
       expect(fromDb.gpsDropoff, isNull);
-      expect(fromDb.photoEvidenceRef, isNull);
+      expect(fromDb.pickupPhotoRef, isNull);
+      expect(fromDb.dropoffPhotoRef, isNull);
       expect(fromDb.confirmedAt, isNull);
       expect(fromDb.status, DeliveryStatus.pending);
     });
@@ -295,12 +317,21 @@ void main() {
       final statuses = DeliveryStatus.values;
 
       for (var i = 0; i < statuses.length; i++) {
+        final now = DateTime.now().toUtc();
         final delivery = Delivery()
           ..deliveryId = 'delivery-status-$i'
           ..tripId = 'trip-001'
           ..listingId = 'listing-001'
+          ..farmerId = 'farmer-001'
+          ..farmerName = 'Abebe'
+          ..truckerId = 'trucker-001'
+          ..truckerName = 'Tadesse'
+          ..buyerId = 'buyer-001'
+          ..buyerName = 'Mekonnen'
           ..qrToken = 'QR-TOKEN-$i'
           ..status = statuses[i]
+          ..createdAt = now
+          ..updatedAt = now
           ..version = 1;
 
         await isar.writeTxn(() async {
@@ -320,10 +351,17 @@ void main() {
 
     test('Delivery schema: GPS coordinates at Ethiopian boundaries', () async {
       // Ethiopian lat: 3-15°N, long: 33-48°E
+      final now = DateTime.now().toUtc();
       final delivery = Delivery()
         ..deliveryId = 'delivery-eth-bounds'
         ..tripId = 'trip-001'
         ..listingId = 'listing-001'
+        ..farmerId = 'farmer-001'
+        ..farmerName = 'Abebe'
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Tadesse'
+        ..buyerId = 'buyer-001'
+        ..buyerName = 'Mekonnen'
         ..qrToken = 'QR-ETH-BOUNDS'
         ..gpsPickup = (LatLng()
           ..latitude = 3.0
@@ -332,7 +370,9 @@ void main() {
           ..latitude = 15.0
           ..longitude = 48.0)
         ..status = DeliveryStatus.delivered
-        ..confirmedAt = DateTime.now().toUtc()
+        ..confirmedAt = now
+        ..createdAt = now
+        ..updatedAt = now
         ..version = 2;
 
       await isar.writeTxn(() async {
@@ -359,12 +399,21 @@ void main() {
       ];
 
       for (var i = 0; i < statuses.length; i++) {
+        final now = DateTime.now().toUtc();
         final delivery = Delivery()
           ..deliveryId = 'delivery-idx-$i'
           ..tripId = 'trip-idx'
           ..listingId = 'listing-idx'
+          ..farmerId = 'farmer-001'
+          ..farmerName = 'Abebe'
+          ..truckerId = 'trucker-001'
+          ..truckerName = 'Tadesse'
+          ..buyerId = 'buyer-001'
+          ..buyerName = 'Mekonnen'
           ..qrToken = 'QR-IDX-$i'
           ..status = statuses[i]
+          ..createdAt = now
+          ..updatedAt = now
           ..version = 1;
 
         await isar.writeTxn(() async {
@@ -508,6 +557,8 @@ void main() {
         final trip = Trip()
           ..tripId = 'trip-status-$i'
           ..truckerId = 'trucker-status'
+          ..truckerName = 'Tadesse'
+          ..truckerPhone = '+251912345678'
           ..fromWoreda = 'Bishoftu'
           ..toWoreda = 'Addis Ababa'
           ..departureDate = DateTime.now().add(const Duration(days: 2)).toUtc()
@@ -539,6 +590,8 @@ void main() {
       final tripMin = Trip()
         ..tripId = 'trip-cap-min'
         ..truckerId = 'trucker-cap'
+        ..truckerName = 'Tadesse'
+        ..truckerPhone = '+251912345678'
         ..fromWoreda = 'Bishoftu'
         ..toWoreda = 'Addis Ababa'
         ..departureDate = DateTime.now().add(const Duration(days: 2)).toUtc()
@@ -553,6 +606,8 @@ void main() {
       final tripMax = Trip()
         ..tripId = 'trip-cap-max'
         ..truckerId = 'trucker-cap'
+        ..truckerName = 'Tadesse'
+        ..truckerPhone = '+251912345678'
         ..fromWoreda = 'Bishoftu'
         ..toWoreda = 'Addis Ababa'
         ..departureDate = DateTime.now().add(const Duration(days: 2)).toUtc()
@@ -586,6 +641,8 @@ void main() {
       final trip = Trip()
         ..tripId = 'trip-multi-match'
         ..truckerId = 'trucker-match'
+        ..truckerName = 'Match Trucker'
+        ..truckerPhone = '+251900000004'
         ..fromWoreda = 'Bishoftu'
         ..toWoreda = 'Addis Ababa'
         ..departureDate = DateTime.now().add(const Duration(days: 2)).toUtc()
