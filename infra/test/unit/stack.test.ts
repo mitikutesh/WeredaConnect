@@ -80,17 +80,18 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
   });
 
-  test('creates six Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 6);
+  test('creates nine Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 9);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
     });
   });
 
-  test('creates API Gateway routes for auth endpoints', () => {
-    // 6 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
+  test('creates API Gateway routes for all endpoints', () => {
+    // 11 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout,
+    //            /sync, /crops, /crops/{id}, /trips, /trips/{id}
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
   });
 });
 

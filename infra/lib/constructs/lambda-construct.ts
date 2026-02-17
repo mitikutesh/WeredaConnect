@@ -2,6 +2,8 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
+import * as fs from 'fs';
+import { execSync } from 'child_process';
 
 export interface WeredaLambdaProps {
   readonly functionName: string;
@@ -45,6 +47,21 @@ export class WeredaLambda extends Construct {
             ].join(' && '),
           ],
           user: 'root',
+          local: {
+            tryBundle(outputDir: string): boolean {
+              try {
+                execSync('docker info', { stdio: 'pipe' });
+                return false; // Docker is available — use Docker bundling
+              } catch {
+                // Docker unavailable (test/CI) — create placeholder bootstrap
+                fs.writeFileSync(
+                  path.join(outputDir, 'bootstrap'),
+                  '#!/bin/sh\necho "placeholder"',
+                );
+                return true;
+              }
+            },
+          },
         },
       }),
       architecture: lambda.Architecture.ARM_64,
