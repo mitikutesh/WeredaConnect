@@ -45,8 +45,7 @@ class HomeScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (context) =>
-                            const CreateCropListingScreen(),
+                        builder: (context) => const CreateCropListingScreen(),
                       ),
                     );
                   },

@@ -170,8 +170,8 @@ void main() {
           data: Matchers.any,
         );
 
-        final response =
-            await dio.post<dynamic>('/auth/refresh', data: {'refreshToken': 'refresh-123'});
+        final response = await dio.post<dynamic>('/auth/refresh',
+            data: {'refreshToken': 'refresh-123'});
 
         expect(response.statusCode, 200);
       });
@@ -180,7 +180,8 @@ void main() {
     group('onError - token refresh on 401', () {
       test('calls refresh callback with correct token on 401', () async {
         await fakeStorage.write(key: 'access_token', value: 'expired-token');
-        await fakeStorage.write(key: 'refresh_token', value: 'valid-refresh-token');
+        await fakeStorage.write(
+            key: 'refresh_token', value: 'valid-refresh-token');
 
         // Request fails with 401
         dioAdapter.onGet(
@@ -201,7 +202,8 @@ void main() {
         expect(capturedRefreshToken, 'valid-refresh-token');
       });
 
-      test('clears tokens and propagates error when no refresh token', () async {
+      test('clears tokens and propagates error when no refresh token',
+          () async {
         await fakeStorage.write(key: 'access_token', value: 'expired-token');
         // Don't write refresh_token
 
@@ -259,7 +261,8 @@ void main() {
         expect(refreshToken, isNull);
       });
 
-      test('clears tokens when refresh callback returns empty string', () async {
+      test('clears tokens when refresh callback returns empty string',
+          () async {
         final testStorage = FakeSecureStorage();
         await testStorage.write(key: 'access_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
@@ -340,7 +343,8 @@ void main() {
         );
 
         expect(
-          () => dio.post<dynamic>('/auth/refresh', data: {'token': 'bad-token'}),
+          () =>
+              dio.post<dynamic>('/auth/refresh', data: {'token': 'bad-token'}),
           throwsA(isA<DioException>()),
         );
 
@@ -373,7 +377,8 @@ void main() {
     });
 
     group('concurrent request handling', () {
-      test('refresh callback is invoked on 401 with valid refresh token', () async {
+      test('refresh callback is invoked on 401 with valid refresh token',
+          () async {
         // This tests that the interceptor correctly initiates token refresh.
         // Note: _retry creates a new Dio without mock adapter, so end-to-end
         // retry cannot be tested via DioAdapter. We verify the refresh behavior.
@@ -427,4 +432,3 @@ void main() {
     });
   });
 }
-

@@ -74,14 +74,17 @@ class LoggingInterceptor extends Interceptor {
   }
 
   @override
-  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
+  void onResponse(
+      Response<dynamic> response, ResponseInterceptorHandler handler) {
     if (logResponses) {
       final buffer = StringBuffer();
       buffer.writeln('┌─────────────────────────────────────────────');
       buffer.writeln('│ RESPONSE');
       buffer.writeln('├─────────────────────────────────────────────');
-      buffer.writeln('│ ${response.requestOptions.method} ${response.requestOptions.uri}');
-      buffer.writeln('│ Status: ${response.statusCode} ${response.statusMessage}');
+      buffer.writeln(
+          '│ ${response.requestOptions.method} ${response.requestOptions.uri}');
+      buffer.writeln(
+          '│ Status: ${response.statusCode} ${response.statusMessage}');
 
       if (response.headers.map.isNotEmpty) {
         buffer.writeln('│ Headers:');
@@ -109,12 +112,14 @@ class LoggingInterceptor extends Interceptor {
       buffer.writeln('┌─────────────────────────────────────────────');
       buffer.writeln('│ ERROR');
       buffer.writeln('├─────────────────────────────────────────────');
-      buffer.writeln('│ ${err.requestOptions.method} ${err.requestOptions.uri}');
+      buffer
+          .writeln('│ ${err.requestOptions.method} ${err.requestOptions.uri}');
       buffer.writeln('│ Type: ${err.type}');
       buffer.writeln('│ Message: ${err.message}');
 
       if (err.response != null) {
-        buffer.writeln('│ Status: ${err.response?.statusCode} ${err.response?.statusMessage}');
+        buffer.writeln(
+            '│ Status: ${err.response?.statusCode} ${err.response?.statusMessage}');
         if (err.response?.data != null) {
           final body = _truncateBody(err.response!.data.toString());
           buffer.writeln('│ Response: $body');

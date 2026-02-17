@@ -145,21 +145,17 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               controller: _fromWoredaController,
                               decoration: InputDecoration(
                                 labelText: l10n.fromWoreda,
-                                prefixIcon:
-                                    const Icon(Icons.trip_origin),
+                                prefixIcon: const Icon(Icons.trip_origin),
                                 border: const OutlineInputBorder(),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 20,
                                 ),
                               ),
                               keyboardType: TextInputType.text,
-                              textCapitalization:
-                                  TextCapitalization.words,
+                              textCapitalization: TextCapitalization.words,
                               validator: (value) {
-                                if (value == null ||
-                                    value.trim().isEmpty) {
+                                if (value == null || value.trim().isEmpty) {
                                   return l10n.fromWoredaRequired;
                                 }
                                 return null;
@@ -174,23 +170,19 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 labelText: l10n.toWoreda,
                                 prefixIcon: const Icon(Icons.place),
                                 border: const OutlineInputBorder(),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 20,
                                 ),
                               ),
                               keyboardType: TextInputType.text,
-                              textCapitalization:
-                                  TextCapitalization.words,
+                              textCapitalization: TextCapitalization.words,
                               validator: (value) {
-                                if (value == null ||
-                                    value.trim().isEmpty) {
+                                if (value == null || value.trim().isEmpty) {
                                   return l10n.toWoredaRequired;
                                 }
                                 if (value.trim() ==
-                                    _fromWoredaController.text
-                                        .trim()) {
+                                    _fromWoredaController.text.trim()) {
                                   return l10n.sameOriginDestination;
                                 }
                                 return null;
@@ -205,10 +197,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 decoration: InputDecoration(
                                   labelText: l10n.departureDate,
                                   prefixIcon: const Icon(
-                                      Icons.calendar_today,),
+                                    Icons.calendar_today,
+                                  ),
                                   border: const OutlineInputBorder(),
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(
+                                  contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16,
                                     vertical: 20,
                                   ),
@@ -216,14 +208,13 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 child: Text(
                                   _selectedDepartureDate != null
                                       ? DateFormat.yMMMd().format(
-                                          _selectedDepartureDate!,)
+                                          _selectedDepartureDate!,
+                                        )
                                       : l10n.selectDepartureDate,
                                   style: TextStyle(
-                                    color:
-                                        _selectedDepartureDate != null
-                                            ? null
-                                            : Theme.of(context)
-                                                .hintColor,
+                                    color: _selectedDepartureDate != null
+                                        ? null
+                                        : Theme.of(context).hintColor,
                                   ),
                                 ),
                               ),
@@ -235,12 +226,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               controller: _capacityController,
                               decoration: InputDecoration(
                                 labelText: l10n.capacity,
-                                prefixIcon:
-                                    const Icon(Icons.local_shipping),
+                                prefixIcon: const Icon(Icons.local_shipping),
                                 suffixText: l10n.quintals,
                                 border: const OutlineInputBorder(),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 20,
                                 ),
@@ -255,12 +244,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 ),
                               ],
                               validator: (value) {
-                                if (value == null ||
-                                    value.isEmpty) {
+                                if (value == null || value.isEmpty) {
                                   return l10n.capacityRequired;
                                 }
-                                final capacity =
-                                    double.tryParse(value);
+                                final capacity = double.tryParse(value);
                                 if (capacity == null ||
                                     capacity < 0.1 ||
                                     capacity > 1000) {
@@ -276,12 +263,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               controller: _priceController,
                               decoration: InputDecoration(
                                 labelText: l10n.pricePerQuintal,
-                                prefixIcon:
-                                    const Icon(Icons.payments),
+                                prefixIcon: const Icon(Icons.payments),
                                 suffixText: 'ETB',
                                 border: const OutlineInputBorder(),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 20,
                                 ),
@@ -296,12 +281,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 ),
                               ],
                               validator: (value) {
-                                if (value == null ||
-                                    value.isEmpty) {
+                                if (value == null || value.isEmpty) {
                                   return l10n.priceRequired;
                                 }
-                                final price =
-                                    double.tryParse(value);
+                                final price = double.tryParse(value);
                                 if (price == null ||
                                     price < 0.01 ||
                                     price > 10000) {
@@ -314,29 +297,24 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
 
                             // Save button
                             ElevatedButton(
-                              onPressed:
-                                  isLoading ? null : _handleSave,
+                              onPressed: isLoading ? null : _handleSave,
                               style: ElevatedButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(
-                                        vertical: 16,),
-                                minimumSize:
-                                    const Size.fromHeight(48),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                minimumSize: const Size.fromHeight(48),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
                               child: isLoading
                                   ? const SizedBox(
                                       height: 20,
                                       width: 20,
-                                      child:
-                                          CircularProgressIndicator(
+                                      child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         valueColor:
-                                            AlwaysStoppedAnimation<
-                                                Color>(
+                                            AlwaysStoppedAnimation<Color>(
                                           Colors.white,
                                         ),
                                       ),
@@ -344,7 +322,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                   : Text(
                                       l10n.save,
                                       style: const TextStyle(
-                                          fontSize: 16,),
+                                        fontSize: 16,
+                                      ),
                                     ),
                             ),
                           ],

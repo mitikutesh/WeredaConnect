@@ -145,7 +145,6 @@ class ConflictResolver {
       );
     }
   }
-
 }
 
 /// Exception thrown when conflict resolution fails.

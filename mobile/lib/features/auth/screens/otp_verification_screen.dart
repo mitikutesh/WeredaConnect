@@ -280,8 +280,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(
+                                valueColor: AlwaysStoppedAnimation<Color>(
                                   Colors.white,
                                 ),
                               ),

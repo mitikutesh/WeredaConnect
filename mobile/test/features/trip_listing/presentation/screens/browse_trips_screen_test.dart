@@ -86,8 +86,7 @@ void main() {
     });
 
     testWidgets('shows loading indicator', (tester) async {
-      when(() => tripListingBloc.state)
-          .thenReturn(const TripListingLoading());
+      when(() => tripListingBloc.state).thenReturn(const TripListingLoading());
       when(() => tripListingBloc.stream).thenAnswer(
         (_) => Stream.value(const TripListingLoading()),
       );

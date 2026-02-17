@@ -19,8 +19,7 @@ class ApiConfig {
   /// Default points to deployed AWS infrastructure (me-south-1 region).
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue:
-        'https://s0om0hib4i.execute-api.me-south-1.amazonaws.com',
+    defaultValue: 'https://s0om0hib4i.execute-api.me-south-1.amazonaws.com',
   );
 
   /// Connection timeout for initial TCP connection.

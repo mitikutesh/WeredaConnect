@@ -100,127 +100,147 @@ void main() {
     await isar.close(deleteFromDisk: true);
   });
 
-  test('100 offline-online cycles stress test', () async {
-    const cycleCount = 100;
-    final results = <_CycleResult>[];
-    var totalOperations = 0;
-    var totalSucceeded = 0;
-    var totalFailed = 0;
+  test(
+    '100 offline-online cycles stress test',
+    () async {
+      const cycleCount = 100;
+      final results = <_CycleResult>[];
+      var totalOperations = 0;
+      var totalSucceeded = 0;
+      var totalFailed = 0;
 
-    print('🔥 Starting stress test: $cycleCount cycles');
-    print('This will take ~30-60 minutes. Please be patient...\n');
+      print('🔥 Starting stress test: $cycleCount cycles');
+      print('This will take ~30-60 minutes. Please be patient...\n');
 
-    final overallStartTime = DateTime.now();
+      final overallStartTime = DateTime.now();
 
-    for (var i = 1; i <= cycleCount; i++) {
-      final cycleStartTime = DateTime.now();
+      for (var i = 1; i <= cycleCount; i++) {
+        final cycleStartTime = DateTime.now();
 
-      // OFFLINE PHASE: Create 1-3 random listings
-      fakeConnectivity.setConnected(false);
-      final operationsInCycle = 1 + (i % 3); // 1, 2, or 3 operations
+        // OFFLINE PHASE: Create 1-3 random listings
+        fakeConnectivity.setConnected(false);
+        final operationsInCycle = 1 + (i % 3); // 1, 2, or 3 operations
 
-      for (var j = 0; j < operationsInCycle; j++) {
-        await repository.createListing(
-          farmerId: testUserId,
-          cropType: _randomCropType(i, j),
-          quantity: (i % 10 + 1).toDouble(),
-          pricePerKg: 40.0 + (i % 20).toDouble(),
-          latitude: 9.0 + (i * 0.001),
-          longitude: 38.0 + (j * 0.001),
-          description: 'Stress test cycle $i operation $j',
+        for (var j = 0; j < operationsInCycle; j++) {
+          await repository.createListing(
+            farmerId: testUserId,
+            cropType: _randomCropType(i, j),
+            quantity: (i % 10 + 1).toDouble(),
+            pricePerKg: 40.0 + (i % 20).toDouble(),
+            latitude: 9.0 + (i * 0.001),
+            longitude: 38.0 + (j * 0.001),
+            description: 'Stress test cycle $i operation $j',
+          );
+        }
+
+        // Verify operations are queued
+        final queuedCount = await syncQueue.getPendingCount();
+        if (queuedCount < operationsInCycle) {
+          print('❌ Cycle $i: Failed to queue all operations');
+          break;
+        }
+
+        // ONLINE PHASE: Sync
+        fakeConnectivity.setConnected(true);
+        final syncResult = await syncExecutor.syncNow();
+
+        // Record results
+        final cycleEndTime = DateTime.now();
+        final cycleDuration = cycleEndTime.difference(cycleStartTime);
+
+        final cycleResult = _CycleResult(
+          cycleNumber: i,
+          operationCount: operationsInCycle,
+          succeeded: syncResult.succeeded,
+          failed: syncResult.failed,
+          duration: cycleDuration,
         );
+        results.add(cycleResult);
+
+        totalOperations += operationsInCycle;
+        totalSucceeded += syncResult.succeeded;
+        totalFailed += syncResult.failed;
+
+        // Progress update every 10 cycles
+        if (i % 10 == 0) {
+          print('✅ Completed $i/$cycleCount cycles');
+          print('   Total operations: $totalOperations');
+          print(
+              '   Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(1)}%');
+          print(
+              '   Average cycle time: ${_averageDuration(results).inSeconds}s\n');
+        }
+
+        // Clean up synced operations periodically
+        if (i % 25 == 0) {
+          await syncQueue.purgeSynced();
+        }
       }
 
-      // Verify operations are queued
-      final queuedCount = await syncQueue.getPendingCount();
-      if (queuedCount < operationsInCycle) {
-        print('❌ Cycle $i: Failed to queue all operations');
-        break;
-      }
+      final overallEndTime = DateTime.now();
+      final totalDuration = overallEndTime.difference(overallStartTime);
 
-      // ONLINE PHASE: Sync
-      fakeConnectivity.setConnected(true);
-      final syncResult = await syncExecutor.syncNow();
+      // Print comprehensive results
+      print('\n${'=' * 60}');
+      print('🎯 STRESS TEST RESULTS');
+      print('=' * 60);
+      print('Total cycles: $cycleCount');
+      print('Total operations: $totalOperations');
+      print('Total succeeded: $totalSucceeded');
+      print('Total failed: $totalFailed');
+      print(
+          'Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(2)}%');
+      print(
+          'Total duration: ${totalDuration.inMinutes}m ${totalDuration.inSeconds % 60}s');
+      print('Average cycle time: ${_averageDuration(results).inSeconds}s');
+      print(
+          'Average operations per cycle: ${(totalOperations / cycleCount).toStringAsFixed(2)}');
+      print('=' * 60);
 
-      // Record results
-      final cycleEndTime = DateTime.now();
-      final cycleDuration = cycleEndTime.difference(cycleStartTime);
+      // Performance analysis
+      print('\n📊 PERFORMANCE BREAKDOWN:');
+      final fastCycles = results.where((r) => r.duration.inSeconds < 3).length;
+      final mediumCycles = results
+          .where((r) => r.duration.inSeconds >= 3 && r.duration.inSeconds < 5)
+          .length;
+      final slowCycles = results.where((r) => r.duration.inSeconds >= 5).length;
 
-      final cycleResult = _CycleResult(
-        cycleNumber: i,
-        operationCount: operationsInCycle,
-        succeeded: syncResult.succeeded,
-        failed: syncResult.failed,
-        duration: cycleDuration,
-      );
-      results.add(cycleResult);
+      print(
+          'Fast cycles (<3s): $fastCycles (${(fastCycles / cycleCount * 100).toStringAsFixed(1)}%)');
+      print(
+          'Medium cycles (3-5s): $mediumCycles (${(mediumCycles / cycleCount * 100).toStringAsFixed(1)}%)');
+      print(
+          'Slow cycles (>5s): $slowCycles (${(slowCycles / cycleCount * 100).toStringAsFixed(1)}%)');
 
-      totalOperations += operationsInCycle;
-      totalSucceeded += syncResult.succeeded;
-      totalFailed += syncResult.failed;
+      // Memory check (approximate)
+      final finalQueueSize = await syncQueue.getPendingCount();
+      final failedOps = await syncQueue.getFailedCount();
 
-      // Progress update every 10 cycles
-      if (i % 10 == 0) {
-        print('✅ Completed $i/$cycleCount cycles');
-        print('   Total operations: $totalOperations');
-        print('   Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(1)}%');
-        print('   Average cycle time: ${_averageDuration(results).inSeconds}s\n');
-      }
+      print('\n💾 MEMORY & QUEUE STATUS:');
+      print('Pending operations: $finalQueueSize');
+      print('Failed operations: $failedOps');
+      print('Total crop listings: ${await isar.cropListings.count()}');
+      print('Total sync operations: ${await isar.syncOperations.count()}');
 
-      // Clean up synced operations periodically
-      if (i % 25 == 0) {
-        await syncQueue.purgeSynced();
-      }
-    }
+      // ASSERTIONS
+      expect(totalFailed, equals(0), reason: 'All operations should succeed');
+      expect(finalQueueSize, equals(0),
+          reason: 'Queue should be empty after sync');
+      expect(failedOps, equals(0), reason: 'No permanently failed operations');
 
-    final overallEndTime = DateTime.now();
-    final totalDuration = overallEndTime.difference(overallStartTime);
+      // Success rate should be 100% (or very close)
+      final successRate = totalSucceeded / totalOperations;
+      expect(successRate, greaterThan(0.95),
+          reason: 'Success rate should be >95%');
 
-    // Print comprehensive results
-    print('\n${'=' * 60}');
-    print('🎯 STRESS TEST RESULTS');
-    print('=' * 60);
-    print('Total cycles: $cycleCount');
-    print('Total operations: $totalOperations');
-    print('Total succeeded: $totalSucceeded');
-    print('Total failed: $totalFailed');
-    print('Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(2)}%');
-    print('Total duration: ${totalDuration.inMinutes}m ${totalDuration.inSeconds % 60}s');
-    print('Average cycle time: ${_averageDuration(results).inSeconds}s');
-    print('Average operations per cycle: ${(totalOperations / cycleCount).toStringAsFixed(2)}');
-    print('=' * 60);
-
-    // Performance analysis
-    print('\n📊 PERFORMANCE BREAKDOWN:');
-    final fastCycles = results.where((r) => r.duration.inSeconds < 3).length;
-    final mediumCycles = results.where((r) => r.duration.inSeconds >= 3 && r.duration.inSeconds < 5).length;
-    final slowCycles = results.where((r) => r.duration.inSeconds >= 5).length;
-
-    print('Fast cycles (<3s): $fastCycles (${(fastCycles / cycleCount * 100).toStringAsFixed(1)}%)');
-    print('Medium cycles (3-5s): $mediumCycles (${(mediumCycles / cycleCount * 100).toStringAsFixed(1)}%)');
-    print('Slow cycles (>5s): $slowCycles (${(slowCycles / cycleCount * 100).toStringAsFixed(1)}%)');
-
-    // Memory check (approximate)
-    final finalQueueSize = await syncQueue.getPendingCount();
-    final failedOps = await syncQueue.getFailedCount();
-
-    print('\n💾 MEMORY & QUEUE STATUS:');
-    print('Pending operations: $finalQueueSize');
-    print('Failed operations: $failedOps');
-    print('Total crop listings: ${await isar.cropListings.count()}');
-    print('Total sync operations: ${await isar.syncOperations.count()}');
-
-    // ASSERTIONS
-    expect(totalFailed, equals(0), reason: 'All operations should succeed');
-    expect(finalQueueSize, equals(0), reason: 'Queue should be empty after sync');
-    expect(failedOps, equals(0), reason: 'No permanently failed operations');
-
-    // Success rate should be 100% (or very close)
-    final successRate = totalSucceeded / totalOperations;
-    expect(successRate, greaterThan(0.95), reason: 'Success rate should be >95%');
-
-    print('\n✅ STRESS TEST PASSED!');
-  }, timeout: const Timeout(Duration(hours: 2,),),);
+      print('\n✅ STRESS TEST PASSED!');
+    },
+    timeout: const Timeout(
+      Duration(
+        hours: 2,
+      ),
+    ),
+  );
 }
 
 /// Result of a single offline-online cycle.
@@ -243,7 +263,8 @@ class _CycleResult {
 /// Calculate average duration from results.
 Duration _averageDuration(List<_CycleResult> results) {
   if (results.isEmpty) return Duration.zero;
-  final totalMs = results.fold<int>(0, (sum, r) => sum + r.duration.inMilliseconds);
+  final totalMs =
+      results.fold<int>(0, (sum, r) => sum + r.duration.inMilliseconds);
   return Duration(milliseconds: totalMs ~/ results.length);
 }
 
@@ -270,9 +291,8 @@ class FakeConnectivitySource implements ConnectivitySource {
   }
 
   void setConnected(bool connected) {
-    _currentState = connected
-        ? [ConnectivityResult.mobile]
-        : [ConnectivityResult.none];
+    _currentState =
+        connected ? [ConnectivityResult.mobile] : [ConnectivityResult.none];
     _controller.add(_currentState);
   }
 

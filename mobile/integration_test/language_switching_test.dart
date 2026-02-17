@@ -135,7 +135,8 @@ void main() {
                     onPressed: () {
                       showDialog<void>(
                         context: context,
-                        builder: (dialogContext) => ChangeNotifierProvider.value(
+                        builder: (dialogContext) =>
+                            ChangeNotifierProvider.value(
                           value: provider,
                           child: const LanguageSelectionDialog(),
                         ),
@@ -180,7 +181,8 @@ void main() {
                     onPressed: () {
                       showDialog<void>(
                         context: context,
-                        builder: (dialogContext) => ChangeNotifierProvider.value(
+                        builder: (dialogContext) =>
+                            ChangeNotifierProvider.value(
                           value: provider,
                           child: const LanguageSelectionDialog(),
                         ),
@@ -225,7 +227,8 @@ void main() {
                     onPressed: () {
                       showDialog<void>(
                         context: context,
-                        builder: (dialogContext) => ChangeNotifierProvider.value(
+                        builder: (dialogContext) =>
+                            ChangeNotifierProvider.value(
                           value: provider,
                           child: const LanguageSelectionDialog(),
                         ),

@@ -53,10 +53,8 @@ void main() {
       ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
-    when(() => tripListingBloc.state)
-        .thenReturn(const TripListingInitial());
-    when(() => tripListingBloc.stream)
-        .thenAnswer((_) => const Stream.empty());
+    when(() => tripListingBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripListingBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
   Widget buildTestWidget() {
@@ -68,7 +66,8 @@ void main() {
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CreateTripScreen(truckerName: 'Test Trucker', truckerPhone: '+251911000000'),
+        home: CreateTripScreen(
+            truckerName: 'Test Trucker', truckerPhone: '+251911000000'),
       ),
     );
   }

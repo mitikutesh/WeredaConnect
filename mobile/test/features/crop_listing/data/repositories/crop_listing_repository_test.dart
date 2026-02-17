@@ -130,8 +130,7 @@ void main() {
         description: 'Barley',
       );
 
-      final listings =
-          await repository.getListingsByFarmer('farmer-001');
+      final listings = await repository.getListingsByFarmer('farmer-001');
       expect(listings.length, 2);
       expect(
         listings.every((l) => l.farmerId == 'farmer-001'),

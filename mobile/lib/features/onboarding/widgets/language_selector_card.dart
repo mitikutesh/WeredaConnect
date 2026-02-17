@@ -15,7 +15,8 @@ class LanguageSelectorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final currentLocale = languageProvider.locale;
-    final selectedLanguageName = languageProvider.getLanguageName(currentLocale);
+    final selectedLanguageName =
+        languageProvider.getLanguageName(currentLocale);
 
     return Card(
       elevation: 2,

@@ -76,10 +76,8 @@ void main() {
       expect(trip.tripId, isNotEmpty);
 
       // Verify persisted in Isar
-      final fromDb = await isar.trips
-          .filter()
-          .tripIdEqualTo(trip.tripId)
-          .findFirst();
+      final fromDb =
+          await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
       expect(fromDb, isNotNull);
       expect(fromDb!.fromWoreda, 'Bishoftu');
     });
@@ -205,8 +203,7 @@ void main() {
         pricePerQuintal: 80.0,
       );
 
-      final filtered =
-          await repository.getOpenTrips(fromWoreda: 'Bishoftu');
+      final filtered = await repository.getOpenTrips(fromWoreda: 'Bishoftu');
       expect(filtered.length, 1);
       expect(filtered.first.fromWoreda, 'Bishoftu');
     });
@@ -235,8 +232,7 @@ void main() {
         pricePerQuintal: 80.0,
       );
 
-      final filtered =
-          await repository.getOpenTrips(toWoreda: 'Hawassa');
+      final filtered = await repository.getOpenTrips(toWoreda: 'Hawassa');
       expect(filtered.length, 1);
       expect(filtered.first.toWoreda, 'Hawassa');
     });
@@ -258,10 +254,8 @@ void main() {
         truckerId: 'trucker-001',
       );
 
-      final fromDb = await isar.trips
-          .filter()
-          .tripIdEqualTo(trip.tripId)
-          .findFirst();
+      final fromDb =
+          await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
       expect(fromDb!.status, TripStatus.cancelled);
       expect(fromDb.version, 2);
 

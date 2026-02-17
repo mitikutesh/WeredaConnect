@@ -53,10 +53,8 @@ void main() {
       ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
-    when(() => cropListingBloc.state)
-        .thenReturn(const CropListingInitial());
-    when(() => cropListingBloc.stream)
-        .thenAnswer((_) => const Stream.empty());
+    when(() => cropListingBloc.state).thenReturn(const CropListingInitial());
+    when(() => cropListingBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
   Widget buildTestWidget() {

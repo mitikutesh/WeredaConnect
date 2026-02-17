@@ -369,8 +369,10 @@ void main() {
         // Assert
         expect(testClient.isInitialized, isTrue);
         expect(testClient.dio.options.baseUrl, isNotEmpty);
-        expect(testClient.dio.options.connectTimeout, equals(const Duration(seconds: 30)));
-        expect(testClient.dio.options.receiveTimeout, equals(const Duration(seconds: 30)));
+        expect(testClient.dio.options.connectTimeout,
+            equals(const Duration(seconds: 30)));
+        expect(testClient.dio.options.receiveTimeout,
+            equals(const Duration(seconds: 30)));
       });
 
       test('initialize is idempotent (calling twice has no effect)', () {

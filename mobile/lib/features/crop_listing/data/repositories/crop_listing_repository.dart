@@ -99,9 +99,7 @@ class CropListingRepository {
 
   /// Get all active listings, optionally filtered by crop type.
   Future<List<CropListing>> getActiveListings({String? cropTypeFilter}) async {
-    var query = _isar.cropListings
-        .filter()
-        .statusEqualTo(ListingStatus.active);
+    var query = _isar.cropListings.filter().statusEqualTo(ListingStatus.active);
 
     if (cropTypeFilter != null) {
       query = query.cropTypeEqualTo(cropTypeFilter);

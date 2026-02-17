@@ -139,8 +139,7 @@ class SyncBatchResult {
   }
 
   @override
-  String toString() =>
-      'SyncBatchResult(status: $status, total: $total, '
+  String toString() => 'SyncBatchResult(status: $status, total: $total, '
       'succeeded: $succeeded, conflicted: $conflicted, failed: $failed)';
 }
 
@@ -394,15 +393,17 @@ class SyncExecutor {
       'syncBatchId': syncBatchId,
       'clientId': _clientId,
       'operations': operations
-          .map((op) => {
-                'operationId': op.operationId,
-                'idempotencyKey': op.idempotencyKey,
-                'entityType': op.entityType,
-                'entityId': op.entityId,
-                'action': op.action,
-                'data': jsonDecode(op.data),
-                'timestamp': op.createdAt.toIso8601String(),
-              },)
+          .map(
+            (op) => {
+              'operationId': op.operationId,
+              'idempotencyKey': op.idempotencyKey,
+              'entityType': op.entityType,
+              'entityId': op.entityId,
+              'action': op.action,
+              'data': jsonDecode(op.data),
+              'timestamp': op.createdAt.toIso8601String(),
+            },
+          )
           .toList(),
     };
   }
@@ -579,8 +580,7 @@ class SyncExecutor {
     values[6] = (values[6] & 0x0f) | 0x40;
     values[8] = (values[8] & 0x3f) | 0x80;
 
-    final hex =
-        values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    final hex = values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';

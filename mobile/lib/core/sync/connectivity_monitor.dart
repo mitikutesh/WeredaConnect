@@ -179,8 +179,8 @@ class ConnectivityMonitor {
       },
     );
 
-    _subscription =
-        _source.onConnectivityChanged.listen((List<ConnectivityResult> results) {
+    _subscription = _source.onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
       _debounceTimer?.cancel();
       _debounceTimer = Timer(debounceDuration, () {
         if (!controller.isClosed) {

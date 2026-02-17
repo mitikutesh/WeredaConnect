@@ -105,7 +105,8 @@ class ProfileScreen extends StatelessWidget {
                   size: 18,
                 ),
                 label: Text(_getRoleLabel(user.role, l10n)),
-                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                backgroundColor:
+                    Theme.of(context).colorScheme.secondaryContainer,
               ),
 
               const SizedBox(height: 48),
@@ -201,10 +202,8 @@ class ProfileScreen extends StatelessWidget {
           Icon(
             Icons.person_off_outlined,
             size: 80,
-            color: Theme.of(context)
-                .colorScheme
-                .onSurface
-                .withValues(alpha: 0.3),
+            color:
+                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
           ),
           const SizedBox(height: 24),
           Text(
@@ -234,10 +233,7 @@ class ProfileScreen extends StatelessWidget {
           Icon(
             Icons.error_outline,
             size: 80,
-            color: Theme.of(context)
-                .colorScheme
-                .error
-                .withValues(alpha: 0.5),
+            color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5),
           ),
           const SizedBox(height: 24),
           Text(
@@ -263,10 +259,7 @@ class ProfileScreen extends StatelessWidget {
   Future<User?> _getUserFromDatabase(String userId) async {
     try {
       final isar = IsarService.instance.db;
-      final user = await isar.users
-          .where()
-          .userIdEqualTo(userId)
-          .findFirst();
+      final user = await isar.users.where().userIdEqualTo(userId).findFirst();
       return user;
     } on Exception {
       return null;

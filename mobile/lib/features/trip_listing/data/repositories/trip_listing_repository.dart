@@ -120,10 +120,7 @@ class TripListingRepository {
     required String tripId,
     required String truckerId,
   }) async {
-    final trip = await _isar.trips
-        .filter()
-        .tripIdEqualTo(tripId)
-        .findFirst();
+    final trip = await _isar.trips.filter().tripIdEqualTo(tripId).findFirst();
 
     if (trip == null) return;
 

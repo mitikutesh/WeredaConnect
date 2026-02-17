@@ -64,8 +64,7 @@ void main() {
       }
     });
 
-    testWidgets(
-        'offline create → sync → verify data integrity',
+    testWidgets('offline create → sync → verify data integrity',
         (tester) async {
       // ===== OFFLINE PHASE =====
       // Create crop listing offline
@@ -119,8 +118,7 @@ void main() {
       expect(syncedListing.quantity, 50.0);
     });
 
-    testWidgets(
-        'offline update → conflict detection → server wins',
+    testWidgets('offline update → conflict detection → server wins',
         (tester) async {
       // ===== SETUP: Create initial listing =====
       final initialListing = CropListing()
@@ -343,8 +341,7 @@ void main() {
       expect(remainingOps, isEmpty);
     });
 
-    testWidgets(
-        'delete operation: offline delete → sync → verify tombstone',
+    testWidgets('delete operation: offline delete → sync → verify tombstone',
         (tester) async {
       // ===== SETUP: Create and sync listing =====
       final listing = await repository.createListing(

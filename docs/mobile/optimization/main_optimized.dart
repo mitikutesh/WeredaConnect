@@ -59,7 +59,7 @@ class WeredaConnectApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'WeredaConnect',
-      
+
       // Localization - only 3 locales for low-end devices
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -72,7 +72,7 @@ class WeredaConnectApp extends StatelessWidget {
         Locale('am', ''), // Amharic
         Locale('om', ''), // Afan Oromo
       ],
-      
+
       // Theme - lightweight, single ColorScheme
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -81,7 +81,7 @@ class WeredaConnectApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      
+
       // Home - simple, stateless widget
       home: const HomePage(),
     );
@@ -94,7 +94,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.appTitle),
@@ -126,4 +126,3 @@ class HomePage extends StatelessWidget {
     );
   }
 }
-

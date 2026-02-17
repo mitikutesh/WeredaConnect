@@ -75,7 +75,8 @@ class CropListingCard extends StatelessWidget {
                     Text(
                       dateFormat.format(listing.createdAt),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
                   ],

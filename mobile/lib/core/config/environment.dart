@@ -23,7 +23,8 @@ class Environment {
 
   /// Current environment (set via --dart-define at build time)
   static AppEnvironment get current {
-    const env = String.fromEnvironment('ENVIRONMENT', defaultValue: 'development');
+    const env =
+        String.fromEnvironment('ENVIRONMENT', defaultValue: 'development');
     return AppEnvironment.values.firstWhere(
       (e) => e.name == env,
       orElse: () => AppEnvironment.development,

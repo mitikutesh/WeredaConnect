@@ -438,8 +438,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
                                     Colors.white,
                                   ),
                                 ),

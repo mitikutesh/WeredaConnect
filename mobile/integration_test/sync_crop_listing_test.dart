@@ -165,7 +165,8 @@ void main() {
       expect(syncResult.failed, equals(0));
 
       // ASSERT: Operation marked as synced
-      final syncedOp = await syncQueue.getOperation(pendingOps.first.operationId);
+      final syncedOp =
+          await syncQueue.getOperation(pendingOps.first.operationId);
       expect(syncedOp, isNotNull);
       expect(syncedOp!.status, equals(SyncStatus.synced));
 
@@ -385,7 +386,8 @@ void main() {
       expect(resolvedData['serverVersion'], equals(serverVersion));
 
       print('✅ Conflict resolution test passed');
-      print('   - Local version updated: v${listing.version} → v$serverVersion');
+      print(
+          '   - Local version updated: v${listing.version} → v$serverVersion');
       print('   - Server data accepted (server-wins strategy)');
     });
 
@@ -550,12 +552,10 @@ void main() {
       final results = await Future.wait([syncFuture1, syncFuture2]);
 
       // ASSERT: One succeeded, one skipped
-      final successCount = results
-          .where((r) => r.status == SyncBatchStatus.success)
-          .length;
-      final skippedCount = results
-          .where((r) => r.status == SyncBatchStatus.skipped)
-          .length;
+      final successCount =
+          results.where((r) => r.status == SyncBatchStatus.success).length;
+      final skippedCount =
+          results.where((r) => r.status == SyncBatchStatus.skipped).length;
 
       expect(successCount + skippedCount, equals(2));
       expect(skippedCount, greaterThanOrEqualTo(1));
@@ -586,9 +586,8 @@ class FakeConnectivitySource implements ConnectivitySource {
 
   /// Set connectivity state (true = connected, false = offline)
   void setConnected(bool connected) {
-    _currentState = connected
-        ? [ConnectivityResult.mobile]
-        : [ConnectivityResult.none];
+    _currentState =
+        connected ? [ConnectivityResult.mobile] : [ConnectivityResult.none];
     _controller.add(_currentState);
   }
 

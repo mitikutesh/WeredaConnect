@@ -23,7 +23,8 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.language),
             title: Text(l10n.language),
-            subtitle: Text(languageProvider.getLanguageName(languageProvider.locale)),
+            subtitle:
+                Text(languageProvider.getLanguageName(languageProvider.locale)),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
               showDialog<void>(

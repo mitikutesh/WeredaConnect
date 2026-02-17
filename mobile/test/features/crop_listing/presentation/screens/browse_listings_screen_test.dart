@@ -85,8 +85,7 @@ void main() {
     });
 
     testWidgets('shows loading indicator', (tester) async {
-      when(() => cropListingBloc.state)
-          .thenReturn(const CropListingLoading());
+      when(() => cropListingBloc.state).thenReturn(const CropListingLoading());
       when(() => cropListingBloc.stream).thenAnswer(
         (_) => Stream.value(const CropListingLoading()),
       );

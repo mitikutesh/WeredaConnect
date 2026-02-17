@@ -66,8 +66,7 @@ void main() {
       expect(operation.createdAt.isUtc, isTrue);
 
       // Verify idempotency key was generated with correct format
-      final parsed =
-          IdempotencyKeyGenerator.parse(operation.idempotencyKey);
+      final parsed = IdempotencyKeyGenerator.parse(operation.idempotencyKey);
       expect(parsed, isNotNull);
       expect(parsed!.userId, 'user-001');
       expect(parsed.entityType, 'crop_listing');
@@ -355,9 +354,8 @@ void main() {
       // Manually backdate the createdAt to trigger purge
       final op = await syncQueue.getOperation('op-purge');
       await isar.writeTxn(() async {
-        op!.createdAt = DateTime.now()
-            .toUtc()
-            .subtract(const Duration(days: 31));
+        op!.createdAt =
+            DateTime.now().toUtc().subtract(const Duration(days: 31));
         await isar.syncOperations.put(op);
       });
 

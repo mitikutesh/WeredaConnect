@@ -121,11 +121,13 @@ void main() {
       return {
         'syncBatchId': 'batch-001',
         'results': operationIds
-            .map((id) => {
-                  'operationId': id,
-                  'status': 'success',
-                  'serverVersion': 1,
-                },)
+            .map(
+              (id) => {
+                'operationId': id,
+                'status': 'success',
+                'serverVersion': 1,
+              },
+            )
             .toList(),
       };
     }
@@ -141,7 +143,8 @@ void main() {
         // Mock the /sync endpoint with success for both operations
         dioAdapter.onPost(
           '/sync',
-          (server) => server.reply(200, buildSuccessResponse(['op-001', 'op-002'])),
+          (server) =>
+              server.reply(200, buildSuccessResponse(['op-001', 'op-002'])),
           data: Matchers.any,
         );
 
@@ -797,7 +800,8 @@ void main() {
         expect(
           id,
           matches(
-            RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
+            RegExp(
+                r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
           ),
         );
       });
