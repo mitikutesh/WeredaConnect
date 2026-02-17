@@ -166,7 +166,7 @@ void main() {
           print('✅ Completed $i/$cycleCount cycles');
           print('   Total operations: $totalOperations');
           print(
-              '   Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(1)}%');
+              '   Success rate: ${(totalSucceeded / totalOperations * 100).toStringAsFixed(1)}%',);
           print(
               '   Average cycle time: ${_averageDuration(results).inSeconds}s\n');
         }
