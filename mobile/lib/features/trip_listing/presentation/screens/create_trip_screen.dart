@@ -205,7 +205,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 decoration: InputDecoration(
                                   labelText: l10n.departureDate,
                                   prefixIcon: const Icon(
-                                      Icons.calendar_today),
+                                      Icons.calendar_today,),
                                   border: const OutlineInputBorder(),
                                   contentPadding:
                                       const EdgeInsets.symmetric(
@@ -216,7 +216,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 child: Text(
                                   _selectedDepartureDate != null
                                       ? DateFormat.yMMMd().format(
-                                          _selectedDepartureDate!)
+                                          _selectedDepartureDate!,)
                                       : l10n.selectDepartureDate,
                                   style: TextStyle(
                                     color:
@@ -319,7 +319,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               style: ElevatedButton.styleFrom(
                                 padding:
                                     const EdgeInsets.symmetric(
-                                        vertical: 16),
+                                        vertical: 16,),
                                 minimumSize:
                                     const Size.fromHeight(48),
                                 shape: RoundedRectangleBorder(
@@ -344,7 +344,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                   : Text(
                                       l10n.save,
                                       style: const TextStyle(
-                                          fontSize: 16),
+                                          fontSize: 16,),
                                     ),
                             ),
                           ],

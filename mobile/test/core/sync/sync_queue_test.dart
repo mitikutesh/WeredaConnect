@@ -393,7 +393,7 @@ void main() {
   group('IdempotencyKeyGenerator', () {
     test('generate creates key with correct format', () {
       final timestamp =
-          DateTime.utc(2026, 3, 15, 10, 30, 0); // Fixed for determinism
+          DateTime.utc(2026, 3, 15, 10, 30); // Fixed for determinism
 
       final key = IdempotencyKeyGenerator.generate(
         userId: 'user-001',
@@ -418,7 +418,7 @@ void main() {
     });
 
     test('generate is deterministic for same inputs', () {
-      final timestamp = DateTime.utc(2026, 3, 15, 10, 30, 0);
+      final timestamp = DateTime.utc(2026, 3, 15, 10, 30);
 
       final key1 = IdempotencyKeyGenerator.generate(
         userId: 'user-001',
@@ -440,7 +440,7 @@ void main() {
     });
 
     test('generate produces different keys for different actions', () {
-      final timestamp = DateTime.utc(2026, 3, 15, 10, 30, 0);
+      final timestamp = DateTime.utc(2026, 3, 15, 10, 30);
 
       final createKey = IdempotencyKeyGenerator.generate(
         userId: 'user-001',
@@ -462,7 +462,7 @@ void main() {
     });
 
     test('parse round-trips correctly', () {
-      final timestamp = DateTime.utc(2026, 3, 15, 10, 30, 0);
+      final timestamp = DateTime.utc(2026, 3, 15, 10, 30);
 
       final key = IdempotencyKeyGenerator.generate(
         userId: 'user-001',

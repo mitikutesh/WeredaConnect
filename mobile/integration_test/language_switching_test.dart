@@ -302,7 +302,7 @@ void main() {
       for (final locale in [
         const Locale('en'),
         const Locale('am'),
-        const Locale('om')
+        const Locale('om'),
       ]) {
         await tester.pumpWidget(
           MaterialApp(
@@ -327,7 +327,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Verify app name is loaded (different per locale)
-        final l10nDelegates = AppLocalizations.localizationsDelegates;
+        const l10nDelegates = AppLocalizations.localizationsDelegates;
         expect(l10nDelegates, isNotEmpty);
       }
     });

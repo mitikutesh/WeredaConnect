@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -101,7 +100,7 @@ void main() {
       }
     });
 
-    Future<SyncOperation> _enqueueTestOperation({
+    Future<SyncOperation> enqueueTestOperation({
       String operationId = 'op-001',
       String entityType = 'crop_listing',
       String entityId = 'listing-001',
@@ -118,7 +117,7 @@ void main() {
       );
     }
 
-    Map<String, dynamic> _buildSuccessResponse(List<String> operationIds) {
+    Map<String, dynamic> buildSuccessResponse(List<String> operationIds) {
       return {
         'syncBatchId': 'batch-001',
         'results': operationIds
@@ -126,15 +125,15 @@ void main() {
                   'operationId': id,
                   'status': 'success',
                   'serverVersion': 1,
-                })
+                },)
             .toList(),
       };
     }
 
     group('executeBatch', () {
       test('processes pending operations and marks as synced', () async {
-        await _enqueueTestOperation(operationId: 'op-001');
-        await _enqueueTestOperation(
+        await enqueueTestOperation();
+        await enqueueTestOperation(
           operationId: 'op-002',
           entityId: 'listing-002',
         );
@@ -142,7 +141,7 @@ void main() {
         // Mock the /sync endpoint with success for both operations
         dioAdapter.onPost(
           '/sync',
-          (server) => server.reply(200, _buildSuccessResponse(['op-001', 'op-002'])),
+          (server) => server.reply(200, buildSuccessResponse(['op-001', 'op-002'])),
           data: Matchers.any,
         );
 
@@ -182,7 +181,7 @@ void main() {
           },
         );
 
-        await _enqueueTestOperation(operationId: 'op-conflict');
+        await enqueueTestOperation(operationId: 'op-conflict');
 
         dioAdapter.onPost(
           '/sync',
@@ -249,7 +248,7 @@ void main() {
           conflictResolver: resolver,
         );
 
-        await _enqueueTestOperation(
+        await enqueueTestOperation(
           operationId: 'op-resolver',
           entityId: 'listing-resolver',
           action: 'update',
@@ -333,7 +332,7 @@ void main() {
         );
 
         // Enqueue operation for non-existent entity
-        await _enqueueTestOperation(
+        await enqueueTestOperation(
           operationId: 'op-bad-conflict',
           entityId: 'listing-nonexistent',
           action: 'update',
@@ -382,7 +381,7 @@ void main() {
       });
 
       test('handles duplicate response by marking as synced', () async {
-        await _enqueueTestOperation(operationId: 'op-dup');
+        await enqueueTestOperation(operationId: 'op-dup');
 
         dioAdapter.onPost(
           '/sync',
@@ -409,8 +408,8 @@ void main() {
       });
 
       test('handles mixed results (partial success)', () async {
-        await _enqueueTestOperation(operationId: 'op-ok');
-        await _enqueueTestOperation(
+        await enqueueTestOperation(operationId: 'op-ok');
+        await enqueueTestOperation(
           operationId: 'op-fail',
           entityId: 'listing-fail',
         );
@@ -452,7 +451,7 @@ void main() {
       });
 
       test('handles network error by reverting operations', () async {
-        await _enqueueTestOperation(operationId: 'op-net');
+        await enqueueTestOperation(operationId: 'op-net');
 
         dioAdapter.onPost(
           '/sync',
@@ -480,7 +479,7 @@ void main() {
       });
 
       test('handles 401 auth error', () async {
-        await _enqueueTestOperation(operationId: 'op-auth');
+        await enqueueTestOperation(operationId: 'op-auth');
 
         dioAdapter.onPost(
           '/sync',
@@ -506,7 +505,7 @@ void main() {
       });
 
       test('handles 429 rate limit', () async {
-        await _enqueueTestOperation(operationId: 'op-rate');
+        await enqueueTestOperation(operationId: 'op-rate');
 
         dioAdapter.onPost(
           '/sync',
@@ -531,7 +530,7 @@ void main() {
       });
 
       test('handles timeout error', () async {
-        await _enqueueTestOperation(operationId: 'op-timeout');
+        await enqueueTestOperation(operationId: 'op-timeout');
 
         dioAdapter.onPost(
           '/sync',
@@ -552,14 +551,14 @@ void main() {
       });
 
       test('marks operations without server response as failed', () async {
-        await _enqueueTestOperation(operationId: 'op-missing');
+        await enqueueTestOperation(operationId: 'op-missing');
 
         // Server responds with empty results (didn't process the operation)
         dioAdapter.onPost(
           '/sync',
           (server) => server.reply(200, {
             'syncBatchId': 'batch-001',
-            'results': [],
+            'results': <dynamic>[],
           }),
           data: Matchers.any,
         );
@@ -573,13 +572,13 @@ void main() {
       });
 
       test('sends correct request format per sync protocol', () async {
-        final enqueued = await _enqueueTestOperation(operationId: 'op-format');
+        await enqueueTestOperation(operationId: 'op-format');
 
         Map<String, dynamic>? capturedRequest;
         dioAdapter.onPost(
           '/sync',
           (server) {
-            server.reply(200, _buildSuccessResponse(['op-format']));
+            server.reply(200, buildSuccessResponse(['op-format']));
           },
           data: Matchers.any,
         );
@@ -617,7 +616,7 @@ void main() {
     group('syncNow', () {
       test('returns skipped when already syncing', () async {
         // Enqueue an operation so sync has work to do
-        await _enqueueTestOperation(operationId: 'op-skip');
+        await enqueueTestOperation(operationId: 'op-skip');
 
         // Mock health check to succeed
         dioAdapter.onGet(
@@ -628,7 +627,7 @@ void main() {
         // Mock sync to take a while (simulate slow network)
         dioAdapter.onPost(
           '/sync',
-          (server) => server.reply(200, _buildSuccessResponse(['op-skip'])),
+          (server) => server.reply(200, buildSuccessResponse(['op-skip'])),
           data: Matchers.any,
         );
 
@@ -664,12 +663,12 @@ void main() {
 
       test('processes all pending batches until queue empty', () async {
         // Enqueue 3 operations
-        await _enqueueTestOperation(operationId: 'op-batch-1');
-        await _enqueueTestOperation(
+        await enqueueTestOperation(operationId: 'op-batch-1');
+        await enqueueTestOperation(
           operationId: 'op-batch-2',
           entityId: 'listing-002',
         );
-        await _enqueueTestOperation(
+        await enqueueTestOperation(
           operationId: 'op-batch-3',
           entityId: 'listing-003',
         );
@@ -683,7 +682,7 @@ void main() {
           '/sync',
           (server) => server.reply(
             200,
-            _buildSuccessResponse(['op-batch-1', 'op-batch-2', 'op-batch-3']),
+            buildSuccessResponse(['op-batch-1', 'op-batch-2', 'op-batch-3']),
           ),
           data: Matchers.any,
         );
@@ -699,7 +698,7 @@ void main() {
     group('start', () {
       test('triggers sync on connectivity change', () async {
         // Enqueue an operation
-        await _enqueueTestOperation(operationId: 'op-auto');
+        await enqueueTestOperation(operationId: 'op-auto');
 
         dioAdapter.onGet(
           '/health',
@@ -708,7 +707,7 @@ void main() {
 
         dioAdapter.onPost(
           '/sync',
-          (server) => server.reply(200, _buildSuccessResponse(['op-auto'])),
+          (server) => server.reply(200, buildSuccessResponse(['op-auto'])),
           data: Matchers.any,
         );
 
@@ -727,7 +726,7 @@ void main() {
       });
 
       test('does not sync on disconnection', () async {
-        await _enqueueTestOperation(operationId: 'op-offline');
+        await enqueueTestOperation(operationId: 'op-offline');
 
         executor.start();
 
@@ -744,7 +743,7 @@ void main() {
 
     group('stop', () {
       test('stops listening to connectivity changes', () async {
-        await _enqueueTestOperation(operationId: 'op-stopped');
+        await enqueueTestOperation(operationId: 'op-stopped');
 
         executor.start();
         executor.stop();
@@ -762,7 +761,7 @@ void main() {
 
     group('onSyncResult', () {
       test('emits batch results to stream listeners', () async {
-        await _enqueueTestOperation(operationId: 'op-stream');
+        await enqueueTestOperation(operationId: 'op-stream');
 
         dioAdapter.onGet(
           '/health',
@@ -771,7 +770,7 @@ void main() {
 
         dioAdapter.onPost(
           '/sync',
-          (server) => server.reply(200, _buildSuccessResponse(['op-stream'])),
+          (server) => server.reply(200, buildSuccessResponse(['op-stream'])),
           data: Matchers.any,
         );
 

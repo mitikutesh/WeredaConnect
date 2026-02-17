@@ -21,7 +21,6 @@ class WelcomeActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -87,9 +86,9 @@ class WelcomeActions extends StatelessWidget {
                 SnackBar(content: Text(l10n.comingSoon)),
               );
             },
-            child: Text(
+            child: const Text(
               'Explore as Guest', // TODO: Add to l10n
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
                 decoration: TextDecoration.underline,

@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
-import '../config/environment.dart';
-import 'api_exception.dart';
+import 'package:wereda_connect/core/config/environment.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 
 /// Singleton HTTP client with certificate pinning for secure API communication.
 ///
@@ -119,7 +119,7 @@ class ApiClient {
     T Function(dynamic)? parser,
   }) async {
     try {
-      final response = await dio.get(
+      final response = await dio.get<dynamic>(
         path,
         queryParameters: queryParameters,
         options: headers != null ? Options(headers: headers) : null,
@@ -141,7 +141,7 @@ class ApiClient {
     T Function(dynamic)? parser,
   }) async {
     try {
-      final response = await dio.post(
+      final response = await dio.post<dynamic>(
         path,
         data: data,
         queryParameters: queryParameters,
@@ -164,7 +164,7 @@ class ApiClient {
     T Function(dynamic)? parser,
   }) async {
     try {
-      final response = await dio.put(
+      final response = await dio.put<dynamic>(
         path,
         data: data,
         queryParameters: queryParameters,
@@ -187,7 +187,7 @@ class ApiClient {
     T Function(dynamic)? parser,
   }) async {
     try {
-      final response = await dio.delete(
+      final response = await dio.delete<dynamic>(
         path,
         data: data,
         queryParameters: queryParameters,
@@ -210,7 +210,7 @@ class ApiClient {
     T Function(dynamic)? parser,
   }) async {
     try {
-      final response = await dio.patch(
+      final response = await dio.patch<dynamic>(
         path,
         data: data,
         queryParameters: queryParameters,
@@ -224,7 +224,7 @@ class ApiClient {
   }
 
   /// Parse response or return raw data
-  T _parseResponse<T>(Response response, T Function(dynamic)? parser) {
+  T _parseResponse<T>(Response<dynamic> response, T Function(dynamic)? parser) {
     if (parser != null) {
       return parser(response.data);
     }
@@ -264,13 +264,12 @@ class ApiClient {
           }
 
         case DioExceptionType.cancel:
-          return NetworkException('Request cancelled');
+          return const NetworkException('Request cancelled');
 
         case DioExceptionType.badCertificate:
-          return NetworkException('SSL certificate verification failed');
+          return const NetworkException('SSL certificate verification failed');
 
         case DioExceptionType.unknown:
-        default:
           return UnknownException(error.message ?? 'Unknown error occurred');
       }
     }

@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -176,7 +177,7 @@ void main() {
     final totalDuration = overallEndTime.difference(overallStartTime);
 
     // Print comprehensive results
-    print('\n' + '=' * 60);
+    print('\n${'=' * 60}');
     print('🎯 STRESS TEST RESULTS');
     print('=' * 60);
     print('Total cycles: $cycleCount');
@@ -219,7 +220,7 @@ void main() {
     expect(successRate, greaterThan(0.95), reason: 'Success rate should be >95%');
 
     print('\n✅ STRESS TEST PASSED!');
-  }, timeout: const Timeout(Duration(hours: 2)));
+  }, timeout: const Timeout(Duration(hours: 2,),),);
 }
 
 /// Result of a single offline-online cycle.

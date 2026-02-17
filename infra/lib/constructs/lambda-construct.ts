@@ -49,11 +49,21 @@ export class WeredaLambda extends Construct {
           user: 'root',
           local: {
             tryBundle(outputDir: string): boolean {
+              // In CI/test: skip Docker bundling, use placeholder bootstrap.
+              // GitHub Actions sets CI=true; Docker is available there but a
+              // full .NET cross-compile is slow and unnecessary for synth/tests.
+              if (process.env.CI) {
+                fs.writeFileSync(
+                  path.join(outputDir, 'bootstrap'),
+                  '#!/bin/sh\necho "placeholder"',
+                );
+                return true;
+              }
               try {
                 execSync('docker info', { stdio: 'pipe' });
                 return false; // Docker is available — use Docker bundling
               } catch {
-                // Docker unavailable (test/CI) — create placeholder bootstrap
+                // Docker unavailable locally — create placeholder bootstrap
                 fs.writeFileSync(
                   path.join(outputDir, 'bootstrap'),
                   '#!/bin/sh\necho "placeholder"',

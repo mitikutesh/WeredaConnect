@@ -119,7 +119,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
       // Retry all pending requests
       await _retryPendingRequests(newAccessToken);
-    } catch (refreshError) {
+    } on Object {
       // Refresh failed - clear tokens
       await _clearTokens();
       _rejectPendingRequests(err);
@@ -131,7 +131,7 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Retry a request with new access token
-  Future<Response> _retry(
+  Future<Response<dynamic>> _retry(
     RequestOptions requestOptions,
     String newAccessToken,
   ) async {
@@ -161,7 +161,7 @@ class AuthInterceptor extends QueuedInterceptor {
           newAccessToken,
         );
         pendingRequest.handler.resolve(response);
-      } catch (e) {
+      } on Object catch (e) {
         pendingRequest.handler.next(
           DioException(
             requestOptions: pendingRequest.requestOptions,

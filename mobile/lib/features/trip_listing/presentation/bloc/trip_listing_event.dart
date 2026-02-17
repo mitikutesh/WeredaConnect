@@ -74,9 +74,9 @@ class FilterTrips extends TripListingEvent {
   final String truckerId;
 
   const FilterTrips({
+    required this.truckerId,
     this.fromWoreda,
     this.toWoreda,
-    required this.truckerId,
   });
 
   @override

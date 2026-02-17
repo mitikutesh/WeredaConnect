@@ -59,7 +59,7 @@ class SyncQueue {
     // Check queue capacity
     final currentCount = await getPendingCount();
     if (currentCount >= maxQueueSize) {
-      throw SyncQueueFullException(
+      throw const SyncQueueFullException(
         'Sync queue is full ($maxQueueSize operations). '
         'Please wait for connectivity to sync pending operations.',
       );

@@ -39,7 +39,7 @@ void main() {
         // Arrange
         const path = '/users';
         final queryParams = {'page': 1, 'limit': 10};
-        final responseData = {'users': []};
+        final responseData = {'users': <dynamic>[]};
 
         dioAdapter.onGet(
           path,
@@ -203,7 +203,7 @@ void main() {
 
         // Act & Assert
         await expectLater(
-          () => ApiClient().post(path, data: {}),
+          () => ApiClient().post<dynamic>(path, data: <String, dynamic>{}),
           throwsA(isA<ValidationException>()),
         );
       });
@@ -221,7 +221,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<AuthException>()),
         );
       });
@@ -239,7 +239,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<NotFoundException>()),
         );
       });
@@ -255,7 +255,7 @@ void main() {
 
         // Act & Assert
         await expectLater(
-          () => ApiClient().post(path, data: {}),
+          () => ApiClient().post<dynamic>(path, data: <String, dynamic>{}),
           throwsA(isA<ConflictException>()),
         );
       });
@@ -273,7 +273,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<RateLimitException>()),
         );
       });
@@ -291,7 +291,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<ServerException>()),
         );
       });
@@ -312,7 +312,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<TimeoutException>()),
         );
       });
@@ -333,7 +333,7 @@ void main() {
 
         // Act & Assert
         expect(
-          () => ApiClient().get(path),
+          () => ApiClient().get<dynamic>(path),
           throwsA(isA<NetworkException>()),
         );
       });
@@ -352,9 +352,9 @@ void main() {
 
         // Act & Assert
         try {
-          await ApiClient().get(path);
+          await ApiClient().get<dynamic>(path);
           fail('Should have thrown exception');
-        } catch (e) {
+        } on Object catch (e) {
           expect(e, isA<ValidationException>());
           expect((e as ValidationException).message, equals(errorMessage));
         }

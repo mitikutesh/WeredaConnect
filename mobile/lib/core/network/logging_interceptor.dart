@@ -74,7 +74,7 @@ class LoggingInterceptor extends Interceptor {
   }
 
   @override
-  void onResponse(Response response, ResponseInterceptorHandler handler) {
+  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
     if (logResponses) {
       final buffer = StringBuffer();
       buffer.writeln('┌─────────────────────────────────────────────');
@@ -121,12 +121,10 @@ class LoggingInterceptor extends Interceptor {
         }
       }
 
-      if (err.stackTrace != null) {
-        buffer.writeln('│ Stack Trace:');
-        final stackLines = err.stackTrace.toString().split('\n').take(5);
-        for (final line in stackLines) {
-          buffer.writeln('│   $line');
-        }
+      buffer.writeln('│ Stack Trace:');
+      final stackLines = err.stackTrace.toString().split('\n').take(5);
+      for (final line in stackLines) {
+        buffer.writeln('│   $line');
       }
 
       buffer.writeln('└─────────────────────────────────────────────');

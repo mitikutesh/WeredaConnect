@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'dart:async';
 import 'dart:convert';
 
@@ -286,7 +287,7 @@ void main() {
       }
 
       // ASSERT: 5 operations pending
-      var pendingCount = await syncQueue.getPendingCount();
+      final pendingCount = await syncQueue.getPendingCount();
       expect(pendingCount, equals(5));
 
       // ACT: Go online and sync

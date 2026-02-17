@@ -122,11 +122,11 @@ class WelcomeScreen extends StatelessWidget {
 
   void _showHowItWorksInfo(BuildContext context, AppLocalizations l10n) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      const SnackBar(
         content: Text(
           'Tutorial carousel coming soon. You can explore the app by creating an account!',
         ),
-        duration: const Duration(seconds: 3),
+        duration: Duration(seconds: 3),
       ),
     );
   }

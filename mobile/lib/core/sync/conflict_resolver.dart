@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -148,51 +146,6 @@ class ConflictResolver {
     }
   }
 
-  /// Resolve a Trip conflict by accepting server version.
-  ///
-  /// TODO: Implement when Trip entity sync is enabled.
-  Future<Map<String, dynamic>> _resolveTrip(
-    SyncOperation operation,
-    Map<String, dynamic> serverData,
-    int serverVersion,
-  ) async {
-    throw UnimplementedError('Trip conflict resolution not yet implemented');
-  }
-
-  /// Resolve a Delivery conflict by accepting server version.
-  ///
-  /// TODO: Implement when Delivery entity sync is enabled.
-  Future<Map<String, dynamic>> _resolveDelivery(
-    SyncOperation operation,
-    Map<String, dynamic> serverData,
-    int serverVersion,
-  ) async {
-    throw UnimplementedError(
-      'Delivery conflict resolution not yet implemented',
-    );
-  }
-
-  /// Resolve a Payment conflict by accepting server version.
-  ///
-  /// TODO: Implement when Payment entity sync is enabled.
-  Future<Map<String, dynamic>> _resolvePayment(
-    SyncOperation operation,
-    Map<String, dynamic> serverData,
-    int serverVersion,
-  ) async {
-    throw UnimplementedError('Payment conflict resolution not yet implemented');
-  }
-
-  /// Resolve a User conflict by accepting server version.
-  ///
-  /// TODO: Implement when User entity sync is enabled.
-  Future<Map<String, dynamic>> _resolveUser(
-    SyncOperation operation,
-    Map<String, dynamic> serverData,
-    int serverVersion,
-  ) async {
-    throw UnimplementedError('User conflict resolution not yet implemented');
-  }
 }
 
 /// Exception thrown when conflict resolution fails.

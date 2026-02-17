@@ -81,8 +81,8 @@ class ConnectivityMonitor {
   /// - [source]: Connectivity data source (defaults to [PlatformConnectivitySource])
   /// - [dio]: Dio HTTP client for health check requests
   ConnectivityMonitor({
-    ConnectivitySource? source,
     required Dio dio,
+    ConnectivitySource? source,
   })  : _source = source ?? PlatformConnectivitySource(),
         _dio = dio;
 
@@ -134,7 +134,7 @@ class ConnectivityMonitor {
   /// Cost: ~200 bytes per request — negligible even on expensive Ethiopian data plans.
   Future<bool> hasInternetAccess() async {
     try {
-      final response = await _dio.get(
+      final response = await _dio.get<dynamic>(
         healthCheckPath,
         options: Options(
           sendTimeout: healthCheckTimeout,
@@ -142,7 +142,7 @@ class ConnectivityMonitor {
         ),
       );
       return response.statusCode == 200;
-    } catch (_) {
+    } on Object catch (_) {
       return false;
     }
   }

@@ -453,7 +453,7 @@ class SyncExecutor {
                   serverData: serverData,
                   serverVersion: serverVersion ?? 0,
                 );
-              } on ConflictResolutionException catch (e) {
+              } on ConflictResolutionException {
                 // If conflict resolution fails, mark as failed for retry
                 await _syncQueue.markAsFailed(operationId);
                 failed++;

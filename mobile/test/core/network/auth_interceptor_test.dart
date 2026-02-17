@@ -129,7 +129,7 @@ void main() {
           headers: {'Authorization': 'Bearer valid-token-123'},
         );
 
-        final response = await dio.get('/protected');
+        final response = await dio.get<dynamic>('/protected');
 
         expect(response.statusCode, 200);
         expect(response.data['data'], 'success');
@@ -143,7 +143,7 @@ void main() {
           (server) => server.reply(200, {'data': 'public'}),
         );
 
-        final response = await dio.get('/public');
+        final response = await dio.get<dynamic>('/public');
 
         expect(response.statusCode, 200);
       });
@@ -156,7 +156,7 @@ void main() {
           (server) => server.reply(200, {'data': 'public'}),
         );
 
-        final response = await dio.get('/public');
+        final response = await dio.get<dynamic>('/public');
 
         expect(response.statusCode, 200);
       });
@@ -171,7 +171,7 @@ void main() {
         );
 
         final response =
-            await dio.post('/auth/refresh', data: {'refreshToken': 'refresh-123'});
+            await dio.post<dynamic>('/auth/refresh', data: {'refreshToken': 'refresh-123'});
 
         expect(response.statusCode, 200);
       });
@@ -191,7 +191,7 @@ void main() {
         // The interceptor refreshes the token, but _retry creates a new Dio
         // without the mock adapter, so the overall request fails.
         expect(
-          () => dio.get('/protected'),
+          () => dio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
 
@@ -212,7 +212,7 @@ void main() {
         );
 
         expect(
-          () => dio.get('/protected'),
+          () => dio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
 
@@ -246,7 +246,7 @@ void main() {
         );
 
         expect(
-          () => testDio.get('/protected'),
+          () => testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
 
@@ -280,7 +280,7 @@ void main() {
         );
 
         expect(
-          () => testDio.get('/protected'),
+          () => testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
 
@@ -316,7 +316,7 @@ void main() {
         );
 
         expect(
-          () => testDio.get('/protected'),
+          () => testDio.get<dynamic>('/protected'),
           throwsA(isA<DioException>()),
         );
 
@@ -340,7 +340,7 @@ void main() {
         );
 
         expect(
-          () => dio.post('/auth/refresh', data: {'token': 'bad-token'}),
+          () => dio.post<dynamic>('/auth/refresh', data: {'token': 'bad-token'}),
           throwsA(isA<DioException>()),
         );
 
@@ -360,7 +360,7 @@ void main() {
         );
 
         expect(
-          () => dio.get('/error'),
+          () => dio.get<dynamic>('/error'),
           throwsA(isA<DioException>()),
         );
 
@@ -387,7 +387,7 @@ void main() {
 
         // Request fails with 401, interceptor attempts refresh
         expect(
-          () => dio.get('/resource1'),
+          () => dio.get<dynamic>('/resource1'),
           throwsA(isA<DioException>()),
         );
 
@@ -420,7 +420,7 @@ void main() {
           headers: {'Authorization': 'Bearer custom-token'},
         );
 
-        final response = await testDio.get('/protected');
+        final response = await testDio.get<dynamic>('/protected');
 
         expect(response.statusCode, 200);
       });

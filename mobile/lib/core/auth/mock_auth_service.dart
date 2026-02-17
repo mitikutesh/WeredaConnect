@@ -31,7 +31,7 @@ class MockAuthService {
     String preferredLanguage = 'am',
   }) async {
     // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 500));
 
     // Generate a mock user ID
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
@@ -53,7 +53,7 @@ class MockAuthService {
     required String otp,
   }) async {
     // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 500));
 
     // Accept any 6-digit OTP in mock mode
     if (otp.length != 6) {
@@ -81,7 +81,7 @@ class MockAuthService {
     required String password,
   }) async {
     // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 500));
 
     // Check if we have cached credentials
     final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
@@ -133,7 +133,7 @@ class MockAuthService {
 
   /// Mock token refresh
   Future<AuthResult> refreshToken(String refreshToken) async {
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
 
     final now = DateTime.now();
     final tokens = AuthTokens(
@@ -152,7 +152,7 @@ class MockAuthService {
     String? accessToken,
     bool clearCache = true,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
 
     if (clearCache) {
       await _offlineCache.clearCredentials(phoneNumber);
