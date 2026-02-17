@@ -93,6 +93,13 @@ describe('ApiStack', () => {
     //            /sync, /crops, /crops/{id}, /trips, /trips/{id}
     template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
   });
+
+  test('creates JWT authorizer for protected routes', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 1);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+      AuthorizerType: 'JWT',
+    });
+  });
 });
 
 describe('MonitoringStack', () => {

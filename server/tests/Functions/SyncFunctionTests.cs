@@ -52,7 +52,8 @@ public class SyncFunctionTests
 
     private static SyncOperationRequest MakeCropCreateOp(
         string opId = "op-001",
-        string entityId = "crop-001") => new()
+        string entityId = "crop-001",
+        string farmerId = "farmer-001") => new()
     {
         OperationId = opId,
         IdempotencyKey = $"user:crop_listing:{entityId}:create:12345",
@@ -64,7 +65,7 @@ public class SyncFunctionTests
             { "cropType", "teff" },
             { "quantity", 50 },
             { "pricePerKg", 45.5 },
-            { "farmerId", "user-001" },
+            { "farmerId", farmerId },
             { "status", "active" }
         },
         Timestamp = "2026-03-15T10:00:00Z"
@@ -82,7 +83,7 @@ public class SyncFunctionTests
         _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
 
-        var request = MakeRequest(MakeSyncRequest(MakeCropCreateOp()));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -99,7 +100,7 @@ public class SyncFunctionTests
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
 
         var op = MakeCropCreateOp();
-        var request = MakeRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
         await _function.FunctionHandler(request, _context);
 
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
@@ -114,7 +115,7 @@ public class SyncFunctionTests
     {
         _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(true);
 
-        var request = MakeRequest(MakeSyncRequest(MakeCropCreateOp()));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -139,7 +140,7 @@ public class SyncFunctionTests
         };
         _mockCropRepo.GetByIdAsync("crop-001").Returns(serverData);
 
-        var request = MakeRequest(MakeSyncRequest(MakeCropCreateOp()));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -150,6 +151,14 @@ public class SyncFunctionTests
     [Fact]
     public async Task FunctionHandler_UpdateOperation_ReturnsSuccess()
     {
+        // Setup existing item for ownership check
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "version", "1" }
+        });
+
         var serverData = new Dictionary<string, object>
         {
             { "cropId", "crop-001" },
@@ -174,7 +183,7 @@ public class SyncFunctionTests
             }
         };
 
-        var request = MakeRequest(MakeSyncRequest(updateOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -184,15 +193,17 @@ public class SyncFunctionTests
     [Fact]
     public async Task FunctionHandler_UpdateConflict_ReturnsConflictWithServerData()
     {
-        _mockCropRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
-            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version mismatch."));
-
+        // GetByIdAsync is called twice: once for ownership check, once after conflict
         var serverData = new Dictionary<string, object>
         {
             { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
             { "version", "5" }
         };
         _mockCropRepo.GetByIdAsync("crop-001").Returns(serverData);
+
+        _mockCropRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version mismatch."));
 
         var updateOp = new SyncOperationRequest
         {
@@ -204,7 +215,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object> { { "quantity", 100 }, { "version", 2 } }
         };
 
-        var request = MakeRequest(MakeSyncRequest(updateOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -214,6 +225,14 @@ public class SyncFunctionTests
     [Fact]
     public async Task FunctionHandler_DeleteOperation_ReturnsSuccess()
     {
+        // Setup existing item for ownership check
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "version", "1" }
+        });
+
         var serverData = new Dictionary<string, object>
         {
             { "cropId", "crop-001" },
@@ -233,7 +252,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object> { { "version", 1 } }
         };
 
-        var request = MakeRequest(MakeSyncRequest(deleteOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(deleteOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -259,10 +278,10 @@ public class SyncFunctionTests
             EntityType = "crop_listing",
             EntityId = "crop-B",
             Action = "create",
-            Data = new Dictionary<string, object> { { "cropType", "wheat" } }
+            Data = new Dictionary<string, object> { { "cropType", "wheat" }, { "farmerId", "farmer-001" } }
         };
 
-        var request = MakeRequest(MakeSyncRequest(op1, op2));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op1, op2), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -285,7 +304,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object> { { "foo", "bar" } }
         };
 
-        var request = MakeRequest(MakeSyncRequest(badOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -333,7 +352,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object> { { "foo", "bar" } }
         };
 
-        var request = MakeRequest(MakeSyncRequest(badOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -353,12 +372,117 @@ public class SyncFunctionTests
             Action = "create"
         };
 
-        var request = MakeRequest(MakeSyncRequest(noDataOp));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(noDataOp), "farmer-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
         Assert.Contains("requires data", response.Body);
+    }
+
+    // ===== Crop Listing Security Tests =====
+
+    [Fact]
+    public async Task FunctionHandler_Unauthenticated_Returns401()
+    {
+        var request = MakeRequest(MakeSyncRequest(MakeCropCreateOp()));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.Contains("UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task CropCreate_FarmerIdMismatch_ReturnsUnauthorized()
+    {
+        var op = MakeCropCreateOp(farmerId: "farmer-999");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task CropCreate_UnknownFields_ReturnsValidationError()
+    {
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-unknown-fields",
+            IdempotencyKey = "user:crop_listing:crop-001:create:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "create",
+            Data = new Dictionary<string, object>
+            {
+                { "farmerId", "farmer-001" },
+                { "cropType", "teff" },
+                { "isAdmin", true },
+                { "secretField", "malicious" }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_VALIDATION", response.Body);
+        Assert.Contains("Unknown fields", response.Body);
+    }
+
+    [Fact]
+    public async Task CropUpdate_FarmerIdMismatch_ReturnsUnauthorized()
+    {
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-999" },
+            { "version", "1" }
+        });
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-update-unauth",
+            IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "quantity", 100 }, { "version", 1 } }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task CropDelete_FarmerIdMismatch_ReturnsUnauthorized()
+    {
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-999" },
+            { "version", "1" }
+        });
+
+        var deleteOp = new SyncOperationRequest
+        {
+            OperationId = "op-delete-unauth",
+            IdempotencyKey = "user:crop_listing:crop-001:delete:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "delete",
+            Data = new Dictionary<string, object> { { "version", 1 } }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(deleteOp), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
     }
 
     // ===== Trip Sync Operation Tests =====

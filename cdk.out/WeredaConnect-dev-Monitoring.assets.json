@@ -1,0 +1,21 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "89ee8cdfd679bc03ee780921d318b56451313a448e7a89b0fb030ab2ddd37d6d": {
+      "displayName": "wereda-connect-dev-monitoring Template",
+      "source": {
+        "path": "WeredaConnect-dev-Monitoring.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "471112574693-me-south-1-78d7e836": {
+          "bucketName": "cdk-hnb659fds-assets-471112574693-me-south-1",
+          "objectKey": "89ee8cdfd679bc03ee780921d318b56451313a448e7a89b0fb030ab2ddd37d6d.json",
+          "region": "me-south-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::471112574693:role/cdk-hnb659fds-file-publishing-role-471112574693-me-south-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

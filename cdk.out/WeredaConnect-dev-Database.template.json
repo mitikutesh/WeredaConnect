@@ -1,0 +1,810 @@
+{
+ "Description": "WeredaConnect dev - DynamoDB tables and S3 buckets",
+ "Resources": {
+  "UsersTable695FA693": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "userId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "phoneNumber",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "role",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "woreda",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "PhoneIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "phoneNumber",
+        "KeyType": "HASH"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     },
+     {
+      "IndexName": "RoleWaredaIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "role",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "woreda",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "userId",
+      "KeyType": "HASH"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-users"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/UsersTable/Table/Resource"
+   }
+  },
+  "RateLimitsTable6BD6DCC2": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "pk",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "sk",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "KeySchema": [
+     {
+      "AttributeName": "pk",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "sk",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-rate-limits",
+    "TimeToLiveSpecification": {
+     "AttributeName": "expiresAt",
+     "Enabled": true
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/RateLimitsTable/Table/Resource"
+   }
+  },
+  "CropsTable7D452D3A": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "cropId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "createdAt",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "status",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "StatusCreatedAtIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "status",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "createdAt",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "cropId",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "createdAt",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-crops"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/CropsTable/Table/Resource"
+   }
+  },
+  "TripsTable85604C52": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "tripId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "createdAt",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "status",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "departureDate",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "StatusDepartureDateIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "status",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "departureDate",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "tripId",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "createdAt",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-trips"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/TripsTable/Table/Resource"
+   }
+  },
+  "SyncMetadataTable364BB44C": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "idempotencyKey",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "timestamp",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "KeySchema": [
+     {
+      "AttributeName": "idempotencyKey",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "timestamp",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-sync-metadata",
+    "TimeToLiveSpecification": {
+     "AttributeName": "expiresAt",
+     "Enabled": true
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/SyncMetadataTable/Table/Resource"
+   }
+  },
+  "DeliveriesTableAC65D7AE": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "deliveryId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "tripId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "listingId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "createdAt",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "status",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "confirmedAt",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "ListingIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "listingId",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "createdAt",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     },
+     {
+      "IndexName": "StatusIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "status",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "confirmedAt",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "deliveryId",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "tripId",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-deliveries"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/DeliveriesTable/Table/Resource"
+   }
+  },
+  "PaymentsTableE037B168": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "paymentId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "deliveryId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "farmerId",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "createdAt",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "status",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "escrowedAt",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "FarmerIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "farmerId",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "createdAt",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     },
+     {
+      "IndexName": "StatusIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "status",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "escrowedAt",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "paymentId",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "deliveryId",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": true
+    },
+    "TableName": "wereda-connect-dev-payments"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/PaymentsTable/Table/Resource"
+   }
+  },
+  "UploadsBucket5E5E9B64": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "BucketName": "wereda-connect-dev-uploads-471112574693",
+    "LifecycleConfiguration": {
+     "Rules": [
+      {
+       "ExpirationInDays": 7,
+       "Prefix": "temp/",
+       "Status": "Enabled"
+      }
+     ]
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    },
+    "Tags": [
+     {
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/UploadsBucket/Resource"
+   }
+  },
+  "UploadsBucketPolicy34A32B0B": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "UploadsBucket5E5E9B64"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutBucketPolicy",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "UploadsBucket5E5E9B64",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "UploadsBucket5E5E9B64",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/UploadsBucket/Policy/Resource"
+   }
+  },
+  "UploadsBucketAutoDeleteObjectsCustomResourceFFD11C72": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "UploadsBucket5E5E9B64"
+    }
+   },
+   "DependsOn": [
+    "UploadsBucketPolicy34A32B0B"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/UploadsBucket/AutoDeleteObjectsCustomResource/Default"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs22.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "UploadsBucket5E5E9B64"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
+   },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+    "aws:asset:property": "Code"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3WOzQqDMBCEn8V7TEUvvdY+QMX2XmKyyvqTlGxiEcm7N9aCp8LCzHzLDpvzvDjzLBFvSqUa0hEbvt6dkAOL6LmqRYvJqAgfohmBXVv9NYFRwdfSywHcBn9ul8qMKJcD7zkEVgMZb2Ws8eTMdMRW/1lV1syowJaCgF2IwMXnOtTddnPz7uVdYNoo4D2d5jzjcbKkJ8TUeu1wAl7v+gHOyU3K6gAAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Database/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "UsersTableName": {
+   "Description": "DynamoDB Users Table",
+   "Value": {
+    "Ref": "UsersTable695FA693"
+   }
+  },
+  "CropsTableName": {
+   "Description": "DynamoDB Crops Table",
+   "Value": {
+    "Ref": "CropsTable7D452D3A"
+   }
+  },
+  "TripsTableName": {
+   "Description": "DynamoDB Trips Table",
+   "Value": {
+    "Ref": "TripsTable85604C52"
+   }
+  },
+  "UploadsBucketName": {
+   "Description": "S3 Uploads Bucket",
+   "Value": {
+    "Ref": "UploadsBucket5E5E9B64"
+   }
+  },
+  "RateLimitsTableName": {
+   "Description": "DynamoDB Rate Limits Table",
+   "Value": {
+    "Ref": "RateLimitsTable6BD6DCC2"
+   }
+  },
+  "SyncMetadataTableName": {
+   "Description": "DynamoDB SyncMetadata Table",
+   "Value": {
+    "Ref": "SyncMetadataTable364BB44C"
+   }
+  },
+  "DeliveriesTableName": {
+   "Description": "DynamoDB Deliveries Table",
+   "Value": {
+    "Ref": "DeliveriesTableAC65D7AE"
+   }
+  },
+  "PaymentsTableName": {
+   "Description": "DynamoDB Payments Table",
+   "Value": {
+    "Ref": "PaymentsTableE037B168"
+   }
+  },
+  "ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08": {
+   "Value": {
+    "Fn::GetAtt": [
+     "UsersTable695FA693",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+   }
+  },
+  "ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3": {
+   "Value": {
+    "Fn::GetAtt": [
+     "RateLimitsTable6BD6DCC2",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+   }
+  },
+  "ExportsOutputRefUsersTable695FA6935A5252E2": {
+   "Value": {
+    "Ref": "UsersTable695FA693"
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputRefUsersTable695FA6935A5252E2"
+   }
+  },
+  "ExportsOutputRefRateLimitsTable6BD6DCC2BDEC0AD2": {
+   "Value": {
+    "Ref": "RateLimitsTable6BD6DCC2"
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputRefRateLimitsTable6BD6DCC2BDEC0AD2"
+   }
+  },
+  "ExportsOutputFnGetAttSyncMetadataTable364BB44CArnF75A8EF2": {
+   "Value": {
+    "Fn::GetAtt": [
+     "SyncMetadataTable364BB44C",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputFnGetAttSyncMetadataTable364BB44CArnF75A8EF2"
+   }
+  },
+  "ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4": {
+   "Value": {
+    "Fn::GetAtt": [
+     "CropsTable7D452D3A",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+   }
+  },
+  "ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA": {
+   "Value": {
+    "Fn::GetAtt": [
+     "TripsTable85604C52",
+     "Arn"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+   }
+  },
+  "ExportsOutputRefSyncMetadataTable364BB44C436F0FCD": {
+   "Value": {
+    "Ref": "SyncMetadataTable364BB44C"
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputRefSyncMetadataTable364BB44C436F0FCD"
+   }
+  },
+  "ExportsOutputRefCropsTable7D452D3A5B667BC5": {
+   "Value": {
+    "Ref": "CropsTable7D452D3A"
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputRefCropsTable7D452D3A5B667BC5"
+   }
+  },
+  "ExportsOutputRefTripsTable85604C52BBFFE27F": {
+   "Value": {
+    "Ref": "TripsTable85604C52"
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-database:ExportsOutputRefTripsTable85604C52BBFFE27F"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,2641 @@
+{
+ "Description": "WeredaConnect dev - Cognito, API Gateway, and Lambda functions",
+ "Resources": {
+  "UserPoolsmsRole4EA729DD": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Condition": {
+        "StringEquals": {
+         "sts:ExternalId": "WeredaConnectdevAPIUserPoolDDBC3B2B"
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "cognito-idp.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Policies": [
+     {
+      "PolicyDocument": {
+       "Statement": [
+        {
+         "Action": "sns:Publish",
+         "Effect": "Allow",
+         "Resource": "*"
+        }
+       ],
+       "Version": "2012-10-17"
+      },
+      "PolicyName": "sns-publish"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/UserPool/smsRole/Resource"
+   }
+  },
+  "UserPool6BA7E5F2": {
+   "Type": "AWS::Cognito::UserPool",
+   "Properties": {
+    "AccountRecoverySetting": {
+     "RecoveryMechanisms": [
+      {
+       "Name": "verified_phone_number",
+       "Priority": 1
+      }
+     ]
+    },
+    "AdminCreateUserConfig": {
+     "AllowAdminCreateUserOnly": false
+    },
+    "AutoVerifiedAttributes": [
+     "phone_number"
+    ],
+    "EmailVerificationMessage": "The verification code to your new account is {####}",
+    "EmailVerificationSubject": "Verify your new account",
+    "MfaConfiguration": "OFF",
+    "Policies": {
+     "PasswordPolicy": {
+      "MinimumLength": 8,
+      "RequireLowercase": true,
+      "RequireNumbers": true,
+      "RequireSymbols": false,
+      "RequireUppercase": false,
+      "TemporaryPasswordValidityDays": 7
+     }
+    },
+    "Schema": [
+     {
+      "Mutable": false,
+      "Name": "phone_number",
+      "Required": true
+     },
+     {
+      "AttributeDataType": "String",
+      "Mutable": true,
+      "Name": "role"
+     },
+     {
+      "AttributeDataType": "String",
+      "Mutable": true,
+      "Name": "woreda"
+     },
+     {
+      "AttributeDataType": "String",
+      "Mutable": true,
+      "Name": "displayName"
+     },
+     {
+      "AttributeDataType": "String",
+      "Mutable": true,
+      "Name": "preferredLanguage"
+     }
+    ],
+    "SmsConfiguration": {
+     "ExternalId": "WeredaConnectdevAPIUserPoolDDBC3B2B",
+     "SnsCallerArn": {
+      "Fn::GetAtt": [
+       "UserPoolsmsRole4EA729DD",
+       "Arn"
+      ]
+     }
+    },
+    "SmsVerificationMessage": "The verification code to your new account is {####}",
+    "UserPoolName": "wereda-connect-dev-users",
+    "UsernameAttributes": [
+     "phone_number"
+    ],
+    "VerificationMessageTemplate": {
+     "DefaultEmailOption": "CONFIRM_WITH_CODE",
+     "EmailMessage": "The verification code to your new account is {####}",
+     "EmailSubject": "Verify your new account",
+     "SmsMessage": "The verification code to your new account is {####}"
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/UserPool/Resource"
+   }
+  },
+  "UserPoolMobileClient046093C2": {
+   "Type": "AWS::Cognito::UserPoolClient",
+   "Properties": {
+    "AccessTokenValidity": 15,
+    "AllowedOAuthFlows": [
+     "implicit",
+     "code"
+    ],
+    "AllowedOAuthFlowsUserPoolClient": true,
+    "AllowedOAuthScopes": [
+     "profile",
+     "phone",
+     "email",
+     "openid",
+     "aws.cognito.signin.user.admin"
+    ],
+    "CallbackURLs": [
+     "https://example.com"
+    ],
+    "ClientName": "wereda-connect-dev-mobile",
+    "ExplicitAuthFlows": [
+     "ALLOW_USER_PASSWORD_AUTH",
+     "ALLOW_USER_SRP_AUTH",
+     "ALLOW_REFRESH_TOKEN_AUTH"
+    ],
+    "IdTokenValidity": 15,
+    "PreventUserExistenceErrors": "ENABLED",
+    "RefreshTokenValidity": 43200,
+    "SupportedIdentityProviders": [
+     "COGNITO"
+    ],
+    "TokenValidityUnits": {
+     "AccessToken": "minutes",
+     "IdToken": "minutes",
+     "RefreshToken": "minutes"
+    },
+    "UserPoolId": {
+     "Ref": "UserPool6BA7E5F2"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/UserPool/MobileClient/Resource"
+   }
+  },
+  "HealthCheckFunctionServiceRole96951447": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HealthCheck/Function/ServiceRole/Resource"
+   }
+  },
+  "HealthCheckFunctionServiceRoleDefaultPolicyE147E3B8": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "HealthCheckFunctionServiceRoleDefaultPolicyE147E3B8",
+    "Roles": [
+     {
+      "Ref": "HealthCheckFunctionServiceRole96951447"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HealthCheck/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "HealthCheckFunctionF1C09D03": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "Health check endpoint",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "FUNCTION_HANDLER": "HealthCheckFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-health",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "HealthCheckFunctionServiceRole96951447",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "HealthCheckFunctionServiceRoleDefaultPolicyE147E3B8",
+    "HealthCheckFunctionServiceRole96951447"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HealthCheck/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "RegisterFunctionServiceRoleB5B71877": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RegisterFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "RegisterFunctionServiceRoleDefaultPolicyCA54C478": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "cognito-idp:SignUp",
+        "cognito-idp:AdminGetUser"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "UserPool6BA7E5F2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "RegisterFunctionServiceRoleDefaultPolicyCA54C478",
+    "Roles": [
+     {
+      "Ref": "RegisterFunctionServiceRoleB5B71877"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RegisterFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "RegisterFunction90ABD515": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /auth/register — user registration with phone OTP",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "COGNITO_USER_POOL_ID": {
+       "Ref": "UserPool6BA7E5F2"
+      },
+      "COGNITO_CLIENT_ID": {
+       "Ref": "UserPoolMobileClient046093C2"
+      },
+      "COGNITO_REGION": "me-south-1",
+      "USERS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefUsersTable695FA6935A5252E2"
+      },
+      "RATE_LIMITS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefRateLimitsTable6BD6DCC2BDEC0AD2"
+      },
+      "FUNCTION_HANDLER": "RegisterFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-auth-register",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "RegisterFunctionServiceRoleB5B71877",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "RegisterFunctionServiceRoleDefaultPolicyCA54C478",
+    "RegisterFunctionServiceRoleB5B71877"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RegisterFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "VerifyOtpFunctionServiceRole9CF6ABF6": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/VerifyOtpFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "VerifyOtpFunctionServiceRoleDefaultPolicy3EC297DD": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "cognito-idp:ConfirmSignUp",
+        "cognito-idp:AdminConfirmSignUp",
+        "cognito-idp:ResendConfirmationCode"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "UserPool6BA7E5F2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "VerifyOtpFunctionServiceRoleDefaultPolicy3EC297DD",
+    "Roles": [
+     {
+      "Ref": "VerifyOtpFunctionServiceRole9CF6ABF6"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/VerifyOtpFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "VerifyOtpFunction10CF7AED": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /auth/verify-otp — confirm phone number with OTP",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "COGNITO_USER_POOL_ID": {
+       "Ref": "UserPool6BA7E5F2"
+      },
+      "COGNITO_CLIENT_ID": {
+       "Ref": "UserPoolMobileClient046093C2"
+      },
+      "COGNITO_REGION": "me-south-1",
+      "USERS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefUsersTable695FA6935A5252E2"
+      },
+      "RATE_LIMITS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefRateLimitsTable6BD6DCC2BDEC0AD2"
+      },
+      "FUNCTION_HANDLER": "VerifyOtpFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-auth-verify-otp",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "VerifyOtpFunctionServiceRole9CF6ABF6",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "VerifyOtpFunctionServiceRoleDefaultPolicy3EC297DD",
+    "VerifyOtpFunctionServiceRole9CF6ABF6"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/VerifyOtpFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "LoginFunctionServiceRoleB105A885": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LoginFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "LoginFunctionServiceRoleDefaultPolicyCC0CD9D5": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttRateLimitsTable6BD6DCC2Arn140EFDE3"
+       }
+      },
+      {
+       "Action": [
+        "cognito-idp:InitiateAuth",
+        "cognito-idp:AdminInitiateAuth",
+        "cognito-idp:RespondToAuthChallenge"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "UserPool6BA7E5F2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "LoginFunctionServiceRoleDefaultPolicyCC0CD9D5",
+    "Roles": [
+     {
+      "Ref": "LoginFunctionServiceRoleB105A885"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LoginFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "LoginFunction2E443A37": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /auth/login — authenticate with phone + password",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "COGNITO_USER_POOL_ID": {
+       "Ref": "UserPool6BA7E5F2"
+      },
+      "COGNITO_CLIENT_ID": {
+       "Ref": "UserPoolMobileClient046093C2"
+      },
+      "COGNITO_REGION": "me-south-1",
+      "USERS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefUsersTable695FA6935A5252E2"
+      },
+      "RATE_LIMITS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefRateLimitsTable6BD6DCC2BDEC0AD2"
+      },
+      "FUNCTION_HANDLER": "LoginFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-auth-login",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "LoginFunctionServiceRoleB105A885",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "LoginFunctionServiceRoleDefaultPolicyCC0CD9D5",
+    "LoginFunctionServiceRoleB105A885"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LoginFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "RefreshFunctionServiceRole15DEB6E1": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RefreshFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "RefreshFunctionServiceRoleDefaultPolicyEA3F52AF": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "cognito-idp:InitiateAuth",
+        "cognito-idp:AdminInitiateAuth"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "UserPool6BA7E5F2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "RefreshFunctionServiceRoleDefaultPolicyEA3F52AF",
+    "Roles": [
+     {
+      "Ref": "RefreshFunctionServiceRole15DEB6E1"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RefreshFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "RefreshFunction05FCF384": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /auth/refresh — refresh access token",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "COGNITO_USER_POOL_ID": {
+       "Ref": "UserPool6BA7E5F2"
+      },
+      "COGNITO_CLIENT_ID": {
+       "Ref": "UserPoolMobileClient046093C2"
+      },
+      "COGNITO_REGION": "me-south-1",
+      "FUNCTION_HANDLER": "RefreshFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-auth-refresh",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "RefreshFunctionServiceRole15DEB6E1",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "RefreshFunctionServiceRoleDefaultPolicyEA3F52AF",
+    "RefreshFunctionServiceRole15DEB6E1"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/RefreshFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "LogoutFunctionServiceRole81417406": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LogoutFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "LogoutFunctionServiceRoleDefaultPolicyAE90960E": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "cognito-idp:GlobalSignOut",
+        "cognito-idp:AdminUserGlobalSignOut"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "UserPool6BA7E5F2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "LogoutFunctionServiceRoleDefaultPolicyAE90960E",
+    "Roles": [
+     {
+      "Ref": "LogoutFunctionServiceRole81417406"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LogoutFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "LogoutFunction24F31F7C": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /auth/logout — global sign-out (protected)",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "COGNITO_USER_POOL_ID": {
+       "Ref": "UserPool6BA7E5F2"
+      },
+      "COGNITO_CLIENT_ID": {
+       "Ref": "UserPoolMobileClient046093C2"
+      },
+      "COGNITO_REGION": "me-south-1",
+      "FUNCTION_HANDLER": "LogoutFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-auth-logout",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "LogoutFunctionServiceRole81417406",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "LogoutFunctionServiceRoleDefaultPolicyAE90960E",
+    "LogoutFunctionServiceRole81417406"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/LogoutFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SyncFunctionServiceRole74D76D98": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/SyncFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "SyncFunctionServiceRoleDefaultPolicy91B0AF39": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttSyncMetadataTable364BB44CArnF75A8EF2"
+       }
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttSyncMetadataTable364BB44CArnF75A8EF2"
+       }
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttUsersTable695FA693ArnE1883C08"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SyncFunctionServiceRoleDefaultPolicy91B0AF39",
+    "Roles": [
+     {
+      "Ref": "SyncFunctionServiceRole74D76D98"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/SyncFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SyncFunction9CE4905E": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "POST /sync — offline-first sync engine batch processor",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "SYNC_METADATA_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefSyncMetadataTable364BB44C436F0FCD"
+      },
+      "CROPS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefCropsTable7D452D3A5B667BC5"
+      },
+      "USERS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefUsersTable695FA6935A5252E2"
+      },
+      "TRIPS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefTripsTable85604C52BBFFE27F"
+      },
+      "FUNCTION_HANDLER": "SyncFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-sync",
+    "Handler": "bootstrap",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "SyncFunctionServiceRole74D76D98",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 30
+   },
+   "DependsOn": [
+    "SyncFunctionServiceRoleDefaultPolicy91B0AF39",
+    "SyncFunctionServiceRole74D76D98"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/SyncFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "CropFunctionServiceRole1634D005": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/CropFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "CropFunctionServiceRoleDefaultPolicy4433C938": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttCropsTable7D452D3AArn4319DDD4"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "CropFunctionServiceRoleDefaultPolicy4433C938",
+    "Roles": [
+     {
+      "Ref": "CropFunctionServiceRole1634D005"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/CropFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "CropFunction3CB51A61": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "GET /crops — browse crop listings (read-only)",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "CROPS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefCropsTable7D452D3A5B667BC5"
+      },
+      "FUNCTION_HANDLER": "CropFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-crops",
+    "Handler": "bootstrap",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "CropFunctionServiceRole1634D005",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "CropFunctionServiceRoleDefaultPolicy4433C938",
+    "CropFunctionServiceRole1634D005"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/CropFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "TripFunctionServiceRoleED8BBA00": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/TripFunction/Function/ServiceRole/Resource"
+   }
+  },
+  "TripFunctionServiceRoleDefaultPolicy057EAA7B": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputFnGetAttTripsTable85604C52ArnAA142CBA"
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "TripFunctionServiceRoleDefaultPolicy057EAA7B",
+    "Roles": [
+     {
+      "Ref": "TripFunctionServiceRoleED8BBA00"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/TripFunction/Function/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "TripFunctionCECE63F7": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-471112574693-me-south-1",
+     "S3Key": "85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d.zip"
+    },
+    "Description": "GET /trips — browse trip listings (read-only)",
+    "Environment": {
+     "Variables": {
+      "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "1",
+      "TRIPS_TABLE": {
+       "Fn::ImportValue": "wereda-connect-dev-database:ExportsOutputRefTripsTable85604C52BBFFE27F"
+      },
+      "FUNCTION_HANDLER": "TripFunction"
+     }
+    },
+    "FunctionName": "wereda-connect-dev-trips",
+    "Handler": "bootstrap",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "TripFunctionServiceRoleED8BBA00",
+      "Arn"
+     ]
+    },
+    "Runtime": "provided.al2023",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "TripFunctionServiceRoleDefaultPolicy057EAA7B",
+    "TripFunctionServiceRoleED8BBA00"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/TripFunction/Function/Resource",
+    "aws:asset:path": "asset.85d2105c8aec8b139f165f398fe2551e572968e69fb3f804b353d188b82b479d",
+    "aws:asset:is-bundled": true,
+    "aws:asset:property": "Code"
+   }
+  },
+  "HttpApiF5A9A8A7": {
+   "Type": "AWS::ApiGatewayV2::Api",
+   "Properties": {
+    "CorsConfiguration": {
+     "AllowHeaders": [
+      "Content-Type",
+      "Authorization"
+     ],
+     "AllowMethods": [
+      "POST",
+      "GET"
+     ],
+     "AllowOrigins": [
+      "*"
+     ]
+    },
+    "Description": "WeredaConnect HTTP API — optimized for Ethiopian context",
+    "Name": "wereda-connect-dev-api",
+    "ProtocolType": "HTTP"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/Resource"
+   }
+  },
+  "HttpApiDefaultStage3EEB07D6": {
+   "Type": "AWS::ApiGatewayV2::Stage",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AutoDeploy": true,
+    "DefaultRouteSettings": {
+     "ThrottlingBurstLimit": 200,
+     "ThrottlingRateLimit": 100
+    },
+    "StageName": "$default"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/DefaultStage/Resource"
+   }
+  },
+  "HttpApiGEThealthHealthIntFD8FC6F5": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "HealthCheckFunctionF1C09D03",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--health/HealthInt/Resource"
+   }
+  },
+  "HttpApiGEThealthHealthIntPermission7025B3BE": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "HealthCheckFunctionF1C09D03",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/health"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--health/HealthInt-Permission"
+   }
+  },
+  "HttpApiGEThealthAB1F4856": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "GET /health",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiGEThealthHealthIntFD8FC6F5"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--health/Resource"
+   }
+  },
+  "HttpApiPOSTauthregisterRegisterInt3A3FE8A1": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "RegisterFunction90ABD515",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--register/RegisterInt/Resource"
+   }
+  },
+  "HttpApiPOSTauthregisterRegisterIntPermission768EBB2F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "RegisterFunction90ABD515",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/auth/register"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--register/RegisterInt-Permission"
+   }
+  },
+  "HttpApiPOSTauthregisterBB9BB35F": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /auth/register",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTauthregisterRegisterInt3A3FE8A1"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--register/Resource"
+   }
+  },
+  "HttpApiPOSTauthverifyotpVerifyOtpInt2A0B0F2B": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "VerifyOtpFunction10CF7AED",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--verify-otp/VerifyOtpInt/Resource"
+   }
+  },
+  "HttpApiPOSTauthverifyotpVerifyOtpIntPermission15C57E2A": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "VerifyOtpFunction10CF7AED",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/auth/verify-otp"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--verify-otp/VerifyOtpInt-Permission"
+   }
+  },
+  "HttpApiPOSTauthverifyotp71A08538": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /auth/verify-otp",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTauthverifyotpVerifyOtpInt2A0B0F2B"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--verify-otp/Resource"
+   }
+  },
+  "HttpApiPOSTauthloginLoginIntD5300D0A": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "LoginFunction2E443A37",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--login/LoginInt/Resource"
+   }
+  },
+  "HttpApiPOSTauthloginLoginIntPermission2F84396E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "LoginFunction2E443A37",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/auth/login"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--login/LoginInt-Permission"
+   }
+  },
+  "HttpApiPOSTauthlogin634C8840": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /auth/login",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTauthloginLoginIntD5300D0A"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--login/Resource"
+   }
+  },
+  "HttpApiPOSTauthrefreshRefreshIntFB446B81": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "RefreshFunction05FCF384",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--refresh/RefreshInt/Resource"
+   }
+  },
+  "HttpApiPOSTauthrefreshRefreshIntPermission45A97F83": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "RefreshFunction05FCF384",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/auth/refresh"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--refresh/RefreshInt-Permission"
+   }
+  },
+  "HttpApiPOSTauthrefreshA8D26950": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /auth/refresh",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTauthrefreshRefreshIntFB446B81"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--refresh/Resource"
+   }
+  },
+  "HttpApiPOSTauthlogoutLogoutInt9A398C15": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "LogoutFunction24F31F7C",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "2.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--logout/LogoutInt/Resource"
+   }
+  },
+  "HttpApiPOSTauthlogoutLogoutIntPermissionA0C2331F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "LogoutFunction24F31F7C",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/auth/logout"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--logout/LogoutInt-Permission"
+   }
+  },
+  "HttpApiPOSTauthlogout0F7EEBA9": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /auth/logout",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTauthlogoutLogoutInt9A398C15"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--auth--logout/Resource"
+   }
+  },
+  "HttpApiPOSTsyncSyncInt0A4B831A": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "SyncFunction9CE4905E",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "1.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--sync/SyncInt/Resource"
+   }
+  },
+  "HttpApiPOSTsyncSyncIntPermission9EA54AFE": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SyncFunction9CE4905E",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/sync"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--sync/SyncInt-Permission"
+   }
+  },
+  "HttpApiPOSTsync9FBFB309": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "POST /sync",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiPOSTsyncSyncInt0A4B831A"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/POST--sync/Resource"
+   }
+  },
+  "HttpApiGETcropsCropsListInt91028FA3": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "CropFunction3CB51A61",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "1.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops/CropsListInt/Resource"
+   }
+  },
+  "HttpApiGETcropsCropsListIntPermissionBF377814": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "CropFunction3CB51A61",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/crops"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops/CropsListInt-Permission"
+   }
+  },
+  "HttpApiGETcrops92E27F5E": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "GET /crops",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiGETcropsCropsListInt91028FA3"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops/Resource"
+   }
+  },
+  "HttpApiGETcropsidCropsGetInt4AB53E74": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "CropFunction3CB51A61",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "1.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops--{id}/CropsGetInt/Resource"
+   }
+  },
+  "HttpApiGETcropsidCropsGetIntPermission52365D8B": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "CropFunction3CB51A61",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/crops/{id}"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops--{id}/CropsGetInt-Permission"
+   }
+  },
+  "HttpApiGETcropsid78933983": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "GET /crops/{id}",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiGETcropsidCropsGetInt4AB53E74"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--crops--{id}/Resource"
+   }
+  },
+  "HttpApiGETtripsTripsListInt5DFC9C3B": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "TripFunctionCECE63F7",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "1.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips/TripsListInt/Resource"
+   }
+  },
+  "HttpApiGETtripsTripsListIntPermission8FB7C7D3": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "TripFunctionCECE63F7",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/trips"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips/TripsListInt-Permission"
+   }
+  },
+  "HttpApiGETtripsED9620D3": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "GET /trips",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiGETtripsTripsListInt5DFC9C3B"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips/Resource"
+   }
+  },
+  "HttpApiGETtripsidTripsGetInt993B02A4": {
+   "Type": "AWS::ApiGatewayV2::Integration",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "IntegrationType": "AWS_PROXY",
+    "IntegrationUri": {
+     "Fn::GetAtt": [
+      "TripFunctionCECE63F7",
+      "Arn"
+     ]
+    },
+    "PayloadFormatVersion": "1.0"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips--{id}/TripsGetInt/Resource"
+   }
+  },
+  "HttpApiGETtripsidTripsGetIntPermissionB3769F9F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "TripFunctionCECE63F7",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:me-south-1:471112574693:",
+       {
+        "Ref": "HttpApiF5A9A8A7"
+       },
+       "/*/*/trips/{id}"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips--{id}/TripsGetInt-Permission"
+   }
+  },
+  "HttpApiGETtripsidCBB2AFD5": {
+   "Type": "AWS::ApiGatewayV2::Route",
+   "Properties": {
+    "ApiId": {
+     "Ref": "HttpApiF5A9A8A7"
+    },
+    "AuthorizationType": "NONE",
+    "RouteKey": "GET /trips/{id}",
+    "Target": {
+     "Fn::Join": [
+      "",
+      [
+       "integrations/",
+       {
+        "Ref": "HttpApiGETtripsidTripsGetInt993B02A4"
+       }
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/HttpApi/GET--trips--{id}/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/12PQWvDMAyFf0vvjhbSS69tYWynhYyei+p4QY1jh0huKSb/fXZCRxkY3veeLMuqoNruoNzgnQvd9oWlC8RvQd2rFJ2j9p0j8RBPbKbae6uOP+6Pn3C0ZJy8ltZkVoQDxMZbk4uL1t6SfmS70qwsDpcWIb4Hp4W8y7VXrs00EHNys+LtGZmNMOyzJA+HoHsjB2SjcKQOxdzxcasgfoiM+5HyE1myTZt1y1dWyFHjg6z06cR0Ez7H/rPLvXlWy9zcTq7L+VeQMaRNnW8NXPntVpWQTrm5MlExBSc0GGhW/QWjJ/e2bwEAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-API/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "ApiUrl": {
+   "Description": "API Gateway URL",
+   "Value": {
+    "Fn::GetAtt": [
+     "HttpApiF5A9A8A7",
+     "ApiEndpoint"
+    ]
+   }
+  },
+  "UserPoolId": {
+   "Description": "Cognito User Pool ID",
+   "Value": {
+    "Ref": "UserPool6BA7E5F2"
+   }
+  },
+  "UserPoolClientId": {
+   "Description": "Cognito App Client ID",
+   "Value": {
+    "Ref": "UserPoolMobileClient046093C2"
+   }
+  },
+  "ExportsOutputFnGetAttHttpApiF5A9A8A7ApiEndpoint082134F8": {
+   "Value": {
+    "Fn::GetAtt": [
+     "HttpApiF5A9A8A7",
+     "ApiEndpoint"
+    ]
+   },
+   "Export": {
+    "Name": "wereda-connect-dev-api:ExportsOutputFnGetAttHttpApiF5A9A8A7ApiEndpoint082134F8"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

@@ -34,6 +34,12 @@ public class SyncFunction
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tripsTable;
 
+    private static readonly HashSet<string> AllowedCropFields = new()
+    {
+        "farmerId", "cropType", "quantity", "pricePerKg",
+        "latitude", "longitude", "description", "status", "woreda"
+    };
+
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "fromWoreda", "toWoreda",
@@ -109,9 +115,21 @@ public class SyncFunction
         }
 
         // Extract authenticated user ID from API Gateway authorizer context
-        var authenticatedUserId = request.RequestContext?.Authorizer?.ContainsKey("userId") == true
-            ? request.RequestContext.Authorizer["userId"]?.ToString()
-            : null;
+        // JWT authorizer: Cognito `sub` claim is spread into authorizer dict
+        string? authenticatedUserId = null;
+        var authorizer = request.RequestContext?.Authorizer;
+        if (authorizer != null)
+        {
+            if (authorizer.ContainsKey("sub"))
+                authenticatedUserId = authorizer["sub"]?.ToString();
+            else if (authorizer.ContainsKey("userId"))
+                authenticatedUserId = authorizer["userId"]?.ToString();
+        }
+
+        if (string.IsNullOrEmpty(authenticatedUserId))
+        {
+            return LambdaResponse.Error(401, "UNAUTHORIZED", "Authentication required.");
+        }
 
         // Process each operation independently
         var results = new List<SyncOperationResult>();
@@ -185,7 +203,7 @@ public class SyncFunction
             // 2. Route to entity handler
             var result = operation.EntityType switch
             {
-                "crop_listing" => await ProcessCropListingAsync(operation, context),
+                "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, context),
                 "trip" => await ProcessTripAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
@@ -227,6 +245,7 @@ public class SyncFunction
     /// </summary>
     private async Task<SyncOperationResult> ProcessCropListingAsync(
         SyncOperationRequest operation,
+        string? authenticatedUserId,
         ILambdaContext context)
     {
         switch (operation.Action)
@@ -240,6 +259,32 @@ public class SyncFunction
                         OperationId = operation.OperationId,
                         Status = "error",
                         Message = "Create operation requires data payload."
+                    };
+                }
+
+                // Validate farmerId matches authenticated user
+                if (!operation.Data.TryGetValue("farmerId", out var farmerIdObj)
+                    || farmerIdObj?.ToString() != authenticatedUserId)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = "CROP_UNAUTHORIZED: farmerId must match authenticated user."
+                    };
+                }
+
+                // Field whitelist — reject unknown fields
+                var unknownCreateFields = operation.Data.Keys
+                    .Where(k => !AllowedCropFields.Contains(k) && k != "version")
+                    .ToList();
+                if (unknownCreateFields.Count > 0)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownCreateFields)}"
                     };
                 }
 
@@ -281,6 +326,43 @@ public class SyncFunction
                         OperationId = operation.OperationId,
                         Status = "error",
                         Message = "Update operation requires data payload."
+                    };
+                }
+
+                // Validate ownership — fetch existing item
+                var existingForUpdate = await _cropRepo.GetByIdAsync(operation.EntityId);
+                if (existingForUpdate == null)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = "Crop listing not found."
+                    };
+                }
+
+                if (!existingForUpdate.TryGetValue("farmerId", out var updateFarmerId)
+                    || updateFarmerId?.ToString() != authenticatedUserId)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = "CROP_UNAUTHORIZED: You can only update your own crop listings."
+                    };
+                }
+
+                // Field whitelist — reject unknown fields
+                var unknownUpdateFields = operation.Data.Keys
+                    .Where(k => !AllowedCropFields.Contains(k) && k != "version")
+                    .ToList();
+                if (unknownUpdateFields.Count > 0)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownUpdateFields)}"
                     };
                 }
 
@@ -333,6 +415,29 @@ public class SyncFunction
                 if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                 {
                     _ = int.TryParse(vObj.ToString(), out clientVersion);
+                }
+
+                // Validate ownership
+                var existingForDelete = await _cropRepo.GetByIdAsync(operation.EntityId);
+                if (existingForDelete == null)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = "Crop listing not found."
+                    };
+                }
+
+                if (!existingForDelete.TryGetValue("farmerId", out var deleteFarmerId)
+                    || deleteFarmerId?.ToString() != authenticatedUserId)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
+                    };
                 }
 
                 var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);

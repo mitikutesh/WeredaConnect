@@ -1,0 +1,36 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6": {
+      "displayName": "WeredaConnect-dev-Database/Custom::S3AutoDeleteObjectsCustomResourceProvider Code",
+      "source": {
+        "path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "471112574693-me-south-1-519884fd": {
+          "bucketName": "cdk-hnb659fds-assets-471112574693-me-south-1",
+          "objectKey": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip",
+          "region": "me-south-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::471112574693:role/cdk-hnb659fds-file-publishing-role-471112574693-me-south-1"
+        }
+      }
+    },
+    "83ae8cf3214a43309d3263d80292a75d0bcfe6015daef16a53a6b0d1e16f20da": {
+      "displayName": "wereda-connect-dev-database Template",
+      "source": {
+        "path": "WeredaConnect-dev-Database.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "471112574693-me-south-1-1b0671ff": {
+          "bucketName": "cdk-hnb659fds-assets-471112574693-me-south-1",
+          "objectKey": "83ae8cf3214a43309d3263d80292a75d0bcfe6015daef16a53a6b0d1e16f20da.json",
+          "region": "me-south-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::471112574693:role/cdk-hnb659fds-file-publishing-role-471112574693-me-south-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

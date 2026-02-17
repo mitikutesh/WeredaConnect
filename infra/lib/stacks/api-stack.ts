@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -224,6 +225,11 @@ export class ApiStack extends cdk.Stack {
 
     this.httpApiUrl = httpApi.apiEndpoint;
 
+    // ─── JWT Authorizer ──────────────────────────────────────────────
+    const jwtAuthorizer = new HttpUserPoolAuthorizer('CognitoAuthorizer', this.userPool, {
+      userPoolClients: [this.userPoolClient],
+    });
+
     // ─── Routes ──────────────────────────────────────────────────────
 
     httpApi.addRoutes({
@@ -259,12 +265,14 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: '/auth/logout',
       methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration('LogoutInt', logoutFn.function),
     });
 
     httpApi.addRoutes({
       path: '/sync',
       methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration('SyncInt', syncFn.function, {
         payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
       }),
