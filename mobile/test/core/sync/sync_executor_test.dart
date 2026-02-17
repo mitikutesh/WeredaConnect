@@ -75,6 +75,7 @@ void main() {
       syncQueue = SyncQueue(isar);
 
       fakeSource = FakeConnectivitySource();
+      fakeSource.currentResults = [ConnectivityResult.wifi];
       dio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
       dioAdapter = DioAdapter(dio: dio);
       connectivityMonitor = ConnectivityMonitor(

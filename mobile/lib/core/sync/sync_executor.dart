@@ -274,6 +274,13 @@ class SyncExecutor {
     var aggregated = const SyncBatchResult.empty();
 
     try {
+      // Quick check: if OS reports no network, skip the expensive HTTP call
+      if (!await _connectivityMonitor.isConnected()) {
+        const result = SyncBatchResult.noInternet();
+        _resultController.add(result);
+        return result;
+      }
+
       // Verify actual internet access (ping /health)
       final hasInternet = await _connectivityMonitor.hasInternetAccess();
       if (!hasInternet) {

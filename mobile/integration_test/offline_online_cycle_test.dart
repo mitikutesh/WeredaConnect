@@ -79,8 +79,8 @@ void main() {
       );
 
       expect(listing.listingId, isNotEmpty);
-      expect(listing.status, ListingStatus.draft);
-      expect(listing.version, 0); // Offline version
+      expect(listing.status, ListingStatus.active);
+      expect(listing.version, 1); // Initial version from repository
 
       // Verify operation queued for sync
       final pendingOps = await syncQueue.getPendingOperations();
