@@ -23,7 +23,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Verify dependencies
         working-directory: mobile
@@ -76,7 +80,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ninja-build libgtk-3-dev xvfb libsecret-1-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev xvfb libsecret-1-dev gnome-keyring dbus-x11
 
       - name: Enable Linux desktop
         working-directory: mobile
@@ -88,15 +92,36 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile
         run: flutter pub run build_runner build --delete-conflicting-outputs
 
+      - name: Start D-Bus session and unlock keyring
+        run: |
+          eval $(dbus-launch --sh-syntax)
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          echo -n "" | gnome-keyring-daemon --unlock --components=secrets
+
       - name: Run integration tests on Linux with virtual display
         working-directory: mobile
-        run: xvfb-run -a flutter test integration_test/ -d linux --reporter expanded
+        run: |
+          EXIT_CODE=0
+          for test_file in integration_test/*_test.dart; do
+            # Skip manual stress test (not for CI)
+            if echo "$test_file" | grep -q "manual_stress_test"; then
+              echo "=== Skipping: $test_file (manual only) ==="
+              continue
+            fi
+            echo "=== Running: $test_file ==="
+            xvfb-run -a flutter test "$test_file" -d linux --reporter expanded || EXIT_CODE=1
+          done
+          exit $EXIT_CODE
 
   build-apk:
     name: Build APK (Debug)
@@ -134,7 +159,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile
@@ -169,7 +198,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile

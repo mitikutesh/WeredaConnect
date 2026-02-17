@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -11,7 +11,14 @@
 
 ## Overview
 
-The sync protocol enables offline-first operation. The mobile client queues all write operations locally and syncs them to the server when connectivity is available. The server resolves conflicts using version numbers and returns the authoritative state.
+The sync protocol enables offline-first operation for WeredaConnect's Ethiopian rural users operating on intermittent 3G connectivity. The mobile client queues all write operations locally (in Isar database) and syncs them to the server when connectivity is available. The server resolves conflicts using version numbers and returns the authoritative state.
+
+**Key Features**:
+- **Idempotency**: Prevents duplicate operations on retry using composite idempotency keys
+- **Conflict Resolution**: Server-wins strategy with automatic local updates
+- **Exponential Backoff**: Retry failed operations at 5s, 15s, 45s intervals
+- **Batch Processing**: Process up to 50 operations per sync request
+- **7-Day TTL**: Idempotency keys expire after 7 days to prevent unbounded storage
 
 ---
 
@@ -40,10 +47,21 @@ The sync protocol enables offline-first operation. The mobile client queues all 
 
 **Field Rules:**
 - `syncBatchId` — unique per sync attempt; used for batch-level idempotency
-- `idempotencyKey` — unique per logical operation; prevents duplicate processing on retry
+- `idempotencyKey` — **composite key format**: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` (prevents duplicate processing on retry)
 - `clientVersion` — the version the client had when making the change
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+
+**Idempotency Key Format**:
+```
+{userId}:{entityType}:{entityId}:{action}:{timestamp}
+```
+Example: `farmer-123:crop_listing:crop-456:create:1707998400000`
+
+This format ensures:
+- **User isolation**: Different users can create entities with the same ID
+- **Action uniqueness**: Create vs. update vs. delete are distinct operations
+- **Timestamp precision**: Millisecond-level granularity prevents collisions
 
 ---
 
@@ -75,20 +93,49 @@ The sync protocol enables offline-first operation. The mobile client queues all 
 
 ## Conflict Resolution Rules
 
+**Strategy**: Server Wins (implemented in Phase R3)
+
 1. **Version wins, not timestamp.** Compare `clientVersion` against the server's current version. Timestamps are informational only.
-2. **Server is authoritative.** On conflict, the server returns its state. The client must accept it or re-submit with the updated version.
+2. **Server is authoritative.** On conflict, the server returns its state. The client **automatically accepts** the server version and updates the local Isar database.
 3. **Last-write-wins within same version.** If `clientVersion` equals server version, the operation is applied (optimistic concurrency).
 4. **Client behind = conflict.** If `clientVersion < serverVersion`, return `conflict` with the server's current data.
 5. **Deletes are soft.** Deleted entities are marked with a `deletedAt` timestamp, not physically removed. This prevents sync issues with other clients that haven't synced yet.
+
+### Client-Side Conflict Resolution (Mobile)
+
+When the client receives `status: "conflict"`:
+
+1. **Parse server data**: Extract `serverData` and `serverVersion` from response
+2. **Update local entity**: Replace local Isar record with server data
+3. **Update version**: Set local version to `serverVersion` to prevent future conflicts
+4. **Mark as synced**: Operation is marked as `synced`, not `failed` (conflict is resolved, not an error)
+5. **No user intervention**: For MVP, conflicts resolve automatically without UI notification
+
+**Rationale**:
+- Solo farmers rarely have conflicts (one user per device)
+- Automatic resolution prevents confusing users with technical merge dialogs
+- Future phases can add merge strategies for specific fields (e.g., combine descriptions)
 
 ---
 
 ## Idempotency Key Conventions
 
-1. **One key per logical operation.** If the user creates a report, that gets one idempotency key — even if the sync retries 10 times.
-2. **Keys are UUIDv4.** Generated client-side at the time of the user action, NOT at sync time.
-3. **Server checks before processing.** On receiving an operation, the server looks up the idempotency key. If found, return the stored result without re-processing.
-4. **Keys expire after 7 days.** After 7 days, the server may discard the idempotency record. Clients should not retry operations older than 7 days.
+1. **One key per logical operation.** If the user creates a crop listing, that gets one idempotency key — even if the sync retries 10 times.
+2. **Keys are composite strings.** Format: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`. Generated client-side at the time of the user action, NOT at sync time.
+3. **Server checks before processing.** On receiving an operation, the server looks up the idempotency key in the `SyncMetadata` DynamoDB table. If found, return the stored result without re-processing.
+4. **Keys expire after 7 days.** DynamoDB TTL automatically deletes idempotency records after 7 days. Clients should not retry operations older than 7 days.
+
+### SyncMetadata Table Schema (DynamoDB)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `idempotencyKey` | String (PK) | Composite key: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` |
+| `timestamp` | Number (SK) | Unix timestamp (milliseconds) when operation was processed |
+| `operationId` | String | Client-generated UUID for the sync operation |
+| `result` | String | JSON-encoded sync result (for returning on duplicate requests) |
+| `expiresAt` | Number (TTL) | Unix timestamp when this record should be deleted (7 days from creation) |
+
+**Performance**: With composite keys including userId, the table naturally partitions across users, preventing hot partition issues.
 
 ---
 
@@ -118,13 +165,64 @@ These rules must always hold:
 
 ---
 
+## Retry Logic and Exponential Backoff
+
+**Client-Side Retry Strategy** (implemented in `SyncExecutor`):
+
+| Attempt | Delay | Action |
+|---------|-------|--------|
+| 1 | Immediate | First sync attempt |
+| 2 | 5 seconds | Retry after transient failure |
+| 3 | 15 seconds | Retry with increased backoff |
+| 4 | 45 seconds | Final retry attempt |
+| 5+ | Permanent failure | Mark operation as `failed`, require manual intervention |
+
+**When to Retry**:
+- Network errors (timeout, connection refused, DNS failure)
+- 5xx server errors (500, 502, 503, 504)
+- 429 Too Many Requests (rate limiting)
+
+**When NOT to Retry**:
+- 400 Bad Request (validation error) → Mark as `failed`, requires data fix
+- 401 Unauthorized → Refresh auth token, then retry
+- 409 Conflict → Resolve conflict, mark as `synced` (not retry)
+- 422 Unprocessable Entity → Mark as `failed`, requires data fix
+
+**Retry State Management**:
+- `retryCount` field in `SyncOperation` entity tracks attempts
+- Max retries: 3 (configurable in `SyncExecutor`)
+- Failed operations remain in queue for manual inspection
+
+---
+
 ## Data Transfer Optimization
 
-Given Ethiopian mobile data costs:
-1. **Compress payloads.** Use gzip for request/response bodies over 1KB.
-2. **Delta sync.** Only send changed fields in `data`, not full entities.
-3. **Batch operations.** Group pending operations into a single HTTP request.
-4. **Pagination.** Server responses with >50 conflict resolutions use pagination.
+Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/month):
+
+1. **Compress payloads.** Use gzip for request/response bodies over 1KB (implemented in Dio interceptor).
+2. **Delta sync.** Only send changed fields in `data`, not full entities (future optimization).
+3. **Batch operations.** Group up to 50 pending operations into a single HTTP request (implemented in `SyncExecutor`).
+4. **Pagination.** Server responses with >50 results use base64-encoded `nextToken` for continuation.
+5. **Minimize metadata.** Keep field names short (e.g., `ver` instead of `version`) in JSON payloads.
+6. **Background sync only on WiFi.** Option in app settings to restrict automatic sync to WiFi connections.
+
+---
+
+## Implementation Status
+
+**Phase R3 (Complete)**:
+- ✅ Idempotency tracking with composite keys
+- ✅ Server-wins conflict resolution
+- ✅ Exponential backoff retry logic
+- ✅ Batch processing (up to 50 operations)
+- ✅ 7-day TTL on SyncMetadata table
+- ✅ Integration tests validating sync protocol
+
+**Future Phases**:
+- ⏳ Delta sync (only send changed fields)
+- ⏳ gzip compression for payloads >1KB
+- ⏳ User-controlled merge strategies for conflicts
+- ⏳ WiFi-only sync option in settings
 
 ---
 
@@ -132,9 +230,10 @@ Given Ethiopian mobile data costs:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-02-15 | Added: Composite idempotency key format, server-wins conflict resolution details, exponential backoff retry logic, SyncMetadata table schema, implementation status |
 | 1.0.0 | 2026-02-09 | Initial contract: sync request/response, conflict resolution, idempotency |
 
 ---
 
-**Last Updated**: 2026-02-09
-**Version**: 1.0.0
+**Last Updated**: 2026-02-15
+**Version**: 1.1.0

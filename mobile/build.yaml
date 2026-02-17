@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      isar_generator|isar_generator:
+        generate_for:
+          include:
+            - lib/core/database/schemas/*.dart

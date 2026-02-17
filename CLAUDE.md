@@ -55,11 +55,9 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 ## AI Agent Guidelines
 
 ### Before Making Changes
-1. **Read** `docs/project-background.md` for product definition
-2. **Read** `STATE.md` to understand current context
-3. **Check** `TASK.md` for active priorities
-4. **Verify** `.ai/standards.md` for coding patterns
-5. **Consult** `docs/local_reality/` for domain constraints
+1. **Read** `.ai/quick-start.md` — constraints, navigation, patterns
+2. **Read** `STATE.md` → `TASK.md` — current context and priorities
+3. **Read** the relevant contract in `specs/contracts/` if working on an API
 
 ### When Proposing Solutions
 - **Ask** before installing dependencies
@@ -67,54 +65,13 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 - **Validate** against offline-first requirements
 - **Document** decisions in appropriate spec files
 
-### Multi-Agent Conflict Prevention
+### Scope & Ownership
 
-When multiple AI agents or sequential sessions work on this repo, follow these 6 rules to prevent conflicts:
-
-1. **Check ownership first.** Before editing any file, consult `.ai/ownership.md`. If the file isn't in your scope's owned paths, don't touch it — create a task for the owning scope instead.
-2. **Claim before you work.** Before starting a task, add your `@Scope` tag in `TASK.md` and commit the claim. See `.agents/task-protocol.md`.
-3. **Read contracts, not source.** When implementing a cross-module interface (e.g., mobile calling server), reference `specs/contracts/` — not the other module's source code. Contracts are the single source of truth for shared interfaces.
-4. **Branch per scope.** Use `<scope>/<description>` branch naming (e.g., `mobile/add-crop-listing`). One scope per branch. See `.agents/branch-protocol.md`.
-5. **Never modify shared files without protocol.** `CLAUDE.md`, `specs/contracts/`, and `.ai/` files require Architect scope. Propose changes via `TASK.md`.
-6. **Document, don't assume.** If you make a decision that affects another scope, write it down in `specs/` or `TASK.md`. Silent assumptions cause conflicts.
+Before editing files, check `.ai/ownership.md` for scope boundaries. Use `specs/contracts/` (not source code) as the single source of truth for cross-module interfaces.
 
 ### Git Commit Messages
 
-All commits **must** follow [Conventional Commits](https://www.conventionalcommits.org/).
-
-**Format:**
-```
-<type>(<scope>): <subject>
-
-[optional body]
-
-[optional footer]
-```
-
-**Rules:**
-- **Subject line**: imperative mood, lowercase, no period, max 72 characters
-- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`, `perf`, `build`
-- **Scopes**: `mobile`, `server`, `infra`, `docs`, `l10n`, `sync`, `escrow`, `auth`
-- **Body**: explain *what* and *why* (not how), wrap at 72 characters
-- **Footer**: reference issues (`Closes #123`), note breaking changes (`BREAKING CHANGE:`)
-- **Breaking changes**: add `!` after type/scope — `feat(server)!: change sync protocol`
-
-**Examples:**
-```
-feat(mobile): add voice-to-text crop listing in Amharic
-fix(sync): resolve conflict when offline queue has duplicate entries
-docs(specs): add ADR for Telebirr escrow flow
-chore(infra): update Lambda memory to 512MB
-refactor(server): extract escrow validation into service layer
-test(mobile): add offline sync queue retry tests
-ci: add AOT compliance check to PR workflow
-```
-
-**Forbidden:**
-- Generic messages: `fix bug`, `update code`, `WIP`, `misc changes`
-- Missing type/scope: `add new feature`
-- Future tense: `will add` (use imperative: `add`)
-- Past tense: `added feature` (use imperative: `add feature`)
+Follow [Conventional Commits](https://www.conventionalcommits.org/). Full rules and examples in `.ai/standards.md`.
 
 ### Session Handoffs
 - **Update** `STATE.md` before token limits
@@ -148,13 +105,6 @@ A feature is "done" when:
 - ✅ Documented in `specs/` with context
 - ✅ Passes security threat model review
 
-## Living Document
-
-This constitution evolves with the project. Update it when:
-- Core assumptions change (e.g., new target market)
-- Technical constraints shift (e.g., .NET version upgrade)
-- Lessons learned from production incidents
-
-**Last Updated**: 2026-02-09  
-**Version**: 1.0.0
+**Last Updated**: 2026-02-16
+**Version**: 2.0.0
 

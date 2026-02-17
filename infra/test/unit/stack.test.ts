@@ -19,8 +19,8 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates four DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 4);
+  test('creates seven DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 7);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -55,6 +55,9 @@ describe('ApiStack', () => {
       cropsTable: dbStack.cropsTable,
       tripsTable: dbStack.tripsTable,
       rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -77,17 +80,25 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
   });
 
-  test('creates six Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 6);
+  test('creates nine Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 9);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
     });
   });
 
-  test('creates API Gateway routes for auth endpoints', () => {
-    // 6 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
+  test('creates API Gateway routes for all endpoints', () => {
+    // 11 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout,
+    //            /sync, /crops, /crops/{id}, /trips, /trips/{id}
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
+  });
+
+  test('creates JWT authorizer for protected routes', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 1);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+      AuthorizerType: 'JWT',
+    });
   });
 });
 

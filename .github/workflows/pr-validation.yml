@@ -132,7 +132,15 @@ jobs:
 
       - name: Get mobile dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
+
+      - name: Run code generation
+        working-directory: mobile
+        run: flutter pub run build_runner build --delete-conflicting-outputs
 
       - name: Run E2E tests with Maestro
         working-directory: mobile

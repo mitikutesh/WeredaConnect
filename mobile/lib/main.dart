@@ -1,24 +1,35 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
-import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
+import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize API client before AuthBloc creation
-  ApiClient().initialize(ApiConfig.baseUrl);
+  ApiClient().initialize();
 
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
   await IsarService.instance.initialize();
+
+  // Initialize language provider and load saved language preference
+  final languageProvider = LanguageProvider();
+  await languageProvider.initialize();
 
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
@@ -42,7 +53,12 @@ Future<void> main() async {
   // Add lifecycle observer for resource cleanup
   WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
 
-  runApp(const WeredaConnectApp());
+  runApp(
+    ChangeNotifierProvider.value(
+      value: languageProvider,
+      child: const WeredaConnectApp(),
+    ),
+  );
 }
 
 /// Manages app lifecycle to optimize memory usage on low-end devices
@@ -63,25 +79,54 @@ class WeredaConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<AuthBloc>(
-      create: (_) => AuthBloc()..add(const AuthCheckRequested()),
-      child: MaterialApp(
-        title: 'WeredaConnect',
-
-        // Localization - delegates and locales defined in generated l10n code
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-
-        // Theme
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.green,
-          ),
-          useMaterial3: true,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>(
+          create: (_) => AuthBloc()..add(const AuthCheckRequested()),
         ),
+        BlocProvider<OnboardingBloc>(
+          create: (_) => OnboardingBloc(),
+        ),
+        BlocProvider<CropListingBloc>(
+          create: (_) => CropListingBloc(
+            repository: CropListingRepository(
+              isar: IsarService.instance.db,
+              syncQueue: SyncQueue(IsarService.instance.db),
+            ),
+          ),
+        ),
+      ],
+      child: Consumer<LanguageProvider>(
+        builder: (context, languageProvider, child) {
+          return MaterialApp(
+            title: 'WeredaConnect',
 
-        // Auth gate handles routing based on authentication state
-        home: const AuthGate(),
+            // Localization - use dynamic locale from provider
+            locale: languageProvider.locale,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: const [
+              Locale('en'), // English
+              Locale('am'), // Amharic (app text + English Material widgets)
+              Locale('om'), // Afan Oromo (app text + English Material widgets)
+            ],
+
+            // Theme
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: Colors.green,
+              ),
+              useMaterial3: true,
+            ),
+
+            // Auth gate handles routing based on authentication state
+            home: const AuthGate(),
+          );
+        },
       ),
     );
   }

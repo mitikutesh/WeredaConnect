@@ -9,10 +9,28 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "CropsTable7D452D3A",
       },
     },
+    "DeliveriesTableName": {
+      "Description": "DynamoDB Deliveries Table",
+      "Value": {
+        "Ref": "DeliveriesTableAC65D7AE",
+      },
+    },
+    "PaymentsTableName": {
+      "Description": "DynamoDB Payments Table",
+      "Value": {
+        "Ref": "PaymentsTableE037B168",
+      },
+    },
     "RateLimitsTableName": {
       "Description": "DynamoDB Rate Limits Table",
       "Value": {
         "Ref": "RateLimitsTable6BD6DCC2",
+      },
+    },
+    "SyncMetadataTableName": {
+      "Description": "DynamoDB SyncMetadata Table",
+      "Value": {
+        "Ref": "SyncMetadataTable364BB44C",
       },
     },
     "TripsTableName": {
@@ -54,8 +72,30 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "createdAt",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "StatusCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
         "KeySchema": [
           {
             "AttributeName": "cropId",
@@ -130,6 +170,170 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       },
       "Type": "AWS::IAM::Role",
     },
+    "DeliveriesTableAC65D7AE": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "deliveryId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "tripId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "listingId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "confirmedAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "ListingIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "listingId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "StatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "confirmedAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "deliveryId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "tripId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-deliveries",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "PaymentsTableE037B168": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "paymentId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "deliveryId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "escrowedAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "FarmerIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "StatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "escrowedAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "paymentId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "deliveryId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-payments",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "RateLimitsTable6BD6DCC2": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -166,6 +370,42 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "SyncMetadataTable364BB44C": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "idempotencyKey",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "idempotencyKey",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-sync-metadata",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "TripsTable85604C52": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -178,8 +418,34 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "createdAt",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "departureDate",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "StatusDepartureDateIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "departureDate",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
         "KeySchema": [
           {
             "AttributeName": "tripId",

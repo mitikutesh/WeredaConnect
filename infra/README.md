@@ -1,7 +1,8 @@
-# ☁️ WeredaConnect Infrastructure
+# WeredaConnect Infrastructure
 
-## Overview
-AWS CDK (Cloud Development Kit) infrastructure as code for WeredaConnect. Defines all AWS resources using TypeScript for type safety and reusability.
+AWS CDK (TypeScript) infrastructure as code for WeredaConnect. Defines all AWS resources with type safety and reusability.
+
+> **Setup instructions**: See `docs/developer/getting-started.md`
 
 ---
 
@@ -23,103 +24,54 @@ infra/
 │       └── prod.ts
 ├── bin/
 │   └── app.ts            # CDK app entry point
-├── test/                 # Infrastructure tests
-└── README.md             # This file
+└── test/                 # Infrastructure tests
 ```
 
 ---
 
-## Getting Started
+## AWS Services
 
-### Prerequisites
-- Node.js 20.x LTS
-- AWS CLI configured
-- AWS CDK CLI: `npm install -g aws-cdk`
-- AWS account with appropriate permissions
-
-### Setup
-```bash
-# Install dependencies
-npm install
-
-# Bootstrap CDK (first time only)
-cdk bootstrap
-
-# Synthesize CloudFormation template
-cdk synth
-
-# Deploy to dev environment
-cdk deploy --context env=dev
-
-# Deploy all stacks
-cdk deploy --all
-```
-
----
-
-## Key Technologies
-
-### Infrastructure as Code
-- **AWS CDK**: TypeScript-based IaC
-- **CloudFormation**: Underlying deployment engine
-
-### AWS Services
-
-#### Compute
-- **Lambda**: Serverless functions (.NET 10 AOT, ARM64)
-- **API Gateway**: HTTP API (cheaper than REST API)
-
-#### Storage
-- **DynamoDB**: NoSQL database (on-demand billing)
-- **S3**: Object storage for user uploads
-- **CloudFront**: CDN for static assets
-
-#### Networking
-- **Route 53**: DNS management
-- **ACM**: SSL/TLS certificates
-
-#### Monitoring
-- **CloudWatch**: Logs, metrics, alarms
-- **X-Ray**: Distributed tracing (optional)
+| Category | Service | Notes |
+|----------|---------|-------|
+| Compute | Lambda (.NET 10 AOT, ARM64) | 20% cheaper than x86 |
+| API | API Gateway (HTTP API) | 70% cheaper than REST API |
+| Database | DynamoDB (on-demand billing) | Scale to zero |
+| Storage | S3 + CloudFront CDN | Static assets |
+| DNS/TLS | Route 53 + ACM | SSL certificates |
+| Monitoring | CloudWatch + X-Ray (optional) | Logs, metrics, alarms |
 
 ---
 
 ## Architecture Patterns
 
-### 1. Cost-Optimized Lambda
+### Cost-Optimized Lambda
 ```typescript
 new Function(this, 'ApiFunction', {
   runtime: Runtime.DOTNET_10,
-  architecture: Architecture.ARM_64, // 20% cheaper than x86
-  memorySize: 512, // Start small, scale if needed
+  architecture: Architecture.ARM_64,
+  memorySize: 512,
   timeout: Duration.seconds(10),
-  reservedConcurrentExecutions: 5, // Prevent runaway costs
-  environment: {
-    POWERTOOLS_SERVICE_NAME: 'wereda-api',
-  },
+  reservedConcurrentExecutions: 5,  // prevent runaway costs
 });
 ```
 
-### 2. DynamoDB with On-Demand Billing
+### DynamoDB On-Demand
 ```typescript
 new Table(this, 'ReportsTable', {
   partitionKey: { name: 'id', type: AttributeType.STRING },
   sortKey: { name: 'createdAt', type: AttributeType.NUMBER },
-  billingMode: BillingMode.PAY_PER_REQUEST, // No provisioned capacity
-  pointInTimeRecovery: true, // Backup
+  billingMode: BillingMode.PAY_PER_REQUEST,
+  pointInTimeRecovery: true,
   encryption: TableEncryption.AWS_MANAGED,
 });
 ```
 
-### 3. API Gateway with Throttling
+### API Gateway with Throttling
 ```typescript
 new HttpApi(this, 'Api', {
-  defaultThrottle: {
-    rateLimit: 100, // Requests per second
-    burstLimit: 200, // Burst capacity
-  },
+  defaultThrottle: { rateLimit: 100, burstLimit: 200 },
   corsPreflight: {
-    allowOrigins: ['*'], // Restrict in production
+    allowOrigins: ['*'],  // restrict in production
     allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST],
   },
 });
@@ -127,212 +79,57 @@ new HttpApi(this, 'Api', {
 
 ---
 
-## Environment Configuration
+## Deployment Commands
 
-### Development
-- **Purpose**: Local testing, rapid iteration
-- **Cost**: Minimal (on-demand resources)
-- **Data**: Synthetic test data
-
-### Staging
-- **Purpose**: Pre-production validation
-- **Cost**: Low (similar to dev)
-- **Data**: Anonymized production-like data
-
-### Production
-- **Purpose**: Live user traffic
-- **Cost**: Optimized for low traffic
-- **Data**: Real user data (encrypted)
-
----
-
-## Deployment
-
-### Deploy to Dev
 ```bash
-cdk deploy --context env=dev
-```
-
-### Deploy to Staging
-```bash
-cdk deploy --context env=staging
-```
-
-### Deploy to Production
-```bash
-# Requires manual approval
-cdk deploy --context env=prod --require-approval broadening
-```
-
-### Destroy Environment
-```bash
-# ⚠️ DANGEROUS: Deletes all resources
-cdk destroy --context env=dev
+cdk deploy --context env=dev          # Development
+cdk deploy --context env=staging      # Staging
+cdk deploy --context env=prod --require-approval broadening  # Production
+cdk destroy --context env=dev         # Tear down (DANGEROUS)
 ```
 
 ---
 
 ## Cost Optimization
 
-### Lambda
-- **ARM64**: 20% cheaper than x86
-- **Memory**: Start at 512MB, optimize based on metrics
-- **Timeout**: Keep low (10s for API, 60s for jobs)
-- **Reserved concurrency**: Prevent runaway costs
-
-### DynamoDB
-- **On-demand billing**: No wasted provisioned capacity
-- **TTL**: Auto-delete old data
-- **Indexes**: Only create when necessary (each costs money)
-
-### S3
-- **Lifecycle policies**: Move old data to Glacier
-- **Intelligent tiering**: Auto-optimize storage class
-- **CloudFront**: Reduce S3 GET requests
-
-### API Gateway
-- **HTTP API**: 70% cheaper than REST API
-- **Caching**: Reduce Lambda invocations (if traffic increases)
+- **Lambda**: ARM64 (20% cheaper), start at 512MB, low timeouts, reserved concurrency
+- **DynamoDB**: On-demand billing, TTL for old data, minimal indexes
+- **S3**: Lifecycle policies (Glacier), intelligent tiering, CloudFront caching
+- **API Gateway**: HTTP API (70% cheaper than REST)
 
 ---
 
-## Monitoring
+## Monitoring & Alarms
 
-### CloudWatch Dashboards
-- Lambda invocations, errors, duration
-- DynamoDB read/write capacity
-- API Gateway request count, latency
-- Cost metrics (daily spend)
+| Alarm | Threshold |
+|-------|-----------|
+| Lambda errors | >1% |
+| API latency (p95) | >1s |
+| DynamoDB throttles | >0 |
+| Daily cost | >$10 |
 
-### Alarms
-- **Lambda errors** >1%
-- **API latency** >1 second (p95)
-- **DynamoDB throttles** >0
-- **Daily cost** >$10 (adjust threshold)
-
-### Logs
-- Structured JSON logging
-- Correlation IDs for tracing
-- Retention: 7 days (dev), 30 days (prod)
+Logs: Structured JSON, correlation IDs, retention 7d (dev) / 30d (prod)
 
 ---
 
 ## Security
 
-### IAM
-- **Least privilege**: Lambda functions have minimal permissions
-- **No wildcard policies**: Explicit resource ARNs
-
-### Encryption
-- **At rest**: DynamoDB, S3 (AWS-managed keys)
-- **In transit**: TLS 1.2+ (API Gateway, CloudFront)
-
-### Secrets
-- **AWS Secrets Manager**: API keys, database credentials
-- **Environment variables**: Non-sensitive config only
-
-### Network
-- **VPC**: Optional (adds cost and complexity)
-- **Security groups**: Restrict inbound/outbound traffic
-- **WAF**: Optional (adds cost, consider for production)
-
----
-
-## Testing
-
-### Unit Tests
-```bash
-npm test
-```
-
-### Integration Tests
-```bash
-# Deploy to test environment
-cdk deploy --context env=test
-
-# Run integration tests
-npm run test:integration
-
-# Destroy test environment
-cdk destroy --context env=test
-```
-
-### Snapshot Tests
-```bash
-# Update snapshots
-npm run test -- -u
-```
-
----
-
-## Common Issues
-
-### CDK Bootstrap Failed
-```bash
-# Ensure AWS credentials are configured
-aws sts get-caller-identity
-
-# Bootstrap with explicit account/region
-cdk bootstrap aws://ACCOUNT-ID/REGION
-```
-
-### Deployment Stuck
-- Check CloudFormation console for errors
-- Look for resource limits (e.g., Lambda concurrency)
-- Verify IAM permissions
-
-### Lambda Cold Starts
-- Use ARM64 + AOT for faster starts
-- Increase memory (more CPU = faster init)
-- Consider provisioned concurrency (costs money)
-
----
-
-## CI/CD
-
-### GitHub Actions Workflow
-```yaml
-name: Deploy Infrastructure
-
-on:
-  push:
-    branches: [main]
-    paths: ['infra/**']
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-      - run: npm ci
-      - run: npm test
-      - run: cdk deploy --context env=staging --require-approval never
-```
+- **IAM**: Least privilege, no wildcard policies, explicit resource ARNs
+- **Encryption**: At rest (DynamoDB, S3 AWS-managed keys), in transit (TLS 1.2+)
+- **Secrets**: AWS Secrets Manager for API keys/credentials
+- **Network**: VPC optional (adds cost), WAF optional for production
 
 ---
 
 ## Ethiopian Context Optimizations
 
-### Low Traffic Patterns
-- **On-demand billing**: No wasted provisioned capacity
-- **Auto-scaling**: Scale to zero when idle
-- **Reserved concurrency**: Prevent cost spikes
-
-### Intermittent Connectivity
-- **API Gateway timeouts**: 29 seconds (max)
+- **On-demand billing**: Scale to zero when idle
+- **API Gateway timeouts**: 29s max for intermittent connectivity
 - **Lambda retries**: Exponential backoff
 - **DynamoDB**: Eventually consistent reads (cheaper)
-
-### Data Transfer Costs
-- **CloudFront**: Cache static assets (reduce origin requests)
-- **Compression**: Gzip/Brotli enabled
-- **Regional endpoints**: Use closest AWS region (Africa/Middle East)
+- **CloudFront + compression**: Gzip/Brotli, regional endpoints
 
 ---
 
-**Last Updated**: 2026-02-09  
+**Last Updated**: 2026-02-09
 **Version**: 0.1.0 (pre-alpha)
-

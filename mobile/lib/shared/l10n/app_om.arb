@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "Gara WeredaConnect Baga Nagaan Dhuftan",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "Oflaayiniin Hojjeta",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "Haalata Offline",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "Walsimsiisuun Eegaa Jira",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "Qonnaan Bultootaa, Konkolaataa fi Bitootaa Walitti Hidhuu",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "Kaffaltii Telebirr",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "Walsimsiisuun Itti Fufeera...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "Afaan Kee Filadhu",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "Dhiisi",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "Piroofaayilii Gulaaluu",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "Qindaa'ina",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "Utaalu",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "Afaan",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "Akkamitti akka hojjetu",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "Tarreewwan",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "Itti Aanuu",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "Hin seenne",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "Beeksisa",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "Seeni",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "Dhiyoo Dhufa",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "Gabaa Naannoo waliin Walquunnamuu",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "Herrega Uumuu",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "Afaan Oromoo",
   "@currentLanguage": {
@@ -156,38 +204,447 @@
   "@aboutTagline": {
     "description": "About dialog tagline"
   },
+  "activeListings": "tarreewwan socho'oo",
+  "@activeListings": {
+    "description": "Active listings count label"
+  },
   "register": "Galmaa'i",
+  "@register": {
+    "description": "Register button"
+  },
   "phoneNumber": "Lakkoofsa Bilbilaa",
+  "@phoneNumber": {
+    "description": "Phone number input label"
+  },
   "password": "Jecha Icciitii",
+  "@password": {
+    "description": "Password input label"
+  },
   "confirmPassword": "Jecha Icciitii Mirkaneessi",
+  "@confirmPassword": {
+    "description": "Confirm password input label"
+  },
   "fullName": "Maqaa Guutuu",
+  "@fullName": {
+    "description": "Full name input label"
+  },
   "selectRole": "Ga'ee Filadhu",
+  "@selectRole": {
+    "description": "Role selection label"
+  },
   "farmer": "Qonnaan Bultaa",
+  "@farmer": {
+    "description": "Farmer role"
+  },
   "trucker": "Konkolaataa Fe'aa",
+  "@trucker": {
+    "description": "Trucker/transport provider role"
+  },
+  "updateDetails": "Maqaa fi ibsa kee haaromsi",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "Bitaa",
+  "@buyer": {
+    "description": "Buyer/wholesaler role"
+  },
   "enterOtp": "Koodii Mirkaneessaa Galchi",
+  "@enterOtp": {
+    "description": "OTP input label"
+  },
   "otpSent": "Koodiin mirkaneessaa gara bilbila keessaniitti ergameera",
+  "@otpSent": {
+    "description": "OTP sent confirmation message"
+  },
   "verifyOtp": "Mirkaneessi",
+  "@verifyOtp": {
+    "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "Seenaa ajaja kee ilaali",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "Afaan Keetiin Deeggarsa Sagalee",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
+  },
   "resendOtp": "Irra Deebi'ii Ergi",
+  "@resendOtp": {
+    "description": "Resend OTP button"
+  },
   "signUp": "Galmaa'i",
+  "@signUp": {
+    "description": "Sign up button"
+  },
   "alreadyHaveAccount": "Akkaawuntii qabduu?",
+  "@alreadyHaveAccount": {
+    "description": "Login prompt on register screen"
+  },
   "dontHaveAccount": "Akkaawuntii hin qabduu?",
+  "@dontHaveAccount": {
+    "description": "Register prompt on login screen"
+  },
   "forgotPassword": "Jecha Icciitii Irraanfatteettaa?",
+  "@forgotPassword": {
+    "description": "Forgot password link"
+  },
+  "getStarted": "Jalqabi",
+  "@getStarted": {
+    "description": "Get started button"
+  },
   "loginOnline": "Online ta'ii Seeni",
+  "@loginOnline": {
+    "description": "Online login button"
+  },
   "loginOffline": "Offline ta'ii Seeni",
+  "@loginOffline": {
+    "description": "Offline login button"
+  },
   "offlineModeIndicator": "Haalata offline keessa jirtu",
+  "@offlineModeIndicator": {
+    "description": "Offline mode indicator message"
+  },
   "passwordRequirements": "Jecha icciitiin yoo xiqqaate qubeelee 6 ta'uu qaba",
+  "@passwordRequirements": {
+    "description": "Password requirements message"
+  },
   "invalidPhoneFormat": "Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami",
+  "@invalidPhoneFormat": {
+    "description": "Error message for invalid phone format"
+  },
   "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
+  "@invalidCredentials": {
+    "description": "Error message for invalid credentials"
+  },
   "phoneAlreadyRegistered": "Lakkoofsi bilbilaa kun duraanuu galmaa'eera",
+  "@phoneAlreadyRegistered": {
+    "description": "Error message for duplicate phone number"
+  },
   "invalidOtp": "Koodiin mirkaneessaa sirrii miti",
+  "@invalidOtp": {
+    "description": "Error message for invalid OTP"
+  },
   "otpExpired": "Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu",
+  "@otpExpired": {
+    "description": "Error message for expired OTP"
+  },
   "registrationSuccess": "Galmaa'uun milkaa'eera! Maaloo bilbila keessan mirkaneessaa",
+  "@registrationSuccess": {
+    "description": "Success message after registration"
+  },
   "loginSuccess": "Seenuun milkaa'eera!",
+  "@loginSuccess": {
+    "description": "Success message after login"
+  },
   "logoutConfirmation": "Dhugumatti ba'uu barbaadduu?",
+  "@logoutConfirmation": {
+    "description": "Logout confirmation dialog message"
+  },
+  "manageAlerts": "Beeksisa bulchi",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "Tarree Koo",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "Ajaja Koo",
+  "@myOrders": {
+    "description": "My orders menu item"
+  },
   "clearOfflineData": "Daataa offline haqamuu?",
+  "@clearOfflineData": {
+    "description": "Option to clear cached data on logout"
+  },
   "clearOfflineDataDescription": "Yoo daataa kana hin haqiin offline ta'anii seenuu dandeessu",
+  "@clearOfflineDataDescription": {
+    "description": "Description for clear offline data option"
+  },
   "ethiopianPhoneExample": "Fakkeenya: +251911234567",
-  "characters": "qubeelee"
+  "@ethiopianPhoneExample": {
+    "description": "Example Ethiopian phone number"
+  },
+  "characters": "qubeelee",
+  "@characters": {
+    "description": "Characters (for password requirements)"
+  },
+  "cropTypeTeff": "Xaafii",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
+  "cropTypeWheat": "Qamadii",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
+  "cropTypeBarley": "Garbuu",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
+  "cropTypeMaize": "Boqqolloo",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
+  "cropTypeChickpea": "Shumburaa",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
+  "cropTypeLentils": "Misira",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
+  "cropTypeSorghum": "Mashilaa",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
+  "cropTypeCoffee": "Buna",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
+  "cropTypeSesame": "Saliixaa",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
+  "selectCropType": "Gosa Midhaan Filadhu",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
+  "quantityInQuintals": "Hamma (kuuntaalii)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
+  "priceInBirr": "Gatii (Birrii/kg)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
+  "location": "Bakka",
+  "@location": {
+    "description": "Location input label"
+  },
+  "description": "Ibsa",
+  "@description": {
+    "description": "Description input label"
+  },
+  "audioNote": "Yaadannoo Sagalee",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
+  "recordAudioNote": "Yaadannoo Sagalee Galmeessi",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
+  "cropTypeRequired": "Maaloo gosa midhaan filadhaa",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
+  "quantityRequired": "Maaloo hamma galchaa",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
+  "priceRequired": "Maaloo gatii galchaa",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
+  "locationRequired": "Maaloo bakka galchaa",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
+  "listingSaved": "Tarreen milkaa'inaan olkaa'ameera",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
+  "listingDeleted": "Tarreen haqameera",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
+  "allCrops": "Hunda",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
+  "quintals": "kuuntaalii",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
+  "etbPerKg": "Birrii/kg",
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
+  },
+  "exploreAsGuest": "Akka Keessummaatti Qoradhu",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
+  "notAuthenticated": "Tarkaanfii kana fudhachuuf seenuu qabdu",
+  "@notAuthenticated": {
+    "description": "Error message when user is not authenticated"
+  },
+  "passwordsDoNotMatch": "Jecha icciitiin wal hin simne",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "Maaloo koodii lakkoofsota 6 galchaa",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "Koodii irra deebi'ii erguu sekoondii {seconds} keessatti",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "Ka'aa Jiru",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "Qophii",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "Gurguramee Jira",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "Darbe",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
+  },
+  "backToHome": "Gara Manatti Deebi'i",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "Tarree Imaltuu",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "Imala Uumi",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "Imala Barbaadi",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "Imala Koo",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "Bal'ina Imaltuu",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "Irraa (Ka'umsaa)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "Gara (Ga'umsaa)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "Guyyaa Ka'umsaa",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "Dandeettii (Kuintaalii)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "Gatii Kuintaalii (ETB)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "Banaa",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "Walsiimame",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "Karaa Irra",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "Ga'e",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "Haqame",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "Imalti hin argamne",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "Imalti milkaa'inaan uumame!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "Imalti haqame",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "Karaan cali",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "Dandeettii jiru",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "Guyyaa ka'umsaa filadhu",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "Quunnamtii Konkolaachisaa",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "Aanaan ka'umsaa barbaachisaadha",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "Aanaan ga'umsaa barbaachisaadha",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "Guyyaan ka'umsaa barbaachisaadha",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "Dandeettiin barbaachisaadha",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "Gatiin barbaachisaadha",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "Dandeettiin 0.1 hanga 1000 kuintaalii ta'uu qaba",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "Gatiin 0.01 hanga 10000 ETB ta'uu qaba",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "Ka'umsaa fi ga'umsaan tokko ta'uu hin danda'u",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
+  },
+  "findTransport": "Geejjiba Barbaadi",
+  "@findTransport": {
+    "description": "Quick action card title for finding transport/trucking services"
+  },
+  "viewCropListings": "Tarreewwan midhaan kee ilaali",
+  "@viewCropListings": {
+    "description": "Description for my listings menu item on profile screen"
+  }
 }
 

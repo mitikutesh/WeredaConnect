@@ -2,6 +2,8 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
+import * as fs from 'fs';
+import { execSync } from 'child_process';
 
 export interface WeredaLambdaProps {
   readonly functionName: string;
@@ -24,18 +26,60 @@ export class WeredaLambda extends Construct {
   constructor(scope: Construct, id: string, props: WeredaLambdaProps) {
     super(scope, id);
 
+    // Build Lambda code using Docker (for cross-compilation on macOS)
+    const serverPath = path.join(__dirname, '..', '..', '..', 'server');
+
     this.function = new lambda.Function(this, 'Function', {
       functionName: props.functionName,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       handler: 'bootstrap',
-      code: lambda.Code.fromAsset(
-        path.join(__dirname, '..', '..', '..', 'server', 'bin', 'Release', 'net10.0', 'linux-arm64', 'publish'),
-      ),
+      code: lambda.Code.fromAsset(serverPath, {
+        bundling: {
+          image: lambda.Runtime.PROVIDED_AL2023.bundlingImage,
+          command: [
+            'bash', '-c', [
+              'dnf install -y clang zlib-devel libicu',
+              'curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 10.0',
+              'export PATH="$HOME/.dotnet:$PATH"',
+              'dotnet publish -c Release --runtime linux-arm64 --self-contained -p:InvariantGlobalization=true -o /tmp/publish',
+              'mv /tmp/publish/WeredaConnect.Server /asset-output/bootstrap',
+              'chmod +x /asset-output/bootstrap',
+            ].join(' && '),
+          ],
+          user: 'root',
+          local: {
+            tryBundle(outputDir: string): boolean {
+              // In CI/test: skip Docker bundling, use placeholder bootstrap.
+              // GitHub Actions sets CI=true; Docker is available there but a
+              // full .NET cross-compile is slow and unnecessary for synth/tests.
+              if (process.env.CI) {
+                fs.writeFileSync(
+                  path.join(outputDir, 'bootstrap'),
+                  '#!/bin/sh\necho "placeholder"',
+                );
+                return true;
+              }
+              try {
+                execSync('docker info', { stdio: 'pipe' });
+                return false; // Docker is available — use Docker bundling
+              } catch {
+                // Docker unavailable locally — create placeholder bootstrap
+                fs.writeFileSync(
+                  path.join(outputDir, 'bootstrap'),
+                  '#!/bin/sh\necho "placeholder"',
+                );
+                return true;
+              }
+            },
+          },
+        },
+      }),
       architecture: lambda.Architecture.ARM_64,
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
       description: props.description,
       environment: {
+        DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1',
         ...props.environment,
         ...(props.handlerName ? { FUNCTION_HANDLER: props.handlerName } : {}),
       },

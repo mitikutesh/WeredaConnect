@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -29,6 +30,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final OfflineAuthCache _offlineCache;
   String? _currentPhoneNumber;
+  // Temporary storage for registration data (cleared after OTP verification)
+  String? _pendingName;
+  UserRole? _pendingRole;
+  String? _pendingWoreda;
+  String? _pendingPassword;
   // SECURITY: Password never stored in BLoC state to prevent memory exposure
   // On shared devices (common in Ethiopia), password in memory is a critical security risk
   // Password only exists in event parameters, never persisted in BLoC fields
@@ -131,8 +137,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     // Store phone number for session tracking (not sensitive)
     _currentPhoneNumber = event.phoneNumber;
-    // SECURITY: Password is NOT stored - it only exists in event.password
-    // After OTP verification, user will re-enter password for login
+    // Store registration data temporarily for use after OTP verification
+    _pendingName = event.name;
+    _pendingRole = event.role;
+    _pendingWoreda = event.woreda;
+    _pendingPassword = event.password;
 
     final result = await _authService.register(
       phoneNumber: event.phoneNumber,
@@ -150,6 +159,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ),
       );
     } else {
+      // Clear pending data on failure
+      _clearPendingRegistrationData();
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
@@ -158,6 +169,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ),
       );
     }
+  }
+
+  /// Clear pending registration data after OTP verification or on error.
+  void _clearPendingRegistrationData() {
+    _pendingName = null;
+    _pendingRole = null;
+    _pendingWoreda = null;
+    _pendingPassword = null;
   }
 
   /// Handle OTP verification.
@@ -174,10 +193,29 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
-      // Cache tokens for session persistence after OTP
-      if (result.tokens != null) {
-        await _offlineCache.updateTokens(event.phoneNumber, result.tokens!);
+      // Cache full credentials if we have pending registration data
+      if (_pendingName != null &&
+          _pendingRole != null &&
+          _pendingWoreda != null &&
+          _pendingPassword != null) {
+        await _offlineCache.cacheCredentials(
+          phoneNumber: event.phoneNumber,
+          password: _pendingPassword!,
+          userId: result.userId!,
+          role: _pendingRole!,
+          name: _pendingName!,
+          woreda: _pendingWoreda!,
+          tokens: result.tokens!,
+        );
+        // Clear pending data after successful caching
+        _clearPendingRegistrationData();
+      } else {
+        // Fallback: just cache tokens if no pending data
+        if (result.tokens != null) {
+          await _offlineCache.updateTokens(event.phoneNumber, result.tokens!);
+        }
       }
+
       await _saveSession(event.phoneNumber);
 
       emit(

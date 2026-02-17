@@ -18,10 +18,23 @@ class AppLocalizationsOm extends AppLocalizations {
   String get welcomeMessage => 'Gara WeredaConnect baga nagaan dhuftan';
 
   @override
+  String get welcomeTitle => 'Gara WeredaConnect Baga Nagaan Dhuftan';
+
+  @override
+  String get worksOffline => 'Oflaayiniin Hojjeta';
+
+  @override
   String get offlineMode => 'Haalata Offline';
 
   @override
   String get syncPending => 'Walsimsiisuun Eegaa Jira';
+
+  @override
+  String get taglineShort =>
+      'Qonnaan Bultootaa, Konkolaataa fi Bitootaa Walitti Hidhuu';
+
+  @override
+  String get telebirrPayment => 'Kaffaltii Telebirr';
 
   @override
   String get syncInProgress => 'Walsimsiisuun Itti Fufeera...';
@@ -36,6 +49,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get retry => 'Irra Deebi\'ii Yaali';
 
   @override
+  String get selectLanguagePrompt => 'Afaan Kee Filadhu';
+
+  @override
   String get cancel => 'Dhiisi';
 
   @override
@@ -48,7 +64,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String get edit => 'Gulaal';
 
   @override
+  String get editProfile => 'Piroofaayilii Gulaaluu';
+
+  @override
   String get settings => 'Qindaa\'ina';
+
+  @override
+  String get skip => 'Utaalu';
 
   @override
   String get language => 'Afaan';
@@ -82,6 +104,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get home => 'Mana';
 
   @override
+  String get howItWorks => 'Akkamitti akka hojjetu';
+
+  @override
   String get listings => 'Tarreewwan';
 
   @override
@@ -106,13 +131,25 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myProfile => 'Ibsa Koo';
 
   @override
+  String get next => 'Itti Aanuu';
+
+  @override
   String get notLoggedIn => 'Hin seenne';
+
+  @override
+  String get notifications => 'Beeksisa';
 
   @override
   String get login => 'Seeni';
 
   @override
   String get comingSoon => 'Dhiyoo Dhufa';
+
+  @override
+  String get connectWithMarkets => 'Gabaa Naannoo waliin Walquunnamuu';
+
+  @override
+  String get createAccount => 'Herrega Uumuu';
 
   @override
   String get currentLanguage => 'Afaan Oromoo';
@@ -126,6 +163,9 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get aboutTagline =>
       'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
+
+  @override
+  String get activeListings => 'tarreewwan socho\'oo';
 
   @override
   String get register => 'Galmaa\'i';
@@ -152,6 +192,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trucker => 'Konkolaataa Fe\'aa';
 
   @override
+  String get updateDetails => 'Maqaa fi ibsa kee haaromsi';
+
+  @override
   String get buyer => 'Bitaa';
 
   @override
@@ -163,6 +206,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get verifyOtp => 'Mirkaneessi';
+
+  @override
+  String get viewOrderHistory => 'Seenaa ajaja kee ilaali';
+
+  @override
+  String get voiceSupport => 'Afaan Keetiin Deeggarsa Sagalee';
 
   @override
   String get resendOtp => 'Irra Deebi\'ii Ergi';
@@ -178,6 +227,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
+
+  @override
+  String get getStarted => 'Jalqabi';
 
   @override
   String get loginOnline => 'Online ta\'ii Seeni';
@@ -221,6 +273,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get logoutConfirmation => 'Dhugumatti ba\'uu barbaadduu?';
 
   @override
+  String get manageAlerts => 'Beeksisa bulchi';
+
+  @override
+  String get myListings => 'Tarree Koo';
+
+  @override
+  String get myOrders => 'Ajaja Koo';
+
+  @override
   String get clearOfflineData => 'Daataa offline haqamuu?';
 
   @override
@@ -232,4 +293,209 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get characters => 'qubeelee';
+
+  @override
+  String get cropTypeTeff => 'Xaafii';
+
+  @override
+  String get cropTypeWheat => 'Qamadii';
+
+  @override
+  String get cropTypeBarley => 'Garbuu';
+
+  @override
+  String get cropTypeMaize => 'Boqqolloo';
+
+  @override
+  String get cropTypeChickpea => 'Shumburaa';
+
+  @override
+  String get cropTypeLentils => 'Misira';
+
+  @override
+  String get cropTypeSorghum => 'Mashilaa';
+
+  @override
+  String get cropTypeCoffee => 'Buna';
+
+  @override
+  String get cropTypeSesame => 'Saliixaa';
+
+  @override
+  String get selectCropType => 'Gosa Midhaan Filadhu';
+
+  @override
+  String get quantityInQuintals => 'Hamma (kuuntaalii)';
+
+  @override
+  String get priceInBirr => 'Gatii (Birrii/kg)';
+
+  @override
+  String get location => 'Bakka';
+
+  @override
+  String get description => 'Ibsa';
+
+  @override
+  String get audioNote => 'Yaadannoo Sagalee';
+
+  @override
+  String get recordAudioNote => 'Yaadannoo Sagalee Galmeessi';
+
+  @override
+  String get cropTypeRequired => 'Maaloo gosa midhaan filadhaa';
+
+  @override
+  String get quantityRequired => 'Maaloo hamma galchaa';
+
+  @override
+  String get priceRequired => 'Gatiin barbaachisaadha';
+
+  @override
+  String get locationRequired => 'Maaloo bakka galchaa';
+
+  @override
+  String get listingSaved => 'Tarreen milkaa\'inaan olkaa\'ameera';
+
+  @override
+  String get listingDeleted => 'Tarreen haqameera';
+
+  @override
+  String get allCrops => 'Hunda';
+
+  @override
+  String get quintals => 'kuuntaalii';
+
+  @override
+  String get etbPerKg => 'Birrii/kg';
+
+  @override
+  String get exploreAsGuest => 'Akka Keessummaatti Qoradhu';
+
+  @override
+  String get notAuthenticated => 'Tarkaanfii kana fudhachuuf seenuu qabdu';
+
+  @override
+  String get passwordsDoNotMatch => 'Jecha icciitiin wal hin simne';
+
+  @override
+  String get enterSixDigitCode => 'Maaloo koodii lakkoofsota 6 galchaa';
+
+  @override
+  String resendCodeCountdown(int seconds) {
+    return 'Koodii irra deebi\'ii erguu sekoondii $seconds keessatti';
+  }
+
+  @override
+  String get listingStatusActive => 'Ka\'aa Jiru';
+
+  @override
+  String get listingStatusDraft => 'Qophii';
+
+  @override
+  String get listingStatusSold => 'Gurguramee Jira';
+
+  @override
+  String get listingStatusExpired => 'Darbe';
+
+  @override
+  String get backToHome => 'Gara Manatti Deebi\'i';
+
+  @override
+  String get tripListings => 'Tarree Imaltuu';
+
+  @override
+  String get createTrip => 'Imala Uumi';
+
+  @override
+  String get browseTrips => 'Imala Barbaadi';
+
+  @override
+  String get myTrips => 'Imala Koo';
+
+  @override
+  String get tripDetails => 'Bal\'ina Imaltuu';
+
+  @override
+  String get fromWoreda => 'Irraa (Ka\'umsaa)';
+
+  @override
+  String get toWoreda => 'Gara (Ga\'umsaa)';
+
+  @override
+  String get departureDate => 'Guyyaa Ka\'umsaa';
+
+  @override
+  String get capacity => 'Dandeettii (Kuintaalii)';
+
+  @override
+  String get pricePerQuintal => 'Gatii Kuintaalii (ETB)';
+
+  @override
+  String get tripStatusOpen => 'Banaa';
+
+  @override
+  String get tripStatusMatched => 'Walsiimame';
+
+  @override
+  String get tripStatusInTransit => 'Karaa Irra';
+
+  @override
+  String get tripStatusDelivered => 'Ga\'e';
+
+  @override
+  String get tripStatusCancelled => 'Haqame';
+
+  @override
+  String get noTripsFound => 'Imalti hin argamne';
+
+  @override
+  String get tripCreatedSuccess => 'Imalti milkaa\'inaan uumame!';
+
+  @override
+  String get tripCancelledSuccess => 'Imalti haqame';
+
+  @override
+  String get filterByRoute => 'Karaan cali';
+
+  @override
+  String get availableCapacity => 'Dandeettii jiru';
+
+  @override
+  String get selectDepartureDate => 'Guyyaa ka\'umsaa filadhu';
+
+  @override
+  String get truckerContact => 'Quunnamtii Konkolaachisaa';
+
+  @override
+  String get fromWoredaRequired => 'Aanaan ka\'umsaa barbaachisaadha';
+
+  @override
+  String get toWoredaRequired => 'Aanaan ga\'umsaa barbaachisaadha';
+
+  @override
+  String get departureDateRequired => 'Guyyaan ka\'umsaa barbaachisaadha';
+
+  @override
+  String get capacityRequired => 'Dandeettiin barbaachisaadha';
+
+  @override
+  String get invalidCapacity =>
+      'Dandeettiin 0.1 hanga 1000 kuintaalii ta\'uu qaba';
+
+  @override
+  String get invalidPrice => 'Gatiin 0.01 hanga 10000 ETB ta\'uu qaba';
+
+  @override
+  String get sameOriginDestination =>
+      'Ka\'umsaa fi ga\'umsaan tokko ta\'uu hin danda\'u';
+
+  @override
+  String get etbCurrency => 'ETB';
+
+  @override
+  String get findTransport => 'Geejjiba Barbaadi';
+
+  @override
+  String get viewCropListings => 'Tarreewwan midhaan kee ilaali';
 }

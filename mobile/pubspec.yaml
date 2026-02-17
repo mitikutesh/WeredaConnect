@@ -18,6 +18,7 @@ dependencies:
   isar_flutter_libs: ^3.1.0
   path_provider: ^2.1.0
   flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.0
 
   # Networking & Sync
   dio: ^5.4.0
@@ -27,13 +28,16 @@ dependencies:
   # Cryptography
   cryptography: ^2.7.0
 
+  # Identifiers
+  uuid: ^4.0.0
+
   # State Management
   flutter_bloc: ^8.1.0
   equatable: ^2.0.5
+  provider: ^6.1.0
 
   # Localization
-  # intl is provided by flutter_localizations - no need to specify version
-  # This ensures compatibility across different Flutter SDK versions
+  intl: any # version provided by flutter_localizations
 
   # UI & UX
   flutter_svg: ^2.0.0
@@ -46,6 +50,10 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+
+  # Testing
+  http_mock_adapter: ^0.6.1
+  mocktail: ^1.0.0
 
   # Code Generation
   isar_generator: ^3.1.0

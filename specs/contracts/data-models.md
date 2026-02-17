@@ -26,40 +26,7 @@ WeredaConnect uses **Isar** (NoSQL embedded database) for mobile offline storage
 
 ### 1. User
 
-**Mobile Schema**: `/mobile/lib/core/database/schemas/user.dart`
-
-**Purpose**: Represents a user account in the WeredaConnect marketplace.
-
-**Fields**:
-
-| Field | Type | Required | Description | Ethiopian Context |
-|-------|------|----------|-------------|-------------------|
-| `id` | Id | Yes | Isar auto-increment ID (internal use) | N/A |
-| `userId` | String | Yes | Server-assigned UUID | Unique across all users |
-| `phoneNumber` | String | Yes | E.164 format (+251XXXXXXXXX) | Ethiopian country code +251 |
-| `name` | String | Yes | User's full name | Supports Amharic/Oromo scripts (Unicode) |
-| `faydaId` | String? | No | Fayda microfinance ID | For future credit scoring integration |
-| `role` | UserRole | Yes | Enum: farmer/trucker/buyer | Determines app features available |
-| `woreda` | String | Yes | Ethiopian district name | Used for location-based matching |
-| `createdAt` | DateTime | Yes | UTC timestamp | Account creation time |
-| `updatedAt` | DateTime | Yes | UTC timestamp | Last profile update |
-| `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
-
-**Indexes**:
-- `userId` (unique) - Fast lookup by server ID
-- `phoneNumber` (unique) - Login and duplicate prevention
-- `role` - Filter users by role (e.g., all farmers)
-- `woreda` - Location-based queries
-
-**Design Decisions**:
-
-1. **Phone number as unique identifier**: Ethiopian users commonly share phones in rural areas, but each user must register individually for transaction security.
-
-2. **Woreda instead of GPS**: Ethiopian users identify by administrative districts (woreda) rather than GPS coordinates. More culturally familiar and works without precise location services.
-
-3. **Optional faydaId**: Future integration with Fayda microfinance for credit scoring. Null until user explicitly links account.
-
-4. **Version field**: Critical for offline sync. If client version < server version, conflict resolution is triggered.
+See `specs/contracts/user-entity.md` for the full User entity specification, including fields, DynamoDB schema, Isar schema, sync behavior, and invariants.
 
 ---
 

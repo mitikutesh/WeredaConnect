@@ -5,6 +5,10 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
+import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
 import 'package:wereda_connect/screens/main_navigation.dart';
 
 /// Root routing widget that declaratively switches screens based on auth state.
@@ -13,28 +17,62 @@ import 'package:wereda_connect/screens/main_navigation.dart';
 /// - AuthInitial / AuthLoading → splash screen
 /// - AuthAuthenticated → MainNavigation
 /// - AuthOtpVerificationRequired → OtpVerificationScreen
-/// - AuthUnauthenticated / AuthError → LoginScreen
-class AuthGate extends StatelessWidget {
+/// - AuthUnauthenticated / AuthError → Check onboarding state
+///   - FirstLaunch OR hasn't seen welcome → WelcomeScreen
+///   - ReturningUser → LoginScreen
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  @override
+  void initState() {
+    super.initState();
+    // Check first launch status on init
+    context.read<OnboardingBloc>().add(const CheckFirstLaunch());
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, state) {
-        if (state is AuthAuthenticated) {
+      builder: (context, authState) {
+        // If authenticated, mark welcome as seen and go to main app
+        if (authState is AuthAuthenticated) {
+          // Mark welcome as seen when user successfully authenticates
+          context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
           return const MainNavigation();
         }
 
-        if (state is AuthOtpVerificationRequired) {
-          return OtpVerificationScreen(phoneNumber: state.phoneNumber);
+        // If OTP verification required, show OTP screen
+        if (authState is AuthOtpVerificationRequired) {
+          return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
-        if (state is AuthInitial || state is AuthLoading) {
+        // If still loading auth state, show splash
+        if (authState is AuthInitial || authState is AuthLoading) {
           return const _SplashScreen();
         }
 
-        // AuthUnauthenticated or AuthError
-        return const LoginScreen();
+        // AuthUnauthenticated or AuthError - check onboarding state
+        return BlocBuilder<OnboardingBloc, OnboardingState>(
+          builder: (context, onboardingState) {
+            // If first launch, show welcome screen
+            if (onboardingState is FirstLaunch) {
+              return const WelcomeScreen();
+            }
+
+            // If onboarding state still initial, show splash while checking
+            if (onboardingState is OnboardingInitial) {
+              return const _SplashScreen();
+            }
+
+            // Returning user - show login directly
+            return const LoginScreen();
+          },
+        );
       },
     );
   }

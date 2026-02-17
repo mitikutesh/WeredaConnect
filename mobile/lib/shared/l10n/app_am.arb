@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "እንኳን ወደ ወረዳ ኮነክት በደህና መጡ",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "ከመስመር ውጭ ይሰራል",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "ከመስመር ውጭ",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "ማመሳሰል በመጠባበቅ ላይ",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "ገበሬዎችን፣ መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "ቴሌብር ክፍያ",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "በማመሳሰል ላይ...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "ቋንቋዎን ይምረጡ",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "ሰርዝ",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "መገለጫ አርትዕ",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "ቅንብሮች",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "ዝለል",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "ቋንቋ",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "እንዴት እንደሚሰራ",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "ዝርዝሮች",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "ቀጣይ",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "ገብተው አይደሉም",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "ማሳወቂያዎች",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "ግባ",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "በቅርቡ ይመጣል",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "ከአካባቢ ገበያዎች ጋር ይገናኙ",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "መለያ ፍጠር",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "አማርኛ",
   "@currentLanguage": {
@@ -155,6 +203,10 @@
   "aboutTagline": "የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "activeListings": "ንቁ ዝርዝሮች",
+  "@activeListings": {
+    "description": "Active listings count label"
   },
   "register": "ተመዝገብ",
   "@register": {
@@ -188,6 +240,10 @@
   "@trucker": {
     "description": "Trucker/transport provider role"
   },
+  "updateDetails": "ስምዎን እና ዝርዝሮችዎን ያዘምኑ",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "ገዢ",
   "@buyer": {
     "description": "Buyer/wholesaler role"
@@ -203,6 +259,14 @@
   "verifyOtp": "አረጋግጥ",
   "@verifyOtp": {
     "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "የትዕዛዝ ታሪክዎን ይመልከቱ",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "በቋንቋዎ የድምፅ ድጋፍ",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
   },
   "resendOtp": "እንደገና ላክ",
   "@resendOtp": {
@@ -223,6 +287,10 @@
   "forgotPassword": "የይለፍ ቃል ረሳኽው?",
   "@forgotPassword": {
     "description": "Forgot password link"
+  },
+  "getStarted": "ጀምር",
+  "@getStarted": {
+    "description": "Get started button"
   },
   "loginOnline": "መስመር ላይ ግባ",
   "@loginOnline": {
@@ -272,6 +340,18 @@
   "@logoutConfirmation": {
     "description": "Logout confirmation dialog message"
   },
+  "manageAlerts": "ማንቂያዎችን ያስተዳድሩ",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "የእኔ ዝርዝሮች",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "የእኔ ትዕዛዞች",
+  "@myOrders": {
+    "description": "My orders menu item"
+  },
   "clearOfflineData": "ከመስመር ውጭ መረጃ ይሰረዝ?",
   "@clearOfflineData": {
     "description": "Option to clear cached data on logout"
@@ -287,6 +367,284 @@
   "characters": "ቁምፊዎች",
   "@characters": {
     "description": "Characters (for password requirements)"
+  },
+  "cropTypeTeff": "ጤፍ",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
+  "cropTypeWheat": "ስንዴ",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
+  "cropTypeBarley": "ገብስ",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
+  "cropTypeMaize": "በቆሎ",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
+  "cropTypeChickpea": "ሽምብራ",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
+  "cropTypeLentils": "ምስር",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
+  "cropTypeSorghum": "ማሽላ",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
+  "cropTypeCoffee": "ቡና",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
+  "cropTypeSesame": "ሰሊጥ",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
+  "selectCropType": "የሰብል ዓይነት ይምረጡ",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
+  "quantityInQuintals": "መጠን (ኩንታል)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
+  "priceInBirr": "ዋጋ (ብር/ኪግ)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
+  "location": "ቦታ",
+  "@location": {
+    "description": "Location input label"
+  },
+  "description": "መግለጫ",
+  "@description": {
+    "description": "Description input label"
+  },
+  "audioNote": "የድምጽ ማስታወሻ",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
+  "recordAudioNote": "የድምጽ ማስታወሻ ቅዳ",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
+  "cropTypeRequired": "እባክዎ የሰብል ዓይነት ይምረጡ",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
+  "quantityRequired": "እባክዎ መጠኑን ያስገቡ",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
+  "priceRequired": "እባክዎ ዋጋውን ያስገቡ",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
+  "locationRequired": "እባክዎ ቦታውን ያስገቡ",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
+  "listingSaved": "ዝርዝሩ በተሳካ ሁኔታ ተቀምጧል",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
+  "listingDeleted": "ዝርዝሩ ተሰርዟል",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
+  "allCrops": "ሁሉም",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
+  "quintals": "ኩንታል",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
+  "etbPerKg": "ብር/ኪግ",
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
+  },
+  "exploreAsGuest": "እንደ እንግዳ ያስሱ",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
+  "notAuthenticated": "ይህን እርምጃ ለመውሰድ መግባት አለብዎት",
+  "@notAuthenticated": {
+    "description": "Error message when user is not authenticated"
+  },
+  "passwordsDoNotMatch": "የይለፍ ቃል ቁምፊዎች አይዛመዱም",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "እባክዎ 6 አሃዝ ኮድ ያስገቡ",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "ኮድ እንደገና መላክ በ {seconds} ሰከንድ",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "ንቁ",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "ረቂቅ",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "ተሽጧል",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "ጊዜው አልፏል",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
+  },
+  "backToHome": "ወደ መነሻ ይመለሱ",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "የጉዞ ዝርዝሮች",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "ጉዞ ፍጠር",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "ጉዞዎችን ያስሱ",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "የእኔ ጉዞዎች",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "የጉዞ ዝርዝር",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "ከ (መነሻ)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "ወደ (መድረሻ)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "የመነሻ ቀን",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "አቅም (ኩንታል)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "በኩንታል ዋጋ (ብር)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "ክፍት",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "ተመዛግቦ",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "በመንገድ ላይ",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "ደርሷል",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "ተሰርዟል",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "ጉዞ አልተገኘም",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "ጉዞ በተሳካ ሁኔታ ተፈጠረ!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "ጉዞ ተሰርዟል",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "በመንገድ ያጣሩ",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "ያለ አቅም",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "የመነሻ ቀን ይምረጡ",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "የጭነት ሹፌር አድራሻ",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "የመነሻ ወረዳ ያስፈልጋል",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "የመድረሻ ወረዳ ያስፈልጋል",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "የመነሻ ቀን ያስፈልጋል",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "አቅም ያስፈልጋል",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "ዋጋ ያስፈልጋል",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ብር",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
+  },
+  "findTransport": "ትራንስፖርት ፈልግ",
+  "@findTransport": {
+    "description": "Quick action card title for finding transport/trucking services"
+  },
+  "viewCropListings": "የሰብል ዝርዝሮችዎን ይመልከቱ",
+  "@viewCropListings": {
+    "description": "Description for my listings menu item on profile screen"
   }
 }
 

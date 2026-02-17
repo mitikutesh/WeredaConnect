@@ -15,10 +15,11 @@ class ApiConfig {
   /// ```bash
   /// flutter run --dart-define=API_BASE_URL=https://dev.weredaconnect.et
   /// ```
+  ///
+  /// Default points to deployed AWS infrastructure (me-south-1 region).
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue:
-        'https://api.weredaconnect.et', // TODO: Update after F-16 deployment
+    defaultValue: 'https://s0om0hib4i.execute-api.me-south-1.amazonaws.com',
   );
 
   /// Connection timeout for initial TCP connection.

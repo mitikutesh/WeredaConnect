@@ -1,211 +1,73 @@
 # Testing Guidelines
 
-## How to Write and Run Tests
-
-Comprehensive guide to testing in WeredaConnect.
-
-## Audience
-- Developers
-- QA engineers
-- Contributors
-
-## Prerequisites
-- Read [Testing Philosophy](../../.ai/testing.md)
-- Read technology-specific guides:
-  - [Mobile Testing](../../mobile/TESTING.md)
-  - [Server Testing](../../server/TESTING.md)
-  - [Infrastructure Testing](../../infra/TESTING.md)
-
----
+For testing philosophy, principles, and strategy, see **[.ai/testing.md](../../.ai/testing.md)**.
 
 ## Quick Reference
 
-### Run All Tests
-
 ```bash
-# From project root
+# Run all tests
 ./scripts/run-all-tests.sh
 
-# Or individually:
+# Individual
 cd mobile && flutter test
 cd server && dotnet test
 cd infra && npm test
 ```
 
-### Coverage Reports
+### Coverage
 
 ```bash
 # Mobile
-cd mobile
-flutter test --coverage
-genhtml coverage/lcov.info -o coverage/html
-open coverage/html/index.html
+cd mobile && flutter test --coverage
+genhtml coverage/lcov.info -o coverage/html && open coverage/html/index.html
 
 # Backend
-cd server
-dotnet test /p:CollectCoverage=true /p:CoverageReportsFormat=html
-open coverage/index.html
+cd server && dotnet test /p:CollectCoverage=true /p:CoverageReportsFormat=html
 
 # Infrastructure
-cd infra
-npm run test:coverage
-open coverage/lcov-report/index.html
+cd infra && npm run test:coverage
 ```
 
 ---
 
 ## Test Types
 
-### 1. Unit Tests
+### Unit Tests
 
-**Purpose**: Test individual functions/classes in isolation
-
-**When to write**:
-- Every new function
-- Every new class
-- Every bug fix
-
-**Example (Mobile)**:
 ```dart
-// test/domain/usecases/get_reports_test.dart
-void main() {
-  late GetReportsUseCase useCase;
-  late MockReportRepository mockRepository;
-
-  setUp(() {
-    mockRepository = MockReportRepository();
-    useCase = GetReportsUseCase(mockRepository);
-  });
-
-  test('should return reports from repository', () async {
-    // Arrange
-    final reports = [Report(id: '1', title: 'Test')];
-    when(mockRepository.getReports())
-        .thenAnswer((_) async => reports);
-
-    // Act
-    final result = await useCase();
-
-    // Assert
-    expect(result, reports);
-    verify(mockRepository.getReports()).called(1);
-  });
-}
+// Mobile example (Mockito)
+test('should return reports from repository', () async {
+  when(mockRepository.getReports()).thenAnswer((_) async => [Report(id: '1', title: 'Test')]);
+  final result = await useCase();
+  expect(result.length, 1);
+  verify(mockRepository.getReports()).called(1);
+});
 ```
 
-**Example (Backend)**:
 ```csharp
-// tests/Services/ReportServiceTests.cs
-public class ReportServiceTests
+// Backend example (NSubstitute - AOT compatible)
+[Fact]
+public async Task CreateReport_ShouldSaveToRepository()
 {
-    private readonly IReportRepository _repository;
-    private readonly ReportService _service;
-
-    public ReportServiceTests()
-    {
-        _repository = Substitute.For<IReportRepository>();
-        _service = new ReportService(_repository);
-    }
-
-    [Fact]
-    public async Task CreateReport_ShouldSaveToRepository()
-    {
-        // Arrange
-        var dto = new CreateReportDto { Title = "Test" };
-
-        // Act
-        var result = await _service.CreateReport(dto);
-
-        // Assert
-        Assert.NotNull(result);
-        await _repository.Received(1).SaveAsync(Arg.Any<Report>());
-    }
+    var dto = new CreateReportDto { Title = "Test" };
+    var result = await _service.CreateReport(dto);
+    Assert.NotNull(result);
+    await _repository.Received(1).SaveAsync(Arg.Any<Report>());
 }
 ```
 
-### 2. Integration Tests
+### Integration Tests
 
-**Purpose**: Test multiple components working together
+See **[E2E Local Testing Guide](./e2e-local-testing.md)** for full mobile + LocalStack setup.
 
-**When to write**:
-- API endpoints
-- Database operations
-- External service integrations
-
-**Example (Mobile)**:
-```dart
-// integration_test/report_flow_test.dart
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  testWidgets('Create report offline and sync online', (tester) async {
-    // Start app
-    await tester.pumpWidget(MyApp());
-
-    // Go offline
-    await setConnectivity(false);
-
-    // Create report
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(Key('title')), 'Test Report');
-    await tester.tap(find.text('Submit'));
-    await tester.pumpAndSettle();
-
-    // Verify saved locally
-    expect(find.text('Pending Sync'), findsOneWidget);
-
-    // Go online
-    await setConnectivity(true);
-    await tester.pumpAndSettle(Duration(seconds: 5));
-
-    // Verify synced
-    expect(find.text('Synced'), findsOneWidget);
-  });
-}
+```bash
+# Quick start
+cd server && docker-compose -f docker-compose.localstack.yml up -d
+cd mobile && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
 ```
 
-**Example (Backend with LocalStack)**:
-```csharp
-// tests/Integration/ReportApiTests.cs
-public class ReportApiTests : IClassFixture<LocalStackFixture>
-{
-    private readonly HttpClient _client;
+### E2E / Maestro Tests
 
-    public ReportApiTests(LocalStackFixture fixture)
-    {
-        _client = fixture.CreateClient();
-    }
-
-    [Fact]
-    public async Task CreateReport_ShouldSaveToDynamoDB()
-    {
-        // Arrange
-        var report = new { title = "Test", category = "infrastructure" };
-
-        // Act
-        var response = await _client.PostAsJsonAsync("/reports", report);
-
-        // Assert
-        response.EnsureSuccessStatusCode();
-        var created = await response.Content.ReadFromJsonAsync<Report>();
-        Assert.NotNull(created.Id);
-    }
-}
-```
-
-### 3. E2E Tests
-
-**Purpose**: Test complete user flows from mobile app through backend to database
-
-**When to write**:
-- Critical user journeys
-- Smoke tests for deployments
-- Offline-first scenarios
-
-**Local E2E Testing**: See **[E2E Local Testing Guide](./e2e-local-testing.md)** for complete setup with mobile emulator + LocalStack
-
-**Example (Maestro)**:
 ```yaml
 # mobile/maestro/create_report.yaml
 appId: com.weredaconnect.app
@@ -214,177 +76,53 @@ appId: com.weredaconnect.app
 - tapOn: "Create Report"
 - inputText: "Broken road"
   id: "title_field"
-- tapOn: "Infrastructure"
 - tapOn: "Submit"
 - assertVisible: "Report created successfully"
 ```
 
-**Quick E2E Setup**:
-```bash
-# 1. Start LocalStack backend
-cd server && docker-compose -f docker-compose.localstack.yml up -d
+### Smoke Tests
 
-# 2. Run mobile app on emulator
-cd mobile && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4566
-
-# 3. Test offline → online sync flow
-# See e2e-local-testing.md for detailed scenarios
-```
-
-### 4. Smoke Tests
-
-**Purpose**: Verify basic functionality after deployment
-
-**When to run**:
-- After every deployment
-- Before releasing to users
-
-**Example (Mobile)**:
-```dart
-// test/smoke/app_smoke_test.dart
-void main() {
-  testWidgets('App launches and shows home screen', (tester) async {
-    await tester.pumpWidget(MyApp());
-    await tester.pumpAndSettle();
-    
-    expect(find.text('WeredaConnect'), findsOneWidget);
-    expect(find.byIcon(Icons.add), findsOneWidget);
-  });
-}
-```
-
-**Example (Backend)**:
 ```bash
 # scripts/smoke-test.sh
-#!/bin/bash
-
 API_URL=$1
-
-# Test health endpoint
 curl -f $API_URL/health || exit 1
-
-# Test auth
 TOKEN=$(curl -s -X POST $API_URL/auth/login \
-  -d '{"phoneNumber":"+251912345678","password":"test"}' \
-  | jq -r '.token')
-
-# Test create report
-curl -f -X POST $API_URL/reports \
-  -H "Authorization: Bearer $TOKEN" \
+  -d '{"phoneNumber":"+251912345678","password":"test"}' | jq -r '.token')
+curl -f -X POST $API_URL/reports -H "Authorization: Bearer $TOKEN" \
   -d '{"title":"Smoke test"}' || exit 1
-
-echo "Smoke tests passed!"
 ```
 
 ---
 
 ## Testing Patterns
 
-### Offline-First Testing
+### Offline-First
 
-**Always test offline scenarios FIRST**:
+Always test offline scenarios first, then online:
 
 ```dart
-group('Offline scenarios', () {
-  setUp(() async {
-    await setConnectivity(false);
-  });
-
-  test('should save report locally when offline', () async {
-    // Test offline behavior
-  });
+group('Offline', () {
+  setUp(() async => await setConnectivity(false));
+  test('should save locally when offline', () async { /* ... */ });
 });
-
-group('Online scenarios', () {
-  setUp(() async {
-    await setConnectivity(true);
-  });
-
-  test('should sync report when online', () async {
-    // Test online behavior
-  });
+group('Online', () {
+  setUp(() async => await setConnectivity(true));
+  test('should sync when online', () async { /* ... */ });
 });
 ```
 
 ### Mocking
 
-**Mobile (Mockito)**:
-```dart
-@GenerateMocks([ReportRepository, ConnectivityService])
-void main() {
-  late MockReportRepository mockRepository;
-  
-  setUp(() {
-    mockRepository = MockReportRepository();
-  });
-}
-```
-
-**Backend (NSubstitute - AOT compatible)**:
-```csharp
-var repository = Substitute.For<IReportRepository>();
-repository.GetAsync(Arg.Any<string>())
-    .Returns(Task.FromResult(new Report()));
-```
-
-### Test Data Builders
-
-```dart
-// test/helpers/report_builder.dart
-class ReportBuilder {
-  String _id = 'test-id';
-  String _title = 'Test Report';
-  bool _synced = false;
-
-  ReportBuilder withId(String id) {
-    _id = id;
-    return this;
-  }
-
-  ReportBuilder withTitle(String title) {
-    _title = title;
-    return this;
-  }
-
-  ReportBuilder synced() {
-    _synced = true;
-    return this;
-  }
-
-  Report build() {
-    return Report(id: _id, title: _title, synced: _synced);
-  }
-}
-
-// Usage
-final report = ReportBuilder()
-    .withTitle('Custom title')
-    .synced()
-    .build();
-```
+- **Mobile**: Mockito with `@GenerateMocks([ReportRepository])`
+- **Backend**: NSubstitute (AOT-compatible): `Substitute.For<IReportRepository>()`
 
 ---
 
 ## Coverage Targets
 
-- **Mobile**: >80% for core logic
-- **Backend**: >75% for business logic
-- **Infrastructure**: >70% for custom constructs
-
-**Check coverage**:
-```bash
-# Mobile
-flutter test --coverage
-# View: coverage/lcov.info
-
-# Backend
-dotnet test /p:CollectCoverage=true
-# View: coverage.json
-
-# Infrastructure
-npm run test:coverage
-# View: coverage/lcov-report/index.html
-```
+- **Mobile**: >80% core logic
+- **Backend**: >75% business logic
+- **Infrastructure**: >70% custom constructs
 
 ---
 
@@ -426,32 +164,12 @@ jobs:
 
 ---
 
-## Best Practices
-
-1. **Test offline scenarios first**
-2. **Use descriptive test names**: `should_returnReports_when_repositoryHasData`
-3. **Follow AAA pattern**: Arrange, Act, Assert
-4. **One assertion per test** (when possible)
-5. **Mock external dependencies**
-6. **Test edge cases**: null, empty, error conditions
-7. **Keep tests fast**: Unit tests <1s, integration <5s
-8. **No flaky tests**: Fix or delete
-9. **Test behavior, not implementation**
-10. **Write tests before fixing bugs**
-
----
-
 ## Related Documentation
 
-- **[E2E Local Testing Guide](./e2e-local-testing.md)** - Complete guide for mobile emulator + LocalStack testing
-- **[Testing Philosophy](../../.ai/testing.md)** - Central testing strategy
-- **[Mobile Testing](../../mobile/TESTING.md)** - Flutter-specific guide
-- **[Server Testing](../../server/TESTING.md)** - .NET-specific guide
-- **[Infrastructure Testing](../../infra/TESTING.md)** - CDK-specific guide
+- **[.ai/testing.md](../../.ai/testing.md)** - Testing philosophy and strategy
+- **[E2E Local Testing](./e2e-local-testing.md)** - Mobile emulator + LocalStack
 
 ---
 
-**Last Updated**: 2026-02-09  
-**Version**: 1.0.0  
-**Maintainer**: QA Team
+**Last Updated**: 2026-02-16
 

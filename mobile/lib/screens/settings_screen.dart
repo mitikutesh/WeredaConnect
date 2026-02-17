@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
+import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Settings screen - app configuration and preferences
 class SettingsScreen extends StatelessWidget {
@@ -8,6 +12,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final languageProvider = Provider.of<LanguageProvider>(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -18,11 +23,13 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.language),
             title: Text(l10n.language),
-            subtitle: Text(l10n.currentLanguage),
+            subtitle:
+                Text(languageProvider.getLanguageName(languageProvider.locale)),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.comingSoon)),
+              showDialog<void>(
+                context: context,
+                builder: (context) => const LanguageSelectionDialog(),
               );
             },
           ),

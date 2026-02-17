@@ -21,6 +21,14 @@
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
 
+    <!-- AWS API Gateway domain (deployed infrastructure) -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">execute-api.me-south-1.amazonaws.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
     <!-- Production API domain — add certificate pins before release -->
     <!-- <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">api.weredaconnect.com</domain>

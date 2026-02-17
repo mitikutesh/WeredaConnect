@@ -18,6 +18,9 @@ export class DatabaseStack extends cdk.Stack {
   public readonly cropsTable: dynamodb.Table;
   public readonly tripsTable: dynamodb.Table;
   public readonly rateLimitsTable: dynamodb.Table;
+  public readonly syncMetadataTable: dynamodb.Table;
+  public readonly deliveriesTable: dynamodb.Table;
+  public readonly paymentsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
@@ -73,6 +76,14 @@ export class DatabaseStack extends cdk.Stack {
     });
     this.cropsTable = crops.table;
 
+    // GSI: Query crops by status and recency (trucker browse experience)
+    this.cropsTable.addGlobalSecondaryIndex({
+      indexName: 'StatusCreatedAtIndex',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Trips table
     const trips = new WeredaDynamoTable(this, 'TripsTable', {
       tableName: `${prefix}-trips`,
@@ -81,6 +92,79 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.tripsTable = trips.table;
+
+    // GSI: Query trips by status and departure date (farmer matching)
+    this.tripsTable.addGlobalSecondaryIndex({
+      indexName: 'StatusDepartureDateIndex',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'departureDate', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Sync metadata table (idempotency tracking for offline-first sync)
+    const syncMetadata = new WeredaDynamoTable(this, 'SyncMetadataTable', {
+      tableName: `${prefix}-sync-metadata`,
+      partitionKey: { name: 'idempotencyKey', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.syncMetadataTable = syncMetadata.table;
+
+    // Enable TTL for automatic cleanup after 7 days
+    (this.syncMetadataTable.node.defaultChild as dynamodb.CfnTable).addPropertyOverride(
+      'TimeToLiveSpecification',
+      { AttributeName: 'expiresAt', Enabled: true },
+    );
+
+    // Deliveries table
+    const deliveries = new WeredaDynamoTable(this, 'DeliveriesTable', {
+      tableName: `${prefix}-deliveries`,
+      partitionKey: { name: 'deliveryId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'tripId', type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.deliveriesTable = deliveries.table;
+
+    // GSI: Look up delivery by listing ID
+    this.deliveriesTable.addGlobalSecondaryIndex({
+      indexName: 'ListingIndex',
+      partitionKey: { name: 'listingId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query deliveries by status (pending, disputed, etc.)
+    this.deliveriesTable.addGlobalSecondaryIndex({
+      indexName: 'StatusIndex',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'confirmedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Payments table (Telebirr escrow tracking)
+    const payments = new WeredaDynamoTable(this, 'PaymentsTable', {
+      tableName: `${prefix}-payments`,
+      partitionKey: { name: 'paymentId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'deliveryId', type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.paymentsTable = payments.table;
+
+    // GSI: Query payments to a farmer (earnings history)
+    this.paymentsTable.addGlobalSecondaryIndex({
+      indexName: 'FarmerIndex',
+      partitionKey: { name: 'farmerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query payments by status (escrowed, disputed, etc.)
+    this.paymentsTable.addGlobalSecondaryIndex({
+      indexName: 'StatusIndex',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'escrowedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     // S3 uploads bucket
     this.uploadsBucket = new s3.Bucket(this, 'UploadsBucket', {
@@ -121,6 +205,21 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RateLimitsTableName', {
       value: this.rateLimitsTable.tableName,
       description: 'DynamoDB Rate Limits Table',
+    });
+
+    new cdk.CfnOutput(this, 'SyncMetadataTableName', {
+      value: this.syncMetadataTable.tableName,
+      description: 'DynamoDB SyncMetadata Table',
+    });
+
+    new cdk.CfnOutput(this, 'DeliveriesTableName', {
+      value: this.deliveriesTable.tableName,
+      description: 'DynamoDB Deliveries Table',
+    });
+
+    new cdk.CfnOutput(this, 'PaymentsTableName', {
+      value: this.paymentsTable.tableName,
+      description: 'DynamoDB Payments Table',
     });
   }
 }

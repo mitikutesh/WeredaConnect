@@ -22,6 +22,9 @@ describe('CDK Integration Tests', () => {
       cropsTable: dbStack.cropsTable,
       tripsTable: dbStack.tripsTable,
       rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -54,6 +57,9 @@ describe('CDK Integration Tests', () => {
         cropsTable: dbStack.cropsTable,
         tripsTable: dbStack.tripsTable,
         rateLimitsTable: dbStack.rateLimitsTable,
+        syncMetadataTable: dbStack.syncMetadataTable,
+        deliveriesTable: dbStack.deliveriesTable,
+        paymentsTable: dbStack.paymentsTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 

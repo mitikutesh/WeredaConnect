@@ -12,6 +12,14 @@
   "@welcomeMessage": {
     "description": "Welcome message shown on first launch"
   },
+  "welcomeTitle": "Welcome to WeredaConnect",
+  "@welcomeTitle": {
+    "description": "Main title on welcome screen"
+  },
+  "worksOffline": "Works Offline",
+  "@worksOffline": {
+    "description": "Feature description for offline capability"
+  },
   "offlineMode": "Offline Mode",
   "@offlineMode": {
     "description": "Indicator that the app is currently offline"
@@ -19,6 +27,14 @@
   "syncPending": "Sync Pending",
   "@syncPending": {
     "description": "Indicator that there are pending sync operations"
+  },
+  "taglineShort": "Connecting Farmers, Truckers & Buyers",
+  "@taglineShort": {
+    "description": "Short tagline for welcome screen"
+  },
+  "telebirrPayment": "Telebirr Payment",
+  "@telebirrPayment": {
+    "description": "Feature description for Telebirr payment"
   },
   "syncInProgress": "Syncing...",
   "@syncInProgress": {
@@ -36,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "selectLanguagePrompt": "Select Your Language",
+  "@selectLanguagePrompt": {
+    "description": "Language selection prompt on welcome screen"
+  },
   "cancel": "Cancel",
   "@cancel": {
     "description": "Button to cancel an operation"
@@ -52,9 +72,17 @@
   "@edit": {
     "description": "Button to edit data"
   },
+  "editProfile": "Edit Profile",
+  "@editProfile": {
+    "description": "Edit profile button/menu item"
+  },
   "settings": "Settings",
   "@settings": {
     "description": "Settings menu item"
+  },
+  "skip": "Skip",
+  "@skip": {
+    "description": "Skip button"
   },
   "language": "Language",
   "@language": {
@@ -96,6 +124,10 @@
   "@home": {
     "description": "Home navigation tab"
   },
+  "howItWorks": "How it works",
+  "@howItWorks": {
+    "description": "How it works section title"
+  },
   "listings": "Listings",
   "@listings": {
     "description": "Listings navigation tab"
@@ -128,9 +160,17 @@
   "@myProfile": {
     "description": "Profile screen title"
   },
+  "next": "Next",
+  "@next": {
+    "description": "Next button"
+  },
   "notLoggedIn": "Not logged in",
   "@notLoggedIn": {
     "description": "Message when user is not logged in"
+  },
+  "notifications": "Notifications",
+  "@notifications": {
+    "description": "Notifications menu item"
   },
   "login": "Login",
   "@login": {
@@ -139,6 +179,14 @@
   "comingSoon": "Coming Soon",
   "@comingSoon": {
     "description": "Feature coming soon message"
+  },
+  "connectWithMarkets": "Connect with Local Markets",
+  "@connectWithMarkets": {
+    "description": "Feature description for market connection"
+  },
+  "createAccount": "Create Account",
+  "@createAccount": {
+    "description": "Create account button"
   },
   "currentLanguage": "English",
   "@currentLanguage": {
@@ -155,6 +203,10 @@
   "aboutTagline": "Connecting Ethiopian farmers, truckers, and buyers",
   "@aboutTagline": {
     "description": "About dialog tagline"
+  },
+  "activeListings": "active listings",
+  "@activeListings": {
+    "description": "Active listings count label"
   },
   "register": "Register",
   "@register": {
@@ -188,6 +240,10 @@
   "@trucker": {
     "description": "Trucker/transport provider role"
   },
+  "updateDetails": "Update your name and details",
+  "@updateDetails": {
+    "description": "Description for edit profile menu item"
+  },
   "buyer": "Buyer",
   "@buyer": {
     "description": "Buyer/wholesaler role"
@@ -203,6 +259,14 @@
   "verifyOtp": "Verify",
   "@verifyOtp": {
     "description": "Verify OTP button"
+  },
+  "viewOrderHistory": "View your order history",
+  "@viewOrderHistory": {
+    "description": "Description for my orders menu item"
+  },
+  "voiceSupport": "Voice Support in Your Language",
+  "@voiceSupport": {
+    "description": "Feature description for voice support"
   },
   "resendOtp": "Resend Code",
   "@resendOtp": {
@@ -223,6 +287,10 @@
   "forgotPassword": "Forgot Password?",
   "@forgotPassword": {
     "description": "Forgot password link"
+  },
+  "getStarted": "Get Started",
+  "@getStarted": {
+    "description": "Get started button"
   },
   "loginOnline": "Login Online",
   "@loginOnline": {
@@ -272,6 +340,18 @@
   "@logoutConfirmation": {
     "description": "Logout confirmation dialog message"
   },
+  "manageAlerts": "Manage your alerts",
+  "@manageAlerts": {
+    "description": "Description for notifications menu item"
+  },
+  "myListings": "My Listings",
+  "@myListings": {
+    "description": "My listings menu item"
+  },
+  "myOrders": "My Orders",
+  "@myOrders": {
+    "description": "My orders menu item"
+  },
   "clearOfflineData": "Clear offline data?",
   "@clearOfflineData": {
     "description": "Option to clear cached data on logout"
@@ -287,6 +367,284 @@
   "characters": "characters",
   "@characters": {
     "description": "Characters (for password requirements)"
+  },
+  "cropTypeTeff": "Teff",
+  "@cropTypeTeff": {
+    "description": "Teff crop type"
+  },
+  "cropTypeWheat": "Wheat",
+  "@cropTypeWheat": {
+    "description": "Wheat crop type"
+  },
+  "cropTypeBarley": "Barley",
+  "@cropTypeBarley": {
+    "description": "Barley crop type"
+  },
+  "cropTypeMaize": "Maize",
+  "@cropTypeMaize": {
+    "description": "Maize/corn crop type"
+  },
+  "cropTypeChickpea": "Chickpea",
+  "@cropTypeChickpea": {
+    "description": "Chickpea crop type"
+  },
+  "cropTypeLentils": "Lentils",
+  "@cropTypeLentils": {
+    "description": "Lentils crop type"
+  },
+  "cropTypeSorghum": "Sorghum",
+  "@cropTypeSorghum": {
+    "description": "Sorghum crop type"
+  },
+  "cropTypeCoffee": "Coffee",
+  "@cropTypeCoffee": {
+    "description": "Coffee crop type"
+  },
+  "cropTypeSesame": "Sesame",
+  "@cropTypeSesame": {
+    "description": "Sesame crop type"
+  },
+  "selectCropType": "Select Crop Type",
+  "@selectCropType": {
+    "description": "Crop type selection label"
+  },
+  "quantityInQuintals": "Quantity (quintals)",
+  "@quantityInQuintals": {
+    "description": "Quantity input label in quintals"
+  },
+  "priceInBirr": "Price (ETB/kg)",
+  "@priceInBirr": {
+    "description": "Price input label in Ethiopian Birr per kg"
+  },
+  "location": "Location",
+  "@location": {
+    "description": "Location input label"
+  },
+  "description": "Description",
+  "@description": {
+    "description": "Description input label"
+  },
+  "audioNote": "Audio Note",
+  "@audioNote": {
+    "description": "Audio note label"
+  },
+  "recordAudioNote": "Record Audio Note",
+  "@recordAudioNote": {
+    "description": "Button to record voice description"
+  },
+  "cropTypeRequired": "Please select a crop type",
+  "@cropTypeRequired": {
+    "description": "Validation error for missing crop type"
+  },
+  "quantityRequired": "Please enter the quantity",
+  "@quantityRequired": {
+    "description": "Validation error for missing quantity"
+  },
+  "priceRequired": "Please enter the price",
+  "@priceRequired": {
+    "description": "Validation error for missing price"
+  },
+  "locationRequired": "Please enter the location",
+  "@locationRequired": {
+    "description": "Validation error for missing location"
+  },
+  "listingSaved": "Listing saved successfully",
+  "@listingSaved": {
+    "description": "Success message after saving listing"
+  },
+  "listingDeleted": "Listing deleted",
+  "@listingDeleted": {
+    "description": "Message after deleting listing"
+  },
+  "allCrops": "All",
+  "@allCrops": {
+    "description": "Filter label for all crop types"
+  },
+  "quintals": "quintals",
+  "@quintals": {
+    "description": "Unit of measurement (100kg)"
+  },
+  "etbPerKg": "ETB/kg",
+  "@etbPerKg": {
+    "description": "Ethiopian Birr per kilogram"
+  },
+  "exploreAsGuest": "Explore as Guest",
+  "@exploreAsGuest": {
+    "description": "Button to explore app without login"
+  },
+  "notAuthenticated": "You must be logged in to perform this action",
+  "@notAuthenticated": {
+    "description": "Error message when user is not authenticated"
+  },
+  "passwordsDoNotMatch": "Passwords do not match",
+  "@passwordsDoNotMatch": {
+    "description": "Error message when password and confirm password don't match"
+  },
+  "enterSixDigitCode": "Please enter 6-digit code",
+  "@enterSixDigitCode": {
+    "description": "Hint text for OTP input field"
+  },
+  "resendCodeCountdown": "Resend code in {seconds} seconds",
+  "@resendCodeCountdown": {
+    "description": "Countdown message before resend OTP button is enabled",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "listingStatusActive": "Active",
+  "@listingStatusActive": {
+    "description": "Status label for active crop listing"
+  },
+  "listingStatusDraft": "Draft",
+  "@listingStatusDraft": {
+    "description": "Status label for draft crop listing"
+  },
+  "listingStatusSold": "Sold",
+  "@listingStatusSold": {
+    "description": "Status label for sold crop listing"
+  },
+  "listingStatusExpired": "Expired",
+  "@listingStatusExpired": {
+    "description": "Status label for expired crop listing"
+  },
+  "backToHome": "Back to Home",
+  "@backToHome": {
+    "description": "Button to navigate back to welcome/landing screen"
+  },
+  "tripListings": "Trip Listings",
+  "@tripListings": {
+    "description": "Title for trip listings screen"
+  },
+  "createTrip": "Create Trip",
+  "@createTrip": {
+    "description": "Button to create a new trip"
+  },
+  "browseTrips": "Browse Trips",
+  "@browseTrips": {
+    "description": "Button to browse available trips"
+  },
+  "myTrips": "My Trips",
+  "@myTrips": {
+    "description": "Navigation item for user's own trips"
+  },
+  "tripDetails": "Trip Details",
+  "@tripDetails": {
+    "description": "Title for trip details screen"
+  },
+  "fromWoreda": "From (Origin)",
+  "@fromWoreda": {
+    "description": "Label for origin woreda selection"
+  },
+  "toWoreda": "To (Destination)",
+  "@toWoreda": {
+    "description": "Label for destination woreda selection"
+  },
+  "departureDate": "Departure Date",
+  "@departureDate": {
+    "description": "Label for departure date picker"
+  },
+  "capacity": "Capacity (quintals)",
+  "@capacity": {
+    "description": "Label for truck capacity input in quintals"
+  },
+  "pricePerQuintal": "Price per Quintal (ETB)",
+  "@pricePerQuintal": {
+    "description": "Label for price per quintal input in Ethiopian Birr"
+  },
+  "tripStatusOpen": "Open",
+  "@tripStatusOpen": {
+    "description": "Trip status label when trip is open for booking"
+  },
+  "tripStatusMatched": "Matched",
+  "@tripStatusMatched": {
+    "description": "Trip status label when trip is matched with a farmer"
+  },
+  "tripStatusInTransit": "In Transit",
+  "@tripStatusInTransit": {
+    "description": "Trip status label when shipment is in transit"
+  },
+  "tripStatusDelivered": "Delivered",
+  "@tripStatusDelivered": {
+    "description": "Trip status label when shipment has been delivered"
+  },
+  "tripStatusCancelled": "Cancelled",
+  "@tripStatusCancelled": {
+    "description": "Trip status label when trip has been cancelled"
+  },
+  "noTripsFound": "No trips found",
+  "@noTripsFound": {
+    "description": "Empty state message when no trips match the filter"
+  },
+  "tripCreatedSuccess": "Trip created successfully!",
+  "@tripCreatedSuccess": {
+    "description": "Success message after creating a trip"
+  },
+  "tripCancelledSuccess": "Trip cancelled",
+  "@tripCancelledSuccess": {
+    "description": "Success message after cancelling a trip"
+  },
+  "filterByRoute": "Filter by route",
+  "@filterByRoute": {
+    "description": "Label for route filter control"
+  },
+  "availableCapacity": "Available capacity",
+  "@availableCapacity": {
+    "description": "Label showing remaining truck capacity"
+  },
+  "selectDepartureDate": "Select departure date",
+  "@selectDepartureDate": {
+    "description": "Placeholder text for departure date picker"
+  },
+  "truckerContact": "Trucker Contact",
+  "@truckerContact": {
+    "description": "Label for trucker contact information"
+  },
+  "fromWoredaRequired": "Origin woreda is required",
+  "@fromWoredaRequired": {
+    "description": "Validation error when origin woreda is not selected"
+  },
+  "toWoredaRequired": "Destination woreda is required",
+  "@toWoredaRequired": {
+    "description": "Validation error when destination woreda is not selected"
+  },
+  "departureDateRequired": "Departure date is required",
+  "@departureDateRequired": {
+    "description": "Validation error when departure date is not selected"
+  },
+  "capacityRequired": "Capacity is required",
+  "@capacityRequired": {
+    "description": "Validation error when capacity is not entered"
+  },
+  "priceRequired": "Price is required",
+  "@priceRequired": {
+    "description": "Validation error when price is not entered"
+  },
+  "invalidCapacity": "Capacity must be between 0.1 and 1000 quintals",
+  "@invalidCapacity": {
+    "description": "Validation error for out-of-range capacity value"
+  },
+  "invalidPrice": "Price must be between 0.01 and 10000 ETB",
+  "@invalidPrice": {
+    "description": "Validation error for out-of-range price value"
+  },
+  "sameOriginDestination": "Origin and destination cannot be the same",
+  "@sameOriginDestination": {
+    "description": "Validation error when origin and destination woredas are identical"
+  },
+  "etbCurrency": "ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency abbreviation for price display"
+  },
+  "findTransport": "Find Transport",
+  "@findTransport": {
+    "description": "Quick action card title for finding transport/trucking services"
+  },
+  "viewCropListings": "View your crop listings",
+  "@viewCropListings": {
+    "description": "Description for my listings menu item on profile screen"
   }
 }
 

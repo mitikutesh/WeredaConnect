@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -15,6 +16,9 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly cropsTable: dynamodb.Table;
   readonly tripsTable: dynamodb.Table;
   readonly rateLimitsTable: dynamodb.Table;
+  readonly syncMetadataTable: dynamodb.Table;
+  readonly deliveriesTable: dynamodb.Table;
+  readonly paymentsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -157,6 +161,56 @@ export class ApiStack extends cdk.Stack {
       'cognito-idp:AdminUserGlobalSignOut',
     ]);
 
+    // ─── Sync Function ───────────────────────────────────────────────
+
+    const syncFn = new WeredaLambda(this, 'SyncFunction', {
+      functionName: `${prefix}-sync`,
+      description: 'POST /sync — offline-first sync engine batch processor',
+      handlerName: 'SyncFunction',
+      environment: {
+        SYNC_METADATA_TABLE: props.syncMetadataTable.tableName,
+        CROPS_TABLE: props.cropsTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        TRIPS_TABLE: props.tripsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+    // Sync needs read-write on entity tables and sync metadata
+    props.syncMetadataTable.grantReadWriteData(syncFn.function);
+    props.cropsTable.grantReadWriteData(syncFn.function);
+    props.usersTable.grantReadData(syncFn.function);
+    props.tripsTable.grantReadWriteData(syncFn.function);
+
+    // ─── Crop Function ───────────────────────────────────────────────
+
+    const cropFn = new WeredaLambda(this, 'CropFunction', {
+      functionName: `${prefix}-crops`,
+      description: 'GET /crops — browse crop listings (read-only)',
+      handlerName: 'CropFunction',
+      environment: {
+        CROPS_TABLE: props.cropsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+    });
+    // Crop function needs read-only access to crops table
+    props.cropsTable.grantReadData(cropFn.function);
+
+    // ─── Trip Function ────────────────────────────────────────────────
+
+    const tripFn = new WeredaLambda(this, 'TripFunction', {
+      functionName: `${prefix}-trips`,
+      description: 'GET /trips — browse trip listings (read-only)',
+      handlerName: 'TripFunction',
+      environment: {
+        TRIPS_TABLE: props.tripsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+    });
+    // Trip function needs read-only access to trips table
+    props.tripsTable.grantReadData(tripFn.function);
+
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
     const httpApi = new apigateway.HttpApi(this, 'HttpApi', {
@@ -170,6 +224,11 @@ export class ApiStack extends cdk.Stack {
     });
 
     this.httpApiUrl = httpApi.apiEndpoint;
+
+    // ─── JWT Authorizer ──────────────────────────────────────────────
+    const jwtAuthorizer = new HttpUserPoolAuthorizer('CognitoAuthorizer', this.userPool, {
+      userPoolClients: [this.userPoolClient],
+    });
 
     // ─── Routes ──────────────────────────────────────────────────────
 
@@ -206,7 +265,49 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: '/auth/logout',
       methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration('LogoutInt', logoutFn.function),
+    });
+
+    httpApi.addRoutes({
+      path: '/sync',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('SyncInt', syncFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/crops',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('CropsListInt', cropFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/crops/{id}',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('CropsGetInt', cropFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/trips',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('TripsListInt', tripFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/trips/{id}',
+      methods: [apigateway.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('TripsGetInt', tripFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
     });
 
     // ─── API Gateway Throttling ──────────────────────────────────────

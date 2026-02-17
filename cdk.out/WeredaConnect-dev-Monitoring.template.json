@@ -1,0 +1,75 @@
+{
+ "Description": "WeredaConnect dev - CloudWatch dashboards and alarms",
+ "Resources": {
+  "Dashboard9E4231ED": {
+   "Type": "AWS::CloudWatch::Dashboard",
+   "Properties": {
+    "DashboardBody": {
+     "Fn::Join": [
+      "",
+      [
+       "{\"widgets\":[{\"type\":\"text\",\"width\":24,\"height\":4,\"x\":0,\"y\":0,\"properties\":{\"markdown\":\"# WeredaConnect dev Dashboard\\n\\nAPI URL: ",
+       {
+        "Fn::ImportValue": "wereda-connect-dev-api:ExportsOutputFnGetAttHttpApiF5A9A8A7ApiEndpoint082134F8"
+       },
+       "\\n\\nLambda metrics will be added after function deployment.\"}}]}"
+      ]
+     ]
+    },
+    "DashboardName": "wereda-connect-dev"
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Monitoring/Dashboard/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/zPSMzK20DNQTCwv1k1OydbNyUzSqw4uSUzO1gEKxSfn5JemlCeWJGfoVbskFmck5ScWpeg4p+XBObUgnn9pSUFpSa1OXn5Kql5WsX6ZkYEeEBkoZhVnZuoWleaVZOam6gVBaABuuMgwcwAAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "WeredaConnect-dev-Monitoring/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "DashboardUrl": {
+   "Description": "CloudWatch Dashboard URL",
+   "Value": "https://me-south-1.console.aws.amazon.com/cloudwatch/home?region=me-south-1#dashboards:name=wereda-connect-dev"
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

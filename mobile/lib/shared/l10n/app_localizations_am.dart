@@ -18,10 +18,22 @@ class AppLocalizationsAm extends AppLocalizations {
   String get welcomeMessage => 'ወደ ወረዳ ኮነክት እንኳን በደህና መጡ';
 
   @override
+  String get welcomeTitle => 'እንኳን ወደ ወረዳ ኮነክት በደህና መጡ';
+
+  @override
+  String get worksOffline => 'ከመስመር ውጭ ይሰራል';
+
+  @override
   String get offlineMode => 'ከመስመር ውጭ';
 
   @override
   String get syncPending => 'ማመሳሰል በመጠባበቅ ላይ';
+
+  @override
+  String get taglineShort => 'ገበሬዎችን፣ መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
+
+  @override
+  String get telebirrPayment => 'ቴሌብር ክፍያ';
 
   @override
   String get syncInProgress => 'በማመሳሰል ላይ...';
@@ -36,6 +48,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get retry => 'እንደገና ሞክር';
 
   @override
+  String get selectLanguagePrompt => 'ቋንቋዎን ይምረጡ';
+
+  @override
   String get cancel => 'ሰርዝ';
 
   @override
@@ -48,7 +63,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String get edit => 'አርትዕ';
 
   @override
+  String get editProfile => 'መገለጫ አርትዕ';
+
+  @override
   String get settings => 'ቅንብሮች';
+
+  @override
+  String get skip => 'ዝለል';
 
   @override
   String get language => 'ቋንቋ';
@@ -81,6 +102,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get home => 'መነሻ';
 
   @override
+  String get howItWorks => 'እንዴት እንደሚሰራ';
+
+  @override
   String get listings => 'ዝርዝሮች';
 
   @override
@@ -105,13 +129,25 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myProfile => 'የእኔ መገለጫ';
 
   @override
+  String get next => 'ቀጣይ';
+
+  @override
   String get notLoggedIn => 'ገብተው አይደሉም';
+
+  @override
+  String get notifications => 'ማሳወቂያዎች';
 
   @override
   String get login => 'ግባ';
 
   @override
   String get comingSoon => 'በቅርቡ ይመጣል';
+
+  @override
+  String get connectWithMarkets => 'ከአካባቢ ገበያዎች ጋር ይገናኙ';
+
+  @override
+  String get createAccount => 'መለያ ፍጠር';
 
   @override
   String get currentLanguage => 'አማርኛ';
@@ -124,6 +160,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get aboutTagline => 'የኢትዮጵያ ገበሬዎችን፣ የጭነት መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
+
+  @override
+  String get activeListings => 'ንቁ ዝርዝሮች';
 
   @override
   String get register => 'ተመዝገብ';
@@ -150,6 +189,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trucker => 'የጭነት መኪና ሹፌር';
 
   @override
+  String get updateDetails => 'ስምዎን እና ዝርዝሮችዎን ያዘምኑ';
+
+  @override
   String get buyer => 'ገዢ';
 
   @override
@@ -160,6 +202,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get verifyOtp => 'አረጋግጥ';
+
+  @override
+  String get viewOrderHistory => 'የትዕዛዝ ታሪክዎን ይመልከቱ';
+
+  @override
+  String get voiceSupport => 'በቋንቋዎ የድምፅ ድጋፍ';
 
   @override
   String get resendOtp => 'እንደገና ላክ';
@@ -175,6 +223,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get forgotPassword => 'የይለፍ ቃል ረሳኽው?';
+
+  @override
+  String get getStarted => 'ጀምር';
 
   @override
   String get loginOnline => 'መስመር ላይ ግባ';
@@ -213,6 +264,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get logoutConfirmation => 'መውጣት ይፈልጋሉ?';
 
   @override
+  String get manageAlerts => 'ማንቂያዎችን ያስተዳድሩ';
+
+  @override
+  String get myListings => 'የእኔ ዝርዝሮች';
+
+  @override
+  String get myOrders => 'የእኔ ትዕዛዞች';
+
+  @override
   String get clearOfflineData => 'ከመስመር ውጭ መረጃ ይሰረዝ?';
 
   @override
@@ -223,4 +283,207 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get characters => 'ቁምፊዎች';
+
+  @override
+  String get cropTypeTeff => 'ጤፍ';
+
+  @override
+  String get cropTypeWheat => 'ስንዴ';
+
+  @override
+  String get cropTypeBarley => 'ገብስ';
+
+  @override
+  String get cropTypeMaize => 'በቆሎ';
+
+  @override
+  String get cropTypeChickpea => 'ሽምብራ';
+
+  @override
+  String get cropTypeLentils => 'ምስር';
+
+  @override
+  String get cropTypeSorghum => 'ማሽላ';
+
+  @override
+  String get cropTypeCoffee => 'ቡና';
+
+  @override
+  String get cropTypeSesame => 'ሰሊጥ';
+
+  @override
+  String get selectCropType => 'የሰብል ዓይነት ይምረጡ';
+
+  @override
+  String get quantityInQuintals => 'መጠን (ኩንታል)';
+
+  @override
+  String get priceInBirr => 'ዋጋ (ብር/ኪግ)';
+
+  @override
+  String get location => 'ቦታ';
+
+  @override
+  String get description => 'መግለጫ';
+
+  @override
+  String get audioNote => 'የድምጽ ማስታወሻ';
+
+  @override
+  String get recordAudioNote => 'የድምጽ ማስታወሻ ቅዳ';
+
+  @override
+  String get cropTypeRequired => 'እባክዎ የሰብል ዓይነት ይምረጡ';
+
+  @override
+  String get quantityRequired => 'እባክዎ መጠኑን ያስገቡ';
+
+  @override
+  String get priceRequired => 'ዋጋ ያስፈልጋል';
+
+  @override
+  String get locationRequired => 'እባክዎ ቦታውን ያስገቡ';
+
+  @override
+  String get listingSaved => 'ዝርዝሩ በተሳካ ሁኔታ ተቀምጧል';
+
+  @override
+  String get listingDeleted => 'ዝርዝሩ ተሰርዟል';
+
+  @override
+  String get allCrops => 'ሁሉም';
+
+  @override
+  String get quintals => 'ኩንታል';
+
+  @override
+  String get etbPerKg => 'ብር/ኪግ';
+
+  @override
+  String get exploreAsGuest => 'እንደ እንግዳ ያስሱ';
+
+  @override
+  String get notAuthenticated => 'ይህን እርምጃ ለመውሰድ መግባት አለብዎት';
+
+  @override
+  String get passwordsDoNotMatch => 'የይለፍ ቃል ቁምፊዎች አይዛመዱም';
+
+  @override
+  String get enterSixDigitCode => 'እባክዎ 6 አሃዝ ኮድ ያስገቡ';
+
+  @override
+  String resendCodeCountdown(int seconds) {
+    return 'ኮድ እንደገና መላክ በ $seconds ሰከንድ';
+  }
+
+  @override
+  String get listingStatusActive => 'ንቁ';
+
+  @override
+  String get listingStatusDraft => 'ረቂቅ';
+
+  @override
+  String get listingStatusSold => 'ተሽጧል';
+
+  @override
+  String get listingStatusExpired => 'ጊዜው አልፏል';
+
+  @override
+  String get backToHome => 'ወደ መነሻ ይመለሱ';
+
+  @override
+  String get tripListings => 'የጉዞ ዝርዝሮች';
+
+  @override
+  String get createTrip => 'ጉዞ ፍጠር';
+
+  @override
+  String get browseTrips => 'ጉዞዎችን ያስሱ';
+
+  @override
+  String get myTrips => 'የእኔ ጉዞዎች';
+
+  @override
+  String get tripDetails => 'የጉዞ ዝርዝር';
+
+  @override
+  String get fromWoreda => 'ከ (መነሻ)';
+
+  @override
+  String get toWoreda => 'ወደ (መድረሻ)';
+
+  @override
+  String get departureDate => 'የመነሻ ቀን';
+
+  @override
+  String get capacity => 'አቅም (ኩንታል)';
+
+  @override
+  String get pricePerQuintal => 'በኩንታል ዋጋ (ብር)';
+
+  @override
+  String get tripStatusOpen => 'ክፍት';
+
+  @override
+  String get tripStatusMatched => 'ተመዛግቦ';
+
+  @override
+  String get tripStatusInTransit => 'በመንገድ ላይ';
+
+  @override
+  String get tripStatusDelivered => 'ደርሷል';
+
+  @override
+  String get tripStatusCancelled => 'ተሰርዟል';
+
+  @override
+  String get noTripsFound => 'ጉዞ አልተገኘም';
+
+  @override
+  String get tripCreatedSuccess => 'ጉዞ በተሳካ ሁኔታ ተፈጠረ!';
+
+  @override
+  String get tripCancelledSuccess => 'ጉዞ ተሰርዟል';
+
+  @override
+  String get filterByRoute => 'በመንገድ ያጣሩ';
+
+  @override
+  String get availableCapacity => 'ያለ አቅም';
+
+  @override
+  String get selectDepartureDate => 'የመነሻ ቀን ይምረጡ';
+
+  @override
+  String get truckerContact => 'የጭነት ሹፌር አድራሻ';
+
+  @override
+  String get fromWoredaRequired => 'የመነሻ ወረዳ ያስፈልጋል';
+
+  @override
+  String get toWoredaRequired => 'የመድረሻ ወረዳ ያስፈልጋል';
+
+  @override
+  String get departureDateRequired => 'የመነሻ ቀን ያስፈልጋል';
+
+  @override
+  String get capacityRequired => 'አቅም ያስፈልጋል';
+
+  @override
+  String get invalidCapacity => 'አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት';
+
+  @override
+  String get invalidPrice => 'ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት';
+
+  @override
+  String get sameOriginDestination => 'መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም';
+
+  @override
+  String get etbCurrency => 'ብር';
+
+  @override
+  String get findTransport => 'ትራንስፖርት ፈልግ';
+
+  @override
+  String get viewCropListings => 'የሰብል ዝርዝሮችዎን ይመልከቱ';
 }

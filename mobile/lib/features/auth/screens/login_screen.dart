@@ -7,6 +7,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
+import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
+import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
 ///
@@ -63,6 +65,13 @@ class _LoginScreenState extends State<LoginScreen> {
         );
   }
 
+  void _showLanguageSelectionDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => const LanguageSelectionDialog(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -78,8 +87,26 @@ class _LoginScreenState extends State<LoginScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(
+                  builder: (_) => const WelcomeScreen(),
+                ),
+              );
+            },
+            tooltip: l10n.backToHome,
+          ),
           title: Text(l10n.login),
           elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.language),
+              onPressed: () => _showLanguageSelectionDialog(context),
+              tooltip: l10n.language,
+            ),
+          ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -244,8 +271,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
                                     Colors.white,
                                   ),
                                 ),
