@@ -29,10 +29,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify home screen is displayed
+      // Verify splash/auth screen is displayed
       expect(find.text('WeredaConnect'), findsOneWidget);
-      expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
-      expect(find.text('Offline Ready'), findsOneWidget);
+      expect(find.byIcon(Icons.agriculture), findsOneWidget);
     });
 
     testWidgets('app bar is displayed correctly', (WidgetTester tester) async {
