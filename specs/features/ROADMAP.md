@@ -10,7 +10,7 @@
 | **R1: Security Foundation** | ✅ COMPLETE | Feb 2026 |
 | **R2: Auth + Data Models** | ✅ COMPLETE | Feb 14, 2026 |
 | **R3: Sync + First Feature** | ✅ COMPLETE | Feb 15, 2026 (2 weeks early) |
-| **R4: Complete Transaction Flow** | ⏳ NOT STARTED | Target: Apr-May 2026 |
+| **R4: Complete Transaction Flow** | ⏳ PREP DONE | Target: Apr-May 2026 |
 
 **What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution, browse listings from server, 3 languages, 228 server tests passing.
 
@@ -24,7 +24,7 @@
 
 R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Listings) are all complete. 228 server tests passing, 12+ integration tests, all deployed to AWS (me-south-1). See `docs/archive/` for detailed completion records.
 
-**Deferred items**: F-01 (git history purge — needs force-push maintenance window), F-05 (cert pinning — deferred to R4).
+**Deferred items**: F-01 (git history purge — runbook ready at `docs/runbooks/f01-git-history-purge.md`), F-05 (cert pinning — real hashes extracted, activation at `docs/runbooks/f05-cert-pinning-activation.md`).
 
 ---
 
@@ -64,9 +64,9 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 | Contract | Location | Status |
 |----------|----------|--------|
-| Escrow Protocol | `specs/contracts/escrow-protocol.md` | NOT CREATED |
-| Trip Listing API | `specs/contracts/trip-listing-api.md` | NOT CREATED |
-| Delivery Verification API | `specs/contracts/delivery-verification-api.md` | NOT CREATED |
+| Escrow Protocol | `specs/contracts/escrow-protocol.md` | ✅ v1.0.0 (Feb 17, 2026) |
+| Trip Listing API | `specs/contracts/trip-listing-api.md` | ✅ v1.0.0 (Feb 16, 2026) |
+| Delivery Verification API | `specs/contracts/delivery-verification-api.md` | ✅ v1.0.0 (Feb 17, 2026) |
 | Auth API | `specs/contracts/auth-api.md` | ✅ EXISTS |
 | Crop Listing API | `specs/contracts/crop-listing-api.md` | ✅ EXISTS |
 | Sync Protocol | `specs/contracts/sync-protocol.md` | ✅ EXISTS |
@@ -107,5 +107,5 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 **Document Version**: 1.3.0
 **Created**: 2026-02-11
-**Last Updated**: 2026-02-16 (condensed; full feature scoring moved to BACKLOG.md)
+**Last Updated**: 2026-02-17 (all R4 contracts written; deferred items planned)
 **Completed task history**: See `docs/archive/completed-tasks.md`

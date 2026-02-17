@@ -3,8 +3,9 @@
 ## Current Status
 
 **Phase R3: COMPLETE** (Feb 15, 2026 — 2 weeks ahead of schedule)
-**Branch:** `sync-first-feat` — ready for merge to main
-**Next:** Phase R4 — Trip Listings + Delivery Verification + Telebirr Escrow
+**Branch:** `main` (sync-first-feat merged via PR #4 on Feb 16)
+**Current:** R4 Preparation — contracts written, deferred items planned
+**Next:** Phase R4 Implementation — Trip Listings first
 
 ---
 
@@ -15,11 +16,11 @@
 | R1: Security Foundation | ✅ 100% | Feb 2026 |
 | R2: Auth + Data Models | ✅ 100% | Feb 14, 2026 |
 | R3: Sync + First Feature | ✅ 100% (20/20 tasks) | Feb 15, 2026 |
-| R4: Trips + Delivery + Escrow | ⏳ 0% | Target: Apr 30, 2026 |
+| R4: Trips + Delivery + Escrow | ⏳ Prep done, 0% impl | Target: Apr 30, 2026 |
 
 **R3 Achievements:** Offline-first sync engine, crop listing (create + browse), 228 server tests + 12 integration tests, all deployed to AWS (me-south-1), zero data loss validated.
 
-**Deferred items:** F-01 (git history purge — maintenance window), F-05 (cert pinning — R4).
+**Deferred items:** F-01 (git history purge — runbook ready, awaiting execution), F-05 (cert pinning — real hashes extracted, activation planned).
 
 Completed task details: `docs/archive/completed-tasks.md`
 
@@ -47,22 +48,25 @@ Complete the end-to-end logistics flow:
 - [ ] All entities sync offline-first (trips, deliveries, payments)
 - [ ] Integration tests validate escrow flow
 
-### Required Contracts (Architect must create before R4 starts)
+### Required Contracts
 
 | Contract | Status |
 |----------|--------|
-| `specs/contracts/trip-listing-api.md` | NOT CREATED |
-| `specs/contracts/delivery-verification-api.md` | NOT CREATED |
-| `specs/contracts/escrow-protocol.md` | NOT CREATED |
+| `specs/contracts/trip-listing-api.md` | ✅ v1.0.0 (Draft) |
+| `specs/contracts/delivery-verification-api.md` | ✅ v1.0.0 — QR HMAC-SHA256, GPS 5km threshold, state machine |
+| `specs/contracts/escrow-protocol.md` | ✅ v1.0.0 — Telebirr abstraction, 7-state lifecycle, idempotent ops |
 
-### Before Starting R4
+### Before Starting R4 Implementation
 
-1. Merge R3 to main (PR for `sync-first-feat`)
-2. User acceptance testing (TestFlight / Google Play Internal)
-3. Performance testing on 2GB Android 8 with 3G simulation
-4. Create R4 sprint plan
-5. Stakeholder demo of R3 capabilities
+1. ~~Merge R3 to main (PR for `sync-first-feat`)~~ ✅ Done (PR #4, Feb 16)
+2. ~~Write R4 contracts~~ ✅ Done (all 3 contracts written, Feb 17)
+3. ~~Plan deferred items F-01 and F-05~~ ✅ Runbooks at `docs/runbooks/`
+4. Execute F-01 git history purge — **requires human maintenance window**
+5. Activate F-05 cert pinning — real hashes extracted, code changes needed
+6. User acceptance testing (TestFlight / Google Play Internal)
+7. Performance testing on 2GB Android 8 with 3G simulation
+8. Stakeholder demo of R3 capabilities
 
 ---
 
-**Last Updated:** 2026-02-16
+**Last Updated:** 2026-02-17
