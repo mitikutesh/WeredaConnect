@@ -101,7 +101,7 @@ class WelcomeScreen extends StatelessWidget {
                 children: [
                   _InfoChip(
                     icon: Icons.help_outline,
-                    label: 'How it works', // TODO: Add to l10n
+                    label: l10n.howItWorks,
                     onTap: () => _showHowItWorksInfo(context, l10n),
                   ),
                   const SizedBox(width: 12),

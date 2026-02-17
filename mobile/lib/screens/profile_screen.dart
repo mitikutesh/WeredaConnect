@@ -114,7 +114,7 @@ class ProfileScreen extends StatelessWidget {
               _ProfileActionCard(
                 icon: Icons.person_outline,
                 title: l10n.edit,
-                subtitle: 'Update your name and details',
+                subtitle: l10n.updateDetails,
                 onTap: () {
                   // TODO: Navigate to edit profile screen
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -128,7 +128,7 @@ class ProfileScreen extends StatelessWidget {
               _ProfileActionCard(
                 icon: Icons.agriculture_outlined,
                 title: l10n.listings,
-                subtitle: 'View your crop listings',
+                subtitle: l10n.viewCropListings,
                 onTap: () {
                   // TODO: Navigate to user's listings
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -141,8 +141,8 @@ class ProfileScreen extends StatelessWidget {
 
               _ProfileActionCard(
                 icon: Icons.receipt_long_outlined,
-                title: 'My Orders',
-                subtitle: 'View your order history',
+                title: l10n.myOrders,
+                subtitle: l10n.viewOrderHistory,
                 onTap: () {
                   // TODO: Navigate to orders screen
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -155,8 +155,8 @@ class ProfileScreen extends StatelessWidget {
 
               _ProfileActionCard(
                 icon: Icons.notifications_outlined,
-                title: 'Notifications',
-                subtitle: 'Manage your alerts',
+                title: l10n.notifications,
+                subtitle: l10n.manageAlerts,
                 onTap: () {
                   // TODO: Navigate to notifications settings
                   ScaffoldMessenger.of(context).showSnackBar(

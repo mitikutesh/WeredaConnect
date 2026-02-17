@@ -56,6 +56,8 @@ void main() {
 
       final trip = await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departureDate,
@@ -85,6 +87,8 @@ void main() {
     test('createTrip enqueues sync operation', () async {
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
@@ -105,6 +109,8 @@ void main() {
 
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,
@@ -113,6 +119,8 @@ void main() {
       );
       await repository.createTrip(
         truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
         fromWoreda: 'Adama',
         toWoreda: 'Hawassa',
         departureDate: departure,
@@ -121,6 +129,8 @@ void main() {
       );
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Debre Birhan',
         toWoreda: 'Adama',
         departureDate: departure,
@@ -141,6 +151,8 @@ void main() {
 
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,
@@ -149,6 +161,8 @@ void main() {
       );
       final tripToCancel = await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Adama',
         toWoreda: 'Hawassa',
         departureDate: departure,
@@ -172,6 +186,8 @@ void main() {
 
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,
@@ -180,6 +196,8 @@ void main() {
       );
       await repository.createTrip(
         truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
         fromWoreda: 'Adama',
         toWoreda: 'Hawassa',
         departureDate: departure,
@@ -198,6 +216,8 @@ void main() {
 
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,
@@ -206,6 +226,8 @@ void main() {
       );
       await repository.createTrip(
         truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
         fromWoreda: 'Adama',
         toWoreda: 'Hawassa',
         departureDate: departure,
@@ -222,6 +244,8 @@ void main() {
     test('cancelTrip marks as cancelled and enqueues sync', () async {
       final trip = await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),

@@ -1041,6 +1041,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ETB'**
   String get etbCurrency;
+
+  /// Quick action card title for finding transport/trucking services
+  ///
+  /// In en, this message translates to:
+  /// **'Find Transport'**
+  String get findTransport;
+
+  /// Description for my listings menu item on profile screen
+  ///
+  /// In en, this message translates to:
+  /// **'View your crop listings'**
+  String get viewCropListings;
 }
 
 class _AppLocalizationsDelegate

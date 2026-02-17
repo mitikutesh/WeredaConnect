@@ -98,13 +98,15 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Tap save without filling anything
+      // Scroll to make Save button visible, then tap
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      // Should show validation errors
+      // Should show validation errors (matching l10n strings)
       expect(find.text('Please enter the quantity'), findsOneWidget);
-      expect(find.text('Please enter the price'), findsOneWidget);
+      expect(find.text('Price is required'), findsOneWidget);
       expect(find.text('Please enter the location'), findsOneWidget);
     });
   });

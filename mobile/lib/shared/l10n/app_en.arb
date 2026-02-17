@@ -637,6 +637,14 @@
   "etbCurrency": "ETB",
   "@etbCurrency": {
     "description": "Ethiopian Birr currency abbreviation for price display"
+  },
+  "findTransport": "Find Transport",
+  "@findTransport": {
+    "description": "Quick action card title for finding transport/trucking services"
+  },
+  "viewCropListings": "View your crop listings",
+  "@viewCropListings": {
+    "description": "Description for my listings menu item on profile screen"
   }
 }
 

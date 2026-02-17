@@ -480,4 +480,10 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get etbCurrency => 'ብር';
+
+  @override
+  String get findTransport => 'ትራንስፖርት ፈልግ';
+
+  @override
+  String get viewCropListings => 'የሰብል ዝርዝሮችዎን ይመልከቱ';
 }

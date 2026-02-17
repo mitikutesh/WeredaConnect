@@ -54,7 +54,7 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 _QuickActionCard(
                   icon: Icons.local_shipping_outlined,
-                  title: 'Find Transport',
+                  title: l10n.findTransport,
                   subtitle: l10n.comingSoon,
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(

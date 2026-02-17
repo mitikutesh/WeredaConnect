@@ -83,6 +83,8 @@ void main() {
       bloc.add(
         CreateTrip(
           truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
           fromWoreda: 'Bishoftu',
           toWoreda: 'Addis Ababa',
           departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
@@ -105,6 +107,8 @@ void main() {
       // Create a trip first
       final trip = await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
@@ -141,6 +145,8 @@ void main() {
       // Create some trips
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,
@@ -149,6 +155,8 @@ void main() {
       );
       await repository.createTrip(
         truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
         fromWoreda: 'Adama',
         toWoreda: 'Hawassa',
         departureDate: departure,
@@ -172,7 +180,7 @@ void main() {
       expect(states[0], isA<TripListingLoading>());
       expect(states[1], isA<TripsLoaded>());
       final loaded = states[1] as TripsLoaded;
-      expect(loaded.fromWaredaFilter, 'Bishoftu');
+      expect(loaded.fromWoredaFilter, 'Bishoftu');
       expect(loaded.trips.length, 1);
       expect(loaded.trips.first.fromWoreda, 'Bishoftu');
 
@@ -185,6 +193,8 @@ void main() {
 
       await repository.createTrip(
         truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
         fromWoreda: 'Bishoftu',
         toWoreda: 'Addis Ababa',
         departureDate: departure,

@@ -68,7 +68,7 @@ void main() {
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: CreateTripScreen(),
+        home: CreateTripScreen(truckerName: 'Test Trucker', truckerPhone: '+251911000000'),
       ),
     );
   }

@@ -488,4 +488,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get etbCurrency => 'ETB';
+
+  @override
+  String get findTransport => 'Find Transport';
+
+  @override
+  String get viewCropListings => 'View your crop listings';
 }

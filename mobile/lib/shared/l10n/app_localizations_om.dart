@@ -492,4 +492,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get etbCurrency => 'ETB';
+
+  @override
+  String get findTransport => 'Geejjiba Barbaadi';
+
+  @override
+  String get viewCropListings => 'Tarreewwan midhaan kee ilaali';
 }

@@ -28,7 +28,7 @@ public class HealthCheckFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.NotNull(response.Body);
 
-        var healthCheck = JsonSerializer.Deserialize<HealthCheckResponse>(response.Body);
+        var healthCheck = JsonSerializer.Deserialize<HealthCheckResponse>(response.Body, JsonOptions);
         Assert.NotNull(healthCheck);
         Assert.Equal("healthy", healthCheck.Status);
         Assert.Equal("0.1.0", healthCheck.Version);
@@ -64,11 +64,11 @@ public class HealthCheckFunctionTests
 
         // Act - First invocation should be cold start
         var response1 = function.FunctionHandler(request, context);
-        var healthCheck1 = JsonSerializer.Deserialize<HealthCheckResponse>(response1.Body);
+        var healthCheck1 = JsonSerializer.Deserialize<HealthCheckResponse>(response1.Body, JsonOptions);
 
         // Act - Second invocation should not be cold start
         var response2 = function.FunctionHandler(request, context);
-        var healthCheck2 = JsonSerializer.Deserialize<HealthCheckResponse>(response2.Body);
+        var healthCheck2 = JsonSerializer.Deserialize<HealthCheckResponse>(response2.Body, JsonOptions);
 
         // Assert
         Assert.NotNull(healthCheck1);
