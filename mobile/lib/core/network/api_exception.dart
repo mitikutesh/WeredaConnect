@@ -25,8 +25,10 @@ final class ServerException extends ApiException {
 
 /// Authentication/authorization error (401, 403)
 final class AuthException extends ApiException {
-  const AuthException(
-      [super.message = 'Authentication failed', super.statusCode = 401,],);
+  const AuthException([
+    super.message = 'Authentication failed',
+    super.statusCode = 401,
+  ]);
 }
 
 /// Request validation error (400)
@@ -36,8 +38,10 @@ final class ValidationException extends ApiException {
 
 /// Resource not found (404)
 final class NotFoundException extends ApiException {
-  const NotFoundException(
-      [super.message = 'Resource not found', super.statusCode = 404,],);
+  const NotFoundException([
+    super.message = 'Resource not found',
+    super.statusCode = 404,
+  ]);
 }
 
 /// Conflict error (409) - used for sync conflicts
@@ -50,8 +54,10 @@ final class ConflictException extends ApiException {
 
 /// Rate limit exceeded (429)
 final class RateLimitException extends ApiException {
-  const RateLimitException(
-      [super.message = 'Rate limit exceeded', super.statusCode = 429,],);
+  const RateLimitException([
+    super.message = 'Rate limit exceeded',
+    super.statusCode = 429,
+  ]);
 }
 
 /// Request timeout
