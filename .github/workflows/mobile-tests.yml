@@ -23,7 +23,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Verify dependencies
         working-directory: mobile
@@ -88,7 +92,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile
@@ -151,7 +159,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile
@@ -186,7 +198,11 @@ jobs:
 
       - name: Get dependencies
         working-directory: mobile
-        run: flutter pub get
+        run: |
+          for i in 1 2 3; do
+            flutter pub get && break
+            echo "Attempt $i failed, retrying in 5s..." && sleep 5
+          done
 
       - name: Run code generation
         working-directory: mobile
