@@ -120,3 +120,47 @@ Archived from TASK.md on 2026-02-16. Contains detailed task history for Phases 1
 - Zero data loss validated, sync <5s for 50 operations
 - 228 server tests + 12 integration tests passing
 - Deployed to AWS me-south-1 (8 Lambda, 7 DynamoDB tables)
+
+---
+
+## Phase R4: Trip Listings + Delivery Verification (In Progress)
+
+### R4 Preparation (Feb 17)
+- `@Architect` specs/contracts/trip-listing-api.md (v1.0.0)
+- `@Architect` specs/contracts/delivery-verification-api.md (v1.0.0)
+- `@Architect` specs/contracts/escrow-protocol.md (v1.0.0)
+- `@Architect` specs/decisions/r4-1-trip-listing-architecture.md
+- `@Architect` specs/decisions/r4-2-delivery-verification-architecture.md
+- `@Architect` specs/decisions/r4-3-escrow-architecture.md
+- `@Architect` F-01 git purge runbook (docs/runbooks/f01-git-history-purge.md)
+- `@Architect` F-05 cert pinning runbook (docs/runbooks/f05-cert-pinning-activation.md)
+
+### F-11 Trip Listings — Data Layer + Server + UI (Feb 17-18)
+- `@Server` TripFunction.cs — GET /trips, GET /trips/{id} with pagination, auth, soft-delete
+- `@Server` TripRepository.cs — DynamoDB with StatusDepartureDateIndex GSI
+- `@Server` TripDtos.cs — AOT-safe DTOs
+- `@Server` Trip sync handler in SyncFunction.cs (create/update via POST /sync)
+- `@Server` TripFunctionTests.cs + TripRepositoryTests.cs
+- `@Mobile` Trip Isar schema (trip.dart) with indexes
+- `@Mobile` TripListingBloc (LoadTrips, CreateTrip, CancelTrip, FilterTrips)
+- `@Mobile` TripListingRepository (offline-first CRUD + SyncQueue)
+- `@Mobile` BrowseTripsScreen, CreateTripScreen, TripDetailScreen
+- `@Mobile` TripCard widget, OfflineBanner widget
+- `@Mobile` BLoC tests, repository tests, screen tests
+- `@Infra` Trips DynamoDB table + StatusDepartureDateIndex GSI
+- `@Infra` TripFunction Lambda + API Gateway routes
+- `@Security` F-11 security review completed
+
+### F-12 Delivery Verification — Data Layer + Server (Feb 17-18)
+- `@Server` DeliveryFunction.cs — GET /deliveries, GET /deliveries/{id} with participant auth
+- `@Server` DeliveryRepository.cs — DynamoDB with 4 GSIs
+- `@Server` DeliveryDtos.cs — AOT-safe DTOs (DeliveryDto, LatLngDto)
+- `@Server` Delivery sync handler in SyncFunction.cs (GPS validation, QR token validation, status transitions)
+- `@Server` DeliveryFunctionTests.cs
+- `@Mobile` Delivery Isar schema (delivery.dart) with full state machine
+- `@Mobile` DeliveryBloc (LoadDeliveries, CreateDelivery, ConfirmPickup, ConfirmDelivery, RaiseDispute)
+- `@Mobile` DeliveryRepository (offline-first CRUD, status transitions, GPS/photo storage)
+- `@Mobile` BLoC tests, repository tests
+- `@Infra` Deliveries DynamoDB table + StatusCreatedAtIndex, TripIdIndex, ListingIndex, StatusIndex GSIs
+- `@Infra` DeliveryFunction Lambda + API Gateway routes
+- `@Security` F-12 security review completed (MUST FIX findings resolved)

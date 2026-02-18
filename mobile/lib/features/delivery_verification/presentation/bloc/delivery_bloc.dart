@@ -22,6 +22,9 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     on<RaiseDispute>(_onRaiseDispute);
     on<CancelDelivery>(_onCancelDelivery);
     on<FilterDeliveries>(_onFilterDeliveries);
+    on<LoadUserDeliveries>(_onLoadUserDeliveries);
+    on<LoadDeliveryDetail>(_onLoadDeliveryDetail);
+    on<FilterUserDeliveries>(_onFilterUserDeliveries);
   }
 
   Future<void> _onLoadDeliveries(
@@ -154,6 +157,61 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       } else {
         deliveries = await _repository.getDeliveriesByTrip(event.tripId);
       }
+      emit(
+        DeliveriesLoaded(
+          deliveries: deliveries,
+          statusFilter: event.statusFilter,
+        ),
+      );
+    } on Exception catch (e) {
+      emit(DeliveryError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadUserDeliveries(
+    LoadUserDeliveries event,
+    Emitter<DeliveryState> emit,
+  ) async {
+    emit(const DeliveryLoading());
+    try {
+      final deliveries = await _repository.getDeliveriesByUser(
+        event.userId,
+        role: event.role,
+      );
+      emit(DeliveriesLoaded(deliveries: deliveries));
+    } on Exception catch (e) {
+      emit(DeliveryError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadDeliveryDetail(
+    LoadDeliveryDetail event,
+    Emitter<DeliveryState> emit,
+  ) async {
+    emit(const DeliveryLoading());
+    try {
+      final delivery = await _repository.getDeliveryById(event.deliveryId);
+      if (delivery != null) {
+        emit(DeliveryDetailLoaded(delivery: delivery));
+      } else {
+        emit(const DeliveryError(message: 'Delivery not found'));
+      }
+    } on Exception catch (e) {
+      emit(DeliveryError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onFilterUserDeliveries(
+    FilterUserDeliveries event,
+    Emitter<DeliveryState> emit,
+  ) async {
+    emit(const DeliveryLoading());
+    try {
+      final deliveries = await _repository.getDeliveriesByUser(
+        event.userId,
+        role: event.role,
+        statusFilter: event.statusFilter,
+      );
       emit(
         DeliveriesLoaded(
           deliveries: deliveries,

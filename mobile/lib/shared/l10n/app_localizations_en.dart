@@ -519,4 +519,188 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'Trucker name is required';
+
+  @override
+  String get deliveries => 'Deliveries';
+
+  @override
+  String get deliveryMyDeliveries => 'My Deliveries';
+
+  @override
+  String get deliveryDetails => 'Delivery Details';
+
+  @override
+  String get deliveryScanQrCode => 'Scan QR Code';
+
+  @override
+  String get deliveryShowQrCode => 'QR Code';
+
+  @override
+  String get deliveryRaiseDispute => 'Raise Dispute';
+
+  @override
+  String get deliveryStatusPending => 'Pending';
+
+  @override
+  String get deliveryStatusPickedUp => 'Picked Up';
+
+  @override
+  String get deliveryStatusInTransit => 'In Transit';
+
+  @override
+  String get deliveryStatusDelivered => 'Delivered';
+
+  @override
+  String get deliveryStatusDisputed => 'Disputed';
+
+  @override
+  String get deliveryStatusCancelled => 'Cancelled';
+
+  @override
+  String get deliveryConfirmPickup => 'Confirm Pickup';
+
+  @override
+  String get deliveryConfirmDelivery => 'Confirm Delivery';
+
+  @override
+  String get deliveryScanQr => 'Scan QR';
+
+  @override
+  String get deliveryShowQr => 'Show QR Code';
+
+  @override
+  String get deliveryRaiseDisputeAction => 'Submit Dispute';
+
+  @override
+  String get deliveryCancel => 'Cancel Delivery';
+
+  @override
+  String get deliveryTakePhoto => 'Take Photo';
+
+  @override
+  String get deliveryRegenerateQr => 'Regenerate QR';
+
+  @override
+  String get deliveryFarmer => 'Farmer';
+
+  @override
+  String get deliveryTrucker => 'Trucker';
+
+  @override
+  String get deliveryBuyer => 'Buyer';
+
+  @override
+  String get deliveryGpsCaptured => 'GPS Captured';
+
+  @override
+  String get deliveryGpsUnavailable => 'GPS unavailable';
+
+  @override
+  String get deliveryGpsWithinRange => 'Within range';
+
+  @override
+  String get deliveryGpsOutOfRange => 'Out of range';
+
+  @override
+  String get deliveryGpsCapturing => 'Capturing GPS...';
+
+  @override
+  String get deliveryGpsPermissionDenied => 'Location permission denied';
+
+  @override
+  String get deliveryQrShowInstruction => 'Show this QR code to the trucker';
+
+  @override
+  String get deliveryQrOfflineNote =>
+      'This QR code works offline. No internet needed.';
+
+  @override
+  String get deliveryQrVerified => 'Verification Passed';
+
+  @override
+  String get deliveryQrFailed => 'Verification Failed';
+
+  @override
+  String get deliveryQrPointCamera => 'Point camera at the QR code';
+
+  @override
+  String get deliveryDisputeReason => 'Reason for Dispute';
+
+  @override
+  String get deliveryDisputeTimeRemaining => 'Time remaining';
+
+  @override
+  String get deliveryDisputeExpired => 'Dispute window expired';
+
+  @override
+  String get deliveryDisputeWarning =>
+      'Disputes are reviewed by WeredaConnect. Provide clear details.';
+
+  @override
+  String get deliveryDisputeSubmit => 'Submit Dispute';
+
+  @override
+  String get deliveryFilterAll => 'All';
+
+  @override
+  String get deliveryFilterPending => 'Pending';
+
+  @override
+  String get deliveryFilterPickedUp => 'Picked Up';
+
+  @override
+  String get deliveryFilterInTransit => 'In Transit';
+
+  @override
+  String get deliveryFilterDelivered => 'Delivered';
+
+  @override
+  String get deliveryFilterRole => 'Filter by Role';
+
+  @override
+  String get deliveryNoDeliveries => 'No deliveries yet';
+
+  @override
+  String get deliveryNoDeliveriesHint => 'Your deliveries will appear here';
+
+  @override
+  String get deliveryOfflineNote => 'Works offline';
+
+  @override
+  String get deliveryCreatedAt => 'Created';
+
+  @override
+  String get deliveryCancelConfirmTitle => 'Cancel Delivery?';
+
+  @override
+  String get deliveryCancelConfirmMessage =>
+      'Are you sure you want to cancel this delivery?';
+
+  @override
+  String get deliveryDisputeConfirmTitle => 'Submit Dispute?';
+
+  @override
+  String get deliveryDisputeConfirmMessage =>
+      'Are you sure you want to raise a dispute?';
+
+  @override
+  String get deliveryPhotoPickup => 'Pickup Photo';
+
+  @override
+  String get deliveryPhotoDropoff => 'Delivery Photo';
+
+  @override
+  String get deliveryAddPhoto => 'Add Photo';
+
+  @override
+  String get deliveryMarkInTransit => 'Mark In Transit';
+
+  @override
+  String get deliveryReasonRequired => 'Please enter a reason';
+
+  @override
+  String get deliveryReasonTooLong => 'Reason must be 500 characters or less';
+
+  @override
+  String get deliveryTryAgain => 'Try Again';
 }

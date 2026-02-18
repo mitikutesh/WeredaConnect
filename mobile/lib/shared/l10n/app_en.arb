@@ -677,6 +677,246 @@
   "truckerNameRequired": "Trucker name is required",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "deliveries": "Deliveries",
+  "@deliveries": {
+    "description": "Deliveries navigation tab label"
+  },
+  "deliveryMyDeliveries": "My Deliveries",
+  "@deliveryMyDeliveries": {
+    "description": "Title for the delivery list screen"
+  },
+  "deliveryDetails": "Delivery Details",
+  "@deliveryDetails": {
+    "description": "Title for the delivery detail screen"
+  },
+  "deliveryScanQrCode": "Scan QR Code",
+  "@deliveryScanQrCode": {
+    "description": "Title for the QR scan screen"
+  },
+  "deliveryShowQrCode": "QR Code",
+  "@deliveryShowQrCode": {
+    "description": "Title for the QR code display screen"
+  },
+  "deliveryRaiseDispute": "Raise Dispute",
+  "@deliveryRaiseDispute": {
+    "description": "Title for the dispute screen"
+  },
+  "deliveryStatusPending": "Pending",
+  "@deliveryStatusPending": {
+    "description": "Delivery status label for pending state"
+  },
+  "deliveryStatusPickedUp": "Picked Up",
+  "@deliveryStatusPickedUp": {
+    "description": "Delivery status label for picked up state"
+  },
+  "deliveryStatusInTransit": "In Transit",
+  "@deliveryStatusInTransit": {
+    "description": "Delivery status label for in transit state"
+  },
+  "deliveryStatusDelivered": "Delivered",
+  "@deliveryStatusDelivered": {
+    "description": "Delivery status label for delivered state"
+  },
+  "deliveryStatusDisputed": "Disputed",
+  "@deliveryStatusDisputed": {
+    "description": "Delivery status label for disputed state"
+  },
+  "deliveryStatusCancelled": "Cancelled",
+  "@deliveryStatusCancelled": {
+    "description": "Delivery status label for cancelled state"
+  },
+  "deliveryConfirmPickup": "Confirm Pickup",
+  "@deliveryConfirmPickup": {
+    "description": "Button to confirm delivery pickup"
+  },
+  "deliveryConfirmDelivery": "Confirm Delivery",
+  "@deliveryConfirmDelivery": {
+    "description": "Button to confirm delivery completion"
+  },
+  "deliveryScanQr": "Scan QR",
+  "@deliveryScanQr": {
+    "description": "Button to scan QR code"
+  },
+  "deliveryShowQr": "Show QR Code",
+  "@deliveryShowQr": {
+    "description": "Button to display QR code"
+  },
+  "deliveryRaiseDisputeAction": "Submit Dispute",
+  "@deliveryRaiseDisputeAction": {
+    "description": "Button to submit a dispute"
+  },
+  "deliveryCancel": "Cancel Delivery",
+  "@deliveryCancel": {
+    "description": "Button to cancel a delivery"
+  },
+  "deliveryTakePhoto": "Take Photo",
+  "@deliveryTakePhoto": {
+    "description": "Button to capture photo evidence"
+  },
+  "deliveryRegenerateQr": "Regenerate QR",
+  "@deliveryRegenerateQr": {
+    "description": "Button to regenerate QR code"
+  },
+  "deliveryFarmer": "Farmer",
+  "@deliveryFarmer": {
+    "description": "Participant label for farmer in delivery"
+  },
+  "deliveryTrucker": "Trucker",
+  "@deliveryTrucker": {
+    "description": "Participant label for trucker in delivery"
+  },
+  "deliveryBuyer": "Buyer",
+  "@deliveryBuyer": {
+    "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsCaptured": "GPS Captured",
+  "@deliveryGpsCaptured": {
+    "description": "GPS location successfully captured"
+  },
+  "deliveryGpsUnavailable": "GPS unavailable",
+  "@deliveryGpsUnavailable": {
+    "description": "GPS location not available"
+  },
+  "deliveryGpsWithinRange": "Within range",
+  "@deliveryGpsWithinRange": {
+    "description": "GPS location is within expected range"
+  },
+  "deliveryGpsOutOfRange": "Out of range",
+  "@deliveryGpsOutOfRange": {
+    "description": "GPS location is outside expected range"
+  },
+  "deliveryGpsCapturing": "Capturing GPS...",
+  "@deliveryGpsCapturing": {
+    "description": "GPS capture in progress"
+  },
+  "deliveryGpsPermissionDenied": "Location permission denied",
+  "@deliveryGpsPermissionDenied": {
+    "description": "Location permission was denied by user"
+  },
+  "deliveryQrShowInstruction": "Show this QR code to the trucker",
+  "@deliveryQrShowInstruction": {
+    "description": "Instruction to show QR code to trucker"
+  },
+  "deliveryQrOfflineNote": "This QR code works offline. No internet needed.",
+  "@deliveryQrOfflineNote": {
+    "description": "Note that QR code works without internet"
+  },
+  "deliveryQrVerified": "Verification Passed",
+  "@deliveryQrVerified": {
+    "description": "QR verification succeeded"
+  },
+  "deliveryQrFailed": "Verification Failed",
+  "@deliveryQrFailed": {
+    "description": "QR verification failed"
+  },
+  "deliveryQrPointCamera": "Point camera at the QR code",
+  "@deliveryQrPointCamera": {
+    "description": "Instruction to point camera at QR code"
+  },
+  "deliveryDisputeReason": "Reason for Dispute",
+  "@deliveryDisputeReason": {
+    "description": "Label for dispute reason input"
+  },
+  "deliveryDisputeTimeRemaining": "Time remaining",
+  "@deliveryDisputeTimeRemaining": {
+    "description": "Label for remaining dispute time"
+  },
+  "deliveryDisputeExpired": "Dispute window expired",
+  "@deliveryDisputeExpired": {
+    "description": "Message when dispute window has passed"
+  },
+  "deliveryDisputeWarning": "Disputes are reviewed by WeredaConnect. Provide clear details.",
+  "@deliveryDisputeWarning": {
+    "description": "Warning about dispute review process"
+  },
+  "deliveryDisputeSubmit": "Submit Dispute",
+  "@deliveryDisputeSubmit": {
+    "description": "Button to submit dispute"
+  },
+  "deliveryFilterAll": "All",
+  "@deliveryFilterAll": {
+    "description": "Filter label to show all deliveries"
+  },
+  "deliveryFilterPending": "Pending",
+  "@deliveryFilterPending": {
+    "description": "Filter label for pending deliveries"
+  },
+  "deliveryFilterPickedUp": "Picked Up",
+  "@deliveryFilterPickedUp": {
+    "description": "Filter label for picked up deliveries"
+  },
+  "deliveryFilterInTransit": "In Transit",
+  "@deliveryFilterInTransit": {
+    "description": "Filter label for in transit deliveries"
+  },
+  "deliveryFilterDelivered": "Delivered",
+  "@deliveryFilterDelivered": {
+    "description": "Filter label for delivered deliveries"
+  },
+  "deliveryFilterRole": "Filter by Role",
+  "@deliveryFilterRole": {
+    "description": "Label for role-based delivery filter"
+  },
+  "deliveryNoDeliveries": "No deliveries yet",
+  "@deliveryNoDeliveries": {
+    "description": "Empty state message when no deliveries exist"
+  },
+  "deliveryNoDeliveriesHint": "Your deliveries will appear here",
+  "@deliveryNoDeliveriesHint": {
+    "description": "Hint text for empty delivery list"
+  },
+  "deliveryOfflineNote": "Works offline",
+  "@deliveryOfflineNote": {
+    "description": "Note that feature works without internet"
+  },
+  "deliveryCreatedAt": "Created",
+  "@deliveryCreatedAt": {
+    "description": "Label for delivery creation date"
+  },
+  "deliveryCancelConfirmTitle": "Cancel Delivery?",
+  "@deliveryCancelConfirmTitle": {
+    "description": "Title for cancel delivery confirmation dialog"
+  },
+  "deliveryCancelConfirmMessage": "Are you sure you want to cancel this delivery?",
+  "@deliveryCancelConfirmMessage": {
+    "description": "Message for cancel delivery confirmation dialog"
+  },
+  "deliveryDisputeConfirmTitle": "Submit Dispute?",
+  "@deliveryDisputeConfirmTitle": {
+    "description": "Title for submit dispute confirmation dialog"
+  },
+  "deliveryDisputeConfirmMessage": "Are you sure you want to raise a dispute?",
+  "@deliveryDisputeConfirmMessage": {
+    "description": "Message for submit dispute confirmation dialog"
+  },
+  "deliveryPhotoPickup": "Pickup Photo",
+  "@deliveryPhotoPickup": {
+    "description": "Label for pickup photo evidence"
+  },
+  "deliveryPhotoDropoff": "Delivery Photo",
+  "@deliveryPhotoDropoff": {
+    "description": "Label for delivery photo evidence"
+  },
+  "deliveryAddPhoto": "Add Photo",
+  "@deliveryAddPhoto": {
+    "description": "Button to add photo evidence"
+  },
+  "deliveryMarkInTransit": "Mark In Transit",
+  "@deliveryMarkInTransit": {
+    "description": "Button to mark delivery as in transit"
+  },
+  "deliveryReasonRequired": "Please enter a reason",
+  "@deliveryReasonRequired": {
+    "description": "Validation message for empty dispute reason"
+  },
+  "deliveryReasonTooLong": "Reason must be 500 characters or less",
+  "@deliveryReasonTooLong": {
+    "description": "Validation message for too long dispute reason"
+  },
+  "deliveryTryAgain": "Try Again",
+  "@deliveryTryAgain": {
+    "description": "Button to retry after failure"
   }
 }
 

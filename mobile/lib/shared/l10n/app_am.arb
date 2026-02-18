@@ -677,6 +677,246 @@
   "truckerNameRequired": "የጭነት ሹፌር ስም ያስፈልጋል",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "deliveries": "ማድረሻዎች",
+  "@deliveries": {
+    "description": "Deliveries navigation tab label"
+  },
+  "deliveryMyDeliveries": "ማድረሻዎቼ",
+  "@deliveryMyDeliveries": {
+    "description": "Title for the delivery list screen"
+  },
+  "deliveryDetails": "የማድረሻ ዝርዝሮች",
+  "@deliveryDetails": {
+    "description": "Title for the delivery detail screen"
+  },
+  "deliveryScanQrCode": "ኪዩአር ኮድ ቃኝ",
+  "@deliveryScanQrCode": {
+    "description": "Title for the QR scan screen"
+  },
+  "deliveryShowQrCode": "ኪዩአር ኮድ",
+  "@deliveryShowQrCode": {
+    "description": "Title for the QR code display screen"
+  },
+  "deliveryRaiseDispute": "ክርክር አቅርብ",
+  "@deliveryRaiseDispute": {
+    "description": "Title for the dispute screen"
+  },
+  "deliveryStatusPending": "በመጠባበቅ",
+  "@deliveryStatusPending": {
+    "description": "Delivery status label for pending state"
+  },
+  "deliveryStatusPickedUp": "ተነስቷል",
+  "@deliveryStatusPickedUp": {
+    "description": "Delivery status label for picked up state"
+  },
+  "deliveryStatusInTransit": "በመጓጓዝ",
+  "@deliveryStatusInTransit": {
+    "description": "Delivery status label for in transit state"
+  },
+  "deliveryStatusDelivered": "ደርሷል",
+  "@deliveryStatusDelivered": {
+    "description": "Delivery status label for delivered state"
+  },
+  "deliveryStatusDisputed": "ክርክር",
+  "@deliveryStatusDisputed": {
+    "description": "Delivery status label for disputed state"
+  },
+  "deliveryStatusCancelled": "ተሰርዟል",
+  "@deliveryStatusCancelled": {
+    "description": "Delivery status label for cancelled state"
+  },
+  "deliveryConfirmPickup": "ማንሳትን አረጋግጥ",
+  "@deliveryConfirmPickup": {
+    "description": "Button to confirm delivery pickup"
+  },
+  "deliveryConfirmDelivery": "ማድረሻን አረጋግጥ",
+  "@deliveryConfirmDelivery": {
+    "description": "Button to confirm delivery completion"
+  },
+  "deliveryScanQr": "ኪዩአር ቃኝ",
+  "@deliveryScanQr": {
+    "description": "Button to scan QR code"
+  },
+  "deliveryShowQr": "ኪዩአር ኮድ አሳይ",
+  "@deliveryShowQr": {
+    "description": "Button to display QR code"
+  },
+  "deliveryRaiseDisputeAction": "ክርክር ያቅርቡ",
+  "@deliveryRaiseDisputeAction": {
+    "description": "Button to submit a dispute"
+  },
+  "deliveryCancel": "ማድረሻ ሰርዝ",
+  "@deliveryCancel": {
+    "description": "Button to cancel a delivery"
+  },
+  "deliveryTakePhoto": "ፎቶ አንሳ",
+  "@deliveryTakePhoto": {
+    "description": "Button to capture photo evidence"
+  },
+  "deliveryRegenerateQr": "ኪዩአር እንደገና ፍጠር",
+  "@deliveryRegenerateQr": {
+    "description": "Button to regenerate QR code"
+  },
+  "deliveryFarmer": "ገበሬ",
+  "@deliveryFarmer": {
+    "description": "Participant label for farmer in delivery"
+  },
+  "deliveryTrucker": "ሹፌር",
+  "@deliveryTrucker": {
+    "description": "Participant label for trucker in delivery"
+  },
+  "deliveryBuyer": "ገዥ",
+  "@deliveryBuyer": {
+    "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsCaptured": "ጂፒኤስ ተቀርጿል",
+  "@deliveryGpsCaptured": {
+    "description": "GPS location successfully captured"
+  },
+  "deliveryGpsUnavailable": "ጂፒኤስ አይገኝም",
+  "@deliveryGpsUnavailable": {
+    "description": "GPS location not available"
+  },
+  "deliveryGpsWithinRange": "ክልል ውስጥ",
+  "@deliveryGpsWithinRange": {
+    "description": "GPS location is within expected range"
+  },
+  "deliveryGpsOutOfRange": "ከክልል ውጪ",
+  "@deliveryGpsOutOfRange": {
+    "description": "GPS location is outside expected range"
+  },
+  "deliveryGpsCapturing": "ጂፒኤስ በመቀረጽ...",
+  "@deliveryGpsCapturing": {
+    "description": "GPS capture in progress"
+  },
+  "deliveryGpsPermissionDenied": "የአካባቢ ፈቃድ ተከልክሏል",
+  "@deliveryGpsPermissionDenied": {
+    "description": "Location permission was denied by user"
+  },
+  "deliveryQrShowInstruction": "ይህን ኪዩአር ለሹፌሩ አሳይ",
+  "@deliveryQrShowInstruction": {
+    "description": "Instruction to show QR code to trucker"
+  },
+  "deliveryQrOfflineNote": "ይህ ኪዩአር ያለ ኢንተርኔት ይሰራል",
+  "@deliveryQrOfflineNote": {
+    "description": "Note that QR code works without internet"
+  },
+  "deliveryQrVerified": "ማረጋገጫ ተሳክቷል",
+  "@deliveryQrVerified": {
+    "description": "QR verification succeeded"
+  },
+  "deliveryQrFailed": "ማረጋገጫ አልተሳካም",
+  "@deliveryQrFailed": {
+    "description": "QR verification failed"
+  },
+  "deliveryQrPointCamera": "ካሜራውን ወደ ኪዩአር ኮድ አመልክት",
+  "@deliveryQrPointCamera": {
+    "description": "Instruction to point camera at QR code"
+  },
+  "deliveryDisputeReason": "የክርክር ምክንያት",
+  "@deliveryDisputeReason": {
+    "description": "Label for dispute reason input"
+  },
+  "deliveryDisputeTimeRemaining": "ቀሪ ጊዜ",
+  "@deliveryDisputeTimeRemaining": {
+    "description": "Label for remaining dispute time"
+  },
+  "deliveryDisputeExpired": "የክርክር ጊዜ አልፏል",
+  "@deliveryDisputeExpired": {
+    "description": "Message when dispute window has passed"
+  },
+  "deliveryDisputeWarning": "ክርክሮች በWeredaConnect ይገመገማሉ። ግልጽ ዝርዝር ያቅርቡ።",
+  "@deliveryDisputeWarning": {
+    "description": "Warning about dispute review process"
+  },
+  "deliveryDisputeSubmit": "ክርክር ያቅርቡ",
+  "@deliveryDisputeSubmit": {
+    "description": "Button to submit dispute"
+  },
+  "deliveryFilterAll": "ሁሉም",
+  "@deliveryFilterAll": {
+    "description": "Filter label to show all deliveries"
+  },
+  "deliveryFilterPending": "በመጠባበቅ",
+  "@deliveryFilterPending": {
+    "description": "Filter label for pending deliveries"
+  },
+  "deliveryFilterPickedUp": "ተነስቷል",
+  "@deliveryFilterPickedUp": {
+    "description": "Filter label for picked up deliveries"
+  },
+  "deliveryFilterInTransit": "በመጓጓዝ",
+  "@deliveryFilterInTransit": {
+    "description": "Filter label for in transit deliveries"
+  },
+  "deliveryFilterDelivered": "ደርሷል",
+  "@deliveryFilterDelivered": {
+    "description": "Filter label for delivered deliveries"
+  },
+  "deliveryFilterRole": "በሚና ያጣሩ",
+  "@deliveryFilterRole": {
+    "description": "Label for role-based delivery filter"
+  },
+  "deliveryNoDeliveries": "እስካሁን ማድረሻ የለም",
+  "@deliveryNoDeliveries": {
+    "description": "Empty state message when no deliveries exist"
+  },
+  "deliveryNoDeliveriesHint": "ማድረሻዎችዎ እዚህ ይታያሉ",
+  "@deliveryNoDeliveriesHint": {
+    "description": "Hint text for empty delivery list"
+  },
+  "deliveryOfflineNote": "ያለ ኢንተርኔት ይሰራል",
+  "@deliveryOfflineNote": {
+    "description": "Note that feature works without internet"
+  },
+  "deliveryCreatedAt": "የተፈጠረ",
+  "@deliveryCreatedAt": {
+    "description": "Label for delivery creation date"
+  },
+  "deliveryCancelConfirmTitle": "ማድረሻ ይሰረዝ?",
+  "@deliveryCancelConfirmTitle": {
+    "description": "Title for cancel delivery confirmation dialog"
+  },
+  "deliveryCancelConfirmMessage": "ይህን ማድረሻ መሰረዝ ይፈልጋሉ?",
+  "@deliveryCancelConfirmMessage": {
+    "description": "Message for cancel delivery confirmation dialog"
+  },
+  "deliveryDisputeConfirmTitle": "ክርክር ያቅርቡ?",
+  "@deliveryDisputeConfirmTitle": {
+    "description": "Title for submit dispute confirmation dialog"
+  },
+  "deliveryDisputeConfirmMessage": "ክርክር ማቅረብ ይፈልጋሉ?",
+  "@deliveryDisputeConfirmMessage": {
+    "description": "Message for submit dispute confirmation dialog"
+  },
+  "deliveryPhotoPickup": "የማንሳት ፎቶ",
+  "@deliveryPhotoPickup": {
+    "description": "Label for pickup photo evidence"
+  },
+  "deliveryPhotoDropoff": "የማድረሻ ፎቶ",
+  "@deliveryPhotoDropoff": {
+    "description": "Label for delivery photo evidence"
+  },
+  "deliveryAddPhoto": "ፎቶ ጨምር",
+  "@deliveryAddPhoto": {
+    "description": "Button to add photo evidence"
+  },
+  "deliveryMarkInTransit": "በመጓጓዝ ላይ ምልክት",
+  "@deliveryMarkInTransit": {
+    "description": "Button to mark delivery as in transit"
+  },
+  "deliveryReasonRequired": "ምክንያት ያስገቡ",
+  "@deliveryReasonRequired": {
+    "description": "Validation message for empty dispute reason"
+  },
+  "deliveryReasonTooLong": "ምክንያት ከ500 ቁምፊ መብለጥ የለበትም",
+  "@deliveryReasonTooLong": {
+    "description": "Validation message for too long dispute reason"
+  },
+  "deliveryTryAgain": "እንደገና ሞክር",
+  "@deliveryTryAgain": {
+    "description": "Button to retry after failure"
   }
 }
 

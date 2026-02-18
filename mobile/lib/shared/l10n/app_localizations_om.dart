@@ -523,4 +523,188 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'Maqaan konkolaachisaa barbaachisaadha';
+
+  @override
+  String get deliveries => 'Geejjibaalee';
+
+  @override
+  String get deliveryMyDeliveries => 'Geejjibaalee Koo';
+
+  @override
+  String get deliveryDetails => 'Bal\'insa Geejjibaa';
+
+  @override
+  String get deliveryScanQrCode => 'Koodii QR Iskaan';
+
+  @override
+  String get deliveryShowQrCode => 'Koodii QR';
+
+  @override
+  String get deliveryRaiseDispute => 'Komii Dhiyeessi';
+
+  @override
+  String get deliveryStatusPending => 'Eeggataa';
+
+  @override
+  String get deliveryStatusPickedUp => 'Fudhatame';
+
+  @override
+  String get deliveryStatusInTransit => 'Daandii Irra';
+
+  @override
+  String get deliveryStatusDelivered => 'Geejjibame';
+
+  @override
+  String get deliveryStatusDisputed => 'Komii';
+
+  @override
+  String get deliveryStatusCancelled => 'Haqame';
+
+  @override
+  String get deliveryConfirmPickup => 'Fudhachuu Mirkaneessi';
+
+  @override
+  String get deliveryConfirmDelivery => 'Geejjiba Mirkaneessi';
+
+  @override
+  String get deliveryScanQr => 'QR Iskaan';
+
+  @override
+  String get deliveryShowQr => 'Koodii QR Agarsiisi';
+
+  @override
+  String get deliveryRaiseDisputeAction => 'Komii Galchi';
+
+  @override
+  String get deliveryCancel => 'Geejjiba Haqi';
+
+  @override
+  String get deliveryTakePhoto => 'Suuraa Kaasi';
+
+  @override
+  String get deliveryRegenerateQr => 'QR Haaromsi';
+
+  @override
+  String get deliveryFarmer => 'Qonnaan Bulaa';
+
+  @override
+  String get deliveryTrucker => 'Konkolaachisaa';
+
+  @override
+  String get deliveryBuyer => 'Bitaa';
+
+  @override
+  String get deliveryGpsCaptured => 'GPS Qabame';
+
+  @override
+  String get deliveryGpsUnavailable => 'GPS Hin Argamne';
+
+  @override
+  String get deliveryGpsWithinRange => 'Bal\'ina Keessa';
+
+  @override
+  String get deliveryGpsOutOfRange => 'Bal\'ina Alaa';
+
+  @override
+  String get deliveryGpsCapturing => 'GPS Qabamaa...';
+
+  @override
+  String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
+
+  @override
+  String get deliveryQrShowInstruction =>
+      'Koodii QR kana konkolaachisaaf agarsiisi';
+
+  @override
+  String get deliveryQrOfflineNote =>
+      'Koodiin QR kun intarneetii malee hojjata.';
+
+  @override
+  String get deliveryQrVerified => 'Mirkaneessiin Darbe';
+
+  @override
+  String get deliveryQrFailed => 'Mirkaneessiin Kufame';
+
+  @override
+  String get deliveryQrPointCamera => 'Kaameeraa gara koodii QR qajeelchi';
+
+  @override
+  String get deliveryDisputeReason => 'Sababii Komii';
+
+  @override
+  String get deliveryDisputeTimeRemaining => 'Yeroo Hafee';
+
+  @override
+  String get deliveryDisputeExpired => 'Yeroon Komii Darbee';
+
+  @override
+  String get deliveryDisputeWarning =>
+      'Komiin WeredaConnect\'n ni ilaalama. Ibsa ifaa kenniiti.';
+
+  @override
+  String get deliveryDisputeSubmit => 'Komii Galchi';
+
+  @override
+  String get deliveryFilterAll => 'Hunda';
+
+  @override
+  String get deliveryFilterPending => 'Eeggataa';
+
+  @override
+  String get deliveryFilterPickedUp => 'Fudhatame';
+
+  @override
+  String get deliveryFilterInTransit => 'Daandii Irra';
+
+  @override
+  String get deliveryFilterDelivered => 'Geejjibame';
+
+  @override
+  String get deliveryFilterRole => 'Gahee\'n Caalchisi';
+
+  @override
+  String get deliveryNoDeliveries => 'Hanga ammaatti geejjiba hin jiru';
+
+  @override
+  String get deliveryNoDeliveriesHint =>
+      'Geejjibaleen keessan as irratti mul\'atu';
+
+  @override
+  String get deliveryOfflineNote => 'Intarneetii malee hojjata';
+
+  @override
+  String get deliveryCreatedAt => 'Uumame';
+
+  @override
+  String get deliveryCancelConfirmTitle => 'Geejjiba Haquu?';
+
+  @override
+  String get deliveryCancelConfirmMessage => 'Geejjiba kana haquu barbaaddaa?';
+
+  @override
+  String get deliveryDisputeConfirmTitle => 'Komii Galchuu?';
+
+  @override
+  String get deliveryDisputeConfirmMessage => 'Komii dhiyeessuu barbaaddaa?';
+
+  @override
+  String get deliveryPhotoPickup => 'Suuraa Fudhachuu';
+
+  @override
+  String get deliveryPhotoDropoff => 'Suuraa Geejjibaa';
+
+  @override
+  String get deliveryAddPhoto => 'Suuraa Ida\'i';
+
+  @override
+  String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
+
+  @override
+  String get deliveryReasonRequired => 'Maaloo sababii galchaa';
+
+  @override
+  String get deliveryReasonTooLong => 'Sababiin arfii 500 hin caalu';
+
+  @override
+  String get deliveryTryAgain => 'Irra Deebi\'i Yaali';
 }
