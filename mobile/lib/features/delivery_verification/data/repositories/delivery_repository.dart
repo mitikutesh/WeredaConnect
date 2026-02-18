@@ -300,9 +300,6 @@ class DeliveryRepository {
 
   /// Get a single delivery by its ID.
   Future<Delivery?> getDeliveryById(String deliveryId) async {
-    return _isar.deliverys
-        .filter()
-        .deliveryIdEqualTo(deliveryId)
-        .findFirst();
+    return _isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
   }
 }
