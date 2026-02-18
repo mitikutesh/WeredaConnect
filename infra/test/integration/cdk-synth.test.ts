@@ -25,6 +25,9 @@ describe('CDK Integration Tests', () => {
       syncMetadataTable: dbStack.syncMetadataTable,
       deliveriesTable: dbStack.deliveriesTable,
       paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -60,6 +63,9 @@ describe('CDK Integration Tests', () => {
         syncMetadataTable: dbStack.syncMetadataTable,
         deliveriesTable: dbStack.deliveriesTable,
         paymentsTable: dbStack.paymentsTable,
+        escrowsTable: dbStack.escrowsTable,
+        escrowAuditTable: dbStack.escrowAuditTable,
+        escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 
