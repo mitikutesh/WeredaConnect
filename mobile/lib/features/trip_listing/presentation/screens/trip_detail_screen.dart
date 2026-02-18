@@ -1,0 +1,343 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
+
+import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+/// Screen showing full details of a single trip.
+///
+/// Displays route, departure date, capacity, price, trucker info,
+/// status badge, and a cancel button for the trip owner.
+/// Follows the same pattern as crop listing detail views.
+class TripDetailScreen extends StatelessWidget {
+  final Trip trip;
+
+  const TripDetailScreen({required this.trip, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat.yMMMd();
+
+    return BlocListener<TripListingBloc, TripListingState>(
+      listener: (context, state) {
+        if (state is TripsLoaded) {
+          // Trip was cancelled, go back to list
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.tripCancelledSuccess)),
+          );
+          Navigator.of(context).pop();
+        } else if (state is TripListingError) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(state.message),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.tripDetails),
+          elevation: 0,
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              const TripOfflineBanner(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Route header
+                      _RouteHeader(trip: trip),
+                      const SizedBox(height: 24),
+
+                      // Status badge
+                      _TripDetailStatusBadge(status: trip.status),
+                      const SizedBox(height: 24),
+
+                      // Trip info cards
+                      _InfoRow(
+                        icon: Icons.calendar_today,
+                        label: l10n.departureDate,
+                        value: dateFormat.format(trip.departureDate),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.local_shipping,
+                        label: l10n.capacity,
+                        value: '${trip.capacity} ${l10n.quintals}',
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.payments,
+                        label: l10n.pricePerQuintal,
+                        value:
+                            '${trip.pricePerQuintal.toStringAsFixed(2)} ${l10n.etbCurrency}',
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Trucker contact section
+                      Text(
+                        l10n.truckerContact,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.person,
+                        label: l10n.truckerName,
+                        value: trip.truckerName,
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(
+                        icon: Icons.phone,
+                        label: l10n.truckerPhone,
+                        value: trip.truckerPhone,
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Cancel button (only for open/matched trips)
+                      if (trip.status == TripStatus.open ||
+                          trip.status == TripStatus.matched)
+                        BlocBuilder<TripListingBloc, TripListingState>(
+                          builder: (context, state) {
+                            final isLoading = state is TripListingLoading;
+                            return SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: isLoading
+                                    ? null
+                                    : () =>
+                                        _showCancelConfirmation(context, l10n),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: isLoading
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Colors.white,
+                                          ),
+                                        ),
+                                      )
+                                    : const Icon(Icons.cancel_outlined),
+                                label: Text(
+                                  l10n.cancelTrip,
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCancelConfirmation(BuildContext context, AppLocalizations l10n) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(l10n.cancelTrip),
+          content: Text(l10n.cancelTripConfirmation),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.cancel),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                final authState = context.read<AuthBloc>().state;
+                if (authState is AuthAuthenticated) {
+                  context.read<TripListingBloc>().add(
+                        CancelTrip(
+                          tripId: trip.tripId,
+                          truckerId: authState.userId,
+                        ),
+                      );
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: Text(l10n.cancelTrip),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Large route display at the top of the detail screen.
+class _RouteHeader extends StatelessWidget {
+  final Trip trip;
+
+  const _RouteHeader({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.local_shipping,
+            size: 40,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  trip.fromWoreda,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.arrow_downward,
+                      size: 16,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      trip.toWoreda,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Status badge for the detail screen (larger than card version).
+class _TripDetailStatusBadge extends StatelessWidget {
+  final TripStatus status;
+
+  const _TripDetailStatusBadge({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final (color, label) = switch (status) {
+      TripStatus.open => (Colors.green, l10n.tripStatusOpen),
+      TripStatus.matched => (Colors.blue, l10n.tripStatusMatched),
+      TripStatus.inTransit => (Colors.orange, l10n.tripStatusInTransit),
+      TripStatus.delivered => (Colors.green, l10n.tripStatusDelivered),
+      TripStatus.cancelled => (Colors.red, l10n.tripStatusCancelled),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+/// Reusable row showing icon + label + value.
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            Text(
+              value,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}

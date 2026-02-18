@@ -1053,6 +1053,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'View your crop listings'**
   String get viewCropListings;
+
+  /// Button label to cancel a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Trip'**
+  String get cancelTrip;
+
+  /// Confirmation dialog message for cancelling a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to cancel this trip? This action cannot be undone.'**
+  String get cancelTripConfirmation;
+
+  /// Label for trucker name field
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker Name'**
+  String get truckerName;
+
+  /// Label for trucker phone number field
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker Phone'**
+  String get truckerPhone;
+
+  /// Label for trip route display
+  ///
+  /// In en, this message translates to:
+  /// **'Route'**
+  String get route;
+
+  /// Description for my trips menu item on profile screen
+  ///
+  /// In en, this message translates to:
+  /// **'View your trip listings'**
+  String get viewTripListings;
+
+  /// Trips navigation tab label
+  ///
+  /// In en, this message translates to:
+  /// **'Trips'**
+  String get trips;
+
+  /// Validation error when trucker name is not entered
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker name is required'**
+  String get truckerNameRequired;
 }
 
 class _AppLocalizationsDelegate

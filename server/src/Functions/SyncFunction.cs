@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
@@ -29,7 +30,7 @@ namespace WeredaConnect.Server.Functions;
 ///
 /// See: specs/contracts/sync-protocol.md
 /// </summary>
-public class SyncFunction
+public partial class SyncFunction
 {
     private readonly ISyncMetadataRepository _syncMetadataRepo;
     private readonly ICropRepository _cropRepo;
@@ -72,6 +73,9 @@ public class SyncFunction
         { "inTransit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disputed" } },
     };
+
+    [GeneratedRegex(@"^\+251\d{9}$")]
+    private static partial Regex EthiopianPhoneRegex();
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -1137,8 +1141,7 @@ public class SyncFunction
                     errors.Add("truckerPhone is required.");
                 }
             }
-            else if (!System.Text.RegularExpressions.Regex.IsMatch(
-                         phoneObj.ToString()!, @"^\+251\d{9}$"))
+            else if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
             {
                 // F-SEC-02: Strict E.164 validation (exactly +251 + 9 digits = 13 chars)
                 errors.Add("truckerPhone must be valid Ethiopian E.164 format (+251XXXXXXXXX).");

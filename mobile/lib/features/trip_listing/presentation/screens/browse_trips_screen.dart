@@ -6,6 +6,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -194,6 +195,15 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                       final trip = state.trips[index];
                       return TripCard(
                         trip: trip,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (context) =>
+                                  TripDetailScreen(trip: trip),
+                            ),
+                          );
+                        },
                         onCancel: () {
                           final truckerId = _getTruckerId();
                           if (truckerId == null) return;
