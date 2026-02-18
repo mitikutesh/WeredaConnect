@@ -264,5 +264,410 @@ void main() {
       expect(pending.length, 2);
       expect(pending.last.action, 'delete');
     });
+
+    // --- Contract Edge Cases: Capacity Boundaries ---
+
+    test('createTrip with minimum capacity 0.1 quintals', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 0.1,
+        pricePerQuintal: 120.0,
+      );
+
+      expect(trip.capacity, 0.1);
+      final fromDb =
+          await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+      expect(fromDb!.capacity, closeTo(0.1, 0.001));
+    });
+
+    test('createTrip with maximum capacity 1000 quintals', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 1000.0,
+        pricePerQuintal: 120.0,
+      );
+
+      expect(trip.capacity, 1000.0);
+    });
+
+    test('createTrip with decimal precision in capacity', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.75,
+        pricePerQuintal: 120.50,
+      );
+
+      expect(trip.capacity, closeTo(150.75, 0.001));
+      expect(trip.pricePerQuintal, closeTo(120.50, 0.001));
+    });
+
+    // --- Contract Edge Cases: Multilingual Woreda Names ---
+
+    test('createTrip with Amharic woreda names', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'ታደሰ ወርቁ',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'ቢሾፍቱ',
+        toWoreda: 'አዲስ አበባ',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      expect(trip.fromWoreda, 'ቢሾፍቱ');
+      expect(trip.toWoreda, 'አዲስ አበባ');
+
+      final fromDb =
+          await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+      expect(fromDb!.fromWoreda, 'ቢሾፍቱ');
+      expect(fromDb.toWoreda, 'አዲስ አበባ');
+    });
+
+    test('getOpenTrips filters by Amharic woreda name', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'ቢሾፍቱ',
+        toWoreda: 'አዲስ አበባ',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
+        fromWoreda: 'Adama',
+        toWoreda: 'Hawassa',
+        departureDate: departure,
+        capacity: 100.0,
+        pricePerQuintal: 80.0,
+      );
+
+      final filtered = await repository.getOpenTrips(fromWoreda: 'ቢሾፍቱ');
+      expect(filtered.length, 1);
+      expect(filtered.first.fromWoreda, 'ቢሾፍቱ');
+    });
+
+    // --- Contract Edge Cases: Version Control ---
+
+    test('createTrip always starts at version 1', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      expect(trip.version, 1);
+    });
+
+    test('cancelTrip increments version to 2', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      await repository.cancelTrip(
+        tripId: trip.tripId,
+        truckerId: 'trucker-001',
+      );
+
+      final fromDb =
+          await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+      expect(fromDb!.version, 2);
+    });
+
+    // --- Contract Edge Cases: Cancel Behavior ---
+
+    test('cancelTrip on non-existent trip does nothing', () async {
+      // Should not throw, just silently return
+      await repository.cancelTrip(
+        tripId: 'nonexistent-trip-id',
+        truckerId: 'trucker-001',
+      );
+
+      // No sync operations should be enqueued for non-existent trip
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending, isEmpty);
+    });
+
+    test('cancelled trip excluded from getOpenTrips', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      final trip1 = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-002',
+        truckerName: 'Test Trucker 2',
+        truckerPhone: '+251911000001',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 100.0,
+        pricePerQuintal: 80.0,
+      );
+
+      // Cancel first trip
+      await repository.cancelTrip(
+        tripId: trip1.tripId,
+        truckerId: 'trucker-001',
+      );
+
+      final openTrips = await repository.getOpenTrips(fromWoreda: 'Bishoftu');
+      expect(openTrips.length, 1);
+      expect(openTrips.first.truckerId, 'trucker-002');
+    });
+
+    // --- Contract Edge Cases: Sync Queue Integration ---
+
+    test('createTrip sync operation contains correct entityType', () async {
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending.length, 1);
+      expect(pending.first.entityType, 'trip');
+      expect(pending.first.action, 'create');
+      expect(pending.first.data, contains('"truckerId":"trucker-001"'));
+      expect(pending.first.data, contains('"fromWoreda":"Bishoftu"'));
+      expect(pending.first.data, contains('"capacity":150.0'));
+    });
+
+    test('multiple trips create separate sync operations', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Adama',
+        toWoreda: 'Hawassa',
+        departureDate: departure,
+        capacity: 200.0,
+        pricePerQuintal: 80.0,
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending.length, 2);
+
+      // Each should have unique operation and entity IDs
+      expect(pending[0].entityId, isNot(pending[1].entityId));
+      expect(pending[0].operationId, isNot(pending[1].operationId));
+    });
+
+    // --- Contract Edge Cases: UUID Generation ---
+
+    test('createTrip generates unique tripId for each trip', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      final trip1 = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      final trip2 = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Adama',
+        toWoreda: 'Hawassa',
+        departureDate: departure,
+        capacity: 100.0,
+        pricePerQuintal: 80.0,
+      );
+
+      expect(trip1.tripId, isNot(trip2.tripId));
+      expect(trip1.tripId.length, greaterThan(0));
+      expect(trip2.tripId.length, greaterThan(0));
+    });
+
+    // --- Contract Edge Cases: Status Starts as Open ---
+
+    test('createTrip always sets status to open', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      expect(trip.status, TripStatus.open);
+      expect(trip.matchedListings, isEmpty);
+    });
+
+    // --- Contract Edge Cases: Timestamp Handling ---
+
+    test('createTrip sets createdAt and updatedAt to current UTC time',
+        () async {
+      final before = DateTime.now().toUtc();
+
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      final after = DateTime.now().toUtc();
+
+      expect(
+        trip.createdAt.isAfter(before.subtract(const Duration(seconds: 1))),
+        isTrue,
+      );
+      expect(
+        trip.createdAt.isBefore(after.add(const Duration(seconds: 1))),
+        isTrue,
+      );
+      expect(trip.updatedAt, trip.createdAt);
+    });
+
+    // --- Contract Edge Cases: Both fromWoreda and toWoreda Filters ---
+
+    test('getOpenTrips with both fromWoreda and toWoreda filters', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'T1',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-002',
+        truckerName: 'T2',
+        truckerPhone: '+251911000001',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Hawassa',
+        departureDate: departure,
+        capacity: 100.0,
+        pricePerQuintal: 80.0,
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-003',
+        truckerName: 'T3',
+        truckerPhone: '+251911000002',
+        fromWoreda: 'Adama',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 200.0,
+        pricePerQuintal: 100.0,
+      );
+
+      final filtered = await repository.getOpenTrips(
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+      );
+      expect(filtered.length, 1);
+      expect(filtered.first.truckerId, 'trucker-001');
+    });
+
+    // --- Contract Edge Cases: getTripsByTrucker Includes All Statuses ---
+
+    test('getTripsByTrucker includes cancelled trips', () async {
+      final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: departure,
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      await repository.cancelTrip(
+        tripId: trip.tripId,
+        truckerId: 'trucker-001',
+      );
+
+      final trips = await repository.getTripsByTrucker('trucker-001');
+      expect(trips.length, 1);
+      expect(trips.first.status, TripStatus.cancelled);
+    });
+
+    test('getTripsByTrucker returns empty list for unknown trucker', () async {
+      final trips = await repository.getTripsByTrucker('nonexistent-trucker');
+      expect(trips, isEmpty);
+    });
+
+    test('getOpenTrips returns empty when no trips exist', () async {
+      final trips = await repository.getOpenTrips();
+      expect(trips, isEmpty);
+    });
   });
 }

@@ -27,31 +27,61 @@ class Delivery {
   @Index()
   late String listingId;
 
+  /// Farmer's user ID
+  @Index()
+  late String farmerId;
+
+  /// Farmer's display name
+  late String farmerName;
+
+  /// Trucker's user ID
+  @Index()
+  late String truckerId;
+
+  /// Trucker's display name
+  late String truckerName;
+
+  /// Buyer's user ID
+  @Index()
+  late String buyerId;
+
+  /// Buyer's display name
+  late String buyerName;
+
   /// QR token for verification at pickup/dropoff
-  /// Farmer scans QR to confirm pickup, buyer scans to confirm delivery
   late String qrToken;
 
   /// GPS coordinates at pickup location (farmer's location)
-  /// Null until trucker confirms pickup
   LatLng? gpsPickup;
 
   /// GPS coordinates at dropoff location (buyer's location)
-  /// Null until trucker confirms delivery
   LatLng? gpsDropoff;
 
-  /// Reference to photo evidence file
-  /// Format: 'photos/{deliveryId}/{timestamp}.jpg'
-  /// Null if no photo taken (optional but recommended)
-  String? photoEvidenceRef;
+  /// Reference to pickup photo evidence file
+  String? pickupPhotoRef;
+
+  /// Reference to dropoff photo evidence file
+  String? dropoffPhotoRef;
 
   /// Current status of the delivery
   @Index()
   @Enumerated(EnumType.name)
   late DeliveryStatus status;
 
-  /// Timestamp when delivery was confirmed (UTC)
-  /// Null until buyer confirms receipt
+  /// Timestamp when trucker picked up crops (UTC)
+  DateTime? pickedUpAt;
+
+  /// Timestamp when delivery was confirmed by buyer (UTC)
   DateTime? confirmedAt;
+
+  /// Reason for dispute, if status is disputed
+  String? disputeReason;
+
+  /// When this delivery was created (UTC)
+  late DateTime createdAt;
+
+  /// When this delivery was last updated (UTC)
+  late DateTime updatedAt;
 
   /// Version number for optimistic concurrency control
   late int version;
@@ -73,4 +103,7 @@ enum DeliveryStatus {
 
   /// Dispute raised (wrong quantity, quality issue, etc.)
   disputed,
+
+  /// Delivery was cancelled
+  cancelled,
 }

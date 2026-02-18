@@ -2,28 +2,32 @@
 
 ## Checkpoint
 
-**Date:** 2026-02-16
-**Branch:** `sync-first-feat`
-**Status:** Phase R3 COMPLETE — Phase R4 next
-**Latest Commit:** 0d68ab6 - docs: archive 27 historical/stale files
+**Date:** 2026-02-17
+**Branch:** `main`
+**Status:** R4 Preparation — contracts written, deferred items planned
+**Latest Commit:** f5d664f - Merge pull request #4 (sync-first-feat → main)
 
 ---
 
 ## Resumption Context
 
 ```
-Phase R3 COMPLETE ✅ (Feb 15, 2026 — 2 weeks early)
-  - Sync engine: Queue, executor, connectivity monitor, conflict resolver
-  - Crop listing: Create + browse, fully localized (3 languages)
-  - Server: 8 Lambda functions on AWS (me-south-1), 228 tests, 95ms cold start
-  - Infra: 7 DynamoDB tables, API Gateway with 9 routes
-  - Integration tests: 12+ passing, zero data loss validated
+R4 PREPARATION IN PROGRESS (Feb 17, 2026)
+  - R3 merged to main via PR #4 ✅
+  - All 3 R4 contracts written ✅:
+    - specs/contracts/trip-listing-api.md (v1.0.0)
+    - specs/contracts/delivery-verification-api.md (v1.0.0)
+    - specs/contracts/escrow-protocol.md (v1.0.0)
+  - F-01 git purge: Runbook ready at docs/runbooks/f01-git-history-purge.md
+  - F-05 cert pinning: Assessment + real cert hashes extracted at docs/runbooks/f05-cert-pinning-activation.md
+    - Intermediate CA pin: sha256/vxRon/El5KuI4vx5ey1DgmsYmRY0nDd5Cg4GfJ8S+bg= (expires 2030)
+    - Leaf cert pin: sha256/YmAL9HFVfF2eJQzG/+cPUiuxcVHBMQxOS28Z8J4H3Tw= (expires 2026-08-24)
 
 WHAT WORKS: Register/login (+251 phone), create crop offline, auto-sync,
   conflict resolution (server-wins), browse from server, filter by crop/location
 
-NEXT: Phase R4 — Trip listings, delivery verification, Telebirr escrow
-  Target: Apr 1 - Apr 30, 2026. Contracts needed first (see TASK.md).
+NEXT: Execute F-01 git purge (human maintenance window), then begin R4 implementation
+  starting with F-11 Trip Listings. Target: Apr 1 - Apr 30, 2026.
 ```
 
 ---
@@ -40,8 +44,8 @@ NEXT: Phase R4 — Trip listings, delivery verification, Telebirr escrow
 
 ## Deferred Items
 
-- **F-01**: Git history purge (requires force-push maintenance window)
-- **F-05**: Certificate pinning (deferred to R4)
+- **F-01**: Git history purge — runbook ready at `docs/runbooks/f01-git-history-purge.md`, awaiting human execution
+- **F-05**: Certificate pinning — real cert hashes extracted, activation steps at `docs/runbooks/f05-cert-pinning-activation.md`
 
 ---
 
@@ -68,4 +72,4 @@ NEXT: Phase R4 — Trip listings, delivery verification, Telebirr escrow
 
 ---
 
-**Last Updated:** 2026-02-16
+**Last Updated:** 2026-02-17

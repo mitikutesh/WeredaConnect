@@ -43,6 +43,9 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   syncMetadataTable: databaseStack.syncMetadataTable,
   deliveriesTable: databaseStack.deliveriesTable,
   paymentsTable: databaseStack.paymentsTable,
+  escrowsTable: databaseStack.escrowsTable,
+  escrowAuditTable: databaseStack.escrowAuditTable,
+  escrowIdempotencyTable: databaseStack.escrowIdempotencyTable,
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);

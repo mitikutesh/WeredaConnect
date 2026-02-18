@@ -22,6 +22,13 @@ class Trip {
   @Index()
   late String truckerId;
 
+  /// Display name of the trucker
+  late String truckerName;
+
+  /// Contact phone number (E.164 format, e.g., +251912345678)
+  /// Hidden from unauthenticated users in browse results
+  late String truckerPhone;
+
   /// Origin woreda (district)
   /// Example: 'Bishoftu', 'Debre Zeit'
   late String fromWoreda;

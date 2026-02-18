@@ -3,6 +3,12 @@
 exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
 {
   "Outputs": {
+    "AccessLogsBucketName": {
+      "Description": "S3 Access Logs Bucket (F-18 audit logging)",
+      "Value": {
+        "Ref": "AccessLogsBucket83982689",
+      },
+    },
     "CropsTableName": {
       "Description": "DynamoDB Crops Table",
       "Value": {
@@ -13,6 +19,24 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Description": "DynamoDB Deliveries Table",
       "Value": {
         "Ref": "DeliveriesTableAC65D7AE",
+      },
+    },
+    "EscrowAuditTableName": {
+      "Description": "DynamoDB Escrow Audit Table",
+      "Value": {
+        "Ref": "EscrowAuditTable1A3E1A09",
+      },
+    },
+    "EscrowIdempotencyTableName": {
+      "Description": "DynamoDB Escrow Idempotency Table",
+      "Value": {
+        "Ref": "EscrowIdempotencyTableEB0B1AB5",
+      },
+    },
+    "EscrowsTableName": {
+      "Description": "DynamoDB Escrows Table",
+      "Value": {
+        "Ref": "EscrowsTable90CEAB67",
       },
     },
     "PaymentsTableName": {
@@ -60,6 +84,123 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
     },
   },
   "Resources": {
+    "AccessLogsBucket83982689": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AccessControl": "LogDeliveryWrite",
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256",
+              },
+            },
+          ],
+        },
+        "BucketName": "wereda-connect-dev-access-logs-123456789012",
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "ExpirationInDays": 365,
+              "Prefix": "uploads/",
+              "Status": "Enabled",
+            },
+          ],
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerPreferred",
+            },
+          ],
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true,
+        },
+        "Tags": [
+          {
+            "Key": "aws-cdk:auto-delete-objects",
+            "Value": "true",
+          },
+        ],
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AccessLogsBucketAutoDeleteObjectsCustomResource93F9213A": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "AccessLogsBucketPolicy7F77476F",
+      ],
+      "Properties": {
+        "BucketName": {
+          "Ref": "AccessLogsBucket83982689",
+        },
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "Custom::S3AutoDeleteObjects",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AccessLogsBucketPolicy7F77476F": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "AccessLogsBucket83982689",
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:PutBucketPolicy",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+                    "Arn",
+                  ],
+                },
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "AccessLogsBucket83982689",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "AccessLogsBucket83982689",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::S3::BucketPolicy",
+    },
     "CropsTable7D452D3A": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -129,7 +270,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             [
               "Lambda function for auto-deleting objects in ",
               {
-                "Ref": "UploadsBucket5E5E9B64",
+                "Ref": "AccessLogsBucket83982689",
               },
               " S3 bucket.",
             ],
@@ -198,6 +339,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "confirmedAt",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "participantId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -233,6 +378,54 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               "ProjectionType": "ALL",
             },
           },
+          {
+            "IndexName": "StatusCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TripIdIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "tripId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "ParticipantIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "participantId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
         ],
         "KeySchema": [
           {
@@ -248,6 +441,184 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-deliveries",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "EscrowAuditTable1A3E1A09": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "escrowId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "escrowId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-escrow-audit",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "EscrowIdempotencyTableEB0B1AB5": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "idempotencyKey",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "idempotencyKey",
+            "KeyType": "HASH",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-escrow-idempotency",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "EscrowsTable90CEAB67": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "escrowId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "deliveryId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "buyerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "expiresAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "DeliveryIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "deliveryId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "BuyerStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "buyerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "FarmerStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "StatusExpiresIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "expiresAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "escrowId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "createdAt",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-escrows",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -484,7 +855,23 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               "Prefix": "temp/",
               "Status": "Enabled",
             },
+            {
+              "Prefix": "photos/",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "GLACIER",
+                  "TransitionInDays": 365,
+                },
+              ],
+            },
           ],
+        },
+        "LoggingConfiguration": {
+          "DestinationBucketName": {
+            "Ref": "AccessLogsBucket83982689",
+          },
+          "LogFilePrefix": "uploads/",
         },
         "PublicAccessBlockConfiguration": {
           "BlockPublicAcls": true,
@@ -498,6 +885,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "Value": "true",
           },
         ],
+        "VersioningConfiguration": {
+          "Status": "Enabled",
+        },
       },
       "Type": "AWS::S3::Bucket",
       "UpdateReplacePolicy": "Delete",

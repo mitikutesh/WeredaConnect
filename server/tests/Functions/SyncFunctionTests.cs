@@ -8,6 +8,7 @@ using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -31,7 +32,7 @@ public class SyncFunctionTests
         _mockSyncMeta = Substitute.For<ISyncMetadataRepository>();
         _mockCropRepo = Substitute.For<ICropRepository>();
         _mockDynamoDb = Substitute.For<IAmazonDynamoDB>();
-        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table");
+        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table");
         _context = new TestLambdaContext();
 
         // Default: no duplicate idempotency keys
@@ -54,13 +55,13 @@ public class SyncFunctionTests
         string opId = "op-001",
         string entityId = "crop-001",
         string farmerId = "farmer-001") => new()
-    {
-        OperationId = opId,
-        IdempotencyKey = $"user:crop_listing:{entityId}:create:12345",
-        EntityType = "crop_listing",
-        EntityId = entityId,
-        Action = "create",
-        Data = new Dictionary<string, object>
+        {
+            OperationId = opId,
+            IdempotencyKey = $"user:crop_listing:{entityId}:create:12345",
+            EntityType = "crop_listing",
+            EntityId = entityId,
+            Action = "create",
+            Data = new Dictionary<string, object>
         {
             { "cropType", "teff" },
             { "quantity", 50 },
@@ -68,8 +69,8 @@ public class SyncFunctionTests
             { "farmerId", farmerId },
             { "status", "active" }
         },
-        Timestamp = "2026-03-15T10:00:00Z"
-    };
+            Timestamp = "2026-03-15T10:00:00Z"
+        };
 
     [Fact]
     public async Task FunctionHandler_ValidCreateOperation_Returns200WithSuccess()
@@ -489,16 +490,16 @@ public class SyncFunctionTests
 
     private static APIGatewayProxyRequest MakeAuthenticatedRequest(
         object body, string userId = "trucker-001") => new()
-    {
-        Body = JsonSerializer.Serialize(body, SerializerOptions),
-        RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
         {
-            Authorizer = new APIGatewayCustomAuthorizerContext
+            Body = JsonSerializer.Serialize(body, SerializerOptions),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
             {
                 { "userId", userId }
             }
-        }
-    };
+            }
+        };
 
     private static SyncOperationRequest MakeTripCreateOp(
         string truckerId = "trucker-001",
@@ -519,7 +520,10 @@ public class SyncFunctionTests
         };
         if (dataOverrides != null)
         {
-            foreach (var kvp in dataOverrides) data[kvp.Key] = kvp.Value;
+            foreach (var kvp in dataOverrides)
+            {
+                data[kvp.Key] = kvp.Value;
+            }
         }
         return new SyncOperationRequest
         {
@@ -927,5 +931,202 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
         Assert.Contains("TRIP_ALREADY_CANCELLED", response.Body);
+    }
+
+    // ===== Per-User Rate Limiting Tests (F-11 Finding 3) =====
+
+    [Fact]
+    public async Task FunctionHandler_RateLimitExceeded_Returns429()
+    {
+        var mockRateLimiter = Substitute.For<IRateLimitService>();
+        mockRateLimiter.CheckSyncAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Failure(429, "SYNC_RATE_LIMITED",
+                "Too many sync requests. Please try again later."));
+
+        var rateLimitedFunction = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table", mockRateLimiter);
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        var response = await rateLimitedFunction.FunctionHandler(request, _context);
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Contains("SYNC_RATE_LIMITED", response.Body);
+        Assert.Contains("Too many sync requests", response.Body);
+        Assert.True(response.Headers.ContainsKey("Retry-After"));
+    }
+
+    [Fact]
+    public async Task FunctionHandler_RateLimitAllowed_ProcessesNormally()
+    {
+        var mockRateLimiter = Substitute.For<IRateLimitService>();
+        mockRateLimiter.CheckSyncAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
+
+        var serverData = new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "cropType", "teff" },
+            { "version", "1" }
+        };
+        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
+
+        var rateLimitedFunction = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table", mockRateLimiter);
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        var response = await rateLimitedFunction.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await mockRateLimiter.Received(1).RecordSyncAsync("farmer-001");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_RateLimitExceeded_DoesNotProcessOperations()
+    {
+        var mockRateLimiter = Substitute.For<IRateLimitService>();
+        mockRateLimiter.CheckSyncAllowedAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Failure(429, "SYNC_RATE_LIMITED",
+                "Too many sync requests. Please try again later."));
+
+        var rateLimitedFunction = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table", mockRateLimiter);
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        await rateLimitedFunction.FunctionHandler(request, _context);
+
+        // Should NOT process any operations
+        await _mockCropRepo.DidNotReceive()
+            .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await mockRateLimiter.DidNotReceive().RecordSyncAsync(Arg.Any<string>());
+    }
+
+    // ===== Delivery disputeReason Validation Tests (F-12 Finding 3) =====
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeReasonTooLong_ReturnsError()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+
+        var longReason = new string('x', 2001);
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute",
+            IdempotencyKey = "user:delivery:del-001:update:12345",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", longReason },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("disputeReason must be 1-2000 characters", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeReasonEmpty_ReturnsError()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute",
+            IdempotencyKey = "user:delivery:del-001:update:12345",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", "" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("disputeReason must be 1-2000 characters", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeReasonWithin2000Chars_Accepted()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+
+        var validReason = new string('x', 2000);
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute",
+            IdempotencyKey = "user:delivery:del-001:update:12345",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", validReason },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // Should not contain the validation error
+        Assert.DoesNotContain("disputeReason must be", response.Body);
+    }
+
+    private void SetupExistingDelivery(string deliveryId, string truckerId, string status, int version)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = deliveryId } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "farmerPhone", new AttributeValue { S = "+251911111111" } },
+            { "truckerId", new AttributeValue { S = truckerId } },
+            { "truckerName", new AttributeValue { S = "Tadesse" } },
+            { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "buyerPhone", new AttributeValue { S = "+251933333333" } },
+            { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } }
+        };
+
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-deliveries-table"))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { item }
+            });
+
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = item
+            });
     }
 }

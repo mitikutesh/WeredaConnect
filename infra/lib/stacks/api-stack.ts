@@ -5,8 +5,11 @@ import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { WeredaLambda } from '../constructs/lambda-construct';
 import { EnvironmentConfig } from '../config/environments';
 
@@ -19,6 +22,9 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly syncMetadataTable: dynamodb.Table;
   readonly deliveriesTable: dynamodb.Table;
   readonly paymentsTable: dynamodb.Table;
+  readonly escrowsTable: dynamodb.Table;
+  readonly escrowAuditTable: dynamodb.Table;
+  readonly escrowIdempotencyTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -172,6 +178,7 @@ export class ApiStack extends cdk.Stack {
         CROPS_TABLE: props.cropsTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
         TRIPS_TABLE: props.tripsTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
     });
@@ -180,6 +187,7 @@ export class ApiStack extends cdk.Stack {
     props.cropsTable.grantReadWriteData(syncFn.function);
     props.usersTable.grantReadData(syncFn.function);
     props.tripsTable.grantReadWriteData(syncFn.function);
+    props.deliveriesTable.grantReadWriteData(syncFn.function);
 
     // ─── Crop Function ───────────────────────────────────────────────
 
@@ -210,6 +218,120 @@ export class ApiStack extends cdk.Stack {
     });
     // Trip function needs read-only access to trips table
     props.tripsTable.grantReadData(tripFn.function);
+
+    // ─── R4 SSM Parameters ────────────────────────────────────────────
+
+    const commissionRateParam = new ssm.StringParameter(this, 'CommissionRate', {
+      parameterName: `/${prefix}/escrow/commission-rate`,
+      stringValue: '0.025',
+      description: 'Platform commission rate (default 2.5%)',
+    });
+
+    const disputeWindowParam = new ssm.StringParameter(this, 'DisputeWindow', {
+      parameterName: `/${prefix}/escrow/dispute-window-hours`,
+      stringValue: '48',
+      description: 'Dispute window duration in hours after delivery confirmation',
+    });
+
+    const escrowTimeoutParam = new ssm.StringParameter(this, 'EscrowTimeout', {
+      parameterName: `/${prefix}/escrow/timeout-days`,
+      stringValue: '7',
+      description: 'Escrow auto-refund timeout in days',
+    });
+
+    // ─── R4.2 Delivery Function ───────────────────────────────────────
+
+    const deliveryFn = new WeredaLambda(this, 'DeliveryFunction', {
+      functionName: `${prefix}-deliveries`,
+      description: 'GET /deliveries, POST /deliveries/{id}/photos — delivery verification',
+      handlerName: 'DeliveryFunction',
+      environment: {
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        TRIPS_TABLE: props.tripsTable.tableName,
+        UPLOADS_BUCKET: props.uploadsBucket.bucketName,
+        USERS_TABLE: props.usersTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+    });
+    props.deliveriesTable.grantReadData(deliveryFn.function);
+    props.tripsTable.grantReadData(deliveryFn.function);
+    props.usersTable.grantReadData(deliveryFn.function);
+    props.uploadsBucket.grantReadWrite(deliveryFn.function);
+
+    // ─── R4.3 Escrow Function ─────────────────────────────────────────
+
+    const escrowFn = new WeredaLambda(this, 'EscrowFunction', {
+      functionName: `${prefix}-escrow`,
+      description: 'POST /escrow/* — Telebirr escrow management (server-authoritative)',
+      handlerName: 'EscrowFunction',
+      environment: {
+        ESCROWS_TABLE: props.escrowsTable.tableName,
+        ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
+        DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
+        ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+    });
+    props.escrowsTable.grantReadWriteData(escrowFn.function);
+    props.escrowAuditTable.grantWriteData(escrowFn.function);
+    props.escrowIdempotencyTable.grantReadWriteData(escrowFn.function);
+    props.deliveriesTable.grantReadData(escrowFn.function);
+    props.usersTable.grantReadData(escrowFn.function);
+    commissionRateParam.grantRead(escrowFn.function);
+    disputeWindowParam.grantRead(escrowFn.function);
+    escrowTimeoutParam.grantRead(escrowFn.function);
+
+    // ─── R4.3 Escrow Cron Function (auto-release, auto-refund, reconciliation) ──
+
+    const escrowCronFn = new WeredaLambda(this, 'EscrowCronFunction', {
+      functionName: `${prefix}-escrow-cron`,
+      description: 'Scheduled escrow operations: auto-release, auto-refund, reconciliation',
+      handlerName: 'EscrowCronFunction',
+      environment: {
+        ESCROWS_TABLE: props.escrowsTable.tableName,
+        ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
+        DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
+        ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
+      },
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+    });
+    props.escrowsTable.grantReadWriteData(escrowCronFn.function);
+    props.escrowAuditTable.grantWriteData(escrowCronFn.function);
+    props.escrowIdempotencyTable.grantReadWriteData(escrowCronFn.function);
+    props.deliveriesTable.grantReadData(escrowCronFn.function);
+    commissionRateParam.grantRead(escrowCronFn.function);
+    disputeWindowParam.grantRead(escrowCronFn.function);
+    escrowTimeoutParam.grantRead(escrowCronFn.function);
+
+    // EventBridge: auto-release + auto-refund every hour
+    new events.Rule(this, 'EscrowCronHourly', {
+      ruleName: `${prefix}-escrow-cron-hourly`,
+      description: 'Trigger escrow auto-release and auto-refund every hour',
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [new targets.LambdaFunction(escrowCronFn.function, {
+        event: events.RuleTargetInput.fromObject({ action: 'auto_release_and_refund' }),
+      })],
+    });
+
+    // EventBridge: reconciliation every 6 hours
+    new events.Rule(this, 'EscrowCronReconciliation', {
+      ruleName: `${prefix}-escrow-cron-reconciliation`,
+      description: 'Trigger escrow reconciliation with Telebirr every 6 hours',
+      schedule: events.Schedule.rate(cdk.Duration.hours(6)),
+      targets: [new targets.LambdaFunction(escrowCronFn.function, {
+        event: events.RuleTargetInput.fromObject({ action: 'reconciliation' }),
+      })],
+    });
 
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
@@ -306,6 +428,91 @@ export class ApiStack extends cdk.Stack {
       path: '/trips/{id}',
       methods: [apigateway.HttpMethod.GET],
       integration: new integrations.HttpLambdaIntegration('TripsGetInt', tripFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    // ─── R4.2 Delivery Routes (authenticated) ────────────────────────
+
+    httpApi.addRoutes({
+      path: '/deliveries',
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('DeliveriesListInt', deliveryFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/deliveries/{id}',
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('DeliveriesGetInt', deliveryFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/deliveries/{id}/photos',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('DeliveriesPhotosInt', deliveryFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    // ─── R4.3 Escrow Routes (all authenticated) ──────────────────────
+
+    httpApi.addRoutes({
+      path: '/escrow/initiate',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowInitiateInt', escrowFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/escrow/release',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowReleaseInt', escrowFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/escrow/dispute',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowDisputeInt', escrowFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/escrow/refund',
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowRefundInt', escrowFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/escrow/{id}',
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowGetInt', escrowFn.function, {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      }),
+    });
+
+    httpApi.addRoutes({
+      path: '/escrow/history',
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration('EscrowHistoryInt', escrowFn.function, {
         payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
       }),
     });

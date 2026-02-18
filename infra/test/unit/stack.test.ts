@@ -19,16 +19,16 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates seven DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 7);
+  test('creates ten DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 10);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
     });
   });
 
-  test('creates S3 uploads bucket with encryption', () => {
-    template.resourceCountIs('AWS::S3::Bucket', 1);
+  test('creates S3 buckets with encryption (uploads + access logs)', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
       BucketEncryption: {
         ServerSideEncryptionConfiguration: [
@@ -58,6 +58,9 @@ describe('ApiStack', () => {
       syncMetadataTable: dbStack.syncMetadataTable,
       deliveriesTable: dbStack.deliveriesTable,
       paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -80,8 +83,8 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
   });
 
-  test('creates nine Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 9);
+  test('creates twelve Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 12);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -89,9 +92,11 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 11 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout,
-    //            /sync, /crops, /crops/{id}, /trips, /trips/{id}
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 11);
+    // 20 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout,
+    //            /sync, /crops, /crops/{id}, /trips, /trips/{id},
+    //            /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
+    //            /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 20);
   });
 
   test('creates JWT authorizer for protected routes', () => {

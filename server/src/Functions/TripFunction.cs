@@ -94,13 +94,10 @@ public class TripFunction
         Dictionary<string, AttributeValue>? exclusiveStartKey = null;
         if (queryParams.TryGetValue("nextToken", out var nextToken) && !string.IsNullOrEmpty(nextToken))
         {
-            try
+            exclusiveStartKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            if (exclusiveStartKey == null)
             {
-                exclusiveStartKey = DecodeNextToken(nextToken);
-            }
-            catch
-            {
-                return LambdaResponse.Error(400, "TRIP_VALIDATION", "Invalid nextToken parameter.");
+                return LambdaResponse.Error(400, "TRIP_VALIDATION", "Invalid or tampered nextToken parameter.");
             }
         }
 
@@ -163,7 +160,7 @@ public class TripFunction
             var hasMore = lastEvaluatedKey != null;
             if (hasMore)
             {
-                nextTokenResponse = EncodeNextToken(lastEvaluatedKey!);
+                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey!);
             }
 
             var response = new GetTripsResponse
@@ -250,25 +247,13 @@ public class TripFunction
     }
 
     /// <summary>
-    /// Check if the request is authenticated by looking for an Authorization header
-    /// or JWT authorizer claims in the request context.
+    /// Check if the request is authenticated by verifying JWT authorizer claims
+    /// in the request context (set by API Gateway after JWT validation).
+    /// Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
     {
-        // Check for Authorization header (case-insensitive lookup)
-        if (request.Headers != null)
-        {
-            foreach (var header in request.Headers)
-            {
-                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(header.Value))
-                {
-                    return true;
-                }
-            }
-        }
-
-        // Check for JWT authorizer claims in request context
+        // Only trust JWT authorizer claims set by API Gateway after validation
         if (request.RequestContext?.Authorizer != null
             && request.RequestContext.Authorizer.Count > 0)
         {
@@ -301,7 +286,9 @@ public class TripFunction
     private static int GetInt(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0;
+        }
 
         return value switch
         {
@@ -318,7 +305,9 @@ public class TripFunction
     private static double GetDouble(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0.0;
+        }
 
         return value switch
         {
@@ -337,12 +326,16 @@ public class TripFunction
     private static List<string> GetStringList(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return new List<string>();
+        }
 
         if (value is string s)
         {
             if (string.IsNullOrEmpty(s) || s == "[]")
+            {
                 return new List<string>();
+            }
 
             // Try to parse as JSON array
             try
@@ -359,48 +352,4 @@ public class TripFunction
         return new List<string>();
     }
 
-    /// <summary>
-    /// Encode DynamoDB LastEvaluatedKey as a base64 nextToken.
-    /// Format: base64(JSON of key attributes)
-    /// AOT-safe: uses System.Text.Json with explicit serialization.
-    /// </summary>
-    private static string EncodeNextToken(Dictionary<string, AttributeValue> lastEvaluatedKey)
-    {
-        var tokenData = new Dictionary<string, string>();
-
-        foreach (var kvp in lastEvaluatedKey)
-        {
-            if (kvp.Value.S != null)
-                tokenData[kvp.Key] = kvp.Value.S;
-            else if (kvp.Value.N != null)
-                tokenData[kvp.Key] = kvp.Value.N;
-        }
-
-        var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        return Convert.ToBase64String(bytes);
-    }
-
-    /// <summary>
-    /// Decode base64 nextToken back to DynamoDB LastEvaluatedKey.
-    /// </summary>
-    private static Dictionary<string, AttributeValue> DecodeNextToken(string nextToken)
-    {
-        var bytes = Convert.FromBase64String(nextToken);
-        var json = System.Text.Encoding.UTF8.GetString(bytes);
-
-        var tokenData = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
-        if (tokenData == null)
-        {
-            throw new InvalidOperationException("Invalid nextToken format.");
-        }
-
-        var result = new Dictionary<string, AttributeValue>();
-        foreach (var kvp in tokenData)
-        {
-            result[kvp.Key] = new AttributeValue { S = kvp.Value };
-        }
-
-        return result;
-    }
 }

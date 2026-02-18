@@ -41,6 +41,8 @@ class TripListingRepository {
     final trip = Trip()
       ..tripId = tripId
       ..truckerId = truckerId
+      ..truckerName = truckerName
+      ..truckerPhone = truckerPhone
       ..fromWoreda = fromWoreda
       ..toWoreda = toWoreda
       ..departureDate = departureDate
