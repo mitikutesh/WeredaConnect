@@ -486,4 +486,29 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get viewCropListings => 'የሰብል ዝርዝሮችዎን ይመልከቱ';
+
+  @override
+  String get cancelTrip => 'ጉዞ ሰርዝ';
+
+  @override
+  String get cancelTripConfirmation =>
+      'ይህን ጉዞ መሰረዝ ይፈልጋሉ? ይህ ድርጊት ሊቀለበስ አይችልም።';
+
+  @override
+  String get truckerName => 'የጭነት ሹፌር ስም';
+
+  @override
+  String get truckerPhone => 'የጭነት ሹፌር ስልክ';
+
+  @override
+  String get route => 'መንገድ';
+
+  @override
+  String get viewTripListings => 'የጉዞ ዝርዝሮችዎን ይመልከቱ';
+
+  @override
+  String get trips => 'ጉዞዎች';
+
+  @override
+  String get truckerNameRequired => 'የጭነት ሹፌር ስም ያስፈልጋል';
 }

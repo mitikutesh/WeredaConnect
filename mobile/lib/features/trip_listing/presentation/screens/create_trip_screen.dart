@@ -19,12 +19,12 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// - BlocListener for state transitions
 /// - Loading spinner on submit
 class CreateTripScreen extends StatefulWidget {
-  final String truckerName;
-  final String truckerPhone;
+  final String? truckerName;
+  final String? truckerPhone;
 
   const CreateTripScreen({
-    required this.truckerName,
-    required this.truckerPhone,
+    this.truckerName,
+    this.truckerPhone,
     super.key,
   });
 
@@ -34,6 +34,8 @@ class CreateTripScreen extends StatefulWidget {
 
 class _CreateTripScreenState extends State<CreateTripScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _truckerNameController = TextEditingController();
+  final _truckerPhoneController = TextEditingController();
   final _fromWoredaController = TextEditingController();
   final _toWoredaController = TextEditingController();
   final _capacityController = TextEditingController();
@@ -42,7 +44,21 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   DateTime? _selectedDepartureDate;
 
   @override
+  void initState() {
+    super.initState();
+    // Pre-fill trucker info if provided
+    if (widget.truckerName != null) {
+      _truckerNameController.text = widget.truckerName!;
+    }
+    if (widget.truckerPhone != null) {
+      _truckerPhoneController.text = widget.truckerPhone!;
+    }
+  }
+
+  @override
   void dispose() {
+    _truckerNameController.dispose();
+    _truckerPhoneController.dispose();
     _fromWoredaController.dispose();
     _toWoredaController.dispose();
     _capacityController.dispose();
@@ -88,8 +104,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     context.read<TripListingBloc>().add(
           CreateTrip(
             truckerId: authState.userId,
-            truckerName: widget.truckerName,
-            truckerPhone: widget.truckerPhone,
+            truckerName: _truckerNameController.text.trim(),
+            truckerPhone: _truckerPhoneController.text.trim(),
             fromWoreda: _fromWoredaController.text.trim(),
             toWoreda: _toWoredaController.text.trim(),
             departureDate: _selectedDepartureDate!,
@@ -140,6 +156,56 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            // Trucker name input
+                            TextFormField(
+                              controller: _truckerNameController,
+                              decoration: InputDecoration(
+                                labelText: l10n.truckerName,
+                                prefixIcon: const Icon(Icons.person),
+                                border: const OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 20,
+                                ),
+                              ),
+                              keyboardType: TextInputType.name,
+                              textCapitalization: TextCapitalization.words,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return l10n.truckerNameRequired;
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Trucker phone input
+                            TextFormField(
+                              controller: _truckerPhoneController,
+                              decoration: InputDecoration(
+                                labelText: l10n.truckerPhone,
+                                prefixIcon: const Icon(Icons.phone),
+                                hintText: '+251XXXXXXXXX',
+                                border: const OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 20,
+                                ),
+                              ),
+                              keyboardType: TextInputType.phone,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return l10n.invalidPhoneFormat;
+                                }
+                                final phoneRegex = RegExp(r'^\+251\d{9}$');
+                                if (!phoneRegex.hasMatch(value.trim())) {
+                                  return l10n.invalidPhoneFormat;
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+
                             // From Woreda input
                             TextFormField(
                               controller: _fromWoredaController,

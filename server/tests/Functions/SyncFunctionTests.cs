@@ -514,7 +514,7 @@ public class SyncFunctionTests
             { "truckerPhone", "+251912345678" },
             { "fromWoreda", "Bishoftu" },
             { "toWoreda", "Addis Ababa" },
-            { "departureDate", "2026-02-18T06:00:00Z" },
+            { "departureDate", DateTime.UtcNow.AddDays(3).ToString("o") },
             { "capacity", 150.0 },
             { "pricePerQuintal", 120.0 }
         };
@@ -660,7 +660,7 @@ public class SyncFunctionTests
             { "truckerName", "Tadesse Worku" },
             { "truckerPhone", "+251912345678" },
             { "toWoreda", "Addis Ababa" },
-            { "departureDate", "2026-02-18T06:00:00Z" },
+            { "departureDate", DateTime.UtcNow.AddDays(3).ToString("o") },
             { "capacity", 150.0 },
             { "pricePerQuintal", 120.0 }
         };
@@ -680,6 +680,113 @@ public class SyncFunctionTests
         Assert.Contains("error", response.Body);
         Assert.Contains("TRIP_VALIDATION", response.Body);
         Assert.Contains("fromWoreda", response.Body);
+    }
+
+    // --- F-SEC-01: Departure Date Validation Tests ---
+
+    [Fact]
+    public async Task TripCreate_PastDepartureDate_ReturnsValidationError()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "departureDate", DateTime.UtcNow.AddDays(-1).ToString("o") }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("departureDate must be in the future", response.Body);
+    }
+
+    [Fact]
+    public async Task TripCreate_DepartureDateOver30Days_ReturnsValidationError()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "departureDate", DateTime.UtcNow.AddDays(31).ToString("o") }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("departureDate must be within 30 days", response.Body);
+    }
+
+    // --- F-SEC-02: Phone Validation Tests ---
+
+    [Theory]
+    [InlineData("+251abc")]
+    [InlineData("+25191234")]
+    [InlineData("+2519123456789")]
+    [InlineData("0912345678")]
+    [InlineData("+252912345678")]
+    public async Task TripCreate_InvalidPhoneFormat_ReturnsValidationError(string phone)
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "truckerPhone", phone }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("truckerPhone", response.Body);
+    }
+
+    // --- F-SEC-06: Delivered Terminal State Tests ---
+
+    [Fact]
+    public async Task TripUpdate_DeliveredTrip_ReturnsTerminalStateError()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "delivered", 3);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-update",
+            IdempotencyKey = "user:trip:trip-001:update:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "capacity", 200.0 },
+                { "version", 3 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
+    }
+
+    [Fact]
+    public async Task TripDelete_DeliveredTrip_ReturnsTerminalStateError()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "delivered", 3);
+
+        var deleteOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-delete",
+            IdempotencyKey = "user:trip:trip-001:delete:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "delete",
+            Data = new Dictionary<string, object> { { "version", 3 } }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(deleteOp));
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
     }
 
     [Fact]
@@ -834,7 +941,7 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
-        Assert.Contains("TRIP_ALREADY_CANCELLED", response.Body);
+        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
     }
 
     [Fact]
@@ -930,7 +1037,7 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
-        Assert.Contains("TRIP_ALREADY_CANCELLED", response.Body);
+        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
     }
 
     // ===== Per-User Rate Limiting Tests (F-11 Finding 3) =====

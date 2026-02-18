@@ -494,4 +494,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewCropListings => 'View your crop listings';
+
+  @override
+  String get cancelTrip => 'Cancel Trip';
+
+  @override
+  String get cancelTripConfirmation =>
+      'Are you sure you want to cancel this trip? This action cannot be undone.';
+
+  @override
+  String get truckerName => 'Trucker Name';
+
+  @override
+  String get truckerPhone => 'Trucker Phone';
+
+  @override
+  String get route => 'Route';
+
+  @override
+  String get viewTripListings => 'View your trip listings';
+
+  @override
+  String get trips => 'Trips';
+
+  @override
+  String get truckerNameRequired => 'Trucker name is required';
 }

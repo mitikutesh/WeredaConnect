@@ -531,6 +531,24 @@ public class TripFunctionTests
         Assert.Contains("cancelled", response.Body, StringComparison.OrdinalIgnoreCase);
     }
 
+    // F-SEC-03: Cancelled via status update (no deletedAt) should also return 404
+    [Fact]
+    public async Task HandleGetTripById_CancelledViaStatusOnly_Returns404()
+    {
+        // Trip cancelled via status update path — has status=cancelled but NO deletedAt
+        var cancelledTrip = CreateTripItem("trip-001", "cancelled");
+        // Intentionally no deletedAt key
+
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(cancelledTrip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeGetRequest("/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(404, response.StatusCode);
+        Assert.Contains("TRIP_NOT_FOUND", response.Body);
+    }
+
     [Fact]
     public async Task HandleGetTripById_MissingId_Returns400()
     {

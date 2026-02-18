@@ -645,6 +645,38 @@
   "viewCropListings": "Tarreewwan midhaan kee ilaali",
   "@viewCropListings": {
     "description": "Description for my listings menu item on profile screen"
+  },
+  "cancelTrip": "Imala Haqi",
+  "@cancelTrip": {
+    "description": "Button label to cancel a trip"
+  },
+  "cancelTripConfirmation": "Imala kana haquuf mirkanii? Tarkaanfiin kun deebi'uu hin danda'u.",
+  "@cancelTripConfirmation": {
+    "description": "Confirmation dialog message for cancelling a trip"
+  },
+  "truckerName": "Maqaa Konkolaachisaa",
+  "@truckerName": {
+    "description": "Label for trucker name field"
+  },
+  "truckerPhone": "Bilbila Konkolaachisaa",
+  "@truckerPhone": {
+    "description": "Label for trucker phone number field"
+  },
+  "route": "Karaa",
+  "@route": {
+    "description": "Label for trip route display"
+  },
+  "viewTripListings": "Tarreewwan imaltuu kee ilaali",
+  "@viewTripListings": {
+    "description": "Description for my trips menu item on profile screen"
+  },
+  "trips": "Imaltuu",
+  "@trips": {
+    "description": "Trips navigation tab label"
+  },
+  "truckerNameRequired": "Maqaan konkolaachisaa barbaachisaadha",
+  "@truckerNameRequired": {
+    "description": "Validation error when trucker name is not entered"
   }
 }
 

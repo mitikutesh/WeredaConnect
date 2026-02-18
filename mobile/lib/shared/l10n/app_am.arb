@@ -645,6 +645,38 @@
   "viewCropListings": "የሰብል ዝርዝሮችዎን ይመልከቱ",
   "@viewCropListings": {
     "description": "Description for my listings menu item on profile screen"
+  },
+  "cancelTrip": "ጉዞ ሰርዝ",
+  "@cancelTrip": {
+    "description": "Button label to cancel a trip"
+  },
+  "cancelTripConfirmation": "ይህን ጉዞ መሰረዝ ይፈልጋሉ? ይህ ድርጊት ሊቀለበስ አይችልም።",
+  "@cancelTripConfirmation": {
+    "description": "Confirmation dialog message for cancelling a trip"
+  },
+  "truckerName": "የጭነት ሹፌር ስም",
+  "@truckerName": {
+    "description": "Label for trucker name field"
+  },
+  "truckerPhone": "የጭነት ሹፌር ስልክ",
+  "@truckerPhone": {
+    "description": "Label for trucker phone number field"
+  },
+  "route": "መንገድ",
+  "@route": {
+    "description": "Label for trip route display"
+  },
+  "viewTripListings": "የጉዞ ዝርዝሮችዎን ይመልከቱ",
+  "@viewTripListings": {
+    "description": "Description for my trips menu item on profile screen"
+  },
+  "trips": "ጉዞዎች",
+  "@trips": {
+    "description": "Trips navigation tab label"
+  },
+  "truckerNameRequired": "የጭነት ሹፌር ስም ያስፈልጋል",
+  "@truckerNameRequired": {
+    "description": "Validation error when trucker name is not entered"
   }
 }
 

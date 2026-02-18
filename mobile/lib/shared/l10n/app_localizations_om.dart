@@ -498,4 +498,29 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get viewCropListings => 'Tarreewwan midhaan kee ilaali';
+
+  @override
+  String get cancelTrip => 'Imala Haqi';
+
+  @override
+  String get cancelTripConfirmation =>
+      'Imala kana haquuf mirkanii? Tarkaanfiin kun deebi\'uu hin danda\'u.';
+
+  @override
+  String get truckerName => 'Maqaa Konkolaachisaa';
+
+  @override
+  String get truckerPhone => 'Bilbila Konkolaachisaa';
+
+  @override
+  String get route => 'Karaa';
+
+  @override
+  String get viewTripListings => 'Tarreewwan imaltuu kee ilaali';
+
+  @override
+  String get trips => 'Imaltuu';
+
+  @override
+  String get truckerNameRequired => 'Maqaan konkolaachisaa barbaachisaadha';
 }

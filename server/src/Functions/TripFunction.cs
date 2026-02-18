@@ -207,6 +207,13 @@ public class TripFunction
                 return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
             }
 
+            // F-SEC-03: Check if cancelled via status update path (which doesn't set deletedAt)
+            if (trip.TryGetValue("status", out var statusVal)
+                && statusVal?.ToString() == "cancelled")
+            {
+                return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
+            }
+
             var isAuthenticated = IsAuthenticated(request);
             var tripDto = MapToTripDto(trip, isAuthenticated);
             var response = new GetTripResponse { Trip = tripDto };
@@ -314,7 +321,7 @@ public class TripFunction
             double d => d,
             float f => f,
             decimal dec => (double)dec,
-            string s => double.TryParse(s, out var result) ? result : 0.0,
+            string s => double.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var result) ? result : 0.0,
             _ => 0.0
         };
     }

@@ -6,6 +6,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -24,6 +26,7 @@ class _MainNavigationState extends State<MainNavigation> {
   final List<Widget> _screens = const [
     HomeScreen(),
     BrowseListingsScreen(),
+    BrowseTripsScreen(),
     ProfileScreen(),
   ];
 
@@ -94,7 +97,19 @@ class _MainNavigationState extends State<MainNavigation> {
               },
               child: const Icon(Icons.add),
             )
-          : null,
+          : _currentIndex == 2
+              ? FloatingActionButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (context) => const CreateTripScreen(),
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.add),
+                )
+              : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -114,6 +129,11 @@ class _MainNavigationState extends State<MainNavigation> {
             label: l10n.listings,
           ),
           NavigationDestination(
+            icon: const Icon(Icons.local_shipping_outlined),
+            selectedIcon: const Icon(Icons.local_shipping),
+            label: l10n.trips,
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.person_outline),
             selectedIcon: const Icon(Icons.person),
             label: l10n.profile,
@@ -130,6 +150,8 @@ class _MainNavigationState extends State<MainNavigation> {
       case 1:
         return l10n.cropListings;
       case 2:
+        return l10n.tripListings;
+      case 3:
         return l10n.myProfile;
       default:
         return l10n.appTitle;

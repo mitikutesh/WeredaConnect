@@ -645,6 +645,38 @@
   "viewCropListings": "View your crop listings",
   "@viewCropListings": {
     "description": "Description for my listings menu item on profile screen"
+  },
+  "cancelTrip": "Cancel Trip",
+  "@cancelTrip": {
+    "description": "Button label to cancel a trip"
+  },
+  "cancelTripConfirmation": "Are you sure you want to cancel this trip? This action cannot be undone.",
+  "@cancelTripConfirmation": {
+    "description": "Confirmation dialog message for cancelling a trip"
+  },
+  "truckerName": "Trucker Name",
+  "@truckerName": {
+    "description": "Label for trucker name field"
+  },
+  "truckerPhone": "Trucker Phone",
+  "@truckerPhone": {
+    "description": "Label for trucker phone number field"
+  },
+  "route": "Route",
+  "@route": {
+    "description": "Label for trip route display"
+  },
+  "viewTripListings": "View your trip listings",
+  "@viewTripListings": {
+    "description": "Description for my trips menu item on profile screen"
+  },
+  "trips": "Trips",
+  "@trips": {
+    "description": "Trips navigation tab label"
+  },
+  "truckerNameRequired": "Trucker name is required",
+  "@truckerNameRequired": {
+    "description": "Validation error when trucker name is not entered"
   }
 }
 

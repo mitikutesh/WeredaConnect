@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
@@ -29,7 +30,7 @@ namespace WeredaConnect.Server.Functions;
 ///
 /// See: specs/contracts/sync-protocol.md
 /// </summary>
-public class SyncFunction
+public partial class SyncFunction
 {
     private readonly ISyncMetadataRepository _syncMetadataRepo;
     private readonly ICropRepository _cropRepo;
@@ -72,6 +73,9 @@ public class SyncFunction
         { "inTransit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disputed" } },
     };
+
+    [GeneratedRegex(@"^\+251\d{9}$")]
+    private static partial Regex EthiopianPhoneRegex();
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -724,7 +728,7 @@ public class SyncFunction
                         };
                     }
 
-                    // H3: Block updates to cancelled/deleted trips
+                    // H3: Block updates to terminal-state or deleted trips
                     var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
                         ? existingStatusAttr.S : "open";
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
@@ -737,13 +741,14 @@ public class SyncFunction
                             Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
                         };
                     }
-                    if (currentStatus == "cancelled")
+                    // F-SEC-06: Block updates to both cancelled and delivered (terminal states)
+                    if (currentStatus is "cancelled" or "delivered")
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Cannot update a cancelled trip."
+                            Message = "TRIP_TERMINAL_STATE: Cannot update a terminal-state trip."
                         };
                     }
 
@@ -912,7 +917,7 @@ public class SyncFunction
                         };
                     }
 
-                    // H3: Block deletion of cancelled/deleted trips
+                    // H3: Block deletion of terminal-state or deleted trips
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
@@ -924,13 +929,13 @@ public class SyncFunction
                         };
                     }
                     if (existing.TryGetValue("status", out var existingStatusAttr)
-                        && existingStatusAttr.S == "cancelled")
+                        && existingStatusAttr.S is "cancelled" or "delivered")
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Trip is already cancelled."
+                            Message = "TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip."
                         };
                     }
 
@@ -1088,7 +1093,7 @@ public class SyncFunction
             errors.Add("fromWoreda and toWoreda must be different.");
         }
 
-        // departureDate: required on create, valid ISO 8601
+        // departureDate: required on create, valid ISO 8601, future-only on create, max 30 days
         if (isCreate || data.ContainsKey("departureDate"))
         {
             if (!data.TryGetValue("departureDate", out var dateObj)
@@ -1100,9 +1105,21 @@ public class SyncFunction
                 }
             }
             else if (!DateTime.TryParse(dateObj.ToString(), null,
-                         System.Globalization.DateTimeStyles.RoundtripKind, out _))
+                         System.Globalization.DateTimeStyles.RoundtripKind, out var parsedDate))
             {
                 errors.Add("departureDate must be a valid ISO 8601 date.");
+            }
+            else if (isCreate)
+            {
+                // F-SEC-01: Enforce future date and 30-day max for create operations
+                if (parsedDate <= DateTime.UtcNow)
+                {
+                    errors.Add("departureDate must be in the future for create.");
+                }
+                else if (parsedDate > DateTime.UtcNow.AddDays(30))
+                {
+                    errors.Add("departureDate must be within 30 days.");
+                }
             }
         }
 
@@ -1113,7 +1130,7 @@ public class SyncFunction
             errors.Add("status must be 'open' for create.");
         }
 
-        // truckerPhone: required on create, must start with "+251"
+        // truckerPhone: required on create, must be valid Ethiopian E.164 (+251XXXXXXXXX)
         if (isCreate || data.ContainsKey("truckerPhone"))
         {
             if (!data.TryGetValue("truckerPhone", out var phoneObj)
@@ -1124,9 +1141,10 @@ public class SyncFunction
                     errors.Add("truckerPhone is required.");
                 }
             }
-            else if (!phoneObj.ToString()!.StartsWith("+251"))
+            else if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
             {
-                errors.Add("truckerPhone must start with '+251'.");
+                // F-SEC-02: Strict E.164 validation (exactly +251 + 9 digits = 13 chars)
+                errors.Add("truckerPhone must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
             }
         }
 
