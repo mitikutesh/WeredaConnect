@@ -409,16 +409,15 @@ void main() {
 
     // --- Contract Edge Cases: Cancel Behavior ---
 
-    test('cancelTrip on non-existent trip does nothing', () async {
-      // Should not throw, just silently return
-      await repository.cancelTrip(
-        tripId: 'nonexistent-trip-id',
-        truckerId: 'trucker-001',
+    test('cancelTrip on non-existent trip throws TripValidationException',
+        () async {
+      expect(
+        () => repository.cancelTrip(
+          tripId: 'nonexistent-trip-id',
+          truckerId: 'trucker-001',
+        ),
+        throwsA(isA<TripValidationException>()),
       );
-
-      // No sync operations should be enqueued for non-existent trip
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending, isEmpty);
     });
 
     test('cancelled trip excluded from getOpenTrips', () async {
@@ -668,6 +667,292 @@ void main() {
     test('getOpenTrips returns empty when no trips exist', () async {
       final trips = await repository.getOpenTrips();
       expect(trips, isEmpty);
+    });
+
+    // --- F-SEC-04: Client-side Validation Tests ---
+
+    group('_validateTripData via createTrip', () {
+      final validDeparture =
+          DateTime.now().add(const Duration(days: 2)).toUtc();
+
+      test('same fromWoreda and toWoreda throws TripValidationException',
+          () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Bishoftu',
+            departureDate: validDeparture,
+            capacity: 150.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'toWoreda'),
+          ),
+        );
+      });
+
+      test('capacity below 0.1 throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 0.05,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'capacity'),
+          ),
+        );
+      });
+
+      test('capacity above 1000 throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 1001.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'capacity'),
+          ),
+        );
+      });
+
+      test('price below 0.01 throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 150.0,
+            pricePerQuintal: 0.005,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'pricePerQuintal'),
+          ),
+        );
+      });
+
+      test('price above 10000 throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 150.0,
+            pricePerQuintal: 10001.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'pricePerQuintal'),
+          ),
+        );
+      });
+
+      test('past departure date throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: DateTime.now().subtract(const Duration(hours: 1)),
+            capacity: 150.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'departureDate'),
+          ),
+        );
+      });
+
+      test('departure date over 30 days throws TripValidationException',
+          () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'Test Trucker',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: DateTime.now().add(const Duration(days: 31)).toUtc(),
+            capacity: 150.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'departureDate'),
+          ),
+        );
+      });
+
+      test('invalid phone format throws TripValidationException', () async {
+        final invalidPhones = [
+          '+251abc123456',
+          '+2519110000',
+          '0911000000',
+          '+252911000000',
+          '+25191100000000',
+        ];
+
+        for (final phone in invalidPhones) {
+          expect(
+            () => repository.createTrip(
+              truckerId: 'trucker-001',
+              truckerName: 'Test Trucker',
+              truckerPhone: phone,
+              fromWoreda: 'Bishoftu',
+              toWoreda: 'Addis Ababa',
+              departureDate: validDeparture,
+              capacity: 150.0,
+              pricePerQuintal: 120.0,
+            ),
+            throwsA(
+              isA<TripValidationException>()
+                  .having((e) => e.field, 'field', 'truckerPhone'),
+            ),
+            reason: 'Phone "$phone" should fail validation',
+          );
+        }
+      });
+
+      test('empty trucker name throws TripValidationException', () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: '',
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 150.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'truckerName'),
+          ),
+        );
+      });
+
+      test('trucker name over 100 chars throws TripValidationException',
+          () async {
+        expect(
+          () => repository.createTrip(
+            truckerId: 'trucker-001',
+            truckerName: 'A' * 101,
+            truckerPhone: '+251911000000',
+            fromWoreda: 'Bishoftu',
+            toWoreda: 'Addis Ababa',
+            departureDate: validDeparture,
+            capacity: 150.0,
+            pricePerQuintal: 120.0,
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'truckerName'),
+          ),
+        );
+      });
+    });
+
+    // --- F-SEC-04: cancelTrip Terminal State Validation ---
+
+    group('cancelTrip terminal state validation', () {
+      test('cancel a delivered trip throws TripValidationException', () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+
+        // Simulate delivered status directly in Isar
+        await isar.writeTxn(() async {
+          trip.status = TripStatus.delivered;
+          trip.updatedAt = DateTime.now().toUtc();
+          await isar.trips.put(trip);
+        });
+
+        expect(
+          () => repository.cancelTrip(
+            tripId: trip.tripId,
+            truckerId: 'trucker-001',
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'status')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('delivered'),
+                ),
+          ),
+        );
+      });
+
+      test('cancel an already cancelled trip throws TripValidationException',
+          () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+
+        await repository.cancelTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        );
+
+        expect(
+          () => repository.cancelTrip(
+            tripId: trip.tripId,
+            truckerId: 'trucker-001',
+          ),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'status')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('cancelled'),
+                ),
+          ),
+        );
+      });
     });
   });
 }

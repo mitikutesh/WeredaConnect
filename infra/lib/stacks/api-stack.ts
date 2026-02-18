@@ -189,6 +189,14 @@ export class ApiStack extends cdk.Stack {
     props.tripsTable.grantReadWriteData(syncFn.function);
     props.deliveriesTable.grantReadWriteData(syncFn.function);
 
+    // ─── SSM Parameters (shared across read functions) ────────────────
+
+    const paginationSecretParam = new ssm.StringParameter(this, 'PaginationSecret', {
+      parameterName: `/${prefix}/pagination-secret`,
+      stringValue: 'WeredaConnect-Pagination-Default-Key-v1',
+      description: 'HMAC signing key for pagination tokens (override in production)',
+    });
+
     // ─── Crop Function ───────────────────────────────────────────────
 
     const cropFn = new WeredaLambda(this, 'CropFunction', {
@@ -197,12 +205,14 @@ export class ApiStack extends cdk.Stack {
       handlerName: 'CropFunction',
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
+        PAGINATION_SECRET: paginationSecretParam.stringValue,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
     });
     // Crop function needs read-only access to crops table
     props.cropsTable.grantReadData(cropFn.function);
+    paginationSecretParam.grantRead(cropFn.function);
 
     // ─── Trip Function ────────────────────────────────────────────────
 
@@ -212,12 +222,14 @@ export class ApiStack extends cdk.Stack {
       handlerName: 'TripFunction',
       environment: {
         TRIPS_TABLE: props.tripsTable.tableName,
+        PAGINATION_SECRET: paginationSecretParam.stringValue,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
     });
     // Trip function needs read-only access to trips table
     props.tripsTable.grantReadData(tripFn.function);
+    paginationSecretParam.grantRead(tripFn.function);
 
     // ─── R4 SSM Parameters ────────────────────────────────────────────
 
