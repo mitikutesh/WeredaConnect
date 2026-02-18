@@ -45,6 +45,11 @@ class DeliveryDetailScreen extends StatelessWidget {
             SnackBar(content: Text(l10n.deliveryConfirmPickup)),
           );
           Navigator.of(context).pop();
+        } else if (state is MarkedInTransit) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.deliveryMarkInTransit)),
+          );
+          Navigator.of(context).pop();
         } else if (state is DeliveryConfirmed) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(l10n.deliveryConfirmDelivery)),
@@ -555,7 +560,7 @@ class DeliveryDetailScreen extends StatelessWidget {
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(l10n.deliveryMarkInTransit),
-          content: Text(l10n.deliveryCancelConfirmMessage),
+          content: Text(l10n.deliveryInTransitConfirmMessage),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -565,13 +570,13 @@ class DeliveryDetailScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<DeliveryBloc>().add(
-                      ConfirmPickup(
+                      MarkInTransit(
                         deliveryId: delivery.deliveryId,
                         truckerId: currentUserId,
                       ),
                     );
               },
-              child: Text(l10n.deliveryConfirmPickup),
+              child: Text(l10n.deliveryMarkInTransit),
             ),
           ],
         );

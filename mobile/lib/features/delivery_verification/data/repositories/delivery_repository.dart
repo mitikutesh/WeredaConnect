@@ -67,6 +67,19 @@ class DeliveryRepository {
             'Only the buyer can confirm delivery',
           );
         }
+      case 'markInTransit':
+        if (delivery.status != DeliveryStatus.pickedUp) {
+          throw DeliveryValidationException(
+            'status',
+            'Delivery must be picked up to mark in transit',
+          );
+        }
+        if (delivery.truckerId != userId) {
+          throw DeliveryValidationException(
+            'truckerId',
+            'Only the trucker can mark in transit',
+          );
+        }
       case 'raiseDispute':
         if (delivery.status != DeliveryStatus.delivered) {
           throw DeliveryValidationException(
@@ -316,6 +329,44 @@ class DeliveryRepository {
       entityId: deliveryId,
       action: 'update',
       data: jsonEncode(syncData),
+      operationId: _uuid.v4(),
+    );
+  }
+
+  /// Mark delivery as in transit by trucker. Status → inTransit.
+  Future<void> markInTransit({
+    required String deliveryId,
+    required String truckerId,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+
+    if (delivery == null) return;
+
+    _validateDeliveryOperation(delivery, 'markInTransit', truckerId);
+
+    final now = DateTime.now().toUtc();
+
+    await _isar.writeTxn(() async {
+      delivery.status = DeliveryStatus.inTransit;
+      delivery.updatedAt = now;
+      delivery.version += 1;
+      await _isar.deliverys.put(delivery);
+    });
+
+    await _syncQueue.enqueue(
+      userId: truckerId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'deliveryId': deliveryId,
+        'status': DeliveryStatus.inTransit.name,
+        'updatedAt': now.toIso8601String(),
+        'version': delivery.version,
+      }),
       operationId: _uuid.v4(),
     );
   }

@@ -685,6 +685,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryMarkInTransit => 'በመጓጓዝ ላይ ምልክት';
 
   @override
+  String get deliveryInTransitConfirmMessage =>
+      'ይህን ማድረሻ በመጓጓዝ ላይ ምልክት ማድረግ ይፈልጋሉ?';
+
+  @override
   String get deliveryReasonRequired => 'ምክንያት ያስገቡ';
 
   @override

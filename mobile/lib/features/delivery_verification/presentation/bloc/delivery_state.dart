@@ -74,6 +74,11 @@ class DeliveryDetailLoaded extends DeliveryState {
   List<Object?> get props => [delivery];
 }
 
+/// Delivery marked as in transit.
+class MarkedInTransit extends DeliveryState {
+  const MarkedInTransit();
+}
+
 /// Dispute raised successfully.
 class DisputeRaised extends DeliveryState {
   const DisputeRaised();

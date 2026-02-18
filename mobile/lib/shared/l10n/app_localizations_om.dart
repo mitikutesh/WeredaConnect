@@ -700,6 +700,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
 
   @override
+  String get deliveryInTransitConfirmMessage =>
+      'Geejjiba kana daandii irra mallatteessuu barbaaddaa?';
+
+  @override
   String get deliveryReasonRequired => 'Maaloo sababii galchaa';
 
   @override

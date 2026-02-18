@@ -164,6 +164,20 @@ class LoadDeliveryDetail extends DeliveryEvent {
   List<Object?> get props => [deliveryId];
 }
 
+/// Mark a delivery as in transit (pickedUp → inTransit).
+class MarkInTransit extends DeliveryEvent {
+  final String deliveryId;
+  final String truckerId;
+
+  const MarkInTransit({
+    required this.deliveryId,
+    required this.truckerId,
+  });
+
+  @override
+  List<Object?> get props => [deliveryId, truckerId];
+}
+
 /// Filter user deliveries by status.
 class FilterUserDeliveries extends DeliveryEvent {
   final String userId;

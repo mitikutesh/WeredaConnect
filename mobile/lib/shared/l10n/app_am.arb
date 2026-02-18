@@ -906,6 +906,10 @@
   "@deliveryMarkInTransit": {
     "description": "Button to mark delivery as in transit"
   },
+  "deliveryInTransitConfirmMessage": "ይህን ማድረሻ በመጓጓዝ ላይ ምልክት ማድረግ ይፈልጋሉ?",
+  "@deliveryInTransitConfirmMessage": {
+    "description": "Confirmation message for marking delivery in transit"
+  },
   "deliveryReasonRequired": "ምክንያት ያስገቡ",
   "@deliveryReasonRequired": {
     "description": "Validation message for empty dispute reason"

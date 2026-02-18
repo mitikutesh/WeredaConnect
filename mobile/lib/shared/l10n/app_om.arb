@@ -906,6 +906,10 @@
   "@deliveryMarkInTransit": {
     "description": "Button to mark delivery as in transit"
   },
+  "deliveryInTransitConfirmMessage": "Geejjiba kana daandii irra mallatteessuu barbaaddaa?",
+  "@deliveryInTransitConfirmMessage": {
+    "description": "Confirmation message for marking delivery in transit"
+  },
   "deliveryReasonRequired": "Maaloo sababii galchaa",
   "@deliveryReasonRequired": {
     "description": "Validation message for empty dispute reason"

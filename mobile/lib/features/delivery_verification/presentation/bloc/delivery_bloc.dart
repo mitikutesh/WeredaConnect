@@ -18,6 +18,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     on<LoadDeliveries>(_onLoadDeliveries);
     on<CreateDelivery>(_onCreateDelivery);
     on<ConfirmPickup>(_onConfirmPickup);
+    on<MarkInTransit>(_onMarkInTransit);
     on<ConfirmDelivery>(_onConfirmDelivery);
     on<RaiseDispute>(_onRaiseDispute);
     on<CancelDelivery>(_onCancelDelivery);
@@ -79,6 +80,23 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         photoRef: event.photoRef,
       );
       emit(const PickupConfirmed());
+    } on Exception catch (e) {
+      emit(DeliveryError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onMarkInTransit(
+    MarkInTransit event,
+    Emitter<DeliveryState> emit,
+  ) async {
+    emit(const DeliveryLoading());
+
+    try {
+      await _repository.markInTransit(
+        deliveryId: event.deliveryId,
+        truckerId: event.truckerId,
+      );
+      emit(const MarkedInTransit());
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));
     }

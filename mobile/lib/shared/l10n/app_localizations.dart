@@ -1444,6 +1444,12 @@ abstract class AppLocalizations {
   /// **'Mark In Transit'**
   String get deliveryMarkInTransit;
 
+  /// Confirmation message for marking delivery in transit
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to mark this delivery as in transit?'**
+  String get deliveryInTransitConfirmMessage;
+
   /// Validation message for empty dispute reason
   ///
   /// In en, this message translates to:

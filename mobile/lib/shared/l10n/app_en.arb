@@ -906,6 +906,10 @@
   "@deliveryMarkInTransit": {
     "description": "Button to mark delivery as in transit"
   },
+  "deliveryInTransitConfirmMessage": "Are you sure you want to mark this delivery as in transit?",
+  "@deliveryInTransitConfirmMessage": {
+    "description": "Confirmation message for marking delivery in transit"
+  },
   "deliveryReasonRequired": "Please enter a reason",
   "@deliveryReasonRequired": {
     "description": "Validation message for empty dispute reason"

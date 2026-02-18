@@ -696,6 +696,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryMarkInTransit => 'Mark In Transit';
 
   @override
+  String get deliveryInTransitConfirmMessage =>
+      'Are you sure you want to mark this delivery as in transit?';
+
+  @override
   String get deliveryReasonRequired => 'Please enter a reason';
 
   @override
