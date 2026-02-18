@@ -94,13 +94,10 @@ public class TripFunction
         Dictionary<string, AttributeValue>? exclusiveStartKey = null;
         if (queryParams.TryGetValue("nextToken", out var nextToken) && !string.IsNullOrEmpty(nextToken))
         {
-            try
+            exclusiveStartKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            if (exclusiveStartKey == null)
             {
-                exclusiveStartKey = DecodeNextToken(nextToken);
-            }
-            catch
-            {
-                return LambdaResponse.Error(400, "TRIP_VALIDATION", "Invalid nextToken parameter.");
+                return LambdaResponse.Error(400, "TRIP_VALIDATION", "Invalid or tampered nextToken parameter.");
             }
         }
 
@@ -163,7 +160,7 @@ public class TripFunction
             var hasMore = lastEvaluatedKey != null;
             if (hasMore)
             {
-                nextTokenResponse = EncodeNextToken(lastEvaluatedKey!);
+                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey!);
             }
 
             var response = new GetTripsResponse
@@ -359,48 +356,4 @@ public class TripFunction
         return new List<string>();
     }
 
-    /// <summary>
-    /// Encode DynamoDB LastEvaluatedKey as a base64 nextToken.
-    /// Format: base64(JSON of key attributes)
-    /// AOT-safe: uses System.Text.Json with explicit serialization.
-    /// </summary>
-    private static string EncodeNextToken(Dictionary<string, AttributeValue> lastEvaluatedKey)
-    {
-        var tokenData = new Dictionary<string, string>();
-
-        foreach (var kvp in lastEvaluatedKey)
-        {
-            if (kvp.Value.S != null)
-                tokenData[kvp.Key] = kvp.Value.S;
-            else if (kvp.Value.N != null)
-                tokenData[kvp.Key] = kvp.Value.N;
-        }
-
-        var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        return Convert.ToBase64String(bytes);
-    }
-
-    /// <summary>
-    /// Decode base64 nextToken back to DynamoDB LastEvaluatedKey.
-    /// </summary>
-    private static Dictionary<string, AttributeValue> DecodeNextToken(string nextToken)
-    {
-        var bytes = Convert.FromBase64String(nextToken);
-        var json = System.Text.Encoding.UTF8.GetString(bytes);
-
-        var tokenData = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
-        if (tokenData == null)
-        {
-            throw new InvalidOperationException("Invalid nextToken format.");
-        }
-
-        var result = new Dictionary<string, AttributeValue>();
-        foreach (var kvp in tokenData)
-        {
-            result[kvp.Key] = new AttributeValue { S = kvp.Value };
-        }
-
-        return result;
-    }
 }

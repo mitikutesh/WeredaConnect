@@ -98,6 +98,7 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
+    if (delivery.truckerId != truckerId) return;
     if (delivery.status != DeliveryStatus.pending) return;
 
     final now = DateTime.now().toUtc();
@@ -154,10 +155,8 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
-    if (delivery.status != DeliveryStatus.pickedUp &&
-        delivery.status != DeliveryStatus.inTransit) {
-      return;
-    }
+    if (delivery.buyerId != buyerId) return;
+    if (delivery.status != DeliveryStatus.inTransit) return;
 
     final now = DateTime.now().toUtc();
 
@@ -251,6 +250,10 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
+    final isParticipant = delivery.farmerId == userId ||
+        delivery.truckerId == userId ||
+        delivery.buyerId == userId;
+    if (!isParticipant) return;
     if (delivery.status != DeliveryStatus.pending &&
         delivery.status != DeliveryStatus.pickedUp) {
       return;

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
@@ -1092,6 +1093,156 @@ public class SyncFunction
     }
 
     /// <summary>
+    /// Validate delivery fields for create/update operations.
+    /// Follows the same pattern as ValidateTripFields.
+    /// </summary>
+    private static List<string> ValidateDeliveryFields(Dictionary<string, object> data, bool isCreate)
+    {
+        var errors = new List<string>();
+
+        // tripId: required on create, must be valid UUID format
+        if (isCreate || data.ContainsKey("tripId"))
+        {
+            if (!data.TryGetValue("tripId", out var tripIdObj)
+                || string.IsNullOrWhiteSpace(tripIdObj?.ToString()))
+            {
+                if (isCreate) errors.Add("tripId is required.");
+            }
+            else if (!Guid.TryParse(tripIdObj.ToString(), out _))
+            {
+                errors.Add("tripId must be a valid UUID.");
+            }
+        }
+
+        // listingId: required on create, must be valid UUID format
+        if (isCreate || data.ContainsKey("listingId"))
+        {
+            if (!data.TryGetValue("listingId", out var listingIdObj)
+                || string.IsNullOrWhiteSpace(listingIdObj?.ToString()))
+            {
+                if (isCreate) errors.Add("listingId is required.");
+            }
+            else if (!Guid.TryParse(listingIdObj.ToString(), out _))
+            {
+                errors.Add("listingId must be a valid UUID.");
+            }
+        }
+
+        // farmerId: required on create, must be valid UUID format
+        if (isCreate || data.ContainsKey("farmerId"))
+        {
+            if (!data.TryGetValue("farmerId", out var farmerIdObj)
+                || string.IsNullOrWhiteSpace(farmerIdObj?.ToString()))
+            {
+                if (isCreate) errors.Add("farmerId is required.");
+            }
+            else if (!Guid.TryParse(farmerIdObj.ToString(), out _))
+            {
+                errors.Add("farmerId must be a valid UUID.");
+            }
+        }
+
+        // buyerId: required on create, must be valid UUID format
+        if (isCreate || data.ContainsKey("buyerId"))
+        {
+            if (!data.TryGetValue("buyerId", out var buyerIdObj)
+                || string.IsNullOrWhiteSpace(buyerIdObj?.ToString()))
+            {
+                if (isCreate) errors.Add("buyerId is required.");
+            }
+            else if (!Guid.TryParse(buyerIdObj.ToString(), out _))
+            {
+                errors.Add("buyerId must be a valid UUID.");
+            }
+        }
+
+        // qrToken: required on create, 1-500 chars
+        if (isCreate || data.ContainsKey("qrToken"))
+        {
+            if (!data.TryGetValue("qrToken", out var qrTokenObj)
+                || string.IsNullOrWhiteSpace(qrTokenObj?.ToString()))
+            {
+                if (isCreate) errors.Add("qrToken is required.");
+            }
+            else if (qrTokenObj.ToString()!.Length > 500)
+            {
+                errors.Add("qrToken must be 1-500 characters.");
+            }
+        }
+
+        // farmerName: required on create, 1-200 chars
+        if (isCreate || data.ContainsKey("farmerName"))
+        {
+            if (!data.TryGetValue("farmerName", out var farmerNameObj)
+                || string.IsNullOrWhiteSpace(farmerNameObj?.ToString()))
+            {
+                if (isCreate) errors.Add("farmerName is required.");
+            }
+            else if (farmerNameObj.ToString()!.Length > 200)
+            {
+                errors.Add("farmerName must be 1-200 characters.");
+            }
+        }
+
+        // truckerName: required on create, 1-200 chars
+        if (isCreate || data.ContainsKey("truckerName"))
+        {
+            if (!data.TryGetValue("truckerName", out var truckerNameObj)
+                || string.IsNullOrWhiteSpace(truckerNameObj?.ToString()))
+            {
+                if (isCreate) errors.Add("truckerName is required.");
+            }
+            else if (truckerNameObj.ToString()!.Length > 200)
+            {
+                errors.Add("truckerName must be 1-200 characters.");
+            }
+        }
+
+        // buyerName: required on create, 1-200 chars
+        if (isCreate || data.ContainsKey("buyerName"))
+        {
+            if (!data.TryGetValue("buyerName", out var buyerNameObj)
+                || string.IsNullOrWhiteSpace(buyerNameObj?.ToString()))
+            {
+                if (isCreate) errors.Add("buyerName is required.");
+            }
+            else if (buyerNameObj.ToString()!.Length > 200)
+            {
+                errors.Add("buyerName must be 1-200 characters.");
+            }
+        }
+
+        // Phone format validation for optional phone fields (+251 prefix)
+        foreach (var phoneField in new[] { "farmerPhone", "truckerPhone", "buyerPhone" })
+        {
+            if (data.TryGetValue(phoneField, out var phoneObj)
+                && phoneObj != null && !string.IsNullOrWhiteSpace(phoneObj.ToString()))
+            {
+                if (!phoneObj.ToString()!.StartsWith("+251"))
+                {
+                    errors.Add($"{phoneField} must start with '+251'.");
+                }
+            }
+        }
+
+        // disputeReason: optional, max 500 chars
+        if (data.TryGetValue("disputeReason", out var disputeObj)
+            && disputeObj != null && !string.IsNullOrWhiteSpace(disputeObj.ToString())
+            && disputeObj.ToString()!.Length > 500)
+        {
+            errors.Add("disputeReason must be 1-500 characters.");
+        }
+
+        // truckerId: required on create (auth check done separately)
+        if (isCreate && !data.ContainsKey("truckerId"))
+        {
+            errors.Add("truckerId is required.");
+        }
+
+        return errors;
+    }
+
+    /// <summary>
     /// Process a delivery sync operation (create, update, delete).
     /// Uses version-based conflict detection.
     /// Operates directly on DynamoDB (deliveries don't use the full CRUD repo pattern).
@@ -1141,6 +1292,18 @@ public class SyncFunction
                     };
                 }
 
+                // Validate required fields
+                var validationErrors = ValidateDeliveryFields(operation.Data, isCreate: true);
+                if (validationErrors.Count > 0)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = $"DELIVERY_VALIDATION: {string.Join(" ", validationErrors)}"
+                    };
+                }
+
                 var now = DateTime.UtcNow.ToString("o");
 
                 var item = new Dictionary<string, AttributeValue>
@@ -1180,8 +1343,8 @@ public class SyncFunction
                             {
                                 M = new Dictionary<string, AttributeValue>
                                 {
-                                    { "latitude", new AttributeValue { N = lat.ToString() } },
-                                    { "longitude", new AttributeValue { N = lng.ToString() } }
+                                    { "latitude", new AttributeValue { N = lat.ToString(CultureInfo.InvariantCulture) } },
+                                    { "longitude", new AttributeValue { N = lng.ToString(CultureInfo.InvariantCulture) } }
                                 }
                             };
                             item[kvp.Key] = mapAttr;
@@ -1438,8 +1601,8 @@ public class SyncFunction
                             {
                                 M = new Dictionary<string, AttributeValue>
                                 {
-                                    { "latitude", new AttributeValue { N = lat.ToString() } },
-                                    { "longitude", new AttributeValue { N = lng.ToString() } }
+                                    { "latitude", new AttributeValue { N = lat.ToString(CultureInfo.InvariantCulture) } },
+                                    { "longitude", new AttributeValue { N = lng.ToString(CultureInfo.InvariantCulture) } }
                                 }
                             };
                             updateParts.Add($"{nameAlias} = {valueAlias}");

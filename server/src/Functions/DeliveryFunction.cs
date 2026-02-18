@@ -99,13 +99,10 @@ public class DeliveryFunction
         Dictionary<string, AttributeValue>? exclusiveStartKey = null;
         if (queryParams.TryGetValue("nextToken", out var nextToken) && !string.IsNullOrEmpty(nextToken))
         {
-            try
+            exclusiveStartKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            if (exclusiveStartKey == null)
             {
-                exclusiveStartKey = DecodeNextToken(nextToken);
-            }
-            catch
-            {
-                return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid nextToken parameter.");
+                return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid or tampered nextToken parameter.");
             }
         }
 
@@ -131,7 +128,7 @@ public class DeliveryFunction
             var hasMore = lastEvaluatedKey != null;
             if (hasMore)
             {
-                nextTokenResponse = EncodeNextToken(lastEvaluatedKey!);
+                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey!);
             }
 
             var response = new GetDeliveriesResponse
@@ -185,11 +182,16 @@ public class DeliveryFunction
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
             }
 
-            // Check if requester is a participant — hide sensitive fields for non-participants
+            // Check if requester is a participant — reject non-participants
             var userId = GetAuthenticatedUserId(request);
             var participant = IsParticipant(delivery, userId);
 
-            var deliveryDto = MapToDeliveryDto(delivery, includePhone: participant, includeQrToken: participant);
+            if (!participant)
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
+            }
+
+            var deliveryDto = MapToDeliveryDto(delivery, includePhone: true, includeQrToken: true);
             var response = new GetDeliveryResponse { Delivery = deliveryDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetDeliveryResponse);
@@ -377,46 +379,4 @@ public class DeliveryFunction
         };
     }
 
-    /// <summary>
-    /// Encode DynamoDB LastEvaluatedKey as a base64 nextToken.
-    /// </summary>
-    private static string EncodeNextToken(Dictionary<string, AttributeValue> lastEvaluatedKey)
-    {
-        var tokenData = new Dictionary<string, string>();
-
-        foreach (var kvp in lastEvaluatedKey)
-        {
-            if (kvp.Value.S != null)
-                tokenData[kvp.Key] = kvp.Value.S;
-            else if (kvp.Value.N != null)
-                tokenData[kvp.Key] = kvp.Value.N;
-        }
-
-        var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        return Convert.ToBase64String(bytes);
-    }
-
-    /// <summary>
-    /// Decode base64 nextToken back to DynamoDB LastEvaluatedKey.
-    /// </summary>
-    private static Dictionary<string, AttributeValue> DecodeNextToken(string nextToken)
-    {
-        var bytes = Convert.FromBase64String(nextToken);
-        var json = System.Text.Encoding.UTF8.GetString(bytes);
-
-        var tokenData = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
-        if (tokenData == null)
-        {
-            throw new InvalidOperationException("Invalid nextToken format.");
-        }
-
-        var result = new Dictionary<string, AttributeValue>();
-        foreach (var kvp in tokenData)
-        {
-            result[kvp.Key] = new AttributeValue { S = kvp.Value };
-        }
-
-        return result;
-    }
 }

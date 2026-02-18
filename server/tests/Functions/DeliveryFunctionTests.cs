@@ -361,7 +361,23 @@ public class DeliveryFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("Invalid nextToken", response.Body);
+        Assert.Contains("Invalid or tampered nextToken", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_WithTamperedNextToken_Returns400()
+    {
+        // Craft a valid base64 payload but with a wrong signature
+        var fakePayload = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes("{\"deliveryId\":\"hacked\"}"));
+        var tamperedToken = $"{fakePayload}.invalidSignature";
+        var queryParams = new Dictionary<string, string> { { "nextToken", tamperedToken } };
+        var request = MakeAuthenticatedRequest("user-001", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("Invalid or tampered nextToken", response.Body);
     }
 
     [Fact]
@@ -547,7 +563,7 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetDeliveryById_NonParticipant_HidesPhones()
+    public async Task HandleGetDeliveryById_NonParticipant_Returns403()
     {
         var delivery = CreateDeliveryItem("del-001");
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
@@ -556,15 +572,9 @@ public class DeliveryFunctionTests
         var request = MakeAuthenticatedRequest("random-user-999", "/deliveries/del-001", pathParams: pathParams);
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        // Non-participant should NOT see phone numbers or QR token
-        Assert.DoesNotContain("251911111111", response.Body);
-        Assert.DoesNotContain("251922222222", response.Body);
-        Assert.DoesNotContain("251933333333", response.Body);
-        Assert.DoesNotContain("qr-token-abc123", response.Body);
-        // But should still see the delivery data
-        Assert.Contains("del-001", response.Body);
-        Assert.Contains("Abebe Kebede", response.Body);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+        Assert.Contains("You are not a participant in this delivery", response.Body);
     }
 
     [Fact]
@@ -577,27 +587,6 @@ public class DeliveryFunctionTests
         Assert.Equal(401, response.StatusCode);
         Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
         Assert.Contains("Authentication required", response.Body);
-    }
-
-    [Fact]
-    public async Task HandleGetDeliveryById_NonParticipant_HidesQrTokenAndPhones()
-    {
-        var delivery = CreateDeliveryItem("del-001");
-        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
-
-        var pathParams = new Dictionary<string, string> { { "id", "del-001" } };
-        var request = MakeAuthenticatedRequest("random-user-999", "/deliveries/del-001", pathParams: pathParams);
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(200, response.StatusCode);
-        // Non-participant should NOT see phone numbers or QR token
-        Assert.DoesNotContain("251911111111", response.Body);
-        Assert.DoesNotContain("251922222222", response.Body);
-        Assert.DoesNotContain("251933333333", response.Body);
-        Assert.DoesNotContain("qr-token-abc123", response.Body);
-        // But should still see basic delivery data
-        Assert.Contains("del-001", response.Body);
-        Assert.Contains("Abebe Kebede", response.Body);
     }
 
     [Fact]
@@ -954,7 +943,7 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetDeliveryById_AuthWithAuthorizationHeader_Works()
+    public async Task HandleGetDeliveryById_AuthWithAuthorizationHeader_NonParticipant_Returns403()
     {
         var delivery = CreateDeliveryItem("del-001");
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
@@ -964,9 +953,9 @@ public class DeliveryFunctionTests
         var request = MakeGetRequest("/deliveries/del-001", pathParams: pathParams, headers: headers);
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        // Without authorizer sub, phones should be hidden (not a participant)
-        Assert.DoesNotContain("251911111111", response.Body);
+        // Non-participant should be rejected with 403
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
     }
 
     [Fact]

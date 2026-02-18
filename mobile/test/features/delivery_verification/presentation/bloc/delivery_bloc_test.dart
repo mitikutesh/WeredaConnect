@@ -151,6 +151,22 @@ void main() {
         qrToken: 'qr-token',
       );
 
+      // Delivery must be inTransit for confirmDelivery to succeed
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      await isar.writeTxn(() async {
+        final d = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(delivery.deliveryId)
+            .findFirst();
+        d!.status = DeliveryStatus.inTransit;
+        d.updatedAt = DateTime.now().toUtc();
+        d.version += 1;
+        await isar.deliverys.put(d);
+      });
+
       final bloc = DeliveryBloc(repository: repository);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
@@ -171,7 +187,7 @@ void main() {
       await bloc.close();
     });
 
-    test('emits [Loading] on RaiseDispute', () async {
+    test('emits [Loading, DeliveriesLoaded] on RaiseDispute', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
         listingId: 'listing-001',
@@ -184,6 +200,26 @@ void main() {
         qrToken: 'qr-token',
       );
 
+      // Reach delivered status so raiseDispute succeeds
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      await isar.writeTxn(() async {
+        final d = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(delivery.deliveryId)
+            .findFirst();
+        d!.status = DeliveryStatus.inTransit;
+        d.updatedAt = DateTime.now().toUtc();
+        d.version += 1;
+        await isar.deliverys.put(d);
+      });
+      await repository.confirmDelivery(
+        deliveryId: delivery.deliveryId,
+        buyerId: 'buyer-001',
+      );
+
       final bloc = DeliveryBloc(repository: repository);
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
@@ -193,19 +229,23 @@ void main() {
           deliveryId: delivery.deliveryId,
           userId: 'buyer-001',
           reason: 'Wrong quantity',
+          tripId: 'trip-001',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      // BLoC deduplicates consecutive identical states, so only one Loading emitted
-      expect(states.length, 1);
+      expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
+      expect(states[1], isA<DeliveriesLoaded>());
+      final loaded = states[1] as DeliveriesLoaded;
+      expect(loaded.deliveries.length, 1);
+      expect(loaded.deliveries.first.status, DeliveryStatus.disputed);
 
       await subscription.cancel();
       await bloc.close();
     });
 
-    test('emits [Loading] on CancelDelivery', () async {
+    test('emits [Loading, DeliveriesLoaded] on CancelDelivery', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
         listingId: 'listing-001',
@@ -226,13 +266,17 @@ void main() {
         CancelDelivery(
           deliveryId: delivery.deliveryId,
           userId: 'trucker-001',
+          tripId: 'trip-001',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      // BLoC deduplicates consecutive identical states, so only one Loading emitted
-      expect(states.length, 1);
+      expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
+      expect(states[1], isA<DeliveriesLoaded>());
+      final loaded = states[1] as DeliveriesLoaded;
+      expect(loaded.deliveries.length, 1);
+      expect(loaded.deliveries.first.status, DeliveryStatus.cancelled);
 
       await subscription.cancel();
       await bloc.close();

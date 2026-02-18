@@ -443,7 +443,23 @@ public class TripFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("TRIP_VALIDATION", response.Body);
-        Assert.Contains("Invalid nextToken", response.Body);
+        Assert.Contains("Invalid or tampered nextToken", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_WithTamperedNextToken_Returns400()
+    {
+        // Craft a valid base64 payload but with a wrong signature
+        var fakePayload = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes("{\"tripId\":\"hacked\"}"));
+        var tamperedToken = $"{fakePayload}.invalidSignature";
+        var queryParams = new Dictionary<string, string> { { "nextToken", tamperedToken } };
+        var request = MakeGetRequest(queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("Invalid or tampered nextToken", response.Body);
     }
 
     [Fact]

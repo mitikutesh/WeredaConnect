@@ -99,29 +99,33 @@ class RaiseDispute extends DeliveryEvent {
   final String deliveryId;
   final String userId;
   final String reason;
+  final String tripId;
 
   const RaiseDispute({
     required this.deliveryId,
     required this.userId,
     required this.reason,
+    required this.tripId,
   });
 
   @override
-  List<Object?> get props => [deliveryId, userId, reason];
+  List<Object?> get props => [deliveryId, userId, reason, tripId];
 }
 
 /// Cancel a delivery.
 class CancelDelivery extends DeliveryEvent {
   final String deliveryId;
   final String userId;
+  final String tripId;
 
   const CancelDelivery({
     required this.deliveryId,
     required this.userId,
+    required this.tripId,
   });
 
   @override
-  List<Object?> get props => [deliveryId, userId];
+  List<Object?> get props => [deliveryId, userId, tripId];
 }
 
 /// Filter deliveries by status.

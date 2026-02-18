@@ -287,6 +287,36 @@ public sealed class CropRepository : ICropRepository
                 result[kvp.Key] = kvp.Value.BOOL;
             else if (kvp.Value.NULL)
                 continue; // skip nulls
+            else if (kvp.Value.M != null && kvp.Value.M.Count > 0)
+                result[kvp.Key] = FromItem(kvp.Value.M); // recursive Map handling
+            else if (kvp.Value.L != null && kvp.Value.L.Count > 0)
+                result[kvp.Key] = FromList(kvp.Value.L);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Convert a DynamoDB List attribute to a plain list (AOT-safe, no reflection).
+    /// </summary>
+    internal static List<object> FromList(List<AttributeValue> list)
+    {
+        var result = new List<object>();
+
+        foreach (var attr in list)
+        {
+            if (attr.S != null)
+                result.Add(attr.S);
+            else if (attr.N != null)
+                result.Add(attr.N);
+            else if (attr.IsBOOLSet)
+                result.Add(attr.BOOL);
+            else if (attr.NULL)
+                continue; // skip nulls
+            else if (attr.M != null && attr.M.Count > 0)
+                result.Add(FromItem(attr.M)); // recursive Map handling
+            else if (attr.L != null && attr.L.Count > 0)
+                result.Add(FromList(attr.L)); // recursive List handling
         }
 
         return result;
