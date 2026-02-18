@@ -311,7 +311,8 @@ void main() {
           .findFirst();
       expect(fromDb!.status, DeliveryStatus.disputed);
       expect(fromDb.disputeReason, 'Wrong quantity delivered');
-      expect(fromDb.version, 4); // create(1) + pickup(2) + deliver(3) + dispute(4)
+      expect(
+          fromDb.version, 4); // create(1) + pickup(2) + deliver(3) + dispute(4)
     });
 
     test('raiseDispute enqueues sync operation', () async {

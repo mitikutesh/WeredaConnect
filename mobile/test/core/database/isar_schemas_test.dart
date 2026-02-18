@@ -624,16 +624,12 @@ void main() {
         await isar.trips.put(tripMax);
       });
 
-      final minFromDb = await isar.trips
-          .filter()
-          .tripIdEqualTo('trip-cap-min')
-          .findFirst();
+      final minFromDb =
+          await isar.trips.filter().tripIdEqualTo('trip-cap-min').findFirst();
       expect(minFromDb!.capacity, closeTo(0.1, 0.001));
 
-      final maxFromDb = await isar.trips
-          .filter()
-          .tripIdEqualTo('trip-cap-max')
-          .findFirst();
+      final maxFromDb =
+          await isar.trips.filter().tripIdEqualTo('trip-cap-max').findFirst();
       expect(maxFromDb!.capacity, 1000.0);
     });
 
