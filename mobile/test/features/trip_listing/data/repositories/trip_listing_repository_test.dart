@@ -579,10 +579,14 @@ void main() {
 
       final after = DateTime.now().toUtc();
 
-      expect(trip.createdAt.isAfter(before.subtract(const Duration(seconds: 1))),
-          isTrue);
-      expect(trip.createdAt.isBefore(after.add(const Duration(seconds: 1))),
-          isTrue);
+      expect(
+        trip.createdAt.isAfter(before.subtract(const Duration(seconds: 1))),
+        isTrue,
+      );
+      expect(
+        trip.createdAt.isBefore(after.add(const Duration(seconds: 1))),
+        isTrue,
+      );
       expect(trip.updatedAt, trip.createdAt);
     });
 

@@ -314,7 +314,7 @@ void main() {
     });
 
     test('Delivery schema: all status values stored correctly', () async {
-      final statuses = DeliveryStatus.values;
+      const statuses = DeliveryStatus.values;
 
       for (var i = 0; i < statuses.length; i++) {
         final now = DateTime.now().toUtc();
@@ -433,7 +433,7 @@ void main() {
     // --- R4 Payment Schema Edge Cases ---
 
     test('Payment schema: all status values stored correctly', () async {
-      final statuses = PaymentStatus.values;
+      const statuses = PaymentStatus.values;
 
       for (var i = 0; i < statuses.length; i++) {
         final payment = Payment()
@@ -551,7 +551,7 @@ void main() {
     // --- R4 Trip Schema Edge Cases ---
 
     test('Trip schema: all TripStatus values stored correctly', () async {
-      final statuses = TripStatus.values;
+      const statuses = TripStatus.values;
 
       for (var i = 0; i < statuses.length; i++) {
         final trip = Trip()
