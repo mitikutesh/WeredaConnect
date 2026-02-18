@@ -133,6 +133,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
         reason: event.reason,
       );
+      emit(const DisputeRaised());
       final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
@@ -151,6 +152,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         deliveryId: event.deliveryId,
         userId: event.userId,
       );
+      emit(const DeliveryCancelled());
       final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {

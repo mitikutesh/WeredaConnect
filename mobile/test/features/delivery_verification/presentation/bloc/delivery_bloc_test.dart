@@ -187,7 +187,8 @@ void main() {
       await bloc.close();
     });
 
-    test('emits [Loading, DeliveriesLoaded] on RaiseDispute', () async {
+    test('emits [Loading, DisputeRaised, DeliveriesLoaded] on RaiseDispute',
+        () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
         listingId: 'listing-001',
@@ -234,10 +235,11 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(states.length, 2);
+      expect(states.length, 3);
       expect(states[0], isA<DeliveryLoading>());
-      expect(states[1], isA<DeliveriesLoaded>());
-      final loaded = states[1] as DeliveriesLoaded;
+      expect(states[1], isA<DisputeRaised>());
+      expect(states[2], isA<DeliveriesLoaded>());
+      final loaded = states[2] as DeliveriesLoaded;
       expect(loaded.deliveries.length, 1);
       expect(loaded.deliveries.first.status, DeliveryStatus.disputed);
 
@@ -245,7 +247,9 @@ void main() {
       await bloc.close();
     });
 
-    test('emits [Loading, DeliveriesLoaded] on CancelDelivery', () async {
+    test(
+        'emits [Loading, DeliveryCancelled, DeliveriesLoaded] on CancelDelivery',
+        () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
         listingId: 'listing-001',
@@ -271,10 +275,11 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(states.length, 2);
+      expect(states.length, 3);
       expect(states[0], isA<DeliveryLoading>());
-      expect(states[1], isA<DeliveriesLoaded>());
-      final loaded = states[1] as DeliveriesLoaded;
+      expect(states[1], isA<DeliveryCancelled>());
+      expect(states[2], isA<DeliveriesLoaded>());
+      final loaded = states[2] as DeliveriesLoaded;
       expect(loaded.deliveries.length, 1);
       expect(loaded.deliveries.first.status, DeliveryStatus.cancelled);
 

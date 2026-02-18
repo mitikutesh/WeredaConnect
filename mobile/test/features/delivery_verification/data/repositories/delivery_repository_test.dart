@@ -1055,6 +1055,117 @@ void main() {
       });
     });
 
+    // --- Mark In Transit ---
+
+    test('markInTransit updates status to inTransit', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      await repository.markInTransit(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.inTransit);
+      // create(1) + pickup(2) + inTransit(3)
+      expect(fromDb.version, 3);
+    });
+
+    test('markInTransit enqueues sync operation', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      await repository.markInTransit(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending.length, 3); // create + pickup + markInTransit
+      expect(pending.last.action, 'update');
+      expect(pending.last.data, contains('"status":"inTransit"'));
+    });
+
+    test('markInTransit on nonexistent delivery does nothing', () async {
+      await repository.markInTransit(
+        deliveryId: 'nonexistent-id',
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending, isEmpty);
+    });
+
+    group('markInTransit validation', () {
+      test('throws when status is not pickedUp', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pending,
+        );
+
+        expect(
+          () => repository.markInTransit(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'trucker-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when user is not trucker', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        expect(
+          () => repository.markInTransit(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'wrong-trucker',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'truckerId'),
+          ),
+        );
+      });
+    });
+
     group('GPS coordinate validation', () {
       test('throws for invalid latitude via confirmPickup', () async {
         await _insertTestDelivery(
