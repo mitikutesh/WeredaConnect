@@ -112,8 +112,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
         reason: event.reason,
       );
-      final deliveries =
-          await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));
@@ -131,8 +130,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         deliveryId: event.deliveryId,
         userId: event.userId,
       );
-      final deliveries =
-          await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));

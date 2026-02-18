@@ -253,7 +253,8 @@ void main() {
           .deliveryIdEqualTo(delivery.deliveryId)
           .findFirst();
       expect(fromDb!.status, DeliveryStatus.delivered);
-      expect(fromDb.version, 4); // create(1) + pickup(2) + inTransit(3) + deliver(4)
+      expect(fromDb.version,
+          4); // create(1) + pickup(2) + inTransit(3) + deliver(4)
       expect(fromDb.confirmedAt, isNotNull);
       expect(fromDb.gpsDropoff, isNotNull);
       expect(fromDb.gpsDropoff!.latitude, closeTo(8.9806, 0.0001));

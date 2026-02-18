@@ -82,6 +82,15 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/). Full rules 
 
 After every code change, validate that the build succeeds before considering the work done.
 
+### Formatting (mandatory)
+Always format code after writing or editing. PostToolUse hooks auto-format in the main session, but **team agents must format manually**:
+```bash
+# Dart files
+dart format <file_path>
+# C# files
+dotnet format server/WeredaConnect.Server.sln --include <file_path>
+```
+
 ### Server (.NET)
 ```bash
 cd server && dotnet build --no-restore
