@@ -405,6 +405,110 @@ void main() {
       expect(pending.last.data, contains('"disputeReason":"Quality issue"'));
     });
 
+    test('raiseDispute throws ArgumentError for empty reason', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      await transitionToInTransit(delivery.deliveryId);
+      await repository.confirmDelivery(
+        deliveryId: delivery.deliveryId,
+        buyerId: 'buyer-001',
+      );
+
+      expect(
+        () => repository.raiseDispute(
+          deliveryId: delivery.deliveryId,
+          userId: 'buyer-001',
+          reason: '',
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('raiseDispute throws ArgumentError for reason > 2000 chars', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      await transitionToInTransit(delivery.deliveryId);
+      await repository.confirmDelivery(
+        deliveryId: delivery.deliveryId,
+        buyerId: 'buyer-001',
+      );
+
+      expect(
+        () => repository.raiseDispute(
+          deliveryId: delivery.deliveryId,
+          userId: 'buyer-001',
+          reason: 'x' * 2001,
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('raiseDispute accepts reason at max length (2000 chars)', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      await transitionToInTransit(delivery.deliveryId);
+      await repository.confirmDelivery(
+        deliveryId: delivery.deliveryId,
+        buyerId: 'buyer-001',
+      );
+
+      final longReason = 'x' * 2000;
+      await repository.raiseDispute(
+        deliveryId: delivery.deliveryId,
+        userId: 'buyer-001',
+        reason: longReason,
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.disputed);
+      expect(fromDb.disputeReason, longReason);
+    });
+
     // --- Cancel ---
 
     test('cancelDelivery updates status to cancelled', () async {

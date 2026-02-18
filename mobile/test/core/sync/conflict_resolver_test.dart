@@ -494,11 +494,32 @@ void main() {
       });
     });
 
-    group('Unsupported entity types', () {
-      test('throws exception for trip entity', () async {
+    group('Trip conflict resolution', () {
+      test('resolves conflict when server version > client version', () async {
+        // Arrange: Create local Trip with version 1
+        final trip = Trip()
+          ..tripId = 'trip-001'
+          ..truckerId = 'trucker-001'
+          ..truckerName = 'Dawit Assefa'
+          ..truckerPhone = '+251912345678'
+          ..fromWoreda = 'Bishoftu'
+          ..toWoreda = 'Addis Ababa'
+          ..departureDate = DateTime.parse('2026-02-20T06:00:00Z')
+          ..capacity = 100.0
+          ..pricePerQuintal = 250.0
+          ..status = TripStatus.open
+          ..matchedListings = <String>[]
+          ..createdAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..updatedAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..version = 1;
+
+        await isar.writeTxn(() async {
+          await isar.trips.put(trip);
+        });
+
         final operation = SyncOperation()
-          ..operationId = 'op-trip'
-          ..idempotencyKey = 'key-trip'
+          ..operationId = 'op-trip-001'
+          ..idempotencyKey = 'key-trip-001'
           ..entityType = 'trip'
           ..entityId = 'trip-001'
           ..action = 'update'
@@ -507,31 +528,85 @@ void main() {
           ..retryCount = 0
           ..createdAt = DateTime.now().toUtc();
 
-        final serverData = {'tripId': 'trip-001'};
+        // Server data with version 3 (conflict - server is ahead)
+        final serverData = {
+          'tripId': 'trip-001',
+          'truckerId': 'trucker-001',
+          'truckerName': 'Dawit Assefa',
+          'truckerPhone': '+251912345678',
+          'fromWoreda': 'Debre Zeit',
+          'toWoreda': 'Adama',
+          'departureDate': '2026-02-21T07:00:00Z',
+          'capacity': 150.0,
+          'pricePerQuintal': 300.0,
+          'status': 'matched',
+          'matchedListings': ['listing-001', 'listing-002'],
+          'createdAt': '2026-02-15T10:00:00Z',
+          'updatedAt': '2026-02-16T14:00:00Z',
+        };
 
-        expect(
-          () => resolver.resolve(
-            operation: operation,
-            serverData: serverData,
-            serverVersion: 1,
-          ),
-          throwsA(isA<ConflictResolutionException>()),
+        // Act
+        final result = await resolver.resolve(
+          operation: operation,
+          serverData: serverData,
+          serverVersion: 3,
         );
+
+        // Assert
+        final updated =
+            await isar.trips.filter().tripIdEqualTo('trip-001').findFirst();
+
+        expect(updated, isNotNull);
+        expect(updated!.version, equals(3));
+        expect(updated.fromWoreda, equals('Debre Zeit'));
+        expect(updated.toWoreda, equals('Adama'));
+        expect(updated.capacity, equals(150.0));
+        expect(updated.pricePerQuintal, equals(300.0));
+        expect(updated.status, equals(TripStatus.matched));
+        expect(updated.matchedListings, equals(['listing-001', 'listing-002']));
+        expect(
+          updated.departureDate.toUtc(),
+          equals(DateTime.parse('2026-02-21T07:00:00Z').toUtc()),
+        );
+        expect(
+          updated.updatedAt.toUtc(),
+          equals(DateTime.parse('2026-02-16T14:00:00Z').toUtc()),
+        );
+
+        // Audit info
+        expect(result['entityType'], equals('trip'));
+        expect(result['entityId'], equals('trip-001'));
+        expect(result['serverVersion'], equals(3));
+        expect(result['resolvedAt'], isNotNull);
       });
 
-      test('throws exception for delivery entity', () async {
+      test('throws exception when local trip not found', () async {
         final operation = SyncOperation()
-          ..operationId = 'op-delivery'
-          ..idempotencyKey = 'key-delivery'
-          ..entityType = 'delivery'
-          ..entityId = 'delivery-001'
+          ..operationId = 'op-trip-missing'
+          ..idempotencyKey = 'key-trip-missing'
+          ..entityType = 'trip'
+          ..entityId = 'trip-nonexistent'
           ..action = 'update'
           ..data = '{}'
           ..status = SyncStatus.syncing
           ..retryCount = 0
           ..createdAt = DateTime.now().toUtc();
 
-        final serverData = {'deliveryId': 'delivery-001'};
+        final serverData = {
+          'tripId': 'trip-nonexistent',
+          'truckerId': 'trucker-001',
+          'truckerName': 'Dawit',
+          'truckerPhone': '+251912345678',
+          'fromWoreda': 'Bishoftu',
+          'toWoreda': 'Addis Ababa',
+          'departureDate': '2026-02-20T06:00:00Z',
+          'capacity': 100.0,
+          'pricePerQuintal': 250.0,
+          'status': 'open',
+          'matchedListings': <String>[],
+          'createdAt': '2026-02-15T10:00:00Z',
+          'updatedAt': '2026-02-15T10:00:00Z',
+        };
 
         expect(
           () => resolver.resolve(
@@ -543,6 +618,115 @@ void main() {
         );
       });
 
+      test('throws exception when server data is malformed', () async {
+        final trip = Trip()
+          ..tripId = 'trip-002'
+          ..truckerId = 'trucker-001'
+          ..truckerName = 'Dawit'
+          ..truckerPhone = '+251912345678'
+          ..fromWoreda = 'Bishoftu'
+          ..toWoreda = 'Addis Ababa'
+          ..departureDate = DateTime.parse('2026-02-20T06:00:00Z')
+          ..capacity = 100.0
+          ..pricePerQuintal = 250.0
+          ..status = TripStatus.open
+          ..matchedListings = <String>[]
+          ..createdAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..updatedAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..version = 1;
+
+        await isar.writeTxn(() async {
+          await isar.trips.put(trip);
+        });
+
+        final operation = SyncOperation()
+          ..operationId = 'op-trip-bad'
+          ..idempotencyKey = 'key-trip-bad'
+          ..entityType = 'trip'
+          ..entityId = 'trip-002'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        // Malformed: missing required fields
+        final serverData = {'tripId': 'trip-002'};
+
+        expect(
+          () => resolver.resolve(
+            operation: operation,
+            serverData: serverData,
+            serverVersion: 2,
+          ),
+          throwsA(isA<ConflictResolutionException>()),
+        );
+      });
+
+      test('handles numeric types correctly (int vs double)', () async {
+        final trip = Trip()
+          ..tripId = 'trip-003'
+          ..truckerId = 'trucker-001'
+          ..truckerName = 'Dawit'
+          ..truckerPhone = '+251912345678'
+          ..fromWoreda = 'Bishoftu'
+          ..toWoreda = 'Addis Ababa'
+          ..departureDate = DateTime.parse('2026-02-20T06:00:00Z')
+          ..capacity = 100.0
+          ..pricePerQuintal = 250.0
+          ..status = TripStatus.open
+          ..matchedListings = <String>[]
+          ..createdAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..updatedAt = DateTime.parse('2026-02-15T10:00:00Z')
+          ..version = 1;
+
+        await isar.writeTxn(() async {
+          await isar.trips.put(trip);
+        });
+
+        final operation = SyncOperation()
+          ..operationId = 'op-trip-num'
+          ..idempotencyKey = 'key-trip-num'
+          ..entityType = 'trip'
+          ..entityId = 'trip-003'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        // Server sends integers instead of doubles
+        final serverData = {
+          'tripId': 'trip-003',
+          'truckerId': 'trucker-001',
+          'truckerName': 'Dawit',
+          'truckerPhone': '+251912345678',
+          'fromWoreda': 'Bishoftu',
+          'toWoreda': 'Addis Ababa',
+          'departureDate': '2026-02-20T06:00:00Z',
+          'capacity': 200, // int
+          'pricePerQuintal': 350, // int
+          'status': 'open',
+          'matchedListings': <String>[],
+          'createdAt': '2026-02-15T10:00:00Z',
+          'updatedAt': '2026-02-16T10:00:00Z',
+        };
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: serverData,
+          serverVersion: 2,
+        );
+
+        final updated =
+            await isar.trips.filter().tripIdEqualTo('trip-003').findFirst();
+
+        expect(updated!.capacity, equals(200.0));
+        expect(updated.pricePerQuintal, equals(350.0));
+      });
+    });
+
+    group('Unsupported entity types', () {
       test('throws exception for payment entity', () async {
         final operation = SyncOperation()
           ..operationId = 'op-payment'

@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -35,6 +36,7 @@ public class SyncFunction
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tripsTable;
     private readonly string _deliveriesTable;
+    private readonly IRateLimitService? _rateLimitService;
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
@@ -85,24 +87,29 @@ public class SyncFunction
                       ?? throw new InvalidOperationException("TRIPS_TABLE is not set.");
         _deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE")
                            ?? throw new InvalidOperationException("DELIVERIES_TABLE is not set.");
+        var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
+                             ?? throw new InvalidOperationException("RATE_LIMITS_TABLE is not set.");
 
         _dynamoDb = new AmazonDynamoDBClient();
 
         _syncMetadataRepo = new SyncMetadataRepository(_dynamoDb, syncMetadataTable);
         _cropRepo = new CropRepository(_dynamoDb, cropsTable);
+        _rateLimitService = new RateLimitService(new RateLimitRepository(_dynamoDb, rateLimitTable));
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
     public SyncFunction(ISyncMetadataRepository syncMetadataRepo, ICropRepository cropRepo,
-        IAmazonDynamoDB dynamoDb, string tripsTable, string deliveriesTable)
+        IAmazonDynamoDB dynamoDb, string tripsTable, string deliveriesTable,
+        IRateLimitService? rateLimitService = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tripsTable = tripsTable ?? throw new ArgumentNullException(nameof(tripsTable));
         _deliveriesTable = deliveriesTable ?? throw new ArgumentNullException(nameof(deliveriesTable));
+        _rateLimitService = rateLimitService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -142,14 +149,30 @@ public class SyncFunction
         if (authorizer != null)
         {
             if (authorizer.ContainsKey("sub"))
+            {
                 authenticatedUserId = authorizer["sub"]?.ToString();
+            }
             else if (authorizer.ContainsKey("userId"))
+            {
                 authenticatedUserId = authorizer["userId"]?.ToString();
+            }
         }
 
         if (string.IsNullOrEmpty(authenticatedUserId))
         {
             return LambdaResponse.Error(401, "UNAUTHORIZED", "Authentication required.");
+        }
+
+        // Per-user rate limiting (F-11 Finding 3)
+        if (_rateLimitService != null)
+        {
+            var rateLimitCheck = await _rateLimitService.CheckSyncAllowedAsync(authenticatedUserId);
+            if (!rateLimitCheck.IsSuccess)
+            {
+                var rlError = rateLimitCheck.Error!;
+                return LambdaResponse.RateLimited(rlError.Code, rlError.Message, 60);
+            }
+            await _rateLimitService.RecordSyncAsync(authenticatedUserId);
         }
 
         // Process each operation independently
@@ -273,237 +296,237 @@ public class SyncFunction
         switch (operation.Action)
         {
             case "create":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
+                    if (operation.Data == null || operation.Data.Count == 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Create operation requires data payload."
+                        };
+                    }
+
+                    // Validate farmerId matches authenticated user
+                    if (!operation.Data.TryGetValue("farmerId", out var farmerIdObj)
+                        || farmerIdObj?.ToString() != authenticatedUserId)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "CROP_UNAUTHORIZED: farmerId must match authenticated user."
+                        };
+                    }
+
+                    // Field whitelist — reject unknown fields
+                    var unknownCreateFields = operation.Data.Keys
+                        .Where(k => !AllowedCropFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownCreateFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownCreateFields)}"
+                        };
+                    }
+
+                    var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
+
+                    if (createResult.IsSuccess)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = 1,
+                            ServerData = createResult.Value
+                        };
+                    }
+
+                    // Already exists — return conflict with server data
+                    var existing = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    var serverVersion = existing != null && existing.TryGetValue("version", out var v)
+                        ? int.TryParse(v.ToString(), out var sv) ? sv : 1
+                        : 1;
+
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Create operation requires data payload."
+                        Status = "conflict",
+                        ServerVersion = serverVersion,
+                        ServerData = existing,
+                        Message = "Crop listing already exists on server."
                     };
                 }
-
-                // Validate farmerId matches authenticated user
-                if (!operation.Data.TryGetValue("farmerId", out var farmerIdObj)
-                    || farmerIdObj?.ToString() != authenticatedUserId)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "CROP_UNAUTHORIZED: farmerId must match authenticated user."
-                    };
-                }
-
-                // Field whitelist — reject unknown fields
-                var unknownCreateFields = operation.Data.Keys
-                    .Where(k => !AllowedCropFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownCreateFields.Count > 0)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownCreateFields)}"
-                    };
-                }
-
-                var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
-
-                if (createResult.IsSuccess)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = 1,
-                        ServerData = createResult.Value
-                    };
-                }
-
-                // Already exists — return conflict with server data
-                var existing = await _cropRepo.GetByIdAsync(operation.EntityId);
-                var serverVersion = existing != null && existing.TryGetValue("version", out var v)
-                    ? int.TryParse(v.ToString(), out var sv) ? sv : 1
-                    : 1;
-
-                return new SyncOperationResult
-                {
-                    OperationId = operation.OperationId,
-                    Status = "conflict",
-                    ServerVersion = serverVersion,
-                    ServerData = existing,
-                    Message = "Crop listing already exists on server."
-                };
-            }
 
             case "update":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
+                    if (operation.Data == null || operation.Data.Count == 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Update operation requires data payload."
+                        };
+                    }
+
+                    // Validate ownership — fetch existing item
+                    var existingForUpdate = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    if (existingForUpdate == null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Crop listing not found."
+                        };
+                    }
+
+                    if (!existingForUpdate.TryGetValue("farmerId", out var updateFarmerId)
+                        || updateFarmerId?.ToString() != authenticatedUserId)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "CROP_UNAUTHORIZED: You can only update your own crop listings."
+                        };
+                    }
+
+                    // Field whitelist — reject unknown fields
+                    var unknownUpdateFields = operation.Data.Keys
+                        .Where(k => !AllowedCropFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownUpdateFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownUpdateFields)}"
+                        };
+                    }
+
+                    // Extract client version from data
+                    var clientVersion = 0;
+                    if (operation.Data.TryGetValue("version", out var vObj))
+                    {
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
+
+                    var updateResult = await _cropRepo.UpdateAsync(
+                        operation.EntityId, operation.Data, clientVersion);
+
+                    if (updateResult.IsSuccess)
+                    {
+                        var newVersion = updateResult.Value != null &&
+                                         updateResult.Value.TryGetValue("version", out var nv)
+                            ? int.TryParse(nv.ToString(), out var snv) ? snv : clientVersion + 1
+                            : clientVersion + 1;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion,
+                            ServerData = updateResult.Value
+                        };
+                    }
+
+                    // Conflict — return server's current data
+                    var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    var serverVer = serverData != null && serverData.TryGetValue("version", out var sv2)
+                        ? int.TryParse(sv2.ToString(), out var svn) ? svn : 0
+                        : 0;
+
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Update operation requires data payload."
+                        Status = "conflict",
+                        ServerVersion = serverVer,
+                        ServerData = serverData,
+                        Message = updateResult.Error?.Message ?? "Version conflict."
                     };
                 }
-
-                // Validate ownership — fetch existing item
-                var existingForUpdate = await _cropRepo.GetByIdAsync(operation.EntityId);
-                if (existingForUpdate == null)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Crop listing not found."
-                    };
-                }
-
-                if (!existingForUpdate.TryGetValue("farmerId", out var updateFarmerId)
-                    || updateFarmerId?.ToString() != authenticatedUserId)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "CROP_UNAUTHORIZED: You can only update your own crop listings."
-                    };
-                }
-
-                // Field whitelist — reject unknown fields
-                var unknownUpdateFields = operation.Data.Keys
-                    .Where(k => !AllowedCropFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownUpdateFields.Count > 0)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownUpdateFields)}"
-                    };
-                }
-
-                // Extract client version from data
-                var clientVersion = 0;
-                if (operation.Data.TryGetValue("version", out var vObj))
-                {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
-
-                var updateResult = await _cropRepo.UpdateAsync(
-                    operation.EntityId, operation.Data, clientVersion);
-
-                if (updateResult.IsSuccess)
-                {
-                    var newVersion = updateResult.Value != null &&
-                                     updateResult.Value.TryGetValue("version", out var nv)
-                        ? int.TryParse(nv.ToString(), out var snv) ? snv : clientVersion + 1
-                        : clientVersion + 1;
-
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion,
-                        ServerData = updateResult.Value
-                    };
-                }
-
-                // Conflict — return server's current data
-                var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
-                var serverVer = serverData != null && serverData.TryGetValue("version", out var sv2)
-                    ? int.TryParse(sv2.ToString(), out var svn) ? svn : 0
-                    : 0;
-
-                return new SyncOperationResult
-                {
-                    OperationId = operation.OperationId,
-                    Status = "conflict",
-                    ServerVersion = serverVer,
-                    ServerData = serverData,
-                    Message = updateResult.Error?.Message ?? "Version conflict."
-                };
-            }
 
             case "delete":
-            {
-                // Extract version for optimistic concurrency
-                var clientVersion = 0;
-                if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                 {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
+                    // Extract version for optimistic concurrency
+                    var clientVersion = 0;
+                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
+                    {
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
 
-                // Validate ownership
-                var existingForDelete = await _cropRepo.GetByIdAsync(operation.EntityId);
-                if (existingForDelete == null)
-                {
+                    // Validate ownership
+                    var existingForDelete = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    if (existingForDelete == null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Crop listing not found."
+                        };
+                    }
+
+                    if (!existingForDelete.TryGetValue("farmerId", out var deleteFarmerId)
+                        || deleteFarmerId?.ToString() != authenticatedUserId)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
+                        };
+                    }
+
+                    var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);
+
+                    if (deleteResult.IsSuccess)
+                    {
+                        var newVersion = deleteResult.Value != null &&
+                                         deleteResult.Value.TryGetValue("version", out var nv)
+                            ? int.TryParse(nv.ToString(), out var snv) ? snv : clientVersion + 1
+                            : clientVersion + 1;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion
+                        };
+                    }
+
+                    if (deleteResult.Error?.HttpStatus == 404)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Crop listing not found."
+                        };
+                    }
+
+                    // Conflict
+                    var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    var serverVer = serverData != null && serverData.TryGetValue("version", out var sv3)
+                        ? int.TryParse(sv3.ToString(), out var svn) ? svn : 0
+                        : 0;
+
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Crop listing not found."
+                        Status = "conflict",
+                        ServerVersion = serverVer,
+                        ServerData = serverData,
+                        Message = deleteResult.Error?.Message ?? "Version conflict on delete."
                     };
                 }
-
-                if (!existingForDelete.TryGetValue("farmerId", out var deleteFarmerId)
-                    || deleteFarmerId?.ToString() != authenticatedUserId)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "CROP_UNAUTHORIZED: You can only delete your own crop listings."
-                    };
-                }
-
-                var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);
-
-                if (deleteResult.IsSuccess)
-                {
-                    var newVersion = deleteResult.Value != null &&
-                                     deleteResult.Value.TryGetValue("version", out var nv)
-                        ? int.TryParse(nv.ToString(), out var snv) ? snv : clientVersion + 1
-                        : clientVersion + 1;
-
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion
-                    };
-                }
-
-                if (deleteResult.Error?.HttpStatus == 404)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Crop listing not found."
-                    };
-                }
-
-                // Conflict
-                var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
-                var serverVer = serverData != null && serverData.TryGetValue("version", out var sv3)
-                    ? int.TryParse(sv3.ToString(), out var svn) ? svn : 0
-                    : 0;
-
-                return new SyncOperationResult
-                {
-                    OperationId = operation.OperationId,
-                    Status = "conflict",
-                    ServerVersion = serverVer,
-                    ServerData = serverData,
-                    Message = deleteResult.Error?.Message ?? "Version conflict on delete."
-                };
-            }
 
             default:
                 return new SyncOperationResult
@@ -528,58 +551,58 @@ public class SyncFunction
         switch (operation.Action)
         {
             case "create":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
-                    return new SyncOperationResult
+                    if (operation.Data == null || operation.Data.Count == 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Create operation requires data payload."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Create operation requires data payload."
+                        };
+                    }
 
-                // C2: Validate truckerId matches authenticated user
-                if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
-                    || truckerIdObj?.ToString() != authenticatedUserId)
-                {
-                    return new SyncOperationResult
+                    // C2: Validate truckerId matches authenticated user
+                    if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
+                        || truckerIdObj?.ToString() != authenticatedUserId)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_UNAUTHORIZED: truckerId must match authenticated user."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_UNAUTHORIZED: truckerId must match authenticated user."
+                        };
+                    }
 
-                // C3: Field whitelist — reject unknown fields
-                var unknownFields = operation.Data.Keys
-                    .Where(k => !AllowedTripFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownFields.Count > 0)
-                {
-                    return new SyncOperationResult
+                    // C3: Field whitelist — reject unknown fields
+                    var unknownFields = operation.Data.Keys
+                        .Where(k => !AllowedTripFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownFields.Count > 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"TRIP_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
 
-                // C3: Validate required fields
-                var validationErrors = ValidateTripFields(operation.Data, isCreate: true);
-                if (validationErrors.Count > 0)
-                {
-                    return new SyncOperationResult
+                    // C3: Validate required fields
+                    var validationErrors = ValidateTripFields(operation.Data, isCreate: true);
+                    if (validationErrors.Count > 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
 
-                var now = DateTime.UtcNow.ToString("o");
+                    var now = DateTime.UtcNow.ToString("o");
 
-                var item = new Dictionary<string, AttributeValue>
+                    var item = new Dictionary<string, AttributeValue>
                 {
                     { "tripId", new AttributeValue { S = operation.EntityId } },
                     { "createdAt", new AttributeValue { S = now } },
@@ -587,333 +610,353 @@ public class SyncFunction
                     { "version", new AttributeValue { N = "1" } }
                 };
 
-                // Copy only whitelisted data fields (C3)
-                foreach (var kvp in operation.Data)
-                {
-                    if (kvp.Key is "tripId" or "version" or "createdAt" or "updatedAt") continue;
-                    if (!AllowedTripFields.Contains(kvp.Key)) continue;
-                    if (kvp.Key == "matchedListings") continue; // handled separately
-                    item[kvp.Key] = CropRepository.ToAttributeValue(kvp.Value);
-                }
-
-                // Force status to "open" for create (C3)
-                item["status"] = new AttributeValue { S = "open" };
-
-                // Handle matchedListings
-                if (operation.Data.TryGetValue("matchedListings", out var ml))
-                {
-                    var mlAttr = CropRepository.ToAttributeValue(ml);
-                    item["matchedListings"] = mlAttr.S != null
-                        ? mlAttr
-                        : new AttributeValue { S = "[]" };
-                }
-                else
-                {
-                    item["matchedListings"] = new AttributeValue { S = "[]" };
-                }
-
-                var request = new PutItemRequest
-                {
-                    TableName = _tripsTable,
-                    Item = item,
-                    ConditionExpression = "attribute_not_exists(tripId)"
-                };
-
-                try
-                {
-                    await _dynamoDb.PutItemAsync(request);
-
-                    var result = CropRepository.FromItem(item);
-                    return new SyncOperationResult
+                    // Copy only whitelisted data fields (C3)
+                    foreach (var kvp in operation.Data)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = 1,
-                        ServerData = result
-                    };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    // Already exists — return conflict with server data
-                    var existing = await GetTripItemAsync(operation.EntityId);
-                    var serverVersion = 1;
-                    if (existing != null && existing.TryGetValue("version", out var v))
-                    {
-                        _ = int.TryParse(v.N, out serverVersion);
+                        if (kvp.Key is "tripId" or "version" or "createdAt" or "updatedAt")
+                        {
+                            continue;
+                        }
+
+                        if (!AllowedTripFields.Contains(kvp.Key))
+                        {
+                            continue;
+                        }
+
+                        if (kvp.Key == "matchedListings")
+                        {
+                            continue; // handled separately
+                        }
+
+                        item[kvp.Key] = CropRepository.ToAttributeValue(kvp.Value);
                     }
 
-                    return new SyncOperationResult
+                    // Force status to "open" for create (C3)
+                    item["status"] = new AttributeValue { S = "open" };
+
+                    // Handle matchedListings
+                    if (operation.Data.TryGetValue("matchedListings", out var ml))
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVersion,
-                        ServerData = existing != null ? CropRepository.FromItem(existing) : null,
-                        Message = "Trip already exists on server."
+                        var mlAttr = CropRepository.ToAttributeValue(ml);
+                        item["matchedListings"] = mlAttr.S != null
+                            ? mlAttr
+                            : new AttributeValue { S = "[]" };
+                    }
+                    else
+                    {
+                        item["matchedListings"] = new AttributeValue { S = "[]" };
+                    }
+
+                    var request = new PutItemRequest
+                    {
+                        TableName = _tripsTable,
+                        Item = item,
+                        ConditionExpression = "attribute_not_exists(tripId)"
                     };
+
+                    try
+                    {
+                        await _dynamoDb.PutItemAsync(request);
+
+                        var result = CropRepository.FromItem(item);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = 1,
+                            ServerData = result
+                        };
+                    }
+                    catch (ConditionalCheckFailedException)
+                    {
+                        // Already exists — return conflict with server data
+                        var existing = await GetTripItemAsync(operation.EntityId);
+                        var serverVersion = 1;
+                        if (existing != null && existing.TryGetValue("version", out var v))
+                        {
+                            _ = int.TryParse(v.N, out serverVersion);
+                        }
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVersion,
+                            ServerData = existing != null ? CropRepository.FromItem(existing) : null,
+                            Message = "Trip already exists on server."
+                        };
+                    }
                 }
-            }
 
             case "update":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Update operation requires data payload."
-                    };
-                }
-
-                // Get existing item to find sort key
-                var existing = await GetTripItemAsync(operation.EntityId);
-                if (existing == null)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Trip not found."
-                    };
-                }
-
-                // C2: Validate authenticated user owns this trip
-                if (!existing.TryGetValue("truckerId", out var existingTruckerId)
-                    || existingTruckerId.S != authenticatedUserId)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_UNAUTHORIZED: You can only update your own trips."
-                    };
-                }
-
-                // H3: Block updates to cancelled/deleted trips
-                var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
-                    ? existingStatusAttr.S : "open";
-                if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                    && !string.IsNullOrEmpty(deletedAtAttr.S))
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
-                    };
-                }
-                if (currentStatus == "cancelled")
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_ALREADY_CANCELLED: Cannot update a cancelled trip."
-                    };
-                }
-
-                // C3: Field whitelist — reject unknown fields
-                var unknownFields = operation.Data.Keys
-                    .Where(k => !AllowedTripFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownFields.Count > 0)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"TRIP_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
-                    };
-                }
-
-                // C3: Validate present fields
-                var validationErrors = ValidateTripFields(operation.Data, isCreate: false);
-                if (validationErrors.Count > 0)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
-                    };
-                }
-
-                // H1: Validate status transition if status is being changed
-                if (operation.Data.TryGetValue("status", out var newStatusObj))
-                {
-                    var newStatus = newStatusObj?.ToString();
-                    if (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
-                        || newStatus == null || !allowed.Contains(newStatus))
+                    if (operation.Data == null || operation.Data.Count == 0)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"TRIP_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
+                            Message = "Update operation requires data payload."
                         };
                     }
-                }
 
-                // Extract client version from data
-                var clientVersion = 0;
-                if (operation.Data.TryGetValue("version", out var vObj))
-                {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
+                    // Get existing item to find sort key
+                    var existing = await GetTripItemAsync(operation.EntityId);
+                    if (existing == null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Trip not found."
+                        };
+                    }
 
-                var createdAt = existing["createdAt"].S;
-                var now = DateTime.UtcNow.ToString("o");
-                var newVersion = clientVersion + 1;
+                    // C2: Validate authenticated user owns this trip
+                    if (!existing.TryGetValue("truckerId", out var existingTruckerId)
+                        || existingTruckerId.S != authenticatedUserId)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_UNAUTHORIZED: You can only update your own trips."
+                        };
+                    }
 
-                // Build update expression
-                var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
-                var attrNames = new Dictionary<string, string>
+                    // H3: Block updates to cancelled/deleted trips
+                    var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
+                        ? existingStatusAttr.S : "open";
+                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
+                        && !string.IsNullOrEmpty(deletedAtAttr.S))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
+                        };
+                    }
+                    if (currentStatus == "cancelled")
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_ALREADY_CANCELLED: Cannot update a cancelled trip."
+                        };
+                    }
+
+                    // C3: Field whitelist — reject unknown fields
+                    var unknownFields = operation.Data.Keys
+                        .Where(k => !AllowedTripFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
+
+                    // C3: Validate present fields
+                    var validationErrors = ValidateTripFields(operation.Data, isCreate: false);
+                    if (validationErrors.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
+
+                    // H1: Validate status transition if status is being changed
+                    if (operation.Data.TryGetValue("status", out var newStatusObj))
+                    {
+                        var newStatus = newStatusObj?.ToString();
+                        if (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
+                            || newStatus == null || !allowed.Contains(newStatus))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = $"TRIP_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
+                            };
+                        }
+                    }
+
+                    // Extract client version from data
+                    var clientVersion = 0;
+                    if (operation.Data.TryGetValue("version", out var vObj))
+                    {
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
+
+                    var createdAt = existing["createdAt"].S;
+                    var now = DateTime.UtcNow.ToString("o");
+                    var newVersion = clientVersion + 1;
+
+                    // Build update expression
+                    var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+                    var attrNames = new Dictionary<string, string>
                 {
                     { "#updated", "updatedAt" },
                     { "#v", "version" }
                 };
-                var attrValues = new Dictionary<string, AttributeValue>
+                    var attrValues = new Dictionary<string, AttributeValue>
                 {
                     { ":updated", new AttributeValue { S = now } },
                     { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                     { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
                 };
 
-                var i = 0;
-                foreach (var kvp in operation.Data)
-                {
-                    if (kvp.Key is "tripId" or "version" or "createdAt" or "updatedAt") continue;
-                    if (!AllowedTripFields.Contains(kvp.Key)) continue;
-                    var nameAlias = $"#f{i}";
-                    var valueAlias = $":f{i}";
-                    attrNames[nameAlias] = kvp.Key;
-                    attrValues[valueAlias] = CropRepository.ToAttributeValue(kvp.Value);
-                    updateParts.Add($"{nameAlias} = {valueAlias}");
-                    i++;
-                }
+                    var i = 0;
+                    foreach (var kvp in operation.Data)
+                    {
+                        if (kvp.Key is "tripId" or "version" or "createdAt" or "updatedAt")
+                        {
+                            continue;
+                        }
 
-                var updateRequest = new UpdateItemRequest
-                {
-                    TableName = _tripsTable,
-                    Key = new Dictionary<string, AttributeValue>
+                        if (!AllowedTripFields.Contains(kvp.Key))
+                        {
+                            continue;
+                        }
+
+                        var nameAlias = $"#f{i}";
+                        var valueAlias = $":f{i}";
+                        attrNames[nameAlias] = kvp.Key;
+                        attrValues[valueAlias] = CropRepository.ToAttributeValue(kvp.Value);
+                        updateParts.Add($"{nameAlias} = {valueAlias}");
+                        i++;
+                    }
+
+                    var updateRequest = new UpdateItemRequest
+                    {
+                        TableName = _tripsTable,
+                        Key = new Dictionary<string, AttributeValue>
                     {
                         { "tripId", new AttributeValue { S = operation.EntityId } },
                         { "createdAt", new AttributeValue { S = createdAt } }
                     },
-                    UpdateExpression = "SET " + string.Join(", ", updateParts),
-                    ConditionExpression = "#v = :expectedVersion",
-                    ExpressionAttributeNames = attrNames,
-                    ExpressionAttributeValues = attrValues,
-                    ReturnValues = ReturnValue.ALL_NEW
-                };
-
-                try
-                {
-                    var response = await _dynamoDb.UpdateItemAsync(updateRequest);
-                    var result = CropRepository.FromItem(response.Attributes);
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion,
-                        ServerData = result
+                        UpdateExpression = "SET " + string.Join(", ", updateParts),
+                        ConditionExpression = "#v = :expectedVersion",
+                        ExpressionAttributeNames = attrNames,
+                        ExpressionAttributeValues = attrValues,
+                        ReturnValues = ReturnValue.ALL_NEW
                     };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    var serverData = CropRepository.FromItem(existing);
-                    var serverVer = existing.TryGetValue("version", out var sv)
-                        ? int.TryParse(sv.N, out var svn) ? svn : 0
-                        : 0;
 
-                    return new SyncOperationResult
+                    try
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVer,
-                        ServerData = serverData,
-                        Message = $"Version conflict: server has version {serverVer}, client expected {clientVersion}."
-                    };
+                        var response = await _dynamoDb.UpdateItemAsync(updateRequest);
+                        var result = CropRepository.FromItem(response.Attributes);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion,
+                            ServerData = result
+                        };
+                    }
+                    catch (ConditionalCheckFailedException)
+                    {
+                        var serverData = CropRepository.FromItem(existing);
+                        var serverVer = existing.TryGetValue("version", out var sv)
+                            ? int.TryParse(sv.N, out var svn) ? svn : 0
+                            : 0;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVer,
+                            ServerData = serverData,
+                            Message = $"Version conflict: server has version {serverVer}, client expected {clientVersion}."
+                        };
+                    }
                 }
-            }
 
             case "delete":
-            {
-                // Extract version for optimistic concurrency
-                var clientVersion = 0;
-                if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                 {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
-
-                var existing = await GetTripItemAsync(operation.EntityId);
-                if (existing == null)
-                {
-                    return new SyncOperationResult
+                    // Extract version for optimistic concurrency
+                    var clientVersion = 0;
+                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Trip not found."
-                    };
-                }
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
 
-                // C2: Validate authenticated user owns this trip
-                if (!existing.TryGetValue("truckerId", out var existingTruckerId)
-                    || existingTruckerId.S != authenticatedUserId)
-                {
-                    return new SyncOperationResult
+                    var existing = await GetTripItemAsync(operation.EntityId);
+                    if (existing == null)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_UNAUTHORIZED: You can only delete your own trips."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Trip not found."
+                        };
+                    }
 
-                // H3: Block deletion of cancelled/deleted trips
-                if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                    && !string.IsNullOrEmpty(deletedAtAttr.S))
-                {
-                    return new SyncOperationResult
+                    // C2: Validate authenticated user owns this trip
+                    if (!existing.TryGetValue("truckerId", out var existingTruckerId)
+                        || existingTruckerId.S != authenticatedUserId)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
-                    };
-                }
-                if (existing.TryGetValue("status", out var existingStatusAttr)
-                    && existingStatusAttr.S == "cancelled")
-                {
-                    return new SyncOperationResult
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_UNAUTHORIZED: You can only delete your own trips."
+                        };
+                    }
+
+                    // H3: Block deletion of cancelled/deleted trips
+                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
+                        && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "TRIP_ALREADY_CANCELLED: Trip is already cancelled."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
+                        };
+                    }
+                    if (existing.TryGetValue("status", out var existingStatusAttr)
+                        && existingStatusAttr.S == "cancelled")
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_ALREADY_CANCELLED: Trip is already cancelled."
+                        };
+                    }
 
-                var createdAt = existing["createdAt"].S;
-                var now = DateTime.UtcNow.ToString("o");
-                var newVersion = clientVersion + 1;
+                    var createdAt = existing["createdAt"].S;
+                    var now = DateTime.UtcNow.ToString("o");
+                    var newVersion = clientVersion + 1;
 
-                // Soft delete: set deletedAt and status=cancelled
-                var deleteRequest = new UpdateItemRequest
-                {
-                    TableName = _tripsTable,
-                    Key = new Dictionary<string, AttributeValue>
+                    // Soft delete: set deletedAt and status=cancelled
+                    var deleteRequest = new UpdateItemRequest
+                    {
+                        TableName = _tripsTable,
+                        Key = new Dictionary<string, AttributeValue>
                     {
                         { "tripId", new AttributeValue { S = operation.EntityId } },
                         { "createdAt", new AttributeValue { S = createdAt } }
                     },
-                    UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
-                    ConditionExpression = "#v = :expectedVersion",
-                    ExpressionAttributeNames = new Dictionary<string, string>
+                        UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
+                        ConditionExpression = "#v = :expectedVersion",
+                        ExpressionAttributeNames = new Dictionary<string, string>
                     {
                         { "#deleted", "deletedAt" },
                         { "#status", "status" },
                         { "#updated", "updatedAt" },
                         { "#v", "version" }
                     },
-                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                     {
                         { ":deleted", new AttributeValue { S = now } },
                         { ":status", new AttributeValue { S = "cancelled" } },
@@ -921,36 +964,36 @@ public class SyncFunction
                         { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                         { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
                     },
-                    ReturnValues = ReturnValue.ALL_NEW
-                };
-
-                try
-                {
-                    var response = await _dynamoDb.UpdateItemAsync(deleteRequest);
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion
+                        ReturnValues = ReturnValue.ALL_NEW
                     };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    var serverData = CropRepository.FromItem(existing);
-                    var serverVer = existing.TryGetValue("version", out var sv)
-                        ? int.TryParse(sv.N, out var svn) ? svn : 0
-                        : 0;
 
-                    return new SyncOperationResult
+                    try
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVer,
-                        ServerData = serverData,
-                        Message = "Version conflict on delete."
-                    };
+                        var response = await _dynamoDb.UpdateItemAsync(deleteRequest);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion
+                        };
+                    }
+                    catch (ConditionalCheckFailedException)
+                    {
+                        var serverData = CropRepository.FromItem(existing);
+                        var serverVer = existing.TryGetValue("version", out var sv)
+                            ? int.TryParse(sv.N, out var svn) ? svn : 0
+                            : 0;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVer,
+                            ServerData = serverData,
+                            Message = "Version conflict on delete."
+                        };
+                    }
                 }
-            }
 
             default:
                 return new SyncOperationResult
@@ -976,7 +1019,10 @@ public class SyncFunction
             if (!data.TryGetValue("capacity", out var capObj)
                 || !double.TryParse(capObj?.ToString(), out var capacity))
             {
-                if (isCreate) errors.Add("capacity is required and must be a number.");
+                if (isCreate)
+                {
+                    errors.Add("capacity is required and must be a number.");
+                }
             }
             else if (capacity < 0.1 || capacity > 1000)
             {
@@ -990,7 +1036,10 @@ public class SyncFunction
             if (!data.TryGetValue("pricePerQuintal", out var priceObj)
                 || !double.TryParse(priceObj?.ToString(), out var price))
             {
-                if (isCreate) errors.Add("pricePerQuintal is required and must be a number.");
+                if (isCreate)
+                {
+                    errors.Add("pricePerQuintal is required and must be a number.");
+                }
             }
             else if (price < 0.01 || price > 10000)
             {
@@ -1004,7 +1053,10 @@ public class SyncFunction
             if (!data.TryGetValue("fromWoreda", out var fromObj)
                 || string.IsNullOrWhiteSpace(fromObj?.ToString()))
             {
-                if (isCreate) errors.Add("fromWoreda is required.");
+                if (isCreate)
+                {
+                    errors.Add("fromWoreda is required.");
+                }
             }
             else if (fromObj.ToString()!.Length > 100)
             {
@@ -1018,7 +1070,10 @@ public class SyncFunction
             if (!data.TryGetValue("toWoreda", out var toObj)
                 || string.IsNullOrWhiteSpace(toObj?.ToString()))
             {
-                if (isCreate) errors.Add("toWoreda is required.");
+                if (isCreate)
+                {
+                    errors.Add("toWoreda is required.");
+                }
             }
             else if (toObj.ToString()!.Length > 100)
             {
@@ -1039,7 +1094,10 @@ public class SyncFunction
             if (!data.TryGetValue("departureDate", out var dateObj)
                 || string.IsNullOrWhiteSpace(dateObj?.ToString()))
             {
-                if (isCreate) errors.Add("departureDate is required.");
+                if (isCreate)
+                {
+                    errors.Add("departureDate is required.");
+                }
             }
             else if (!DateTime.TryParse(dateObj.ToString(), null,
                          System.Globalization.DateTimeStyles.RoundtripKind, out _))
@@ -1061,7 +1119,10 @@ public class SyncFunction
             if (!data.TryGetValue("truckerPhone", out var phoneObj)
                 || string.IsNullOrWhiteSpace(phoneObj?.ToString()))
             {
-                if (isCreate) errors.Add("truckerPhone is required.");
+                if (isCreate)
+                {
+                    errors.Add("truckerPhone is required.");
+                }
             }
             else if (!phoneObj.ToString()!.StartsWith("+251"))
             {
@@ -1075,7 +1136,10 @@ public class SyncFunction
             if (!data.TryGetValue("truckerName", out var nameObj)
                 || string.IsNullOrWhiteSpace(nameObj?.ToString()))
             {
-                if (isCreate) errors.Add("truckerName is required.");
+                if (isCreate)
+                {
+                    errors.Add("truckerName is required.");
+                }
             }
             else if (nameObj.ToString()!.Length > 100)
             {
@@ -1106,7 +1170,10 @@ public class SyncFunction
             if (!data.TryGetValue("tripId", out var tripIdObj)
                 || string.IsNullOrWhiteSpace(tripIdObj?.ToString()))
             {
-                if (isCreate) errors.Add("tripId is required.");
+                if (isCreate)
+                {
+                    errors.Add("tripId is required.");
+                }
             }
             else if (!Guid.TryParse(tripIdObj.ToString(), out _))
             {
@@ -1120,7 +1187,10 @@ public class SyncFunction
             if (!data.TryGetValue("listingId", out var listingIdObj)
                 || string.IsNullOrWhiteSpace(listingIdObj?.ToString()))
             {
-                if (isCreate) errors.Add("listingId is required.");
+                if (isCreate)
+                {
+                    errors.Add("listingId is required.");
+                }
             }
             else if (!Guid.TryParse(listingIdObj.ToString(), out _))
             {
@@ -1134,7 +1204,10 @@ public class SyncFunction
             if (!data.TryGetValue("farmerId", out var farmerIdObj)
                 || string.IsNullOrWhiteSpace(farmerIdObj?.ToString()))
             {
-                if (isCreate) errors.Add("farmerId is required.");
+                if (isCreate)
+                {
+                    errors.Add("farmerId is required.");
+                }
             }
             else if (!Guid.TryParse(farmerIdObj.ToString(), out _))
             {
@@ -1148,7 +1221,10 @@ public class SyncFunction
             if (!data.TryGetValue("buyerId", out var buyerIdObj)
                 || string.IsNullOrWhiteSpace(buyerIdObj?.ToString()))
             {
-                if (isCreate) errors.Add("buyerId is required.");
+                if (isCreate)
+                {
+                    errors.Add("buyerId is required.");
+                }
             }
             else if (!Guid.TryParse(buyerIdObj.ToString(), out _))
             {
@@ -1162,7 +1238,10 @@ public class SyncFunction
             if (!data.TryGetValue("qrToken", out var qrTokenObj)
                 || string.IsNullOrWhiteSpace(qrTokenObj?.ToString()))
             {
-                if (isCreate) errors.Add("qrToken is required.");
+                if (isCreate)
+                {
+                    errors.Add("qrToken is required.");
+                }
             }
             else if (qrTokenObj.ToString()!.Length > 500)
             {
@@ -1176,7 +1255,10 @@ public class SyncFunction
             if (!data.TryGetValue("farmerName", out var farmerNameObj)
                 || string.IsNullOrWhiteSpace(farmerNameObj?.ToString()))
             {
-                if (isCreate) errors.Add("farmerName is required.");
+                if (isCreate)
+                {
+                    errors.Add("farmerName is required.");
+                }
             }
             else if (farmerNameObj.ToString()!.Length > 200)
             {
@@ -1190,7 +1272,10 @@ public class SyncFunction
             if (!data.TryGetValue("truckerName", out var truckerNameObj)
                 || string.IsNullOrWhiteSpace(truckerNameObj?.ToString()))
             {
-                if (isCreate) errors.Add("truckerName is required.");
+                if (isCreate)
+                {
+                    errors.Add("truckerName is required.");
+                }
             }
             else if (truckerNameObj.ToString()!.Length > 200)
             {
@@ -1204,7 +1289,10 @@ public class SyncFunction
             if (!data.TryGetValue("buyerName", out var buyerNameObj)
                 || string.IsNullOrWhiteSpace(buyerNameObj?.ToString()))
             {
-                if (isCreate) errors.Add("buyerName is required.");
+                if (isCreate)
+                {
+                    errors.Add("buyerName is required.");
+                }
             }
             else if (buyerNameObj.ToString()!.Length > 200)
             {
@@ -1225,12 +1313,14 @@ public class SyncFunction
             }
         }
 
-        // disputeReason: optional, max 500 chars
-        if (data.TryGetValue("disputeReason", out var disputeObj)
-            && disputeObj != null && !string.IsNullOrWhiteSpace(disputeObj.ToString())
-            && disputeObj.ToString()!.Length > 500)
+        // disputeReason: optional, 1-2000 chars when present (F-12 Finding 3)
+        if (data.TryGetValue("disputeReason", out var disputeObj) && disputeObj != null)
         {
-            errors.Add("disputeReason must be 1-500 characters.");
+            var disputeText = disputeObj.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(disputeText) || disputeText.Length > 2000)
+            {
+                errors.Add("disputeReason must be 1-2000 characters.");
+            }
         }
 
         // truckerId: required on create (auth check done separately)
@@ -1255,58 +1345,58 @@ public class SyncFunction
         switch (operation.Action)
         {
             case "create":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
-                    return new SyncOperationResult
+                    if (operation.Data == null || operation.Data.Count == 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Create operation requires data payload."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Create operation requires data payload."
+                        };
+                    }
 
-                // Validate truckerId matches authenticated user
-                if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
-                    || truckerIdObj?.ToString() != authenticatedUserId)
-                {
-                    return new SyncOperationResult
+                    // Validate truckerId matches authenticated user
+                    if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
+                        || truckerIdObj?.ToString() != authenticatedUserId)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_UNAUTHORIZED: truckerId must match authenticated user."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_UNAUTHORIZED: truckerId must match authenticated user."
+                        };
+                    }
 
-                // Field whitelist — reject unknown fields
-                var unknownFields = operation.Data.Keys
-                    .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownFields.Count > 0)
-                {
-                    return new SyncOperationResult
+                    // Field whitelist — reject unknown fields
+                    var unknownFields = operation.Data.Keys
+                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownFields.Count > 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"DELIVERY_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
 
-                // Validate required fields
-                var validationErrors = ValidateDeliveryFields(operation.Data, isCreate: true);
-                if (validationErrors.Count > 0)
-                {
-                    return new SyncOperationResult
+                    // Validate required fields
+                    var validationErrors = ValidateDeliveryFields(operation.Data, isCreate: true);
+                    if (validationErrors.Count > 0)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"DELIVERY_VALIDATION: {string.Join(" ", validationErrors)}"
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
 
-                var now = DateTime.UtcNow.ToString("o");
+                    var now = DateTime.UtcNow.ToString("o");
 
-                var item = new Dictionary<string, AttributeValue>
+                    var item = new Dictionary<string, AttributeValue>
                 {
                     { "deliveryId", new AttributeValue { S = operation.EntityId } },
                     { "createdAt", new AttributeValue { S = now } },
@@ -1314,433 +1404,462 @@ public class SyncFunction
                     { "version", new AttributeValue { N = "1" } }
                 };
 
-                // Copy only whitelisted data fields
-                foreach (var kvp in operation.Data)
-                {
-                    if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt") continue;
-                    if (!AllowedDeliveryFields.Contains(kvp.Key)) continue;
-
-                    // Handle GPS fields as nested DynamoDB Map attributes
-                    if (kvp.Key is "gpsPickup" or "gpsDropoff")
+                    // Copy only whitelisted data fields
+                    foreach (var kvp in operation.Data)
                     {
-                        if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt")
                         {
-                            var lat = je.GetProperty("latitude").GetDouble();
-                            var lng = je.GetProperty("longitude").GetDouble();
+                            continue;
+                        }
 
-                            if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
-                                || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)
+                        if (!AllowedDeliveryFields.Contains(kvp.Key))
+                        {
+                            continue;
+                        }
+
+                        // Handle GPS fields as nested DynamoDB Map attributes
+                        if (kvp.Key is "gpsPickup" or "gpsDropoff")
+                        {
+                            if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
                             {
-                                return new SyncOperationResult
+                                var lat = je.GetProperty("latitude").GetDouble();
+                                var lng = je.GetProperty("longitude").GetDouble();
+
+                                if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
+                                    || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)
                                 {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_VALIDATION: Invalid GPS coordinates for {kvp.Key}. Latitude must be -90 to 90, longitude -180 to 180."
-                                };
-                            }
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_VALIDATION: Invalid GPS coordinates for {kvp.Key}. Latitude must be -90 to 90, longitude -180 to 180."
+                                    };
+                                }
 
-                            var mapAttr = new AttributeValue
-                            {
-                                M = new Dictionary<string, AttributeValue>
+                                var mapAttr = new AttributeValue
+                                {
+                                    M = new Dictionary<string, AttributeValue>
                                 {
                                     { "latitude", new AttributeValue { N = lat.ToString(CultureInfo.InvariantCulture) } },
                                     { "longitude", new AttributeValue { N = lng.ToString(CultureInfo.InvariantCulture) } }
                                 }
-                            };
-                            item[kvp.Key] = mapAttr;
+                                };
+                                item[kvp.Key] = mapAttr;
+                            }
+                            continue;
                         }
-                        continue;
+
+                        item[kvp.Key] = CropRepository.ToAttributeValue(kvp.Value);
                     }
 
-                    item[kvp.Key] = CropRepository.ToAttributeValue(kvp.Value);
-                }
+                    // Force status to "pending" for create
+                    item["status"] = new AttributeValue { S = "pending" };
 
-                // Force status to "pending" for create
-                item["status"] = new AttributeValue { S = "pending" };
-
-                var request = new PutItemRequest
-                {
-                    TableName = _deliveriesTable,
-                    Item = item,
-                    ConditionExpression = "attribute_not_exists(deliveryId)"
-                };
-
-                try
-                {
-                    await _dynamoDb.PutItemAsync(request);
-
-                    var result = CropRepository.FromItem(item);
-                    return new SyncOperationResult
+                    var request = new PutItemRequest
                     {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = 1,
-                        ServerData = result
+                        TableName = _deliveriesTable,
+                        Item = item,
+                        ConditionExpression = "attribute_not_exists(deliveryId)"
                     };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    var existing = await GetDeliveryItemAsync(operation.EntityId);
-                    var serverVersion = 1;
-                    if (existing != null && existing.TryGetValue("version", out var v))
+
+                    try
                     {
-                        _ = int.TryParse(v.N, out serverVersion);
+                        await _dynamoDb.PutItemAsync(request);
+
+                        var result = CropRepository.FromItem(item);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = 1,
+                            ServerData = result
+                        };
                     }
-
-                    return new SyncOperationResult
+                    catch (ConditionalCheckFailedException)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVersion,
-                        ServerData = existing != null ? CropRepository.FromItem(existing) : null,
-                        Message = "Delivery already exists on server."
-                    };
+                        var existing = await GetDeliveryItemAsync(operation.EntityId);
+                        var serverVersion = 1;
+                        if (existing != null && existing.TryGetValue("version", out var v))
+                        {
+                            _ = int.TryParse(v.N, out serverVersion);
+                        }
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVersion,
+                            ServerData = existing != null ? CropRepository.FromItem(existing) : null,
+                            Message = "Delivery already exists on server."
+                        };
+                    }
                 }
-            }
 
             case "update":
-            {
-                if (operation.Data == null || operation.Data.Count == 0)
                 {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Update operation requires data payload."
-                    };
-                }
-
-                // Get existing item to find sort key
-                var existing = await GetDeliveryItemAsync(operation.EntityId);
-                if (existing == null)
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Delivery not found."
-                    };
-                }
-
-                // Block updates to cancelled/deleted deliveries
-                var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
-                    ? existingStatusAttr.S : "pending";
-                if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                    && !string.IsNullOrEmpty(deletedAtAttr.S))
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
-                    };
-                }
-                if (currentStatus == "cancelled")
-                {
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
-                    };
-                }
-
-                // Role-based authorization for status transitions
-                if (operation.Data.TryGetValue("status", out var newStatusObj))
-                {
-                    var newStatus = newStatusObj?.ToString();
-
-                    // Validate status transition
-                    if (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
-                        || newStatus == null || !allowed.Contains(newStatus))
+                    if (operation.Data == null || operation.Data.Count == 0)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"DELIVERY_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
+                            Message = "Update operation requires data payload."
                         };
                     }
 
-                    // Role-based access for specific transitions
-                    var existingTruckerId = existing.TryGetValue("truckerId", out var tid) ? tid.S : null;
-                    var existingBuyerId = existing.TryGetValue("buyerId", out var bid) ? bid.S : null;
-                    var existingFarmerId = existing.TryGetValue("farmerId", out var fid) ? fid.S : null;
-
-                    switch (newStatus)
+                    // Get existing item to find sort key
+                    var existing = await GetDeliveryItemAsync(operation.EntityId);
+                    if (existing == null)
                     {
-                        case "pickedUp":
-                        case "inTransit":
-                            if (authenticatedUserId != existingTruckerId)
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {newStatus}."
-                                };
-                            }
-                            break;
-                        case "delivered":
-                            if (authenticatedUserId != existingBuyerId)
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery."
-                                };
-                            }
-                            break;
-                        case "disputed":
-                        case "cancelled":
-                            if (authenticatedUserId != existingFarmerId
-                                && authenticatedUserId != existingTruckerId
-                                && authenticatedUserId != existingBuyerId)
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_UNAUTHORIZED: Only participants can {(newStatus == "disputed" ? "dispute" : "cancel")} a delivery."
-                                };
-                            }
-                            break;
-                        default:
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Delivery not found."
+                        };
+                    }
+
+                    // Block updates to cancelled/deleted deliveries
+                    var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
+                        ? existingStatusAttr.S : "pending";
+                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
+                        && !string.IsNullOrEmpty(deletedAtAttr.S))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
+                        };
+                    }
+                    if (currentStatus == "cancelled")
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
+                        };
+                    }
+
+                    // Role-based authorization for status transitions
+                    if (operation.Data.TryGetValue("status", out var newStatusObj))
+                    {
+                        var newStatus = newStatusObj?.ToString();
+
+                        // Validate status transition
+                        if (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
+                            || newStatus == null || !allowed.Contains(newStatus))
+                        {
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
-                                Message = $"DELIVERY_INVALID_TRANSITION: Unknown status '{newStatus}'."
+                                Message = $"DELIVERY_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
                             };
+                        }
+
+                        // Role-based access for specific transitions
+                        var existingTruckerId = existing.TryGetValue("truckerId", out var tid) ? tid.S : null;
+                        var existingBuyerId = existing.TryGetValue("buyerId", out var bid) ? bid.S : null;
+                        var existingFarmerId = existing.TryGetValue("farmerId", out var fid) ? fid.S : null;
+
+                        switch (newStatus)
+                        {
+                            case "pickedUp":
+                            case "inTransit":
+                                if (authenticatedUserId != existingTruckerId)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {newStatus}."
+                                    };
+                                }
+                                break;
+                            case "delivered":
+                                if (authenticatedUserId != existingBuyerId)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery."
+                                    };
+                                }
+                                break;
+                            case "disputed":
+                            case "cancelled":
+                                if (authenticatedUserId != existingFarmerId
+                                    && authenticatedUserId != existingTruckerId
+                                    && authenticatedUserId != existingBuyerId)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_UNAUTHORIZED: Only participants can {(newStatus == "disputed" ? "dispute" : "cancel")} a delivery."
+                                    };
+                                }
+                                break;
+                            default:
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = $"DELIVERY_INVALID_TRANSITION: Unknown status '{newStatus}'."
+                                };
+                        }
                     }
-                }
-                else
-                {
-                    // Non-status updates: trucker must own the delivery
-                    var existingTruckerId = existing.TryGetValue("truckerId", out var tid2) ? tid2.S : null;
-                    if (authenticatedUserId != existingTruckerId)
+                    else
+                    {
+                        // Non-status updates: trucker must own the delivery
+                        var existingTruckerId = existing.TryGetValue("truckerId", out var tid2) ? tid2.S : null;
+                        if (authenticatedUserId != existingTruckerId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+                            };
+                        }
+                    }
+
+                    // Field whitelist — reject unknown fields
+                    var unknownFields = operation.Data.Keys
+                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownFields.Count > 0)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+                            Message = $"DELIVERY_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
                         };
                     }
-                }
 
-                // Field whitelist — reject unknown fields
-                var unknownFields = operation.Data.Keys
-                    .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
-                    .ToList();
-                if (unknownFields.Count > 0)
-                {
-                    return new SyncOperationResult
+                    // Validate disputeReason length (F-12 Finding 3)
+                    if (operation.Data.TryGetValue("disputeReason", out var drObj) && drObj != null)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = $"DELIVERY_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
-                    };
-                }
+                        var drText = drObj.ToString() ?? "";
+                        if (string.IsNullOrWhiteSpace(drText) || drText.Length > 2000)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_INVALID_FIELD: disputeReason must be 1-2000 characters."
+                            };
+                        }
+                    }
 
-                // Extract client version from data
-                var clientVersion = 0;
-                if (operation.Data.TryGetValue("version", out var vObj))
-                {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
+                    // Extract client version from data
+                    var clientVersion = 0;
+                    if (operation.Data.TryGetValue("version", out var vObj))
+                    {
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
 
-                var createdAt = existing["createdAt"].S;
-                var now = DateTime.UtcNow.ToString("o");
-                var newVersion = clientVersion + 1;
+                    var createdAt = existing["createdAt"].S;
+                    var now = DateTime.UtcNow.ToString("o");
+                    var newVersion = clientVersion + 1;
 
-                // Build update expression
-                var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
-                var attrNames = new Dictionary<string, string>
+                    // Build update expression
+                    var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+                    var attrNames = new Dictionary<string, string>
                 {
                     { "#updated", "updatedAt" },
                     { "#v", "version" }
                 };
-                var attrValues = new Dictionary<string, AttributeValue>
+                    var attrValues = new Dictionary<string, AttributeValue>
                 {
                     { ":updated", new AttributeValue { S = now } },
                     { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                     { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
                 };
 
-                var i = 0;
-                foreach (var kvp in operation.Data)
-                {
-                    if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt") continue;
-                    if (!AllowedDeliveryFields.Contains(kvp.Key)) continue;
-
-                    // Handle GPS fields as nested DynamoDB Map attributes
-                    if (kvp.Key is "gpsPickup" or "gpsDropoff")
+                    var i = 0;
+                    foreach (var kvp in operation.Data)
                     {
-                        if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt")
                         {
-                            var lat = je.GetProperty("latitude").GetDouble();
-                            var lng = je.GetProperty("longitude").GetDouble();
+                            continue;
+                        }
 
-                            if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
-                                || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)
+                        if (!AllowedDeliveryFields.Contains(kvp.Key))
+                        {
+                            continue;
+                        }
+
+                        // Handle GPS fields as nested DynamoDB Map attributes
+                        if (kvp.Key is "gpsPickup" or "gpsDropoff")
+                        {
+                            if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
                             {
-                                return new SyncOperationResult
+                                var lat = je.GetProperty("latitude").GetDouble();
+                                var lng = je.GetProperty("longitude").GetDouble();
+
+                                if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
+                                    || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)
                                 {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_VALIDATION: Invalid GPS coordinates for {kvp.Key}. Latitude must be -90 to 90, longitude -180 to 180."
-                                };
-                            }
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_VALIDATION: Invalid GPS coordinates for {kvp.Key}. Latitude must be -90 to 90, longitude -180 to 180."
+                                    };
+                                }
 
-                            var nameAlias = $"#f{i}";
-                            var valueAlias = $":f{i}";
-                            attrNames[nameAlias] = kvp.Key;
-                            attrValues[valueAlias] = new AttributeValue
-                            {
-                                M = new Dictionary<string, AttributeValue>
+                                var nameAlias = $"#f{i}";
+                                var valueAlias = $":f{i}";
+                                attrNames[nameAlias] = kvp.Key;
+                                attrValues[valueAlias] = new AttributeValue
+                                {
+                                    M = new Dictionary<string, AttributeValue>
                                 {
                                     { "latitude", new AttributeValue { N = lat.ToString(CultureInfo.InvariantCulture) } },
                                     { "longitude", new AttributeValue { N = lng.ToString(CultureInfo.InvariantCulture) } }
                                 }
-                            };
-                            updateParts.Add($"{nameAlias} = {valueAlias}");
-                            i++;
+                                };
+                                updateParts.Add($"{nameAlias} = {valueAlias}");
+                                i++;
+                            }
+                            continue;
                         }
-                        continue;
+
+                        var na = $"#f{i}";
+                        var va = $":f{i}";
+                        attrNames[na] = kvp.Key;
+                        attrValues[va] = CropRepository.ToAttributeValue(kvp.Value);
+                        updateParts.Add($"{na} = {va}");
+                        i++;
                     }
 
-                    var na = $"#f{i}";
-                    var va = $":f{i}";
-                    attrNames[na] = kvp.Key;
-                    attrValues[va] = CropRepository.ToAttributeValue(kvp.Value);
-                    updateParts.Add($"{na} = {va}");
-                    i++;
-                }
-
-                var updateRequest = new UpdateItemRequest
-                {
-                    TableName = _deliveriesTable,
-                    Key = new Dictionary<string, AttributeValue>
+                    var updateRequest = new UpdateItemRequest
+                    {
+                        TableName = _deliveriesTable,
+                        Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
                         { "createdAt", new AttributeValue { S = createdAt } }
                     },
-                    UpdateExpression = "SET " + string.Join(", ", updateParts),
-                    ConditionExpression = "#v = :expectedVersion",
-                    ExpressionAttributeNames = attrNames,
-                    ExpressionAttributeValues = attrValues,
-                    ReturnValues = ReturnValue.ALL_NEW
-                };
-
-                try
-                {
-                    var response = await _dynamoDb.UpdateItemAsync(updateRequest);
-                    var result = CropRepository.FromItem(response.Attributes);
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion,
-                        ServerData = result
+                        UpdateExpression = "SET " + string.Join(", ", updateParts),
+                        ConditionExpression = "#v = :expectedVersion",
+                        ExpressionAttributeNames = attrNames,
+                        ExpressionAttributeValues = attrValues,
+                        ReturnValues = ReturnValue.ALL_NEW
                     };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    var serverData = CropRepository.FromItem(existing);
-                    var serverVer = existing.TryGetValue("version", out var sv)
-                        ? int.TryParse(sv.N, out var svn) ? svn : 0
-                        : 0;
 
-                    return new SyncOperationResult
+                    try
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVer,
-                        ServerData = serverData,
-                        Message = $"Version conflict: server has version {serverVer}, client expected {clientVersion}."
-                    };
+                        var response = await _dynamoDb.UpdateItemAsync(updateRequest);
+                        var result = CropRepository.FromItem(response.Attributes);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion,
+                            ServerData = result
+                        };
+                    }
+                    catch (ConditionalCheckFailedException)
+                    {
+                        var serverData = CropRepository.FromItem(existing);
+                        var serverVer = existing.TryGetValue("version", out var sv)
+                            ? int.TryParse(sv.N, out var svn) ? svn : 0
+                            : 0;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVer,
+                            ServerData = serverData,
+                            Message = $"Version conflict: server has version {serverVer}, client expected {clientVersion}."
+                        };
+                    }
                 }
-            }
 
             case "delete":
-            {
-                // Extract version for optimistic concurrency
-                var clientVersion = 0;
-                if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                 {
-                    _ = int.TryParse(vObj.ToString(), out clientVersion);
-                }
-
-                var existing = await GetDeliveryItemAsync(operation.EntityId);
-                if (existing == null)
-                {
-                    return new SyncOperationResult
+                    // Extract version for optimistic concurrency
+                    var clientVersion = 0;
+                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "Delivery not found."
-                    };
-                }
+                        _ = int.TryParse(vObj.ToString(), out clientVersion);
+                    }
 
-                // Validate authenticated user is the trucker
-                if (!existing.TryGetValue("truckerId", out var existingTruckerId)
-                    || existingTruckerId.S != authenticatedUserId)
-                {
-                    return new SyncOperationResult
+                    var existing = await GetDeliveryItemAsync(operation.EntityId);
+                    if (existing == null)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_UNAUTHORIZED: You can only delete your own deliveries."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Delivery not found."
+                        };
+                    }
 
-                // Block deletion of cancelled/deleted deliveries
-                if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                    && !string.IsNullOrEmpty(deletedAtAttr.S))
-                {
-                    return new SyncOperationResult
+                    // Validate authenticated user is the trucker
+                    if (!existing.TryGetValue("truckerId", out var existingTruckerId)
+                        || existingTruckerId.S != authenticatedUserId)
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already deleted."
-                    };
-                }
-                if (existing.TryGetValue("status", out var existingStatusAttr)
-                    && existingStatusAttr.S == "cancelled")
-                {
-                    return new SyncOperationResult
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_UNAUTHORIZED: You can only delete your own deliveries."
+                        };
+                    }
+
+                    // Block deletion of cancelled/deleted deliveries
+                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
+                        && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        OperationId = operation.OperationId,
-                        Status = "error",
-                        Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already cancelled."
-                    };
-                }
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already deleted."
+                        };
+                    }
+                    if (existing.TryGetValue("status", out var existingStatusAttr)
+                        && existingStatusAttr.S == "cancelled")
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_ALREADY_CANCELLED: Delivery is already cancelled."
+                        };
+                    }
 
-                var createdAt = existing["createdAt"].S;
-                var now = DateTime.UtcNow.ToString("o");
-                var newVersion = clientVersion + 1;
+                    var createdAt = existing["createdAt"].S;
+                    var now = DateTime.UtcNow.ToString("o");
+                    var newVersion = clientVersion + 1;
 
-                // Soft delete: set deletedAt and status=cancelled
-                var deleteRequest = new UpdateItemRequest
-                {
-                    TableName = _deliveriesTable,
-                    Key = new Dictionary<string, AttributeValue>
+                    // Soft delete: set deletedAt and status=cancelled
+                    var deleteRequest = new UpdateItemRequest
+                    {
+                        TableName = _deliveriesTable,
+                        Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
                         { "createdAt", new AttributeValue { S = createdAt } }
                     },
-                    UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
-                    ConditionExpression = "#v = :expectedVersion",
-                    ExpressionAttributeNames = new Dictionary<string, string>
+                        UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
+                        ConditionExpression = "#v = :expectedVersion",
+                        ExpressionAttributeNames = new Dictionary<string, string>
                     {
                         { "#deleted", "deletedAt" },
                         { "#status", "status" },
                         { "#updated", "updatedAt" },
                         { "#v", "version" }
                     },
-                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                     {
                         { ":deleted", new AttributeValue { S = now } },
                         { ":status", new AttributeValue { S = "cancelled" } },
@@ -1748,36 +1867,36 @@ public class SyncFunction
                         { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                         { ":expectedVersion", new AttributeValue { N = clientVersion.ToString() } }
                     },
-                    ReturnValues = ReturnValue.ALL_NEW
-                };
-
-                try
-                {
-                    await _dynamoDb.UpdateItemAsync(deleteRequest);
-                    return new SyncOperationResult
-                    {
-                        OperationId = operation.OperationId,
-                        Status = "success",
-                        ServerVersion = newVersion
+                        ReturnValues = ReturnValue.ALL_NEW
                     };
-                }
-                catch (ConditionalCheckFailedException)
-                {
-                    var serverData = CropRepository.FromItem(existing);
-                    var serverVer = existing.TryGetValue("version", out var sv)
-                        ? int.TryParse(sv.N, out var svn) ? svn : 0
-                        : 0;
 
-                    return new SyncOperationResult
+                    try
                     {
-                        OperationId = operation.OperationId,
-                        Status = "conflict",
-                        ServerVersion = serverVer,
-                        ServerData = serverData,
-                        Message = "Version conflict on delete."
-                    };
+                        await _dynamoDb.UpdateItemAsync(deleteRequest);
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = newVersion
+                        };
+                    }
+                    catch (ConditionalCheckFailedException)
+                    {
+                        var serverData = CropRepository.FromItem(existing);
+                        var serverVer = existing.TryGetValue("version", out var sv)
+                            ? int.TryParse(sv.N, out var svn) ? svn : 0
+                            : 0;
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            ServerVersion = serverVer,
+                            ServerData = serverData,
+                            Message = "Version conflict on delete."
+                        };
+                    }
                 }
-            }
 
             default:
                 return new SyncOperationResult

@@ -200,11 +200,19 @@ class DeliveryRepository {
   }
 
   /// Raise a dispute on a delivery. Status → disputed.
+  ///
+  /// [reason] must be 1-2000 characters. Throws [ArgumentError] if violated.
   Future<void> raiseDispute({
     required String deliveryId,
     required String userId,
     required String reason,
   }) async {
+    if (reason.isEmpty || reason.length > 2000) {
+      throw ArgumentError(
+        'Dispute reason must be between 1 and 2000 characters',
+      );
+    }
+
     final delivery = await _isar.deliverys
         .filter()
         .deliveryIdEqualTo(deliveryId)

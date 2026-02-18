@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
 ///
@@ -61,6 +62,8 @@ class ConflictResolver {
         return _resolveDelivery(operation, serverData, serverVersion);
 
       case 'trip':
+        return _resolveTrip(operation, serverData, serverVersion);
+
       case 'payment':
       case 'user':
         // Future entity types - not yet implemented
@@ -241,6 +244,75 @@ class ConflictResolver {
     } on Object catch (e) {
       throw ConflictResolutionException(
         'Failed to resolve Delivery conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve a Trip conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolveTrip(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      final trip = await _isar.trips
+          .filter()
+          .tripIdEqualTo(operation.entityId)
+          .findFirst();
+
+      if (trip == null) {
+        throw ConflictResolutionException(
+          'Trip not found in local database: ${operation.entityId}',
+        );
+      }
+
+      await _isar.writeTxn(() async {
+        trip.truckerId = serverData['truckerId'] as String;
+        trip.truckerName = serverData['truckerName'] as String;
+        trip.truckerPhone = serverData['truckerPhone'] as String;
+        trip.fromWoreda = serverData['fromWoreda'] as String;
+        trip.toWoreda = serverData['toWoreda'] as String;
+        trip.departureDate =
+            DateTime.parse(serverData['departureDate'] as String).toUtc();
+        trip.capacity = (serverData['capacity'] as num).toDouble();
+        trip.pricePerQuintal =
+            (serverData['pricePerQuintal'] as num).toDouble();
+
+        // Parse status enum
+        final statusStr = serverData['status'] as String;
+        trip.status = TripStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => TripStatus.open,
+        );
+
+        // Parse matched listings
+        final matchedRaw = serverData['matchedListings'] as List<dynamic>?;
+        trip.matchedListings = matchedRaw?.cast<String>() ?? <String>[];
+
+        // Timestamps
+        trip.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+        trip.updatedAt =
+            DateTime.parse(serverData['updatedAt'] as String).toUtc();
+
+        // CRITICAL: Update version to server version
+        trip.version = serverVersion;
+
+        await _isar.trips.put(trip);
+      });
+
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve Trip conflict: $e',
       );
     }
   }

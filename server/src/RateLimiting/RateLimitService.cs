@@ -21,6 +21,8 @@ public sealed class RateLimitService : IRateLimitService
     internal const int RegistrationWindowSeconds = 86400; // 24 hours
     internal const int MaxOtpAttempts = 3;
     internal const int OtpWindowSeconds = 300; // 5 minutes (matches OTP expiry)
+    internal const int MaxSyncPerMinute = 10;
+    internal const int SyncWindowSeconds = 60; // 1 minute
 
     public RateLimitService(IRateLimitRepository repository)
     {
@@ -117,5 +119,25 @@ public sealed class RateLimitService : IRateLimitService
     {
         var key = $"OTP#{phoneNumber}";
         await _repository.DeleteAsync(key);
+    }
+
+    public async Task<AuthResult<bool>> CheckSyncAllowedAsync(string userId)
+    {
+        var key = $"SYNC#{userId}";
+        var entry = await _repository.GetAsync(key);
+
+        if (entry != null && entry.Count >= MaxSyncPerMinute)
+        {
+            return AuthResult<bool>.Failure(429, "SYNC_RATE_LIMITED",
+                "Too many sync requests. Please try again later.");
+        }
+
+        return AuthResult<bool>.Success(true);
+    }
+
+    public async Task RecordSyncAsync(string userId)
+    {
+        var key = $"SYNC#{userId}";
+        await _repository.IncrementAsync(key, SyncWindowSeconds);
     }
 }

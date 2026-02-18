@@ -930,6 +930,107 @@ public class TripFunctionTests
         Assert.Equal(200, response.StatusCode);
     }
 
+    // --- IsAuthenticated Bypass Tests (F-11 Finding 4) ---
+
+    [Fact]
+    public async Task HandleGetTrips_FakeAuthorizationHeader_HidesPhoneNumber()
+    {
+        var trips = new List<Dictionary<string, object>>
+        {
+            CreateTripItem("trip-001")
+        };
+
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((trips, null));
+
+        // Send a request with a fake Authorization header but NO authorizer context
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = "/trips",
+            Headers = new Dictionary<string, string>
+            {
+                { "Authorization", "Bearer fake-garbage-token" }
+            }
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
+        // Phone should NOT be visible — fake header must not grant access
+        Assert.DoesNotContain("+251912345678", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTripById_FakeAuthorizationHeader_HidesPhoneNumber()
+    {
+        var trip = CreateTripItem("trip-001");
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        // Send with fake Authorization header but no authorizer context
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = "/trips/trip-001",
+            PathParameters = pathParams,
+            Headers = new Dictionary<string, string>
+            {
+                { "Authorization", "Bearer fake-garbage-token" }
+            }
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
+        // Phone should NOT be visible — fake header must not grant access
+        Assert.DoesNotContain("+251912345678", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_ValidAuthorizerClaims_ShowsPhoneNumber()
+    {
+        var trips = new List<Dictionary<string, object>>
+        {
+            CreateTripItem("trip-001")
+        };
+
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((trips, null));
+
+        // Authenticated request with valid authorizer context
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = "/trips",
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "userId", "user-001" }
+                }
+            }
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // Phone should be visible for authenticated users
+        Assert.Contains("251912345678", response.Body);
+    }
+
     // --- Constructor Tests ---
 
     [Fact]

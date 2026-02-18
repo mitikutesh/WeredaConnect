@@ -51,4 +51,15 @@ public interface IRateLimitService
     /// Reset OTP attempt counter on successful verification.
     /// </summary>
     Task ResetOtpAttemptsAsync(string phoneNumber);
+
+    /// <summary>
+    /// Check if sync is allowed for this user (max 10 per minute).
+    /// Returns failure with SYNC_RATE_LIMITED (429) if limit exceeded.
+    /// </summary>
+    Task<AuthResult<bool>> CheckSyncAllowedAsync(string userId);
+
+    /// <summary>
+    /// Record a sync request for rate tracking.
+    /// </summary>
+    Task RecordSyncAsync(string userId);
 }

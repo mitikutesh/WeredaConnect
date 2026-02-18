@@ -247,25 +247,13 @@ public class TripFunction
     }
 
     /// <summary>
-    /// Check if the request is authenticated by looking for an Authorization header
-    /// or JWT authorizer claims in the request context.
+    /// Check if the request is authenticated by verifying JWT authorizer claims
+    /// in the request context (set by API Gateway after JWT validation).
+    /// Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
     {
-        // Check for Authorization header (case-insensitive lookup)
-        if (request.Headers != null)
-        {
-            foreach (var header in request.Headers)
-            {
-                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(header.Value))
-                {
-                    return true;
-                }
-            }
-        }
-
-        // Check for JWT authorizer claims in request context
+        // Only trust JWT authorizer claims set by API Gateway after validation
         if (request.RequestContext?.Authorizer != null
             && request.RequestContext.Authorizer.Count > 0)
         {
@@ -298,7 +286,9 @@ public class TripFunction
     private static int GetInt(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0;
+        }
 
         return value switch
         {
@@ -315,7 +305,9 @@ public class TripFunction
     private static double GetDouble(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0.0;
+        }
 
         return value switch
         {
@@ -334,12 +326,16 @@ public class TripFunction
     private static List<string> GetStringList(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return new List<string>();
+        }
 
         if (value is string s)
         {
             if (string.IsNullOrEmpty(s) || s == "[]")
+            {
                 return new List<string>();
+            }
 
             // Try to parse as JSON array
             try
