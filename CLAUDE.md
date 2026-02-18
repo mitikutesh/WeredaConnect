@@ -78,6 +78,29 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/). Full rules 
 - **Run** `scripts/checkpoint.sh` to automate handoff
 - **Commit** work-in-progress with clear messages following the convention above
 
+## Build & Validation
+
+After every code change, validate that the build succeeds before considering the work done.
+
+### Server (.NET)
+```bash
+cd server && dotnet build --no-restore
+dotnet test --no-restore
+```
+
+### Mobile (Flutter)
+```bash
+cd mobile && flutter analyze
+flutter test
+```
+
+### Infrastructure (CDK)
+```bash
+cd infra && npx cdk synth --quiet
+```
+
+Run only the commands relevant to the module(s) you changed. If a build or test fails, fix the issue before proceeding.
+
 ## Decision Framework
 
 When faced with technical choices, prioritize in this order:
