@@ -1,0 +1,385 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
+
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+/// Browse and filter deliveries for the current user.
+///
+/// Shows role-based and status-based filter chips with a list
+/// of delivery cards. Follows the BrowseTripsScreen pattern.
+class DeliveryListScreen extends StatefulWidget {
+  const DeliveryListScreen({super.key});
+
+  @override
+  State<DeliveryListScreen> createState() => _DeliveryListScreenState();
+}
+
+class _DeliveryListScreenState extends State<DeliveryListScreen> {
+  String? _selectedRole;
+  String? _selectedStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeliveries();
+  }
+
+  String? _getUserId() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.userId;
+    }
+    return null;
+  }
+
+  void _loadDeliveries() {
+    final userId = _getUserId();
+    if (userId != null) {
+      context.read<DeliveryBloc>().add(
+            LoadUserDeliveries(userId: userId, role: _selectedRole),
+          );
+    }
+  }
+
+  void _applyFilters() {
+    final userId = _getUserId();
+    if (userId == null) return;
+
+    context.read<DeliveryBloc>().add(
+          FilterUserDeliveries(
+            userId: userId,
+            role: _selectedRole,
+            statusFilter: _selectedStatus,
+          ),
+        );
+  }
+
+  /// Debug-only: seed a sample delivery with current user as farmer.
+  void _seedDebugDelivery() {
+    final userId = _getUserId();
+    if (userId == null) return;
+
+    const uuid = Uuid();
+    context.read<DeliveryBloc>().add(
+          CreateDelivery(
+            tripId: uuid.v4(),
+            listingId: uuid.v4(),
+            farmerId: userId,
+            farmerName: 'Abebe (You)',
+            truckerId: uuid.v4(),
+            truckerName: 'Kebede Transport',
+            buyerId: uuid.v4(),
+            buyerName: 'Addis Wholesale',
+            qrToken: 'debug-seed-token',
+          ),
+        );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Debug delivery created (you = farmer)')),
+    );
+
+    // Reload after a short delay to let the BLoC process the creation
+    Future.delayed(const Duration(milliseconds: 500), _loadDeliveries);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final userId = _getUserId() ?? '';
+
+    return Column(
+      children: [
+        const TripOfflineBanner(),
+        // Title
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              l10n.deliveryMyDeliveries,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        // Role filter chips
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _RoleChip(
+                  label: l10n.deliveryFilterAll,
+                  selected: _selectedRole == null,
+                  onSelected: () {
+                    setState(() => _selectedRole = null);
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(width: 8),
+                _RoleChip(
+                  label: l10n.deliveryFarmer,
+                  selected: _selectedRole == 'farmer',
+                  onSelected: () {
+                    setState(() => _selectedRole = 'farmer');
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(width: 8),
+                _RoleChip(
+                  label: l10n.deliveryTrucker,
+                  selected: _selectedRole == 'trucker',
+                  onSelected: () {
+                    setState(() => _selectedRole = 'trucker');
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(width: 8),
+                _RoleChip(
+                  label: l10n.deliveryBuyer,
+                  selected: _selectedRole == 'buyer',
+                  onSelected: () {
+                    setState(() => _selectedRole = 'buyer');
+                    _applyFilters();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Status filter chips
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _StatusFilterChip(
+                  label: l10n.deliveryFilterAll,
+                  selected: _selectedStatus == null,
+                  onSelected: () {
+                    setState(() => _selectedStatus = null);
+                    _applyFilters();
+                  },
+                ),
+                const SizedBox(width: 8),
+                ..._buildStatusChips(),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Delivery list
+        Expanded(
+          child: BlocBuilder<DeliveryBloc, DeliveryState>(
+            builder: (context, state) {
+              if (state is DeliveryLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (state is DeliveryError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48),
+                      const SizedBox(height: 16),
+                      Text(state.message),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: _loadDeliveries,
+                        child: Text(l10n.deliveryTryAgain),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (state is DeliveriesLoaded) {
+                if (state.deliveries.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.local_shipping_outlined,
+                          size: 80,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          l10n.deliveryNoDeliveries,
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.deliveryNoDeliveriesHint,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        if (kDebugMode) ...[
+                          const SizedBox(height: 24),
+                          FilledButton.icon(
+                            onPressed: _seedDebugDelivery,
+                            icon: const Icon(Icons.bug_report),
+                            label: Text(
+                              AppLocalizations.of(context)!
+                                  .deliverySeedTestButton,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    _loadDeliveries();
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(top: 8, bottom: 80),
+                    itemCount: state.deliveries.length,
+                    itemBuilder: (context, index) {
+                      final delivery = state.deliveries[index];
+                      return DeliveryCard(
+                        delivery: delivery,
+                        currentUserId: userId,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (context) => DeliveryDetailScreen(
+                                delivery: delivery,
+                                currentUserId: userId,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                );
+              }
+
+              // Initial state
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.local_shipping_outlined,
+                      size: 80,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      l10n.deliveryNoDeliveries,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        onPressed: _seedDebugDelivery,
+                        icon: const Icon(Icons.bug_report),
+                        label: Text(
+                          AppLocalizations.of(context)!.deliverySeedTestButton,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildStatusChips() {
+    final l10n = AppLocalizations.of(context)!;
+    final statuses = [
+      ('pending', l10n.deliveryFilterPending),
+      ('pickedUp', l10n.deliveryFilterPickedUp),
+      ('inTransit', l10n.deliveryFilterInTransit),
+      ('delivered', l10n.deliveryFilterDelivered),
+      ('disputed', l10n.deliveryStatusDisputed),
+    ];
+
+    final chips = <Widget>[];
+    for (final (value, label) in statuses) {
+      chips.add(
+        _StatusFilterChip(
+          label: label,
+          selected: _selectedStatus == value,
+          onSelected: () {
+            setState(() => _selectedStatus = value);
+            _applyFilters();
+          },
+        ),
+      );
+      chips.add(const SizedBox(width: 8));
+    }
+    return chips;
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  const _RoleChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+    );
+  }
+}
+
+class _StatusFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  const _StatusFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+    );
+  }
+}

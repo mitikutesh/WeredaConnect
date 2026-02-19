@@ -13,6 +13,8 @@ import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -100,6 +102,14 @@ class WeredaConnectApp extends StatelessWidget {
         BlocProvider<TripListingBloc>(
           create: (_) => TripListingBloc(
             repository: TripListingRepository(
+              isar: IsarService.instance.db,
+              syncQueue: SyncQueue(IsarService.instance.db),
+            ),
+          ),
+        ),
+        BlocProvider<DeliveryBloc>(
+          create: (_) => DeliveryBloc(
+            repository: DeliveryRepository(
               isar: IsarService.instance.db,
               syncQueue: SyncQueue(IsarService.instance.db),
             ),

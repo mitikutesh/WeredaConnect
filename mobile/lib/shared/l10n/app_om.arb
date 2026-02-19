@@ -677,6 +677,294 @@
   "truckerNameRequired": "Maqaan konkolaachisaa barbaachisaadha",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "deliveries": "Geejjibaalee",
+  "@deliveries": {
+    "description": "Deliveries navigation tab label"
+  },
+  "deliveryMyDeliveries": "Geejjibaalee Koo",
+  "@deliveryMyDeliveries": {
+    "description": "Title for the delivery list screen"
+  },
+  "deliveryDetails": "Bal'insa Geejjibaa",
+  "@deliveryDetails": {
+    "description": "Title for the delivery detail screen"
+  },
+  "deliveryScanQrCode": "Koodii QR Iskaan",
+  "@deliveryScanQrCode": {
+    "description": "Title for the QR scan screen"
+  },
+  "deliveryShowQrCode": "Koodii QR",
+  "@deliveryShowQrCode": {
+    "description": "Title for the QR code display screen"
+  },
+  "deliveryRaiseDispute": "Komii Dhiyeessi",
+  "@deliveryRaiseDispute": {
+    "description": "Title for the dispute screen"
+  },
+  "deliveryStatusPending": "Eeggataa",
+  "@deliveryStatusPending": {
+    "description": "Delivery status label for pending state"
+  },
+  "deliveryStatusPickedUp": "Fudhatame",
+  "@deliveryStatusPickedUp": {
+    "description": "Delivery status label for picked up state"
+  },
+  "deliveryStatusInTransit": "Daandii Irra",
+  "@deliveryStatusInTransit": {
+    "description": "Delivery status label for in transit state"
+  },
+  "deliveryStatusDelivered": "Geejjibame",
+  "@deliveryStatusDelivered": {
+    "description": "Delivery status label for delivered state"
+  },
+  "deliveryStatusDisputed": "Komii",
+  "@deliveryStatusDisputed": {
+    "description": "Delivery status label for disputed state"
+  },
+  "deliveryStatusCancelled": "Haqame",
+  "@deliveryStatusCancelled": {
+    "description": "Delivery status label for cancelled state"
+  },
+  "deliveryConfirmPickup": "Fudhachuu Mirkaneessi",
+  "@deliveryConfirmPickup": {
+    "description": "Button to confirm delivery pickup"
+  },
+  "deliveryConfirmDelivery": "Geejjiba Mirkaneessi",
+  "@deliveryConfirmDelivery": {
+    "description": "Button to confirm delivery completion"
+  },
+  "deliveryScanQr": "QR Iskaan",
+  "@deliveryScanQr": {
+    "description": "Button to scan QR code"
+  },
+  "deliveryShowQr": "Koodii QR Agarsiisi",
+  "@deliveryShowQr": {
+    "description": "Button to display QR code"
+  },
+  "deliveryRaiseDisputeAction": "Komii Galchi",
+  "@deliveryRaiseDisputeAction": {
+    "description": "Button to submit a dispute"
+  },
+  "deliveryCancel": "Geejjiba Haqi",
+  "@deliveryCancel": {
+    "description": "Button to cancel a delivery"
+  },
+  "deliveryTakePhoto": "Suuraa Kaasi",
+  "@deliveryTakePhoto": {
+    "description": "Button to capture photo evidence"
+  },
+  "deliveryRegenerateQr": "QR Haaromsi",
+  "@deliveryRegenerateQr": {
+    "description": "Button to regenerate QR code"
+  },
+  "deliveryFarmer": "Qonnaan Bulaa",
+  "@deliveryFarmer": {
+    "description": "Participant label for farmer in delivery"
+  },
+  "deliveryTrucker": "Konkolaachisaa",
+  "@deliveryTrucker": {
+    "description": "Participant label for trucker in delivery"
+  },
+  "deliveryBuyer": "Bitaa",
+  "@deliveryBuyer": {
+    "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsCaptured": "GPS Qabame",
+  "@deliveryGpsCaptured": {
+    "description": "GPS location successfully captured"
+  },
+  "deliveryGpsUnavailable": "GPS Hin Argamne",
+  "@deliveryGpsUnavailable": {
+    "description": "GPS location not available"
+  },
+  "deliveryGpsWithinRange": "Bal'ina Keessa",
+  "@deliveryGpsWithinRange": {
+    "description": "GPS location is within expected range"
+  },
+  "deliveryGpsOutOfRange": "Bal'ina Alaa",
+  "@deliveryGpsOutOfRange": {
+    "description": "GPS location is outside expected range"
+  },
+  "deliveryGpsCapturing": "GPS Qabamaa...",
+  "@deliveryGpsCapturing": {
+    "description": "GPS capture in progress"
+  },
+  "deliveryGpsPermissionDenied": "Hayyama Iddoo Didame",
+  "@deliveryGpsPermissionDenied": {
+    "description": "Location permission was denied by user"
+  },
+  "deliveryQrShowInstruction": "Koodii QR kana konkolaachisaaf agarsiisi",
+  "@deliveryQrShowInstruction": {
+    "description": "Instruction to show QR code to trucker"
+  },
+  "deliveryQrOfflineNote": "Koodiin QR kun intarneetii malee hojjata.",
+  "@deliveryQrOfflineNote": {
+    "description": "Note that QR code works without internet"
+  },
+  "deliveryQrVerified": "Mirkaneessiin Darbe",
+  "@deliveryQrVerified": {
+    "description": "QR verification succeeded"
+  },
+  "deliveryQrFailed": "Mirkaneessiin Kufame",
+  "@deliveryQrFailed": {
+    "description": "QR verification failed"
+  },
+  "deliveryQrPointCamera": "Kaameeraa gara koodii QR qajeelchi",
+  "@deliveryQrPointCamera": {
+    "description": "Instruction to point camera at QR code"
+  },
+  "deliveryDisputeReason": "Sababii Komii",
+  "@deliveryDisputeReason": {
+    "description": "Label for dispute reason input"
+  },
+  "deliveryDisputeTimeRemaining": "Yeroo Hafee",
+  "@deliveryDisputeTimeRemaining": {
+    "description": "Label for remaining dispute time"
+  },
+  "deliveryDisputeExpired": "Yeroon Komii Darbee",
+  "@deliveryDisputeExpired": {
+    "description": "Message when dispute window has passed"
+  },
+  "deliveryDisputeWarning": "Komiin WeredaConnect'n ni ilaalama. Ibsa ifaa kenniiti.",
+  "@deliveryDisputeWarning": {
+    "description": "Warning about dispute review process"
+  },
+  "deliveryDisputeSubmit": "Komii Galchi",
+  "@deliveryDisputeSubmit": {
+    "description": "Button to submit dispute"
+  },
+  "deliveryFilterAll": "Hunda",
+  "@deliveryFilterAll": {
+    "description": "Filter label to show all deliveries"
+  },
+  "deliveryFilterPending": "Eeggataa",
+  "@deliveryFilterPending": {
+    "description": "Filter label for pending deliveries"
+  },
+  "deliveryFilterPickedUp": "Fudhatame",
+  "@deliveryFilterPickedUp": {
+    "description": "Filter label for picked up deliveries"
+  },
+  "deliveryFilterInTransit": "Daandii Irra",
+  "@deliveryFilterInTransit": {
+    "description": "Filter label for in transit deliveries"
+  },
+  "deliveryFilterDelivered": "Geejjibame",
+  "@deliveryFilterDelivered": {
+    "description": "Filter label for delivered deliveries"
+  },
+  "deliveryFilterRole": "Gahee'n Caalchisi",
+  "@deliveryFilterRole": {
+    "description": "Label for role-based delivery filter"
+  },
+  "deliveryNoDeliveries": "Hanga ammaatti geejjiba hin jiru",
+  "@deliveryNoDeliveries": {
+    "description": "Empty state message when no deliveries exist"
+  },
+  "deliveryNoDeliveriesHint": "Geejjibaleen keessan as irratti mul'atu",
+  "@deliveryNoDeliveriesHint": {
+    "description": "Hint text for empty delivery list"
+  },
+  "deliveryOfflineNote": "Intarneetii malee hojjata",
+  "@deliveryOfflineNote": {
+    "description": "Note that feature works without internet"
+  },
+  "deliveryCreatedAt": "Uumame",
+  "@deliveryCreatedAt": {
+    "description": "Label for delivery creation date"
+  },
+  "deliveryCancelConfirmTitle": "Geejjiba Haquu?",
+  "@deliveryCancelConfirmTitle": {
+    "description": "Title for cancel delivery confirmation dialog"
+  },
+  "deliveryCancelConfirmMessage": "Geejjiba kana haquu barbaaddaa?",
+  "@deliveryCancelConfirmMessage": {
+    "description": "Message for cancel delivery confirmation dialog"
+  },
+  "deliveryDisputeConfirmTitle": "Komii Galchuu?",
+  "@deliveryDisputeConfirmTitle": {
+    "description": "Title for submit dispute confirmation dialog"
+  },
+  "deliveryDisputeConfirmMessage": "Komii dhiyeessuu barbaaddaa?",
+  "@deliveryDisputeConfirmMessage": {
+    "description": "Message for submit dispute confirmation dialog"
+  },
+  "deliveryPhotoPickup": "Suuraa Fudhachuu",
+  "@deliveryPhotoPickup": {
+    "description": "Label for pickup photo evidence"
+  },
+  "deliveryPhotoDropoff": "Suuraa Geejjibaa",
+  "@deliveryPhotoDropoff": {
+    "description": "Label for delivery photo evidence"
+  },
+  "deliveryAddPhoto": "Suuraa Ida'i",
+  "@deliveryAddPhoto": {
+    "description": "Button to add photo evidence"
+  },
+  "deliveryMarkInTransit": "Daandii Irra Mallatteessi",
+  "@deliveryMarkInTransit": {
+    "description": "Button to mark delivery as in transit"
+  },
+  "deliveryInTransitConfirmMessage": "Geejjiba kana daandii irra mallatteessuu barbaaddaa?",
+  "@deliveryInTransitConfirmMessage": {
+    "description": "Confirmation message for marking delivery in transit"
+  },
+  "deliveryReasonRequired": "Maaloo sababii galchaa",
+  "@deliveryReasonRequired": {
+    "description": "Validation message for empty dispute reason"
+  },
+  "deliveryReasonTooLong": "Sababiin arfii 500 hin caalu",
+  "@deliveryReasonTooLong": {
+    "description": "Validation message for too long dispute reason"
+  },
+  "deliveryTryAgain": "Irra Deebi'i Yaali",
+  "@deliveryTryAgain": {
+    "description": "Button to retry after failure"
+  },
+  "deliveryIdLabel": "Geejjiba #{id}",
+  "@deliveryIdLabel": {
+    "description": "Delivery identifier with short ID prefix",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "deliveryPickupSection": "Fudhachuu",
+  "@deliveryPickupSection": {
+    "description": "Section header for pickup details"
+  },
+  "deliveryDeliverySection": "Geejjiba",
+  "@deliveryDeliverySection": {
+    "description": "Section header for delivery details"
+  },
+  "deliveryNotYetPickedUp": "Hanga ammaatti hin fudhatamne",
+  "@deliveryNotYetPickedUp": {
+    "description": "Placeholder when delivery has not been picked up yet"
+  },
+  "deliveryNotYetDelivered": "Hanga ammaatti hin geejjibamne",
+  "@deliveryNotYetDelivered": {
+    "description": "Placeholder when delivery has not been delivered yet"
+  },
+  "deliveryToggleFlash": "Ibsaa jijjiiri",
+  "@deliveryToggleFlash": {
+    "description": "Tooltip for camera flash toggle button"
+  },
+  "deliveryConfirmedAtLabel": "Mirkanaa'e: {date}",
+  "@deliveryConfirmedAtLabel": {
+    "description": "Label showing delivery confirmation date",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Feb 19, 2026 3:00 PM"
+      }
+    }
+  },
+  "deliverySeedTestButton": "Geejjiba Qormaataa Uumi",
+  "@deliverySeedTestButton": {
+    "description": "Debug button text to create a test delivery"
   }
 }
 

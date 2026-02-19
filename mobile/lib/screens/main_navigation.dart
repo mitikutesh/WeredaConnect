@@ -6,6 +6,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_list_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -27,6 +28,7 @@ class _MainNavigationState extends State<MainNavigation> {
     HomeScreen(),
     BrowseListingsScreen(),
     BrowseTripsScreen(),
+    DeliveryListScreen(),
     ProfileScreen(),
   ];
 
@@ -110,6 +112,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   child: const Icon(Icons.add),
                 )
               : null,
+      // Deliveries tab (index 3) has no FAB since deliveries are created from trips
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -134,6 +137,11 @@ class _MainNavigationState extends State<MainNavigation> {
             label: l10n.trips,
           ),
           NavigationDestination(
+            icon: const Icon(Icons.inventory_2_outlined),
+            selectedIcon: const Icon(Icons.inventory_2),
+            label: l10n.deliveries,
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.person_outline),
             selectedIcon: const Icon(Icons.person),
             label: l10n.profile,
@@ -152,6 +160,8 @@ class _MainNavigationState extends State<MainNavigation> {
       case 2:
         return l10n.tripListings;
       case 3:
+        return l10n.deliveryMyDeliveries;
+      case 4:
         return l10n.myProfile;
       default:
         return l10n.appTitle;

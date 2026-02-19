@@ -1112,14 +1112,15 @@ public class SyncFunctionTests
         await mockRateLimiter.DidNotReceive().RecordSyncAsync(Arg.Any<string>());
     }
 
-    // ===== Delivery disputeReason Validation Tests (F-12 Finding 3) =====
+    // ===== Delivery disputeReason Validation Tests (F12-SEC-06: 500 char limit) =====
 
     [Fact]
     public async Task DeliveryUpdate_DisputeReasonTooLong_ReturnsError()
     {
-        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-1).ToString("o"));
 
-        var longReason = new string('x', 2001);
+        var longReason = new string('x', 501);
         var updateOp = new SyncOperationRequest
         {
             OperationId = "op-dispute",
@@ -1140,13 +1141,14 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
-        Assert.Contains("disputeReason must be 1-2000 characters", response.Body);
+        Assert.Contains("disputeReason must be 1-500 characters", response.Body);
     }
 
     [Fact]
     public async Task DeliveryUpdate_DisputeReasonEmpty_ReturnsError()
     {
-        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-1).ToString("o"));
 
         var updateOp = new SyncOperationRequest
         {
@@ -1168,15 +1170,16 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
-        Assert.Contains("disputeReason must be 1-2000 characters", response.Body);
+        Assert.Contains("disputeReason must be 1-500 characters", response.Body);
     }
 
     [Fact]
-    public async Task DeliveryUpdate_DisputeReasonWithin2000Chars_Accepted()
+    public async Task DeliveryUpdate_DisputeReasonWithin500Chars_Accepted()
     {
-        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-1).ToString("o"));
 
-        var validReason = new string('x', 2000);
+        var validReason = new string('x', 500);
         var updateOp = new SyncOperationRequest
         {
             OperationId = "op-dispute",
@@ -1200,6 +1203,94 @@ public class SyncFunctionTests
         Assert.DoesNotContain("disputeReason must be", response.Body);
     }
 
+    // ===== F12-SEC-02: 48-Hour Dispute Window Tests =====
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeWithin48Hours_Accepted()
+    {
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-24).ToString("o"));
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute-ok",
+            IdempotencyKey = "user:delivery:del-001:update:dispute-ok",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", "Quality issue with delivery" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("DELIVERY_DISPUTE_EXPIRED", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeAfter48Hours_ReturnsExpiredError()
+    {
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-49).ToString("o"));
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute-expired",
+            IdempotencyKey = "user:delivery:del-001:update:dispute-expired",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", "Late dispute" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("DELIVERY_DISPUTE_EXPIRED", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DisputeWithMissingConfirmedAt_ReturnsValidationError()
+    {
+        // Use standard setup which doesn't include confirmedAt
+        SetupExistingDelivery("del-001", "trucker-001", "delivered", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-dispute-no-confirmed",
+            IdempotencyKey = "user:delivery:del-001:update:dispute-no-confirmed",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "disputed" },
+                { "disputeReason", "Missing confirmedAt" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("confirmedAt is missing", response.Body);
+    }
+
     private void SetupExistingDelivery(string deliveryId, string truckerId, string status, int version)
     {
         var item = new Dictionary<string, AttributeValue>
@@ -1218,6 +1309,45 @@ public class SyncFunctionTests
             { "buyerPhone", new AttributeValue { S = "+251933333333" } },
             { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
             { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } }
+        };
+
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-deliveries-table"))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { item }
+            });
+
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = item
+            });
+    }
+
+    private void SetupExistingDeliveryWithConfirmedAt(
+        string deliveryId, string truckerId, string status, int version, string confirmedAt)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = deliveryId } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "farmerPhone", new AttributeValue { S = "+251911111111" } },
+            { "truckerId", new AttributeValue { S = truckerId } },
+            { "truckerName", new AttributeValue { S = "Tadesse" } },
+            { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "buyerPhone", new AttributeValue { S = "+251933333333" } },
+            { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+            { "status", new AttributeValue { S = status } },
+            { "confirmedAt", new AttributeValue { S = confirmedAt } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "version", new AttributeValue { N = version.ToString() } }

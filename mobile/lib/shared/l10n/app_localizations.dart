@@ -1101,6 +1101,420 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Trucker name is required'**
   String get truckerNameRequired;
+
+  /// Deliveries navigation tab label
+  ///
+  /// In en, this message translates to:
+  /// **'Deliveries'**
+  String get deliveries;
+
+  /// Title for the delivery list screen
+  ///
+  /// In en, this message translates to:
+  /// **'My Deliveries'**
+  String get deliveryMyDeliveries;
+
+  /// Title for the delivery detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Details'**
+  String get deliveryDetails;
+
+  /// Title for the QR scan screen
+  ///
+  /// In en, this message translates to:
+  /// **'Scan QR Code'**
+  String get deliveryScanQrCode;
+
+  /// Title for the QR code display screen
+  ///
+  /// In en, this message translates to:
+  /// **'QR Code'**
+  String get deliveryShowQrCode;
+
+  /// Title for the dispute screen
+  ///
+  /// In en, this message translates to:
+  /// **'Raise Dispute'**
+  String get deliveryRaiseDispute;
+
+  /// Delivery status label for pending state
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get deliveryStatusPending;
+
+  /// Delivery status label for picked up state
+  ///
+  /// In en, this message translates to:
+  /// **'Picked Up'**
+  String get deliveryStatusPickedUp;
+
+  /// Delivery status label for in transit state
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get deliveryStatusInTransit;
+
+  /// Delivery status label for delivered state
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get deliveryStatusDelivered;
+
+  /// Delivery status label for disputed state
+  ///
+  /// In en, this message translates to:
+  /// **'Disputed'**
+  String get deliveryStatusDisputed;
+
+  /// Delivery status label for cancelled state
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get deliveryStatusCancelled;
+
+  /// Button to confirm delivery pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Pickup'**
+  String get deliveryConfirmPickup;
+
+  /// Button to confirm delivery completion
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Delivery'**
+  String get deliveryConfirmDelivery;
+
+  /// Button to scan QR code
+  ///
+  /// In en, this message translates to:
+  /// **'Scan QR'**
+  String get deliveryScanQr;
+
+  /// Button to display QR code
+  ///
+  /// In en, this message translates to:
+  /// **'Show QR Code'**
+  String get deliveryShowQr;
+
+  /// Button to submit a dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Dispute'**
+  String get deliveryRaiseDisputeAction;
+
+  /// Button to cancel a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Delivery'**
+  String get deliveryCancel;
+
+  /// Button to capture photo evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Take Photo'**
+  String get deliveryTakePhoto;
+
+  /// Button to regenerate QR code
+  ///
+  /// In en, this message translates to:
+  /// **'Regenerate QR'**
+  String get deliveryRegenerateQr;
+
+  /// Participant label for farmer in delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer'**
+  String get deliveryFarmer;
+
+  /// Participant label for trucker in delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker'**
+  String get deliveryTrucker;
+
+  /// Participant label for buyer in delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer'**
+  String get deliveryBuyer;
+
+  /// GPS location successfully captured
+  ///
+  /// In en, this message translates to:
+  /// **'GPS Captured'**
+  String get deliveryGpsCaptured;
+
+  /// GPS location not available
+  ///
+  /// In en, this message translates to:
+  /// **'GPS unavailable'**
+  String get deliveryGpsUnavailable;
+
+  /// GPS location is within expected range
+  ///
+  /// In en, this message translates to:
+  /// **'Within range'**
+  String get deliveryGpsWithinRange;
+
+  /// GPS location is outside expected range
+  ///
+  /// In en, this message translates to:
+  /// **'Out of range'**
+  String get deliveryGpsOutOfRange;
+
+  /// GPS capture in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Capturing GPS...'**
+  String get deliveryGpsCapturing;
+
+  /// Location permission was denied by user
+  ///
+  /// In en, this message translates to:
+  /// **'Location permission denied'**
+  String get deliveryGpsPermissionDenied;
+
+  /// Instruction to show QR code to trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Show this QR code to the trucker'**
+  String get deliveryQrShowInstruction;
+
+  /// Note that QR code works without internet
+  ///
+  /// In en, this message translates to:
+  /// **'This QR code works offline. No internet needed.'**
+  String get deliveryQrOfflineNote;
+
+  /// QR verification succeeded
+  ///
+  /// In en, this message translates to:
+  /// **'Verification Passed'**
+  String get deliveryQrVerified;
+
+  /// QR verification failed
+  ///
+  /// In en, this message translates to:
+  /// **'Verification Failed'**
+  String get deliveryQrFailed;
+
+  /// Instruction to point camera at QR code
+  ///
+  /// In en, this message translates to:
+  /// **'Point camera at the QR code'**
+  String get deliveryQrPointCamera;
+
+  /// Label for dispute reason input
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for Dispute'**
+  String get deliveryDisputeReason;
+
+  /// Label for remaining dispute time
+  ///
+  /// In en, this message translates to:
+  /// **'Time remaining'**
+  String get deliveryDisputeTimeRemaining;
+
+  /// Message when dispute window has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute window expired'**
+  String get deliveryDisputeExpired;
+
+  /// Warning about dispute review process
+  ///
+  /// In en, this message translates to:
+  /// **'Disputes are reviewed by WeredaConnect. Provide clear details.'**
+  String get deliveryDisputeWarning;
+
+  /// Button to submit dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Dispute'**
+  String get deliveryDisputeSubmit;
+
+  /// Filter label to show all deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get deliveryFilterAll;
+
+  /// Filter label for pending deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get deliveryFilterPending;
+
+  /// Filter label for picked up deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Picked Up'**
+  String get deliveryFilterPickedUp;
+
+  /// Filter label for in transit deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get deliveryFilterInTransit;
+
+  /// Filter label for delivered deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get deliveryFilterDelivered;
+
+  /// Label for role-based delivery filter
+  ///
+  /// In en, this message translates to:
+  /// **'Filter by Role'**
+  String get deliveryFilterRole;
+
+  /// Empty state message when no deliveries exist
+  ///
+  /// In en, this message translates to:
+  /// **'No deliveries yet'**
+  String get deliveryNoDeliveries;
+
+  /// Hint text for empty delivery list
+  ///
+  /// In en, this message translates to:
+  /// **'Your deliveries will appear here'**
+  String get deliveryNoDeliveriesHint;
+
+  /// Note that feature works without internet
+  ///
+  /// In en, this message translates to:
+  /// **'Works offline'**
+  String get deliveryOfflineNote;
+
+  /// Label for delivery creation date
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get deliveryCreatedAt;
+
+  /// Title for cancel delivery confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Delivery?'**
+  String get deliveryCancelConfirmTitle;
+
+  /// Message for cancel delivery confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to cancel this delivery?'**
+  String get deliveryCancelConfirmMessage;
+
+  /// Title for submit dispute confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Dispute?'**
+  String get deliveryDisputeConfirmTitle;
+
+  /// Message for submit dispute confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to raise a dispute?'**
+  String get deliveryDisputeConfirmMessage;
+
+  /// Label for pickup photo evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup Photo'**
+  String get deliveryPhotoPickup;
+
+  /// Label for delivery photo evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Photo'**
+  String get deliveryPhotoDropoff;
+
+  /// Button to add photo evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Add Photo'**
+  String get deliveryAddPhoto;
+
+  /// Button to mark delivery as in transit
+  ///
+  /// In en, this message translates to:
+  /// **'Mark In Transit'**
+  String get deliveryMarkInTransit;
+
+  /// Confirmation message for marking delivery in transit
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to mark this delivery as in transit?'**
+  String get deliveryInTransitConfirmMessage;
+
+  /// Validation message for empty dispute reason
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a reason'**
+  String get deliveryReasonRequired;
+
+  /// Validation message for too long dispute reason
+  ///
+  /// In en, this message translates to:
+  /// **'Reason must be 500 characters or less'**
+  String get deliveryReasonTooLong;
+
+  /// Button to retry after failure
+  ///
+  /// In en, this message translates to:
+  /// **'Try Again'**
+  String get deliveryTryAgain;
+
+  /// Delivery identifier with short ID prefix
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery #{id}'**
+  String deliveryIdLabel(String id);
+
+  /// Section header for pickup details
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get deliveryPickupSection;
+
+  /// Section header for delivery details
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get deliveryDeliverySection;
+
+  /// Placeholder when delivery has not been picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet picked up'**
+  String get deliveryNotYetPickedUp;
+
+  /// Placeholder when delivery has not been delivered yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet delivered'**
+  String get deliveryNotYetDelivered;
+
+  /// Tooltip for camera flash toggle button
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle flash'**
+  String get deliveryToggleFlash;
+
+  /// Label showing delivery confirmation date
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed: {date}'**
+  String deliveryConfirmedAtLabel(String date);
+
+  /// Debug button text to create a test delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Seed Test Delivery'**
+  String get deliverySeedTestButton;
 }
 
 class _AppLocalizationsDelegate

@@ -55,7 +55,7 @@ public partial class SyncFunction
     {
         "tripId", "listingId", "farmerId", "farmerName", "farmerPhone",
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
-        "qrToken", "status", "gpsPickup", "gpsDropoff",
+        "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "pickedUpAt", "confirmedAt", "disputeReason"
     };
 
@@ -1318,26 +1318,26 @@ public partial class SyncFunction
             }
         }
 
-        // Phone format validation for optional phone fields (+251 prefix)
+        // F12-SEC-04: Phone format validation using strict E.164 regex
         foreach (var phoneField in new[] { "farmerPhone", "truckerPhone", "buyerPhone" })
         {
             if (data.TryGetValue(phoneField, out var phoneObj)
                 && phoneObj != null && !string.IsNullOrWhiteSpace(phoneObj.ToString()))
             {
-                if (!phoneObj.ToString()!.StartsWith("+251"))
+                if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
                 {
-                    errors.Add($"{phoneField} must start with '+251'.");
+                    errors.Add($"{phoneField} must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
                 }
             }
         }
 
-        // disputeReason: optional, 1-2000 chars when present (F-12 Finding 3)
+        // F12-SEC-06: disputeReason — 1-500 chars (aligned with contract)
         if (data.TryGetValue("disputeReason", out var disputeObj) && disputeObj != null)
         {
             var disputeText = disputeObj.ToString() ?? "";
-            if (string.IsNullOrWhiteSpace(disputeText) || disputeText.Length > 2000)
+            if (string.IsNullOrWhiteSpace(disputeText) || disputeText.Length > 500)
             {
-                errors.Add("disputeReason must be 1-2000 characters.");
+                errors.Add("disputeReason must be 1-500 characters.");
             }
         }
 
@@ -1608,6 +1608,44 @@ public partial class SyncFunction
                                 }
                                 break;
                             case "disputed":
+                                // F12-SEC-02: Enforce 48-hour dispute window (server-side)
+                                if (existing.TryGetValue("confirmedAt", out var confirmedAtAttr2)
+                                    && !string.IsNullOrEmpty(confirmedAtAttr2.S)
+                                    && DateTime.TryParse(confirmedAtAttr2.S, null,
+                                        DateTimeStyles.RoundtripKind, out var confirmedDate))
+                                {
+                                    if (DateTime.UtcNow - confirmedDate > TimeSpan.FromHours(48))
+                                    {
+                                        return new SyncOperationResult
+                                        {
+                                            OperationId = operation.OperationId,
+                                            Status = "error",
+                                            Message = "DELIVERY_DISPUTE_EXPIRED: Dispute window (48 hours) has expired."
+                                        };
+                                    }
+                                }
+                                else if (currentStatus == "delivered")
+                                {
+                                    // confirmedAt is missing for a delivered delivery — data integrity issue
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = "DELIVERY_VALIDATION: confirmedAt is missing for delivered delivery."
+                                    };
+                                }
+                                if (authenticatedUserId != existingFarmerId
+                                    && authenticatedUserId != existingTruckerId
+                                    && authenticatedUserId != existingBuyerId)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery."
+                                    };
+                                }
+                                break;
                             case "cancelled":
                                 if (authenticatedUserId != existingFarmerId
                                     && authenticatedUserId != existingTruckerId
@@ -1617,7 +1655,7 @@ public partial class SyncFunction
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
-                                        Message = $"DELIVERY_UNAUTHORIZED: Only participants can {(newStatus == "disputed" ? "dispute" : "cancel")} a delivery."
+                                        Message = "DELIVERY_UNAUTHORIZED: Only participants can cancel a delivery."
                                     };
                                 }
                                 break;
@@ -1659,18 +1697,90 @@ public partial class SyncFunction
                         };
                     }
 
-                    // Validate disputeReason length (F-12 Finding 3)
+                    // F12-SEC-06: Validate disputeReason length (aligned with contract: 500 chars)
                     if (operation.Data.TryGetValue("disputeReason", out var drObj) && drObj != null)
                     {
                         var drText = drObj.ToString() ?? "";
-                        if (string.IsNullOrWhiteSpace(drText) || drText.Length > 2000)
+                        if (string.IsNullOrWhiteSpace(drText) || drText.Length > 500)
                         {
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
-                                Message = "DELIVERY_INVALID_FIELD: disputeReason must be 1-2000 characters."
+                                Message = "DELIVERY_INVALID_FIELD: disputeReason must be 1-500 characters."
                             };
+                        }
+                    }
+
+                    // F12-SEC-05: GPS proximity validation for pickup/delivery
+                    var resolvedNewStatus = operation.Data.TryGetValue("status", out var statusForGps)
+                        ? statusForGps?.ToString() : null;
+
+                    if (resolvedNewStatus == "pickedUp"
+                        && operation.Data.TryGetValue("gpsPickup", out var gpsPickupObj)
+                        && gpsPickupObj is System.Text.Json.JsonElement pickupJe
+                        && pickupJe.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        var pickupLat = pickupJe.GetProperty("latitude").GetDouble();
+                        var pickupLng = pickupJe.GetProperty("longitude").GetDouble();
+
+                        var listingId = existing.TryGetValue("listingId", out var lid) ? lid.S : null;
+                        if (listingId != null)
+                        {
+                            var listing = await _cropRepo.GetByIdAsync(listingId);
+                            if (listing != null
+                                && listing.TryGetValue("latitude", out var listingLatObj)
+                                && listing.TryGetValue("longitude", out var listingLonObj)
+                                && double.TryParse(listingLatObj.ToString(), out var listingLat)
+                                && double.TryParse(listingLonObj.ToString(), out var listingLon))
+                            {
+                                var distance = GpsValidator.HaversineDistance(
+                                    pickupLat, pickupLng, listingLat, listingLon);
+                                if (distance > 5.0)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_GPS_PROXIMITY: Pickup GPS is {distance:F1}km from listing location (max 5km)."
+                                    };
+                                }
+                            }
+                        }
+                    }
+
+                    if (resolvedNewStatus == "delivered"
+                        && operation.Data.TryGetValue("gpsDropoff", out var gpsDropoffObj)
+                        && gpsDropoffObj is System.Text.Json.JsonElement dropoffJe
+                        && dropoffJe.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        var dropoffLat = dropoffJe.GetProperty("latitude").GetDouble();
+                        var dropoffLng = dropoffJe.GetProperty("longitude").GetDouble();
+
+                        var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
+                        if (tripId != null)
+                        {
+                            var trip = await GetTripItemAsync(tripId);
+                            if (trip != null
+                                && trip.TryGetValue("destinationLatitude", out var destLatAttr)
+                                && trip.TryGetValue("destinationLongitude", out var destLonAttr))
+                            {
+                                if (double.TryParse(destLatAttr.N, out var destLat)
+                                    && double.TryParse(destLonAttr.N, out var destLon))
+                                {
+                                    var distance = GpsValidator.HaversineDistance(
+                                        dropoffLat, dropoffLng, destLat, destLon);
+                                    if (distance > 5.0)
+                                    {
+                                        return new SyncOperationResult
+                                        {
+                                            OperationId = operation.OperationId,
+                                            Status = "error",
+                                            Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance:F1}km from trip destination (max 5km)."
+                                        };
+                                    }
+                                }
+                            }
                         }
                     }
 
