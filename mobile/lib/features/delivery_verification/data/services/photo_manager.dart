@@ -91,7 +91,7 @@ class PhotoManager {
         localPath: compressed.path,
         fileSizeBytes: fileSize,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       return PhotoResult.error('Photo capture failed: $e');
     }
   }

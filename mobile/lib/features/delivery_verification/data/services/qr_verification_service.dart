@@ -99,7 +99,7 @@ class QrVerificationService {
       }
 
       // Recompute HMAC
-      final ts = payload['ts'] as int? ?? 0;
+      final ts = payload['ts'] is int ? payload['ts'] as int : 0;
       final secret = _deriveSecret(
         delivery.deliveryId,
         delivery.tripId,
@@ -127,9 +127,7 @@ class QrVerificationService {
       );
     } on FormatException {
       return const QrVerificationResult.invalid('Invalid QR code format');
-    } on TypeError {
-      return const QrVerificationResult.invalid('Malformed QR data');
-    } catch (_) {
+    } on Exception catch (_) {
       return const QrVerificationResult.invalid('Could not process QR code');
     }
   }

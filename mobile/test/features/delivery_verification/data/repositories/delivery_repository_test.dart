@@ -808,7 +808,7 @@ void main() {
       });
 
       test('throws when user is not trucker', () async {
-        await _insertTestDelivery(isar, status: DeliveryStatus.pending);
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.confirmPickup(
@@ -825,10 +825,7 @@ void main() {
 
     group('confirmDelivery validation', () {
       test('throws when status is not inTransit', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.pending,
-        );
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.confirmDelivery(
@@ -863,10 +860,7 @@ void main() {
 
     group('raiseDispute validation', () {
       test('throws when status is not delivered', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.pending,
-        );
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.raiseDispute(
@@ -1037,10 +1031,7 @@ void main() {
       });
 
       test('throws when user is not participant', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.pending,
-        );
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.cancelDelivery(
@@ -1130,10 +1121,7 @@ void main() {
 
     group('markInTransit validation', () {
       test('throws when status is not pickedUp', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.pending,
-        );
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.markInTransit(
@@ -1168,10 +1156,7 @@ void main() {
 
     group('GPS coordinate validation', () {
       test('throws for invalid latitude via confirmPickup', () async {
-        await _insertTestDelivery(
-          isar,
-          status: DeliveryStatus.pending,
-        );
+        await _insertTestDelivery(isar);
 
         expect(
           () => repository.confirmPickup(

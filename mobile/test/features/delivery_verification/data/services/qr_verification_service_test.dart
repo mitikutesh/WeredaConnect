@@ -19,8 +19,8 @@ Delivery _createTestDelivery() {
     ..buyerName = 'Test Buyer'
     ..qrToken = ''
     ..status = DeliveryStatus.pending
-    ..createdAt = DateTime.utc(2026, 2, 15, 10, 0, 0)
-    ..updatedAt = DateTime.utc(2026, 2, 15, 10, 0, 0)
+    ..createdAt = DateTime.utc(2026, 2, 15, 10)
+    ..updatedAt = DateTime.utc(2026, 2, 15, 10)
     ..version = 1;
 }
 
