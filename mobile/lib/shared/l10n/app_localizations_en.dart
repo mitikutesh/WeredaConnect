@@ -707,4 +707,32 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryTryAgain => 'Try Again';
+
+  @override
+  String deliveryIdLabel(String id) {
+    return 'Delivery #$id';
+  }
+
+  @override
+  String get deliveryPickupSection => 'Pickup';
+
+  @override
+  String get deliveryDeliverySection => 'Delivery';
+
+  @override
+  String get deliveryNotYetPickedUp => 'Not yet picked up';
+
+  @override
+  String get deliveryNotYetDelivered => 'Not yet delivered';
+
+  @override
+  String get deliveryToggleFlash => 'Toggle flash';
+
+  @override
+  String deliveryConfirmedAtLabel(String date) {
+    return 'Confirmed: $date';
+  }
+
+  @override
+  String get deliverySeedTestButton => 'Seed Test Delivery';
 }

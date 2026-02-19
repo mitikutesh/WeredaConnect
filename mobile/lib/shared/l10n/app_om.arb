@@ -921,6 +921,50 @@
   "deliveryTryAgain": "Irra Deebi'i Yaali",
   "@deliveryTryAgain": {
     "description": "Button to retry after failure"
+  },
+  "deliveryIdLabel": "Geejjiba #{id}",
+  "@deliveryIdLabel": {
+    "description": "Delivery identifier with short ID prefix",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "deliveryPickupSection": "Fudhachuu",
+  "@deliveryPickupSection": {
+    "description": "Section header for pickup details"
+  },
+  "deliveryDeliverySection": "Geejjiba",
+  "@deliveryDeliverySection": {
+    "description": "Section header for delivery details"
+  },
+  "deliveryNotYetPickedUp": "Hanga ammaatti hin fudhatamne",
+  "@deliveryNotYetPickedUp": {
+    "description": "Placeholder when delivery has not been picked up yet"
+  },
+  "deliveryNotYetDelivered": "Hanga ammaatti hin geejjibamne",
+  "@deliveryNotYetDelivered": {
+    "description": "Placeholder when delivery has not been delivered yet"
+  },
+  "deliveryToggleFlash": "Ibsaa jijjiiri",
+  "@deliveryToggleFlash": {
+    "description": "Tooltip for camera flash toggle button"
+  },
+  "deliveryConfirmedAtLabel": "Mirkanaa'e: {date}",
+  "@deliveryConfirmedAtLabel": {
+    "description": "Label showing delivery confirmation date",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Feb 19, 2026 3:00 PM"
+      }
+    }
+  },
+  "deliverySeedTestButton": "Geejjiba Qormaataa Uumi",
+  "@deliverySeedTestButton": {
+    "description": "Debug button text to create a test delivery"
   }
 }
 

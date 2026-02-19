@@ -711,4 +711,32 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryTryAgain => 'Irra Deebi\'i Yaali';
+
+  @override
+  String deliveryIdLabel(String id) {
+    return 'Geejjiba #$id';
+  }
+
+  @override
+  String get deliveryPickupSection => 'Fudhachuu';
+
+  @override
+  String get deliveryDeliverySection => 'Geejjiba';
+
+  @override
+  String get deliveryNotYetPickedUp => 'Hanga ammaatti hin fudhatamne';
+
+  @override
+  String get deliveryNotYetDelivered => 'Hanga ammaatti hin geejjibamne';
+
+  @override
+  String get deliveryToggleFlash => 'Ibsaa jijjiiri';
+
+  @override
+  String deliveryConfirmedAtLabel(String date) {
+    return 'Mirkanaa\'e: $date';
+  }
+
+  @override
+  String get deliverySeedTestButton => 'Geejjiba Qormaataa Uumi';
 }

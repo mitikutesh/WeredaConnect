@@ -696,4 +696,32 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryTryAgain => 'እንደገና ሞክር';
+
+  @override
+  String deliveryIdLabel(String id) {
+    return 'ማድረሻ #$id';
+  }
+
+  @override
+  String get deliveryPickupSection => 'ማንሳት';
+
+  @override
+  String get deliveryDeliverySection => 'ማድረሻ';
+
+  @override
+  String get deliveryNotYetPickedUp => 'እስካሁን አልተነሳም';
+
+  @override
+  String get deliveryNotYetDelivered => 'እስካሁን አልደረሰም';
+
+  @override
+  String get deliveryToggleFlash => 'ፍላሽ ቀያይር';
+
+  @override
+  String deliveryConfirmedAtLabel(String date) {
+    return 'የተረጋገጠ: $date';
+  }
+
+  @override
+  String get deliverySeedTestButton => 'የሙከራ ማድረሻ ፍጠር';
 }

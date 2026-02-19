@@ -42,7 +42,9 @@ class DeliveryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Delivery #${delivery.deliveryId.substring(0, 8)}',
+                      AppLocalizations.of(context)!.deliveryIdLabel(
+                        delivery.deliveryId.substring(0, 8),
+                      ),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),

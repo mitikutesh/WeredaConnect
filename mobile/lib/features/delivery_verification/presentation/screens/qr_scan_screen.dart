@@ -188,7 +188,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               IconButton(
                 icon: const Icon(Icons.flash_on),
                 onPressed: () => _scannerController?.toggleTorch(),
-                tooltip: 'Toggle flash',
+                tooltip: l10n.deliveryToggleFlash,
               ),
           ],
         ),
@@ -269,7 +269,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Delivery #${widget.delivery.deliveryId.substring(0, 8)}',
+            l10n.deliveryIdLabel(
+              widget.delivery.deliveryId.substring(0, 8),
+            ),
             style: theme.textTheme.bodyLarge,
           ),
           const SizedBox(height: 24),

@@ -1467,6 +1467,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Try Again'**
   String get deliveryTryAgain;
+
+  /// Delivery identifier with short ID prefix
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery #{id}'**
+  String deliveryIdLabel(String id);
+
+  /// Section header for pickup details
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get deliveryPickupSection;
+
+  /// Section header for delivery details
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get deliveryDeliverySection;
+
+  /// Placeholder when delivery has not been picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet picked up'**
+  String get deliveryNotYetPickedUp;
+
+  /// Placeholder when delivery has not been delivered yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet delivered'**
+  String get deliveryNotYetDelivered;
+
+  /// Tooltip for camera flash toggle button
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle flash'**
+  String get deliveryToggleFlash;
+
+  /// Label showing delivery confirmation date
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed: {date}'**
+  String deliveryConfirmedAtLabel(String date);
+
+  /// Debug button text to create a test delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Seed Test Delivery'**
+  String get deliverySeedTestButton;
 }
 
 class _AppLocalizationsDelegate

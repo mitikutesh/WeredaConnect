@@ -121,15 +121,19 @@ class PhotoManager {
 
   /// Delete a local photo file.
   ///
-  /// F12-CR-02: Validates that the path is within the app's photos directory
-  /// before deletion to prevent arbitrary file deletion.
+  /// F12-CR-02: Validates that the resolved canonical path is within the app's
+  /// photos directory before deletion to prevent arbitrary file deletion via
+  /// path traversal (e.g. `photos/../../sensitive.txt`).
   Future<void> deleteLocalPhoto(String path) async {
+    if (path.isEmpty) return;
     final appDir = await getApplicationDocumentsDirectory();
     final photosPrefix = '${appDir.path}/photos/';
-    if (!path.startsWith(photosPrefix)) {
+    // Canonicalize to resolve any ../ segments before checking the prefix.
+    final canonicalPath = File(path).absolute.path;
+    if (!canonicalPath.startsWith(photosPrefix)) {
       return;
     }
-    final file = File(path);
+    final file = File(canonicalPath);
     if (file.existsSync()) {
       await file.delete();
     }

@@ -133,7 +133,9 @@ class _DisputeScreenState extends State<DisputeScreen> {
                 children: [
                   // Delivery info
                   Text(
-                    'Delivery #${widget.delivery.deliveryId.substring(0, 8)}',
+                    l10n.deliveryIdLabel(
+                      widget.delivery.deliveryId.substring(0, 8),
+                    ),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -141,7 +143,9 @@ class _DisputeScreenState extends State<DisputeScreen> {
                   if (widget.delivery.confirmedAt != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      'Confirmed: ${dateFormat.format(widget.delivery.confirmedAt!)}',
+                      l10n.deliveryConfirmedAtLabel(
+                        dateFormat.format(widget.delivery.confirmedAt!),
+                      ),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),

@@ -921,6 +921,50 @@
   "deliveryTryAgain": "Try Again",
   "@deliveryTryAgain": {
     "description": "Button to retry after failure"
+  },
+  "deliveryIdLabel": "Delivery #{id}",
+  "@deliveryIdLabel": {
+    "description": "Delivery identifier with short ID prefix",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "deliveryPickupSection": "Pickup",
+  "@deliveryPickupSection": {
+    "description": "Section header for pickup details"
+  },
+  "deliveryDeliverySection": "Delivery",
+  "@deliveryDeliverySection": {
+    "description": "Section header for delivery details"
+  },
+  "deliveryNotYetPickedUp": "Not yet picked up",
+  "@deliveryNotYetPickedUp": {
+    "description": "Placeholder when delivery has not been picked up yet"
+  },
+  "deliveryNotYetDelivered": "Not yet delivered",
+  "@deliveryNotYetDelivered": {
+    "description": "Placeholder when delivery has not been delivered yet"
+  },
+  "deliveryToggleFlash": "Toggle flash",
+  "@deliveryToggleFlash": {
+    "description": "Tooltip for camera flash toggle button"
+  },
+  "deliveryConfirmedAtLabel": "Confirmed: {date}",
+  "@deliveryConfirmedAtLabel": {
+    "description": "Label showing delivery confirmation date",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Feb 19, 2026 3:00 PM"
+      }
+    }
+  },
+  "deliverySeedTestButton": "Seed Test Delivery",
+  "@deliverySeedTestButton": {
+    "description": "Debug button text to create a test delivery"
   }
 }
 

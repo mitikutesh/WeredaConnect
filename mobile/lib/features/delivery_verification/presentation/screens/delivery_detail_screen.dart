@@ -77,7 +77,7 @@ class DeliveryDetailScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            'Delivery #${delivery.deliveryId.substring(0, 8)}',
+            l10n.deliveryIdLabel(delivery.deliveryId.substring(0, 8)),
           ),
           elevation: 0,
         ),
@@ -123,11 +123,11 @@ class DeliveryDetailScreen extends StatelessWidget {
                       const SizedBox(height: 24),
 
                       // Pickup section
-                      _buildPickupSection(theme, dateFormat),
+                      _buildPickupSection(theme, dateFormat, l10n),
                       const SizedBox(height: 16),
 
                       // Delivery section
-                      _buildDeliverySection(theme, dateFormat),
+                      _buildDeliverySection(theme, dateFormat, l10n),
 
                       // Dispute section
                       if (delivery.status == DeliveryStatus.disputed) ...[
@@ -150,12 +150,16 @@ class DeliveryDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPickupSection(ThemeData theme, DateFormat dateFormat) {
+  Widget _buildPickupSection(
+    ThemeData theme,
+    DateFormat dateFormat,
+    AppLocalizations l10n,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Pickup',
+          l10n.deliveryPickupSection,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -190,7 +194,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           ),
         ] else
           Text(
-            'Not yet picked up',
+            l10n.deliveryNotYetPickedUp,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),
@@ -199,12 +203,16 @@ class DeliveryDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDeliverySection(ThemeData theme, DateFormat dateFormat) {
+  Widget _buildDeliverySection(
+    ThemeData theme,
+    DateFormat dateFormat,
+    AppLocalizations l10n,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Delivery',
+          l10n.deliveryDeliverySection,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -239,7 +247,7 @@ class DeliveryDetailScreen extends StatelessWidget {
           ),
         ] else
           Text(
-            'Not yet delivered',
+            l10n.deliveryNotYetDelivered,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
             ),

@@ -921,6 +921,50 @@
   "deliveryTryAgain": "እንደገና ሞክር",
   "@deliveryTryAgain": {
     "description": "Button to retry after failure"
+  },
+  "deliveryIdLabel": "ማድረሻ #{id}",
+  "@deliveryIdLabel": {
+    "description": "Delivery identifier with short ID prefix",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "deliveryPickupSection": "ማንሳት",
+  "@deliveryPickupSection": {
+    "description": "Section header for pickup details"
+  },
+  "deliveryDeliverySection": "ማድረሻ",
+  "@deliveryDeliverySection": {
+    "description": "Section header for delivery details"
+  },
+  "deliveryNotYetPickedUp": "እስካሁን አልተነሳም",
+  "@deliveryNotYetPickedUp": {
+    "description": "Placeholder when delivery has not been picked up yet"
+  },
+  "deliveryNotYetDelivered": "እስካሁን አልደረሰም",
+  "@deliveryNotYetDelivered": {
+    "description": "Placeholder when delivery has not been delivered yet"
+  },
+  "deliveryToggleFlash": "ፍላሽ ቀያይር",
+  "@deliveryToggleFlash": {
+    "description": "Tooltip for camera flash toggle button"
+  },
+  "deliveryConfirmedAtLabel": "የተረጋገጠ: {date}",
+  "@deliveryConfirmedAtLabel": {
+    "description": "Label showing delivery confirmation date",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Feb 19, 2026 3:00 PM"
+      }
+    }
+  },
+  "deliverySeedTestButton": "የሙከራ ማድረሻ ፍጠር",
+  "@deliverySeedTestButton": {
+    "description": "Debug button text to create a test delivery"
   }
 }
 

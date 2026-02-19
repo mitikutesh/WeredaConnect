@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -60,6 +62,34 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
             statusFilter: _selectedStatus,
           ),
         );
+  }
+
+  /// Debug-only: seed a sample delivery with current user as farmer.
+  void _seedDebugDelivery() {
+    final userId = _getUserId();
+    if (userId == null) return;
+
+    const uuid = Uuid();
+    context.read<DeliveryBloc>().add(
+          CreateDelivery(
+            tripId: uuid.v4(),
+            listingId: uuid.v4(),
+            farmerId: userId,
+            farmerName: 'Abebe (You)',
+            truckerId: uuid.v4(),
+            truckerName: 'Kebede Transport',
+            buyerId: uuid.v4(),
+            buyerName: 'Addis Wholesale',
+            qrToken: 'debug-seed-token',
+          ),
+        );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Debug delivery created (you = farmer)')),
+    );
+
+    // Reload after a short delay to let the BLoC process the creation
+    Future.delayed(const Duration(milliseconds: 500), _loadDeliveries);
   }
 
   @override
@@ -204,6 +234,17 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                           ),
                           textAlign: TextAlign.center,
                         ),
+                        if (kDebugMode) ...[
+                          const SizedBox(height: 24),
+                          FilledButton.icon(
+                            onPressed: _seedDebugDelivery,
+                            icon: const Icon(Icons.bug_report),
+                            label: Text(
+                              AppLocalizations.of(context)!
+                                  .deliverySeedTestButton,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   );
@@ -253,6 +294,16 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                       l10n.deliveryNoDeliveries,
                       style: theme.textTheme.titleLarge,
                     ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        onPressed: _seedDebugDelivery,
+                        icon: const Icon(Icons.bug_report),
+                        label: Text(
+                          AppLocalizations.of(context)!.deliverySeedTestButton,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );

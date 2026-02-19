@@ -93,7 +93,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
               const SizedBox(height: 24),
               // Delivery info
               Text(
-                'Delivery #${delivery.deliveryId.substring(0, 8)}',
+                l10n.deliveryIdLabel(delivery.deliveryId.substring(0, 8)),
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
