@@ -1,5 +1,5 @@
 # WeredaConnect Product Roadmap
-**Version**: 2.0.0 | **Date**: 2026-02-16 | **Status**: Active — Phase R4 next
+**Version**: 2.1.0 | **Date**: 2026-02-19 | **Status**: Active — Phase R4 in progress (~40%)
 
 ---
 
@@ -10,9 +10,9 @@
 | **R1: Security Foundation** | ✅ COMPLETE | Feb 2026 |
 | **R2: Auth + Data Models** | ✅ COMPLETE | Feb 14, 2026 |
 | **R3: Sync + First Feature** | ✅ COMPLETE | Feb 15, 2026 (2 weeks early) |
-| **R4: Complete Transaction Flow** | ⏳ PREP DONE | Target: Apr-May 2026 |
+| **R4: Complete Transaction Flow** | ⚙️ IN PROGRESS (~40%) | Target: Apr-May 2026 |
 
-**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution, browse listings from server, 3 languages, 228 server tests passing.
+**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution, browse listings from server, trip listings (create/browse/filter with offline sync), 3 languages, 228+ server tests passing.
 
 **Full feature scoring for all 31 features**: see [BACKLOG.md](BACKLOG.md)
 
@@ -33,14 +33,14 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 **Goal**: The full Crop > Trip > Delivery > Payment flow works end-to-end.
 **Layer**: 2 - Stability and Trust + Core Transaction Flow
 
-| Order | Feature | Score | Delivers |
-|-------|---------|-------|----------|
-| R4.1 | F-11: Trip listing flow | 13 | Transport marketplace |
-| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | Trust mechanism |
-| R4.3 | F-13: Telebirr escrow integration | 19 | Revenue |
-| R4.4 | F-14: Fraud detection checks | 13 | Platform safety |
-| R4.5 | F-15: Conflict resolution UI | 10 | User experience |
-| R4.6 | F-18: S3 access logging + versioning | 3 | Audit trail |
+| Order | Feature | Score | Status | Delivers |
+|-------|---------|-------|--------|----------|
+| R4.1 | F-11: Trip listing flow | 13 | ✅ COMPLETE | Transport marketplace |
+| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | ⚙️ Backend done, UI missing | Trust mechanism |
+| R4.3 | F-13: Telebirr escrow integration | 19 | 🏗️ Infra scaffolded, logic starting | Revenue |
+| R4.4 | F-14: Fraud detection checks | 13 | ❌ Not started | Platform safety |
+| R4.5 | F-15: Conflict resolution UI | 10 | ⚙️ Logic done, UI missing | User experience |
+| R4.6 | F-18: S3 access logging + versioning | 3 | ✅ COMPLETE | Audit trail |
 
 **Exit Criteria**:
 - Trucker can post trip availability
@@ -105,7 +105,7 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 ---
 
-**Document Version**: 1.3.0
+**Document Version**: 1.4.0
 **Created**: 2026-02-11
-**Last Updated**: 2026-02-17 (all R4 contracts written; deferred items planned)
+**Last Updated**: 2026-02-19 (R4 ~40% — F-11 complete, F-12 backend done, F-13 escrow starting)
 **Completed task history**: See `docs/archive/completed-tasks.md`
