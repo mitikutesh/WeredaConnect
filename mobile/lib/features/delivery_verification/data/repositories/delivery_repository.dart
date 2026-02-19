@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 
 /// Offline-first repository for delivery CRUD operations.
 ///
@@ -21,6 +23,136 @@ class DeliveryRepository {
     required SyncQueue syncQueue,
   })  : _isar = isar,
         _syncQueue = syncQueue;
+
+  /// Validate delivery operation before enqueuing to sync queue.
+  /// Mirrors server-side checks to reject invalid operations early.
+  /// Throws DeliveryValidationException with localized message on failure.
+  void _validateDeliveryOperation(
+    Delivery delivery,
+    String action,
+    String userId, {
+    String? disputeReason,
+  }) {
+    if (!DeliveryConstants.uuidRegex.hasMatch(delivery.deliveryId)) {
+      throw DeliveryValidationException(
+        'deliveryId',
+        'Invalid delivery ID format',
+      );
+    }
+
+    switch (action) {
+      case 'confirmPickup':
+        if (delivery.status != DeliveryStatus.pending) {
+          throw DeliveryValidationException(
+            'status',
+            'Delivery must be pending for pickup',
+          );
+        }
+        if (delivery.truckerId != userId) {
+          throw DeliveryValidationException(
+            'truckerId',
+            'Only the trucker can confirm pickup',
+          );
+        }
+      case 'confirmDelivery':
+        if (delivery.status != DeliveryStatus.inTransit) {
+          throw DeliveryValidationException(
+            'status',
+            'Delivery must be in transit for confirmation',
+          );
+        }
+        if (delivery.buyerId != userId) {
+          throw DeliveryValidationException(
+            'buyerId',
+            'Only the buyer can confirm delivery',
+          );
+        }
+      case 'markInTransit':
+        if (delivery.status != DeliveryStatus.pickedUp) {
+          throw DeliveryValidationException(
+            'status',
+            'Delivery must be picked up to mark in transit',
+          );
+        }
+        if (delivery.truckerId != userId) {
+          throw DeliveryValidationException(
+            'truckerId',
+            'Only the trucker can mark in transit',
+          );
+        }
+      case 'raiseDispute':
+        if (delivery.status != DeliveryStatus.delivered) {
+          throw DeliveryValidationException(
+            'status',
+            'Can only dispute delivered items',
+          );
+        }
+        if (delivery.confirmedAt != null &&
+            DateTime.now().toUtc().difference(delivery.confirmedAt!) >
+                DeliveryConstants.disputeWindow) {
+          throw DeliveryValidationException(
+            'confirmedAt',
+            'Dispute window (48 hours) has expired',
+          );
+        }
+        if (disputeReason == null ||
+            disputeReason.isEmpty ||
+            disputeReason.length > DeliveryConstants.maxDisputeReasonLength) {
+          throw DeliveryValidationException(
+            'disputeReason',
+            'Reason must be 1-500 characters',
+          );
+        }
+        if (delivery.farmerId != userId &&
+            delivery.truckerId != userId &&
+            delivery.buyerId != userId) {
+          throw DeliveryValidationException(
+            'userId',
+            'Only participants can raise disputes',
+          );
+        }
+      case 'cancel':
+        if (delivery.status != DeliveryStatus.pending &&
+            delivery.status != DeliveryStatus.pickedUp) {
+          throw DeliveryValidationException(
+            'status',
+            'Cannot cancel after delivery',
+          );
+        }
+        if (delivery.farmerId != userId &&
+            delivery.truckerId != userId &&
+            delivery.buyerId != userId) {
+          throw DeliveryValidationException(
+            'userId',
+            'Only participants can cancel',
+          );
+        }
+    }
+  }
+
+  /// GPS coordinate range validation (if provided).
+  void _validateGpsCoordinates(double? lat, double? lon) {
+    if (lat == null || lon == null) return;
+    // F12-CR-03: Reject NaN and Infinity before range checks
+    if (lat.isNaN || lat.isInfinite || lon.isNaN || lon.isInfinite) {
+      throw DeliveryValidationException(
+        'gps',
+        'GPS coordinates must be finite numbers',
+      );
+    }
+    if (lat < -90 || lat > 90) {
+      throw DeliveryValidationException(
+        'latitude',
+        'Latitude must be between -90 and 90',
+      );
+    }
+    if (lon < -180 || lon > 180) {
+      throw DeliveryValidationException(
+        'longitude',
+        'Longitude must be between -180 and 180',
+      );
+    }
+  }
 
   /// Create a new delivery.
   Future<Delivery> createDelivery({
@@ -98,8 +230,9 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
-    if (delivery.truckerId != truckerId) return;
-    if (delivery.status != DeliveryStatus.pending) return;
+
+    _validateDeliveryOperation(delivery, 'confirmPickup', truckerId);
+    _validateGpsCoordinates(gpsPickup?.latitude, gpsPickup?.longitude);
 
     final now = DateTime.now().toUtc();
 
@@ -155,8 +288,9 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
-    if (delivery.buyerId != buyerId) return;
-    if (delivery.status != DeliveryStatus.inTransit) return;
+
+    _validateDeliveryOperation(delivery, 'confirmDelivery', buyerId);
+    _validateGpsCoordinates(gpsDropoff?.latitude, gpsDropoff?.longitude);
 
     final now = DateTime.now().toUtc();
 
@@ -199,27 +333,66 @@ class DeliveryRepository {
     );
   }
 
-  /// Raise a dispute on a delivery. Status → disputed.
-  ///
-  /// [reason] must be 1-2000 characters. Throws [ArgumentError] if violated.
-  Future<void> raiseDispute({
+  /// Mark delivery as in transit by trucker. Status → inTransit.
+  Future<void> markInTransit({
     required String deliveryId,
-    required String userId,
-    required String reason,
+    required String truckerId,
   }) async {
-    if (reason.isEmpty || reason.length > 2000) {
-      throw ArgumentError(
-        'Dispute reason must be between 1 and 2000 characters',
-      );
-    }
-
     final delivery = await _isar.deliverys
         .filter()
         .deliveryIdEqualTo(deliveryId)
         .findFirst();
 
     if (delivery == null) return;
-    if (delivery.status != DeliveryStatus.delivered) return;
+
+    _validateDeliveryOperation(delivery, 'markInTransit', truckerId);
+
+    final now = DateTime.now().toUtc();
+
+    await _isar.writeTxn(() async {
+      delivery.status = DeliveryStatus.inTransit;
+      delivery.updatedAt = now;
+      delivery.version += 1;
+      await _isar.deliverys.put(delivery);
+    });
+
+    await _syncQueue.enqueue(
+      userId: truckerId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'deliveryId': deliveryId,
+        'status': DeliveryStatus.inTransit.name,
+        'updatedAt': now.toIso8601String(),
+        'version': delivery.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
+  /// Raise a dispute on a delivery. Status → disputed.
+  ///
+  /// [reason] must be 1-500 characters.
+  /// Throws [DeliveryValidationException] if validation fails.
+  Future<void> raiseDispute({
+    required String deliveryId,
+    required String userId,
+    required String reason,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+
+    if (delivery == null) return;
+
+    _validateDeliveryOperation(
+      delivery,
+      'raiseDispute',
+      userId,
+      disputeReason: reason,
+    );
 
     final now = DateTime.now().toUtc();
 
@@ -258,14 +431,8 @@ class DeliveryRepository {
         .findFirst();
 
     if (delivery == null) return;
-    final isParticipant = delivery.farmerId == userId ||
-        delivery.truckerId == userId ||
-        delivery.buyerId == userId;
-    if (!isParticipant) return;
-    if (delivery.status != DeliveryStatus.pending &&
-        delivery.status != DeliveryStatus.pickedUp) {
-      return;
-    }
+
+    _validateDeliveryOperation(delivery, 'cancel', userId);
 
     final now = DateTime.now().toUtc();
 
@@ -312,5 +479,62 @@ class DeliveryRepository {
   /// Get a single delivery by its ID.
   Future<Delivery?> getDeliveryById(String deliveryId) async {
     return _isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
+  }
+
+  /// Get all deliveries where the user is a participant.
+  /// Queries Isar by farmerId, truckerId, or buyerId.
+  /// Optional role filter: 'farmer', 'trucker', 'buyer'.
+  /// Optional statusFilter: matches DeliveryStatus enum name.
+  Future<List<Delivery>> getDeliveriesByUser(
+    String userId, {
+    String? role,
+    String? statusFilter,
+  }) async {
+    List<Delivery> results;
+
+    if (role == 'farmer') {
+      results = await _isar.deliverys
+          .filter()
+          .farmerIdEqualTo(userId)
+          .sortByCreatedAtDesc()
+          .findAll();
+    } else if (role == 'trucker') {
+      results = await _isar.deliverys
+          .filter()
+          .truckerIdEqualTo(userId)
+          .sortByCreatedAtDesc()
+          .findAll();
+    } else if (role == 'buyer') {
+      results = await _isar.deliverys
+          .filter()
+          .buyerIdEqualTo(userId)
+          .sortByCreatedAtDesc()
+          .findAll();
+    } else {
+      // All roles: union of farmer + trucker + buyer queries
+      final asFarmer =
+          await _isar.deliverys.filter().farmerIdEqualTo(userId).findAll();
+      final asTrucker =
+          await _isar.deliverys.filter().truckerIdEqualTo(userId).findAll();
+      final asBuyer =
+          await _isar.deliverys.filter().buyerIdEqualTo(userId).findAll();
+      // Deduplicate by deliveryId
+      final seen = <String>{};
+      results = [...asFarmer, ...asTrucker, ...asBuyer]
+          .where((d) => seen.add(d.deliveryId))
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+
+    // Apply status filter if provided
+    if (statusFilter != null) {
+      final targetStatus = DeliveryStatus.values.firstWhere(
+        (s) => s.name == statusFilter,
+        orElse: () => DeliveryStatus.pending,
+      );
+      results = results.where((d) => d.status == targetStatus).toList();
+    }
+
+    return results;
   }
 }

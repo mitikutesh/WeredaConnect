@@ -141,3 +141,55 @@ class FilterDeliveries extends DeliveryEvent {
   @override
   List<Object?> get props => [tripId, statusFilter];
 }
+
+/// Load all deliveries for the authenticated user across all trips.
+/// Filters by role (farmer/trucker/buyer) when specified.
+class LoadUserDeliveries extends DeliveryEvent {
+  final String userId;
+  final String? role; // 'farmer', 'trucker', 'buyer', or null for all
+
+  const LoadUserDeliveries({required this.userId, this.role});
+
+  @override
+  List<Object?> get props => [userId, role];
+}
+
+/// Load a single delivery by ID for detail screen.
+class LoadDeliveryDetail extends DeliveryEvent {
+  final String deliveryId;
+
+  const LoadDeliveryDetail({required this.deliveryId});
+
+  @override
+  List<Object?> get props => [deliveryId];
+}
+
+/// Mark a delivery as in transit (pickedUp → inTransit).
+class MarkInTransit extends DeliveryEvent {
+  final String deliveryId;
+  final String truckerId;
+
+  const MarkInTransit({
+    required this.deliveryId,
+    required this.truckerId,
+  });
+
+  @override
+  List<Object?> get props => [deliveryId, truckerId];
+}
+
+/// Filter user deliveries by status.
+class FilterUserDeliveries extends DeliveryEvent {
+  final String userId;
+  final String? role;
+  final String? statusFilter;
+
+  const FilterUserDeliveries({
+    required this.userId,
+    this.role,
+    this.statusFilter,
+  });
+
+  @override
+  List<Object?> get props => [userId, role, statusFilter];
+}

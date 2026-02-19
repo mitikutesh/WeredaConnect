@@ -511,4 +511,217 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'የጭነት ሹፌር ስም ያስፈልጋል';
+
+  @override
+  String get deliveries => 'ማድረሻዎች';
+
+  @override
+  String get deliveryMyDeliveries => 'ማድረሻዎቼ';
+
+  @override
+  String get deliveryDetails => 'የማድረሻ ዝርዝሮች';
+
+  @override
+  String get deliveryScanQrCode => 'ኪዩአር ኮድ ቃኝ';
+
+  @override
+  String get deliveryShowQrCode => 'ኪዩአር ኮድ';
+
+  @override
+  String get deliveryRaiseDispute => 'ክርክር አቅርብ';
+
+  @override
+  String get deliveryStatusPending => 'በመጠባበቅ';
+
+  @override
+  String get deliveryStatusPickedUp => 'ተነስቷል';
+
+  @override
+  String get deliveryStatusInTransit => 'በመጓጓዝ';
+
+  @override
+  String get deliveryStatusDelivered => 'ደርሷል';
+
+  @override
+  String get deliveryStatusDisputed => 'ክርክር';
+
+  @override
+  String get deliveryStatusCancelled => 'ተሰርዟል';
+
+  @override
+  String get deliveryConfirmPickup => 'ማንሳትን አረጋግጥ';
+
+  @override
+  String get deliveryConfirmDelivery => 'ማድረሻን አረጋግጥ';
+
+  @override
+  String get deliveryScanQr => 'ኪዩአር ቃኝ';
+
+  @override
+  String get deliveryShowQr => 'ኪዩአር ኮድ አሳይ';
+
+  @override
+  String get deliveryRaiseDisputeAction => 'ክርክር ያቅርቡ';
+
+  @override
+  String get deliveryCancel => 'ማድረሻ ሰርዝ';
+
+  @override
+  String get deliveryTakePhoto => 'ፎቶ አንሳ';
+
+  @override
+  String get deliveryRegenerateQr => 'ኪዩአር እንደገና ፍጠር';
+
+  @override
+  String get deliveryFarmer => 'ገበሬ';
+
+  @override
+  String get deliveryTrucker => 'ሹፌር';
+
+  @override
+  String get deliveryBuyer => 'ገዥ';
+
+  @override
+  String get deliveryGpsCaptured => 'ጂፒኤስ ተቀርጿል';
+
+  @override
+  String get deliveryGpsUnavailable => 'ጂፒኤስ አይገኝም';
+
+  @override
+  String get deliveryGpsWithinRange => 'ክልል ውስጥ';
+
+  @override
+  String get deliveryGpsOutOfRange => 'ከክልል ውጪ';
+
+  @override
+  String get deliveryGpsCapturing => 'ጂፒኤስ በመቀረጽ...';
+
+  @override
+  String get deliveryGpsPermissionDenied => 'የአካባቢ ፈቃድ ተከልክሏል';
+
+  @override
+  String get deliveryQrShowInstruction => 'ይህን ኪዩአር ለሹፌሩ አሳይ';
+
+  @override
+  String get deliveryQrOfflineNote => 'ይህ ኪዩአር ያለ ኢንተርኔት ይሰራል';
+
+  @override
+  String get deliveryQrVerified => 'ማረጋገጫ ተሳክቷል';
+
+  @override
+  String get deliveryQrFailed => 'ማረጋገጫ አልተሳካም';
+
+  @override
+  String get deliveryQrPointCamera => 'ካሜራውን ወደ ኪዩአር ኮድ አመልክት';
+
+  @override
+  String get deliveryDisputeReason => 'የክርክር ምክንያት';
+
+  @override
+  String get deliveryDisputeTimeRemaining => 'ቀሪ ጊዜ';
+
+  @override
+  String get deliveryDisputeExpired => 'የክርክር ጊዜ አልፏል';
+
+  @override
+  String get deliveryDisputeWarning =>
+      'ክርክሮች በWeredaConnect ይገመገማሉ። ግልጽ ዝርዝር ያቅርቡ።';
+
+  @override
+  String get deliveryDisputeSubmit => 'ክርክር ያቅርቡ';
+
+  @override
+  String get deliveryFilterAll => 'ሁሉም';
+
+  @override
+  String get deliveryFilterPending => 'በመጠባበቅ';
+
+  @override
+  String get deliveryFilterPickedUp => 'ተነስቷል';
+
+  @override
+  String get deliveryFilterInTransit => 'በመጓጓዝ';
+
+  @override
+  String get deliveryFilterDelivered => 'ደርሷል';
+
+  @override
+  String get deliveryFilterRole => 'በሚና ያጣሩ';
+
+  @override
+  String get deliveryNoDeliveries => 'እስካሁን ማድረሻ የለም';
+
+  @override
+  String get deliveryNoDeliveriesHint => 'ማድረሻዎችዎ እዚህ ይታያሉ';
+
+  @override
+  String get deliveryOfflineNote => 'ያለ ኢንተርኔት ይሰራል';
+
+  @override
+  String get deliveryCreatedAt => 'የተፈጠረ';
+
+  @override
+  String get deliveryCancelConfirmTitle => 'ማድረሻ ይሰረዝ?';
+
+  @override
+  String get deliveryCancelConfirmMessage => 'ይህን ማድረሻ መሰረዝ ይፈልጋሉ?';
+
+  @override
+  String get deliveryDisputeConfirmTitle => 'ክርክር ያቅርቡ?';
+
+  @override
+  String get deliveryDisputeConfirmMessage => 'ክርክር ማቅረብ ይፈልጋሉ?';
+
+  @override
+  String get deliveryPhotoPickup => 'የማንሳት ፎቶ';
+
+  @override
+  String get deliveryPhotoDropoff => 'የማድረሻ ፎቶ';
+
+  @override
+  String get deliveryAddPhoto => 'ፎቶ ጨምር';
+
+  @override
+  String get deliveryMarkInTransit => 'በመጓጓዝ ላይ ምልክት';
+
+  @override
+  String get deliveryInTransitConfirmMessage =>
+      'ይህን ማድረሻ በመጓጓዝ ላይ ምልክት ማድረግ ይፈልጋሉ?';
+
+  @override
+  String get deliveryReasonRequired => 'ምክንያት ያስገቡ';
+
+  @override
+  String get deliveryReasonTooLong => 'ምክንያት ከ500 ቁምፊ መብለጥ የለበትም';
+
+  @override
+  String get deliveryTryAgain => 'እንደገና ሞክር';
+
+  @override
+  String deliveryIdLabel(String id) {
+    return 'ማድረሻ #$id';
+  }
+
+  @override
+  String get deliveryPickupSection => 'ማንሳት';
+
+  @override
+  String get deliveryDeliverySection => 'ማድረሻ';
+
+  @override
+  String get deliveryNotYetPickedUp => 'እስካሁን አልተነሳም';
+
+  @override
+  String get deliveryNotYetDelivered => 'እስካሁን አልደረሰም';
+
+  @override
+  String get deliveryToggleFlash => 'ፍላሽ ቀያይር';
+
+  @override
+  String deliveryConfirmedAtLabel(String date) {
+    return 'የተረጋገጠ: $date';
+  }
+
+  @override
+  String get deliverySeedTestButton => 'የሙከራ ማድረሻ ፍጠር';
 }

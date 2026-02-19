@@ -63,3 +63,28 @@ class DeliveryError extends DeliveryState {
   @override
   List<Object?> get props => [message];
 }
+
+/// Single delivery loaded for detail view.
+class DeliveryDetailLoaded extends DeliveryState {
+  final Delivery delivery;
+
+  const DeliveryDetailLoaded({required this.delivery});
+
+  @override
+  List<Object?> get props => [delivery];
+}
+
+/// Delivery marked as in transit.
+class MarkedInTransit extends DeliveryState {
+  const MarkedInTransit();
+}
+
+/// Dispute raised successfully.
+class DisputeRaised extends DeliveryState {
+  const DisputeRaised();
+}
+
+/// Delivery cancelled successfully.
+class DeliveryCancelled extends DeliveryState {
+  const DeliveryCancelled();
+}

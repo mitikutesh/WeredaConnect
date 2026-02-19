@@ -10,7 +10,58 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+
+/// Insert a test delivery directly into Isar.
+Future<Delivery> _insertTestDelivery(
+  Isar isar, {
+  String deliveryId = '550e8400-e29b-41d4-a716-446655440000',
+  String tripId = '660e8400-e29b-41d4-a716-446655440001',
+  String listingId = '770e8400-e29b-41d4-a716-446655440002',
+  String farmerId = 'farmer-001',
+  String truckerId = 'trucker-001',
+  String buyerId = 'buyer-001',
+  DeliveryStatus status = DeliveryStatus.pending,
+  DateTime? confirmedAt,
+}) async {
+  final now = DateTime.now().toUtc();
+  final delivery = Delivery()
+    ..deliveryId = deliveryId
+    ..tripId = tripId
+    ..listingId = listingId
+    ..farmerId = farmerId
+    ..farmerName = 'Test Farmer'
+    ..truckerId = truckerId
+    ..truckerName = 'Test Trucker'
+    ..buyerId = buyerId
+    ..buyerName = 'Test Buyer'
+    ..qrToken = 'test-token'
+    ..status = status
+    ..confirmedAt = confirmedAt
+    ..createdAt = now
+    ..updatedAt = now
+    ..version = 1;
+
+  await isar.writeTxn(() async {
+    await isar.deliverys.put(delivery);
+  });
+
+  return delivery;
+}
+
+/// Helper: transition a delivery to inTransit via direct Isar write.
+/// In production this transition happens server-side; tests simulate it.
+Future<void> _transitionToInTransit(Isar isar, String deliveryId) async {
+  final d =
+      await isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
+  await isar.writeTxn(() async {
+    d!.status = DeliveryStatus.inTransit;
+    d.updatedAt = DateTime.now().toUtc();
+    d.version += 1;
+    await isar.deliverys.put(d);
+  });
+}
 
 void main() {
   group('DeliveryRepository', () {
@@ -203,21 +254,6 @@ void main() {
 
     // --- Confirm Delivery ---
 
-    /// Helper: transition a delivery to inTransit via direct Isar write.
-    /// In production this transition happens server-side; tests simulate it.
-    Future<void> transitionToInTransit(String deliveryId) async {
-      final d = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(deliveryId)
-          .findFirst();
-      await isar.writeTxn(() async {
-        d!.status = DeliveryStatus.inTransit;
-        d.updatedAt = DateTime.now().toUtc();
-        d.version += 1;
-        await isar.deliverys.put(d);
-      });
-    }
-
     test('confirmDelivery updates status to delivered', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
@@ -235,7 +271,7 @@ void main() {
         deliveryId: delivery.deliveryId,
         truckerId: 'trucker-001',
       );
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
 
       final gps = LatLng()
         ..latitude = 8.9806
@@ -253,50 +289,12 @@ void main() {
           .deliveryIdEqualTo(delivery.deliveryId)
           .findFirst();
       expect(fromDb!.status, DeliveryStatus.delivered);
-      expect(
-        fromDb.version,
-        4,
-      ); // create(1) + pickup(2) + inTransit(3) + deliver(4)
+      // create(1) + pickup(2) + inTransit(3) + deliver(4)
+      expect(fromDb.version, 4);
       expect(fromDb.confirmedAt, isNotNull);
       expect(fromDb.gpsDropoff, isNotNull);
       expect(fromDb.gpsDropoff!.latitude, closeTo(8.9806, 0.0001));
       expect(fromDb.dropoffPhotoRef, 'photos/dropoff-001.jpg');
-    });
-
-    test('confirmDelivery on pickedUp delivery is a no-op', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'trucker-001',
-      );
-
-      await repository.confirmDelivery(
-        deliveryId: delivery.deliveryId,
-        buyerId: 'buyer-001',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      // Status should remain pickedUp — no transition occurred
-      expect(fromDb!.status, DeliveryStatus.pickedUp);
-      expect(fromDb.version, 2); // create(1) + pickup(2), no delivery bump
-
-      // No sync operation for the confirmDelivery call
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending.length, 2); // create + pickup only
     });
 
     test('confirmDelivery enqueues sync operation', () async {
@@ -316,7 +314,7 @@ void main() {
         deliveryId: delivery.deliveryId,
         truckerId: 'trucker-001',
       );
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
 
       await repository.confirmDelivery(
         deliveryId: delivery.deliveryId,
@@ -343,12 +341,11 @@ void main() {
         qrToken: 'qr-token',
       );
 
-      // Must reach delivered status before disputing
       await repository.confirmPickup(
         deliveryId: delivery.deliveryId,
         truckerId: 'trucker-001',
       );
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
       await repository.confirmDelivery(
         deliveryId: delivery.deliveryId,
         buyerId: 'buyer-001',
@@ -383,12 +380,11 @@ void main() {
         qrToken: 'qr-token',
       );
 
-      // Must reach delivered status before disputing
       await repository.confirmPickup(
         deliveryId: delivery.deliveryId,
         truckerId: 'trucker-001',
       );
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
       await repository.confirmDelivery(
         deliveryId: delivery.deliveryId,
         buyerId: 'buyer-001',
@@ -403,110 +399,6 @@ void main() {
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 4); // create + pickup + delivery + dispute
       expect(pending.last.data, contains('"disputeReason":"Quality issue"'));
-    });
-
-    test('raiseDispute throws ArgumentError for empty reason', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'trucker-001',
-      );
-      await transitionToInTransit(delivery.deliveryId);
-      await repository.confirmDelivery(
-        deliveryId: delivery.deliveryId,
-        buyerId: 'buyer-001',
-      );
-
-      expect(
-        () => repository.raiseDispute(
-          deliveryId: delivery.deliveryId,
-          userId: 'buyer-001',
-          reason: '',
-        ),
-        throwsA(isA<ArgumentError>()),
-      );
-    });
-
-    test('raiseDispute throws ArgumentError for reason > 2000 chars', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'trucker-001',
-      );
-      await transitionToInTransit(delivery.deliveryId);
-      await repository.confirmDelivery(
-        deliveryId: delivery.deliveryId,
-        buyerId: 'buyer-001',
-      );
-
-      expect(
-        () => repository.raiseDispute(
-          deliveryId: delivery.deliveryId,
-          userId: 'buyer-001',
-          reason: 'x' * 2001,
-        ),
-        throwsA(isA<ArgumentError>()),
-      );
-    });
-
-    test('raiseDispute accepts reason at max length (2000 chars)', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'trucker-001',
-      );
-      await transitionToInTransit(delivery.deliveryId);
-      await repository.confirmDelivery(
-        deliveryId: delivery.deliveryId,
-        buyerId: 'buyer-001',
-      );
-
-      final longReason = 'x' * 2000;
-      await repository.raiseDispute(
-        deliveryId: delivery.deliveryId,
-        userId: 'buyer-001',
-        reason: longReason,
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.disputed);
-      expect(fromDb.disputeReason, longReason);
     });
 
     // --- Cancel ---
@@ -558,6 +450,56 @@ void main() {
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 2); // create + delete
       expect(pending.last.action, 'delete');
+    });
+
+    test('cancelDelivery by farmer (participant) succeeds', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.cancelDelivery(
+        deliveryId: delivery.deliveryId,
+        userId: 'farmer-001',
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.cancelled);
+    });
+
+    test('cancelDelivery by buyer (participant) succeeds', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.cancelDelivery(
+        deliveryId: delivery.deliveryId,
+        userId: 'buyer-001',
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.cancelled);
     });
 
     // --- Query Methods ---
@@ -630,7 +572,6 @@ void main() {
         qrToken: 'qr-2',
       );
 
-      // Confirm pickup on first delivery
       await repository.confirmPickup(
         deliveryId: d1.deliveryId,
         truckerId: 'trucker-001',
@@ -641,9 +582,9 @@ void main() {
       expect(pickedUp.length, 1);
       expect(pickedUp.first.deliveryId, d1.deliveryId);
 
-      final pending =
+      final pendingList =
           await repository.getDeliveriesByStatus(DeliveryStatus.pending);
-      expect(pending.length, 1);
+      expect(pendingList.length, 1);
     });
 
     test('getDeliveryById returns correct delivery', () async {
@@ -669,152 +610,19 @@ void main() {
       expect(result, isNull);
     });
 
-    // --- Authorization guards ---
-
-    test('confirmPickup with wrong truckerId is a no-op', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'wrong-trucker',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.pending);
-      expect(fromDb.version, 1);
-
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending.length, 1); // only create, no pickup
+    test('getDeliveriesByTrip returns empty list for unknown trip', () async {
+      final deliveries =
+          await repository.getDeliveriesByTrip('nonexistent-trip');
+      expect(deliveries, isEmpty);
     });
 
-    test('confirmDelivery with wrong buyerId is a no-op', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.confirmPickup(
-        deliveryId: delivery.deliveryId,
-        truckerId: 'trucker-001',
-      );
-      await transitionToInTransit(delivery.deliveryId);
-
-      await repository.confirmDelivery(
-        deliveryId: delivery.deliveryId,
-        buyerId: 'wrong-buyer',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.inTransit);
-      expect(fromDb.version, 3); // create(1) + pickup(2) + inTransit(3)
-
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending.length, 2); // create + pickup only
+    test('getDeliveriesByStatus returns empty when no matches', () async {
+      final deliveries =
+          await repository.getDeliveriesByStatus(DeliveryStatus.disputed);
+      expect(deliveries, isEmpty);
     });
 
-    test('cancelDelivery with non-participant userId is a no-op', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.cancelDelivery(
-        deliveryId: delivery.deliveryId,
-        userId: 'random-user',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.pending);
-      expect(fromDb.version, 1);
-
-      final pending = await syncQueue.getPendingOperations();
-      expect(pending.length, 1); // only create, no cancel
-    });
-
-    test('cancelDelivery by farmer (participant) succeeds', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.cancelDelivery(
-        deliveryId: delivery.deliveryId,
-        userId: 'farmer-001',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.cancelled);
-    });
-
-    test('cancelDelivery by buyer (participant) succeeds', () async {
-      final delivery = await repository.createDelivery(
-        tripId: 'trip-001',
-        listingId: 'listing-001',
-        farmerId: 'farmer-001',
-        farmerName: 'Abebe',
-        truckerId: 'trucker-001',
-        truckerName: 'Dawit',
-        buyerId: 'buyer-001',
-        buyerName: 'Sara',
-        qrToken: 'qr-token',
-      );
-
-      await repository.cancelDelivery(
-        deliveryId: delivery.deliveryId,
-        userId: 'buyer-001',
-      );
-
-      final fromDb = await isar.deliverys
-          .filter()
-          .deliveryIdEqualTo(delivery.deliveryId)
-          .findFirst();
-      expect(fromDb!.status, DeliveryStatus.cancelled);
-    });
-
-    // --- Null delivery (no-op) ---
+    // --- Null delivery (no-op for nonexistent) ---
 
     test('confirmPickup on nonexistent delivery does nothing', () async {
       await repository.confirmPickup(
@@ -885,7 +693,7 @@ void main() {
       expect(fromDb.buyerName, 'ሳራ ሃይሉ');
     });
 
-    // --- GPS boundary values (Ethiopian coordinates) ---
+    // --- GPS boundary values ---
 
     test('GPS boundary values for Ethiopian coordinates', () async {
       final delivery = await repository.createDelivery(
@@ -900,7 +708,6 @@ void main() {
         qrToken: 'qr-token',
       );
 
-      // Southern Ethiopia boundary (~3°N)
       final pickupGps = LatLng()
         ..latitude = 3.4
         ..longitude = 33.0;
@@ -911,10 +718,8 @@ void main() {
         gpsPickup: pickupGps,
       );
 
-      // Transition to inTransit before confirming delivery
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
 
-      // Northern Ethiopia boundary (~15°N)
       final dropoffGps = LatLng()
         ..latitude = 14.9
         ..longitude = 47.5;
@@ -961,7 +766,7 @@ void main() {
           .findFirst();
       expect(fromDb!.version, 2);
 
-      await transitionToInTransit(delivery.deliveryId);
+      await _transitionToInTransit(isar, delivery.deliveryId);
       fromDb = await isar.deliverys
           .filter()
           .deliveryIdEqualTo(delivery.deliveryId)
@@ -979,18 +784,415 @@ void main() {
       expect(fromDb!.version, 4);
     });
 
-    // --- Empty results ---
+    // =======================================================
+    // Validation Tests (_validateDeliveryOperation)
+    // =======================================================
 
-    test('getDeliveriesByTrip returns empty list for unknown trip', () async {
-      final deliveries =
-          await repository.getDeliveriesByTrip('nonexistent-trip');
-      expect(deliveries, isEmpty);
+    group('confirmPickup validation', () {
+      test('throws when status is not pending', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+        );
+
+        expect(
+          () => repository.confirmPickup(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'trucker-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when user is not trucker', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.confirmPickup(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'wrong-trucker',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'truckerId'),
+          ),
+        );
+      });
     });
 
-    test('getDeliveriesByStatus returns empty when no matches', () async {
-      final deliveries =
-          await repository.getDeliveriesByStatus(DeliveryStatus.disputed);
-      expect(deliveries, isEmpty);
+    group('confirmDelivery validation', () {
+      test('throws when status is not inTransit', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.confirmDelivery(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            buyerId: 'buyer-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when user is not buyer', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.inTransit,
+        );
+
+        expect(
+          () => repository.confirmDelivery(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            buyerId: 'wrong-buyer',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'buyerId'),
+          ),
+        );
+      });
+    });
+
+    group('raiseDispute validation', () {
+      test('throws when status is not delivered', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.raiseDispute(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'farmer-001',
+            reason: 'Wrong quantity',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when dispute window (48h) expired', () async {
+        final expiredConfirmation =
+            DateTime.now().toUtc().subtract(const Duration(hours: 49));
+
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+          confirmedAt: expiredConfirmation,
+        );
+
+        expect(
+          () => repository.raiseDispute(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'farmer-001',
+            reason: 'Wrong quantity',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'confirmedAt')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('48 hours'),
+                ),
+          ),
+        );
+      });
+
+      test('throws when reason is empty', () async {
+        final recentConfirmation =
+            DateTime.now().toUtc().subtract(const Duration(hours: 1));
+
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+          confirmedAt: recentConfirmation,
+        );
+
+        expect(
+          () => repository.raiseDispute(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'farmer-001',
+            reason: '',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'disputeReason'),
+          ),
+        );
+      });
+
+      test('throws when reason exceeds 500 characters', () async {
+        final recentConfirmation =
+            DateTime.now().toUtc().subtract(const Duration(hours: 1));
+
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+          confirmedAt: recentConfirmation,
+        );
+
+        expect(
+          () => repository.raiseDispute(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'farmer-001',
+            reason: 'A' * 501,
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'disputeReason'),
+          ),
+        );
+      });
+
+      test('throws when user is not participant', () async {
+        final recentConfirmation =
+            DateTime.now().toUtc().subtract(const Duration(hours: 1));
+
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+          confirmedAt: recentConfirmation,
+        );
+
+        expect(
+          () => repository.raiseDispute(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'outsider-001',
+            reason: 'Wrong quantity',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'userId'),
+          ),
+        );
+      });
+
+      test('accepts reason at max length (500 chars)', () async {
+        final delivery = await repository.createDelivery(
+          tripId: 'trip-001',
+          listingId: 'listing-001',
+          farmerId: 'farmer-001',
+          farmerName: 'Abebe',
+          truckerId: 'trucker-001',
+          truckerName: 'Dawit',
+          buyerId: 'buyer-001',
+          buyerName: 'Sara',
+          qrToken: 'qr-token',
+        );
+
+        await repository.confirmPickup(
+          deliveryId: delivery.deliveryId,
+          truckerId: 'trucker-001',
+        );
+        await _transitionToInTransit(isar, delivery.deliveryId);
+        await repository.confirmDelivery(
+          deliveryId: delivery.deliveryId,
+          buyerId: 'buyer-001',
+        );
+
+        final longReason = 'x' * 500;
+        await repository.raiseDispute(
+          deliveryId: delivery.deliveryId,
+          userId: 'buyer-001',
+          reason: longReason,
+        );
+
+        final fromDb = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(delivery.deliveryId)
+            .findFirst();
+        expect(fromDb!.status, DeliveryStatus.disputed);
+        expect(fromDb.disputeReason, longReason);
+      });
+    });
+
+    group('cancelDelivery validation', () {
+      test('throws when status is delivered', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.delivered,
+        );
+
+        expect(
+          () => repository.cancelDelivery(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'farmer-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when user is not participant', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.cancelDelivery(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            userId: 'outsider-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'userId'),
+          ),
+        );
+      });
+    });
+
+    // --- Mark In Transit ---
+
+    test('markInTransit updates status to inTransit', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      await repository.markInTransit(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.inTransit);
+      // create(1) + pickup(2) + inTransit(3)
+      expect(fromDb.version, 3);
+    });
+
+    test('markInTransit enqueues sync operation', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      await repository.markInTransit(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending.length, 3); // create + pickup + markInTransit
+      expect(pending.last.action, 'update');
+      expect(pending.last.data, contains('"status":"inTransit"'));
+    });
+
+    test('markInTransit on nonexistent delivery does nothing', () async {
+      await repository.markInTransit(
+        deliveryId: 'nonexistent-id',
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending, isEmpty);
+    });
+
+    group('markInTransit validation', () {
+      test('throws when status is not pickedUp', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.markInTransit(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'trucker-001',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+      });
+
+      test('throws when user is not trucker', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        expect(
+          () => repository.markInTransit(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'wrong-trucker',
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'truckerId'),
+          ),
+        );
+      });
+    });
+
+    group('GPS coordinate validation', () {
+      test('throws for invalid latitude via confirmPickup', () async {
+        await _insertTestDelivery(isar);
+
+        expect(
+          () => repository.confirmPickup(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            truckerId: 'trucker-001',
+            gpsPickup: LatLng()
+              ..latitude = 91.0
+              ..longitude = 38.7,
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'latitude'),
+          ),
+        );
+      });
+
+      test('throws for invalid longitude via confirmDelivery', () async {
+        await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.inTransit,
+        );
+
+        expect(
+          () => repository.confirmDelivery(
+            deliveryId: '550e8400-e29b-41d4-a716-446655440000',
+            buyerId: 'buyer-001',
+            gpsDropoff: LatLng()
+              ..latitude = 9.0
+              ..longitude = 181.0,
+          ),
+          throwsA(
+            isA<DeliveryValidationException>()
+                .having((e) => e.field, 'field', 'longitude'),
+          ),
+        );
+      });
     });
   });
 }
