@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
@@ -24,13 +26,19 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    BrowseListingsScreen(),
-    BrowseTripsScreen(),
-    DeliveryListScreen(),
-    ProfileScreen(),
-  ];
+  List<Widget> _buildScreens() {
+    return [
+      HomeScreen(
+        onNavigateToTab: (index) {
+          setState(() => _currentIndex = index);
+        },
+      ),
+      const BrowseListingsScreen(),
+      const BrowseTripsScreen(),
+      const DeliveryListScreen(),
+      const ProfileScreen(),
+    ];
+  }
 
   void _showLogoutConfirmation(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -64,90 +72,117 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
+  Widget? _buildFab(UserRole role) {
+    // FAB on tab 1 only for farmer (Create Listing)
+    if (_currentIndex == 1 && role == UserRole.farmer) {
+      return FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => const CreateCropListingScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      );
+    }
+    // FAB on tab 2 only for trucker (Create Trip)
+    if (_currentIndex == 2 && role == UserRole.trucker) {
+      return FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => const CreateTripScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      );
+    }
+    return null;
+  }
+
+  String _getListingsTabLabel(AppLocalizations l10n, UserRole role) {
+    return role == UserRole.farmer ? l10n.myListings : l10n.browseListings;
+  }
+
+  String _getTripsTabLabel(AppLocalizations l10n, UserRole role) {
+    return role == UserRole.trucker ? l10n.myTrips : l10n.browseTrips;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_getTitle(l10n)),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // Sync status indicator
-          IconButton(
-            icon: const Icon(Icons.cloud_done_outlined),
-            tooltip: l10n.offlineReady,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.offlineReady)),
-              );
+    return BlocBuilder<AuthBloc, AuthState>(
+      buildWhen: (prev, curr) =>
+          prev is! AuthAuthenticated ||
+          curr is! AuthAuthenticated ||
+          prev.role != curr.role,
+      builder: (context, authState) {
+        final role = authState is AuthAuthenticated
+            ? authState.role
+            : UserRole.farmer;
+        final screens = _buildScreens();
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(_getTitle(l10n)),
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.cloud_done_outlined),
+                tooltip: l10n.offlineReady,
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l10n.offlineReady)),
+                  );
+                },
+              ),
+            ],
+          ),
+          drawer: _buildDrawer(context, l10n),
+          body: screens[_currentIndex],
+          floatingActionButton: _buildFab(role),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
             },
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.home_outlined),
+                selectedIcon: const Icon(Icons.home),
+                label: l10n.home,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.list_alt_outlined),
+                selectedIcon: const Icon(Icons.list_alt),
+                label: _getListingsTabLabel(l10n, role),
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.local_shipping_outlined),
+                selectedIcon: const Icon(Icons.local_shipping),
+                label: _getTripsTabLabel(l10n, role),
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.inventory_2_outlined),
+                selectedIcon: const Icon(Icons.inventory_2),
+                label: l10n.deliveries,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.person_outline),
+                selectedIcon: const Icon(Icons.person),
+                label: l10n.profile,
+              ),
+            ],
           ),
-        ],
-      ),
-      drawer: _buildDrawer(context, l10n),
-      body: _screens[_currentIndex],
-      floatingActionButton: _currentIndex == 1
-          ? FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (context) => const CreateCropListingScreen(),
-                  ),
-                );
-              },
-              child: const Icon(Icons.add),
-            )
-          : _currentIndex == 2
-              ? FloatingActionButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (context) => const CreateTripScreen(),
-                      ),
-                    );
-                  },
-                  child: const Icon(Icons.add),
-                )
-              : null,
-      // Deliveries tab (index 3) has no FAB since deliveries are created from trips
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.home_outlined),
-            selectedIcon: const Icon(Icons.home),
-            label: l10n.home,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.list_alt_outlined),
-            selectedIcon: const Icon(Icons.list_alt),
-            label: l10n.listings,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.local_shipping_outlined),
-            selectedIcon: const Icon(Icons.local_shipping),
-            label: l10n.trips,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.inventory_2_outlined),
-            selectedIcon: const Icon(Icons.inventory_2),
-            label: l10n.deliveries,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_outline),
-            selectedIcon: const Icon(Icons.person),
-            label: l10n.profile,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 

@@ -47,10 +47,7 @@ void main() {
     cropListingBloc = MockCropListingBloc();
 
     when(() => authBloc.state).thenReturn(
-      const AuthAuthenticated(
-        userId: 'farmer-001',
-        tokens: _testTokens,
-      ),
+      const AuthAuthenticated(userId: 'farmer-001', tokens: _testTokens),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => cropListingBloc.state).thenReturn(const CropListingInitial());

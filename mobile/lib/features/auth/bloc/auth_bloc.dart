@@ -121,6 +121,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           userId: user.userId,
           tokens: tokens,
           isOfflineAuth: tokens.isExpired,
+          role: user.role,
         ),
       );
     } on Exception {
@@ -218,10 +219,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       await _saveSession(event.phoneNumber);
 
+      // Use pending role from registration, or fetch from Isar
+      var role = _pendingRole;
+      if (role == null) {
+        final user = await _offlineCache.getCachedUser(event.phoneNumber);
+        role = user?.role ?? UserRole.farmer;
+      }
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
           tokens: result.tokens!,
+          role: role,
         ),
       );
     } else {
@@ -249,11 +258,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
 
+      final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
           tokens: result.tokens!,
           isOfflineAuth: result.isOfflineAuth,
+          role: user?.role ?? UserRole.farmer,
         ),
       );
     } else {
@@ -282,10 +294,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
 
+      final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
           tokens: result.tokens!,
+          role: user?.role ?? UserRole.farmer,
         ),
       );
     } else {
@@ -314,11 +329,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
 
+      final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
       emit(
         AuthAuthenticated(
           userId: result.userId!,
           tokens: result.tokens!,
           isOfflineAuth: true,
+          role: user?.role ?? UserRole.farmer,
         ),
       );
     } else {
@@ -358,6 +376,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             userId: currentState.userId,
             tokens: result.tokens!,
             isOfflineAuth: currentState.isOfflineAuth,
+            role: currentState.role,
           ),
         );
       }

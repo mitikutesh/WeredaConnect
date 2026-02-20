@@ -275,6 +275,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myListings => 'My Listings';
 
   @override
+  String get browseListings => 'Browse Listings';
+
+  @override
   String get myOrders => 'My Orders';
 
   @override

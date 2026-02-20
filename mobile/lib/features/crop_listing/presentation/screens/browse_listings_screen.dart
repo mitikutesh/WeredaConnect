@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -29,12 +30,28 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _loadListings();
   }
 
+  UserRole _getRole() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role;
+    }
+    return UserRole.farmer;
+  }
+
+  bool get _isOwnerMode => _getRole() == UserRole.farmer;
+
   void _loadListings() {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
-      context.read<CropListingBloc>().add(
-            LoadCropListings(farmerId: authState.userId),
-          );
+      if (authState.role == UserRole.farmer) {
+        context.read<CropListingBloc>().add(
+              LoadCropListings(farmerId: authState.userId),
+            );
+      } else {
+        context.read<CropListingBloc>().add(
+              const LoadActiveListings(),
+            );
+      }
     }
   }
 
@@ -56,14 +73,20 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
         // Filter chips
         _FilterChipsRow(
           onFilterChanged: (cropType) {
-            final farmerId = _getFarmerId();
-            if (farmerId == null) return;
-            context.read<CropListingBloc>().add(
-                  FilterCropListings(
-                    farmerId: farmerId,
-                    cropType: cropType,
-                  ),
-                );
+            if (_isOwnerMode) {
+              final farmerId = _getFarmerId();
+              if (farmerId == null) return;
+              context.read<CropListingBloc>().add(
+                    FilterCropListings(
+                      farmerId: farmerId,
+                      cropType: cropType,
+                    ),
+                  );
+            } else {
+              context.read<CropListingBloc>().add(
+                    LoadActiveListings(cropTypeFilter: cropType),
+                  );
+            }
           },
         ),
         // Listings
@@ -132,16 +155,18 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                     final listing = state.listings[index];
                     return CropListingCard(
                       listing: listing,
-                      onDelete: () {
-                        final farmerId = _getFarmerId();
-                        if (farmerId == null) return;
-                        context.read<CropListingBloc>().add(
-                              DeleteCropListing(
-                                listingId: listing.listingId,
-                                farmerId: farmerId,
-                              ),
-                            );
-                      },
+                      onDelete: _isOwnerMode
+                          ? () {
+                              final farmerId = _getFarmerId();
+                              if (farmerId == null) return;
+                              context.read<CropListingBloc>().add(
+                                    DeleteCropListing(
+                                      listingId: listing.listingId,
+                                      farmerId: farmerId,
+                                    ),
+                                  );
+                            }
+                          : null,
                     );
                   },
                 );

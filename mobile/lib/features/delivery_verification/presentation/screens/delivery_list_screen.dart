@@ -31,6 +31,11 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
   @override
   void initState() {
     super.initState();
+    // Auto-select role filter based on authenticated user's role
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      _selectedRole = authState.role.name;
+    }
     _loadDeliveries();
   }
 

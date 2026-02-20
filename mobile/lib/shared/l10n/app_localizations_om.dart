@@ -279,6 +279,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myListings => 'Tarree Koo';
 
   @override
+  String get browseListings => 'Tarree Barbaadi';
+
+  @override
   String get myOrders => 'Ajaja Koo';
 
   @override

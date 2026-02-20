@@ -348,6 +348,10 @@
   "@myListings": {
     "description": "My listings menu item"
   },
+  "browseListings": "Browse Listings",
+  "@browseListings": {
+    "description": "Browse listings tab label for non-farmer roles"
+  },
   "myOrders": "My Orders",
   "@myOrders": {
     "description": "My orders menu item"

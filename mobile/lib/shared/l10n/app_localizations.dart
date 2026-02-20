@@ -622,6 +622,12 @@ abstract class AppLocalizations {
   /// **'My Listings'**
   String get myListings;
 
+  /// Browse listings tab label for non-farmer roles
+  ///
+  /// In en, this message translates to:
+  /// **'Browse Listings'**
+  String get browseListings;
+
   /// My orders menu item
   ///
   /// In en, this message translates to:

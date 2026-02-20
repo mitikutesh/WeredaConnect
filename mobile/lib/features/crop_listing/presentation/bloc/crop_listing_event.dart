@@ -67,6 +67,16 @@ class DeleteCropListing extends CropListingEvent {
   List<Object?> get props => [listingId, farmerId];
 }
 
+/// Event to load all active listings (browse mode for truckers/buyers).
+class LoadActiveListings extends CropListingEvent {
+  final String? cropTypeFilter;
+
+  const LoadActiveListings({this.cropTypeFilter});
+
+  @override
+  List<Object?> get props => [cropTypeFilter];
+}
+
 /// Event to filter crop listings by crop type.
 class FilterCropListings extends CropListingEvent {
   final String farmerId;

@@ -67,6 +67,17 @@ class CancelTrip extends TripListingEvent {
   List<Object?> get props => [tripId, truckerId];
 }
 
+/// Event to load all open trips (browse mode for farmers/buyers).
+class LoadOpenTrips extends TripListingEvent {
+  final String? fromWoreda;
+  final String? toWoreda;
+
+  const LoadOpenTrips({this.fromWoreda, this.toWoreda});
+
+  @override
+  List<Object?> get props => [fromWoreda, toWoreda];
+}
+
 /// Event to filter trips by route.
 class FilterTrips extends TripListingEvent {
   final String? fromWoreda;

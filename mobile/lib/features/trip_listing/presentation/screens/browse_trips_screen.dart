@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
@@ -38,12 +39,28 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     super.dispose();
   }
 
+  UserRole _getRole() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role;
+    }
+    return UserRole.farmer;
+  }
+
+  bool get _isOwnerMode => _getRole() == UserRole.trucker;
+
   void _loadTrips() {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
-      context.read<TripListingBloc>().add(
-            LoadTrips(truckerId: authState.userId),
-          );
+      if (authState.role == UserRole.trucker) {
+        context.read<TripListingBloc>().add(
+              LoadTrips(truckerId: authState.userId),
+            );
+      } else {
+        context.read<TripListingBloc>().add(
+              const LoadOpenTrips(),
+            );
+      }
     }
   }
 
@@ -56,19 +73,27 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
   }
 
   void _applyFilters() {
-    final truckerId = _getTruckerId();
-    if (truckerId == null) return;
-
     final fromWoreda = _fromWoredaFilterController.text.trim();
     final toWoreda = _toWoredaFilterController.text.trim();
 
-    context.read<TripListingBloc>().add(
-          FilterTrips(
-            truckerId: truckerId,
-            fromWoreda: fromWoreda.isNotEmpty ? fromWoreda : null,
-            toWoreda: toWoreda.isNotEmpty ? toWoreda : null,
-          ),
-        );
+    if (_isOwnerMode) {
+      final truckerId = _getTruckerId();
+      if (truckerId == null) return;
+      context.read<TripListingBloc>().add(
+            FilterTrips(
+              truckerId: truckerId,
+              fromWoreda: fromWoreda.isNotEmpty ? fromWoreda : null,
+              toWoreda: toWoreda.isNotEmpty ? toWoreda : null,
+            ),
+          );
+    } else {
+      context.read<TripListingBloc>().add(
+            LoadOpenTrips(
+              fromWoreda: fromWoreda.isNotEmpty ? fromWoreda : null,
+              toWoreda: toWoreda.isNotEmpty ? toWoreda : null,
+            ),
+          );
+    }
   }
 
   @override
@@ -204,16 +229,18 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                             ),
                           );
                         },
-                        onCancel: () {
-                          final truckerId = _getTruckerId();
-                          if (truckerId == null) return;
-                          context.read<TripListingBloc>().add(
-                                CancelTrip(
-                                  tripId: trip.tripId,
-                                  truckerId: truckerId,
-                                ),
-                              );
-                        },
+                        onCancel: _isOwnerMode
+                            ? () {
+                                final truckerId = _getTruckerId();
+                                if (truckerId == null) return;
+                                context.read<TripListingBloc>().add(
+                                      CancelTrip(
+                                        tripId: trip.tripId,
+                                        truckerId: truckerId,
+                                      ),
+                                    );
+                              }
+                            : null,
                       );
                     },
                   ),

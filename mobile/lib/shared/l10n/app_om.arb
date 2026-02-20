@@ -348,6 +348,10 @@
   "@myListings": {
     "description": "My listings menu item"
   },
+  "browseListings": "Tarree Barbaadi",
+  "@browseListings": {
+    "description": "Browse listings tab label for non-farmer roles"
+  },
   "myOrders": "Ajaja Koo",
   "@myOrders": {
     "description": "My orders menu item"

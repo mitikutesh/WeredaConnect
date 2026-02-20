@@ -270,6 +270,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myListings => 'የእኔ ዝርዝሮች';
 
   @override
+  String get browseListings => 'ዝርዝሮችን ያስሱ';
+
+  @override
   String get myOrders => 'የእኔ ትዕዛዞች';
 
   @override

@@ -348,6 +348,10 @@
   "@myListings": {
     "description": "My listings menu item"
   },
+  "browseListings": "ዝርዝሮችን ያስሱ",
+  "@browseListings": {
+    "description": "Browse listings tab label for non-farmer roles"
+  },
   "myOrders": "የእኔ ትዕዛዞች",
   "@myOrders": {
     "description": "My orders menu item"

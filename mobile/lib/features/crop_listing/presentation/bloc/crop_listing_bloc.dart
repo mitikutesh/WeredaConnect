@@ -15,6 +15,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       : _repository = repository,
         super(const CropListingInitial()) {
     on<LoadCropListings>(_onLoadCropListings);
+    on<LoadActiveListings>(_onLoadActiveListings);
     on<CreateCropListing>(_onCreateCropListing);
     on<DeleteCropListing>(_onDeleteCropListing);
     on<FilterCropListings>(_onFilterCropListings);
@@ -29,6 +30,27 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     try {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
+    } on Exception catch (e) {
+      emit(CropListingError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadActiveListings(
+    LoadActiveListings event,
+    Emitter<CropListingState> emit,
+  ) async {
+    emit(const CropListingLoading());
+
+    try {
+      final listings = await _repository.getActiveListings(
+        cropTypeFilter: event.cropTypeFilter,
+      );
+      emit(
+        CropListingsLoaded(
+          listings: listings,
+          activeFilter: event.cropTypeFilter,
+        ),
+      );
     } on Exception catch (e) {
       emit(CropListingError(message: e.toString()));
     }

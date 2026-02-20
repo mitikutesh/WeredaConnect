@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -50,7 +51,11 @@ void main() {
     when(() => escrowBloc.stream)
         .thenAnswer((_) => const Stream<EscrowState>.empty());
     when(() => authBloc.state).thenReturn(
-      const AuthAuthenticated(userId: 'buyer-001', tokens: _testTokens),
+      const AuthAuthenticated(
+        userId: 'buyer-001',
+        tokens: _testTokens,
+        role: UserRole.buyer,
+      ),
     );
     when(() => authBloc.stream)
         .thenAnswer((_) => const Stream<AuthState>.empty());

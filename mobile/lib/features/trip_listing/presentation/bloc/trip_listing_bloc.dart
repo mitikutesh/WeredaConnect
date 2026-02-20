@@ -15,6 +15,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       : _repository = repository,
         super(const TripListingInitial()) {
     on<LoadTrips>(_onLoadTrips);
+    on<LoadOpenTrips>(_onLoadOpenTrips);
     on<CreateTrip>(_onCreateTrip);
     on<CancelTrip>(_onCancelTrip);
     on<FilterTrips>(_onFilterTrips);
@@ -29,6 +30,29 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     try {
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
+    } on Exception catch (e) {
+      emit(TripListingError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadOpenTrips(
+    LoadOpenTrips event,
+    Emitter<TripListingState> emit,
+  ) async {
+    emit(const TripListingLoading());
+
+    try {
+      final trips = await _repository.getOpenTrips(
+        fromWoreda: event.fromWoreda,
+        toWoreda: event.toWoreda,
+      );
+      emit(
+        TripsLoaded(
+          trips: trips,
+          fromWoredaFilter: event.fromWoreda,
+          toWoredaFilter: event.toWoreda,
+        ),
+      );
     } on Exception catch (e) {
       emit(TripListingError(message: e.toString()));
     }
