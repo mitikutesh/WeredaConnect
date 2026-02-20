@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
+import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Settings screen - app configuration and preferences
@@ -13,6 +14,7 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final languageProvider = Provider.of<LanguageProvider>(context);
+    final settingsProvider = Provider.of<SettingsProvider>(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -49,11 +51,9 @@ class SettingsScreen extends StatelessWidget {
             secondary: const Icon(Icons.save_alt),
             title: Text(l10n.dataSaverMode),
             subtitle: Text(l10n.dataSaverDescription),
-            value: true,
+            value: settingsProvider.dataSaverEnabled,
             onChanged: (value) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.comingSoon)),
-              );
+              settingsProvider.setDataSaver(enabled: value);
             },
           ),
           const Divider(),

@@ -23,6 +23,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
+import 'package:wereda_connect/shared/providers/settings_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +38,10 @@ Future<void> main() async {
   // Initialize language provider and load saved language preference
   final languageProvider = LanguageProvider();
   await languageProvider.initialize();
+
+  // Initialize settings provider and load persisted settings
+  final settingsProvider = SettingsProvider();
+  await settingsProvider.initialize();
 
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
@@ -61,8 +66,11 @@ Future<void> main() async {
   WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
 
   runApp(
-    ChangeNotifierProvider.value(
-      value: languageProvider,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: languageProvider),
+        ChangeNotifierProvider.value(value: settingsProvider),
+      ],
       child: const WeredaConnectApp(),
     ),
   );
