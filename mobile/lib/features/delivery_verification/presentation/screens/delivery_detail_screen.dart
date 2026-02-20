@@ -3,7 +3,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
@@ -445,6 +448,17 @@ class DeliveryDetailScreen extends StatelessWidget {
       _addDisputeButton(context, widgets);
     }
 
+    // Buyer + pending → Initiate escrow payment
+    if (isBuyer && delivery.status == DeliveryStatus.pending) {
+      widgets.add(
+        _EscrowPayButton(
+          delivery: delivery,
+          currentUserId: currentUserId,
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
     // Cancel button (pending/pickedUp + participant)
     if (isParticipant &&
         (delivery.status == DeliveryStatus.pending ||
@@ -756,6 +770,89 @@ class _ParticipantRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Loads the escrow amount from the crop listing and shows a Pay button.
+///
+/// Uses the delivery's listingId to look up pricePerKg × quantity × 100kg.
+/// Shows nothing if the listing cannot be found.
+class _EscrowPayButton extends StatefulWidget {
+  final Delivery delivery;
+  final String currentUserId;
+
+  const _EscrowPayButton({
+    required this.delivery,
+    required this.currentUserId,
+  });
+
+  @override
+  State<_EscrowPayButton> createState() => _EscrowPayButtonState();
+}
+
+class _EscrowPayButtonState extends State<_EscrowPayButton> {
+  double? _amount;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAmount();
+  }
+
+  Future<void> _loadAmount() async {
+    try {
+      final listing = await IsarService.instance.db.cropListings
+          .where()
+          .listingIdEqualTo(widget.delivery.listingId)
+          .findFirst();
+      if (mounted) {
+        setState(() {
+          _amount = listing != null
+              ? listing.quantity * 100 * listing.pricePerKg
+              : null;
+          _loading = false;
+        });
+      }
+    } on Exception {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+        height: 48,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_amount == null) return const SizedBox.shrink();
+
+    final l10n = AppLocalizations.of(context)!;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => InitiatePaymentScreen(
+              deliveryId: widget.delivery.deliveryId,
+              buyerId: widget.currentUserId,
+              farmerId: widget.delivery.farmerId,
+              farmerName: widget.delivery.farmerName,
+              amount: _amount!,
+            ),
+          ),
+        ),
+        icon: const Icon(Icons.payment),
+        label: Text(l10n.escrowPayForDelivery),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          backgroundColor: Colors.green.shade700,
+        ),
+      ),
     );
   }
 }

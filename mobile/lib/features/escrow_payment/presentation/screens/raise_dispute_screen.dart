@@ -162,22 +162,20 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                 const SizedBox(height: 8),
                 IgnorePointer(
                   ignoring: _isExpired,
-                  child: RadioGroup<String>(
-                    groupValue: _selectedReason ?? '',
-                    onChanged: (value) =>
-                        setState(() => _selectedReason = value),
-                    child: Column(
-                      children: [
-                        for (final key in _reasonKeys)
-                          RadioListTile<String>(
-                            value: key,
-                            title: Text(_reasonLabel(key, l10n)),
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            visualDensity: const VisualDensity(vertical: -2),
-                          ),
-                      ],
-                    ),
+                  child: Column(
+                    children: [
+                      for (final key in _reasonKeys)
+                        RadioListTile<String>(
+                          value: key,
+                          groupValue: _selectedReason ?? '',
+                          onChanged: (value) =>
+                              setState(() => _selectedReason = value),
+                          title: Text(_reasonLabel(key, l10n)),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          visualDensity: const VisualDensity(vertical: -2),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),

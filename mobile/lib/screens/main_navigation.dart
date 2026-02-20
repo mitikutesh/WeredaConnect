@@ -9,6 +9,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_list_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -36,6 +37,7 @@ class _MainNavigationState extends State<MainNavigation> {
       const BrowseListingsScreen(),
       const BrowseTripsScreen(),
       const DeliveryListScreen(),
+      const PaymentHistoryScreen(),
       const ProfileScreen(),
     ];
   }
@@ -175,6 +177,11 @@ class _MainNavigationState extends State<MainNavigation> {
                 label: l10n.deliveries,
               ),
               NavigationDestination(
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                selectedIcon: const Icon(Icons.account_balance_wallet),
+                label: l10n.escrowPayments,
+              ),
+              NavigationDestination(
                 icon: const Icon(Icons.person_outline),
                 selectedIcon: const Icon(Icons.person),
                 label: l10n.profile,
@@ -197,6 +204,8 @@ class _MainNavigationState extends State<MainNavigation> {
       case 3:
         return l10n.deliveryMyDeliveries;
       case 4:
+        return l10n.escrowPayments;
+      case 5:
         return l10n.myProfile;
       default:
         return l10n.appTitle;
