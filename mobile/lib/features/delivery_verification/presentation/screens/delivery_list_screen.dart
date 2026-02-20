@@ -69,32 +69,108 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
         );
   }
 
-  /// Debug-only: seed a sample delivery with current user as farmer.
-  void _seedDebugDelivery() {
+  /// Debug-only: seed a sample delivery at the right lifecycle stage
+  /// so the current user has an actionable delivery.
+  ///
+  /// - farmer → pending (show QR code)
+  /// - trucker → pending (scan QR to confirm pickup)
+  /// - buyer → inTransit (scan QR to confirm delivery)
+  Future<void> _seedDebugDelivery() async {
     final userId = _getUserId();
     if (userId == null) return;
 
+    final authState = context.read<AuthBloc>().state;
+    final role =
+        authState is AuthAuthenticated ? authState.role.name : 'farmer';
+
     const uuid = Uuid();
-    context.read<DeliveryBloc>().add(
-          CreateDelivery(
-            tripId: uuid.v4(),
-            listingId: uuid.v4(),
-            farmerId: userId,
-            farmerName: 'Abebe (You)',
-            truckerId: uuid.v4(),
-            truckerName: 'Kebede Transport',
-            buyerId: uuid.v4(),
-            buyerName: 'Addis Wholesale',
-            qrToken: 'debug-seed-token',
+    final String farmerId;
+    final String farmerName;
+    final String truckerId;
+    final String truckerName;
+    final String buyerId;
+    final String buyerName;
+
+    switch (role) {
+      case 'trucker':
+        farmerId = uuid.v4();
+        farmerName = 'Abebe Farmer';
+        truckerId = userId;
+        truckerName = 'You (Trucker)';
+        buyerId = uuid.v4();
+        buyerName = 'Addis Wholesale';
+      case 'buyer':
+        farmerId = uuid.v4();
+        farmerName = 'Abebe Farmer';
+        truckerId = uuid.v4();
+        truckerName = 'Kebede Transport';
+        buyerId = userId;
+        buyerName = 'You (Buyer)';
+      default: // farmer
+        farmerId = userId;
+        farmerName = 'You (Farmer)';
+        truckerId = uuid.v4();
+        truckerName = 'Kebede Transport';
+        buyerId = uuid.v4();
+        buyerName = 'Addis Wholesale';
+    }
+
+    final repo = context.read<DeliveryBloc>().repository;
+
+    try {
+      // 1. Create the delivery (always starts as pending)
+      final delivery = await repo.createDelivery(
+        tripId: uuid.v4(),
+        listingId: uuid.v4(),
+        farmerId: farmerId,
+        farmerName: farmerName,
+        truckerId: truckerId,
+        truckerName: truckerName,
+        buyerId: buyerId,
+        buyerName: buyerName,
+        qrToken: 'debug-seed-token',
+      );
+
+      // 2. Advance to the right stage for the role
+      final String statusLabel;
+      switch (role) {
+        case 'trucker':
+          // Trucker needs pending to scan QR for pickup
+          statusLabel = 'pending';
+        case 'buyer':
+          // Buyer needs inTransit to confirm delivery — advance through stages
+          await repo.confirmPickup(
+            deliveryId: delivery.deliveryId,
+            truckerId: truckerId,
+          );
+          await repo.markInTransit(
+            deliveryId: delivery.deliveryId,
+            truckerId: truckerId,
+          );
+          statusLabel = 'inTransit';
+        default:
+          // Farmer needs pending to show QR
+          statusLabel = 'pending';
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Debug delivery created ($statusLabel, you = $role)'),
           ),
         );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Debug delivery created (you = farmer)')),
-    );
-
-    // Reload after a short delay to let the BLoC process the creation
-    Future.delayed(const Duration(milliseconds: 500), _loadDeliveries);
+        _loadDeliveries();
+      }
+    } on Exception catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Seed failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -103,219 +179,227 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
     final l10n = AppLocalizations.of(context)!;
     final userId = _getUserId() ?? '';
 
-    return Column(
-      children: [
-        const TripOfflineBanner(),
-        // Title
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              l10n.deliveryMyDeliveries,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+    return BlocListener<DeliveryBloc, DeliveryState>(
+      listener: (context, state) {
+        if (state is DeliveryCreated) {
+          _loadDeliveries();
+        }
+      },
+      child: Column(
+        children: [
+          const TripOfflineBanner(),
+          // Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                l10n.deliveryMyDeliveries,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
-        ),
-        // Role filter chips
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _RoleChip(
-                  label: l10n.deliveryFilterAll,
-                  selected: _selectedRole == null,
-                  onSelected: () {
-                    setState(() => _selectedRole = null);
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 8),
-                _RoleChip(
-                  label: l10n.deliveryFarmer,
-                  selected: _selectedRole == 'farmer',
-                  onSelected: () {
-                    setState(() => _selectedRole = 'farmer');
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 8),
-                _RoleChip(
-                  label: l10n.deliveryTrucker,
-                  selected: _selectedRole == 'trucker',
-                  onSelected: () {
-                    setState(() => _selectedRole = 'trucker');
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 8),
-                _RoleChip(
-                  label: l10n.deliveryBuyer,
-                  selected: _selectedRole == 'buyer',
-                  onSelected: () {
-                    setState(() => _selectedRole = 'buyer');
-                    _applyFilters();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Status filter chips
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _StatusFilterChip(
-                  label: l10n.deliveryFilterAll,
-                  selected: _selectedStatus == null,
-                  onSelected: () {
-                    setState(() => _selectedStatus = null);
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 8),
-                ..._buildStatusChips(),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Delivery list
-        Expanded(
-          child: BlocBuilder<DeliveryBloc, DeliveryState>(
-            builder: (context, state) {
-              if (state is DeliveryLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (state is DeliveryError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 48),
-                      const SizedBox(height: 16),
-                      Text(state.message),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: _loadDeliveries,
-                        child: Text(l10n.deliveryTryAgain),
-                      ),
-                    ],
+          // Role filter chips
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _RoleChip(
+                    label: l10n.deliveryFilterAll,
+                    selected: _selectedRole == null,
+                    onSelected: () {
+                      setState(() => _selectedRole = null);
+                      _applyFilters();
+                    },
                   ),
-                );
-              }
+                  const SizedBox(width: 8),
+                  _RoleChip(
+                    label: l10n.deliveryFarmer,
+                    selected: _selectedRole == 'farmer',
+                    onSelected: () {
+                      setState(() => _selectedRole = 'farmer');
+                      _applyFilters();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _RoleChip(
+                    label: l10n.deliveryTrucker,
+                    selected: _selectedRole == 'trucker',
+                    onSelected: () {
+                      setState(() => _selectedRole = 'trucker');
+                      _applyFilters();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  _RoleChip(
+                    label: l10n.deliveryBuyer,
+                    selected: _selectedRole == 'buyer',
+                    onSelected: () {
+                      setState(() => _selectedRole = 'buyer');
+                      _applyFilters();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Status filter chips
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _StatusFilterChip(
+                    label: l10n.deliveryFilterAll,
+                    selected: _selectedStatus == null,
+                    onSelected: () {
+                      setState(() => _selectedStatus = null);
+                      _applyFilters();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  ..._buildStatusChips(),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Delivery list
+          Expanded(
+            child: BlocBuilder<DeliveryBloc, DeliveryState>(
+              builder: (context, state) {
+                if (state is DeliveryLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              if (state is DeliveriesLoaded) {
-                if (state.deliveries.isEmpty) {
+                if (state is DeliveryError) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          Icons.local_shipping_outlined,
-                          size: 80,
-                          color: theme.colorScheme.secondary,
+                        const Icon(Icons.error_outline, size: 48),
+                        const SizedBox(height: 16),
+                        Text(state.message),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: _loadDeliveries,
+                          child: Text(l10n.deliveryTryAgain),
                         ),
-                        const SizedBox(height: 24),
-                        Text(
-                          l10n.deliveryNoDeliveries,
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          l10n.deliveryNoDeliveriesHint,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        if (kDebugMode) ...[
-                          const SizedBox(height: 24),
-                          FilledButton.icon(
-                            onPressed: _seedDebugDelivery,
-                            icon: const Icon(Icons.bug_report),
-                            label: Text(
-                              AppLocalizations.of(context)!
-                                  .deliverySeedTestButton,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   );
                 }
 
-                return RefreshIndicator(
-                  onRefresh: () async {
-                    _loadDeliveries();
-                  },
-                  child: ListView.builder(
-                    padding: const EdgeInsets.only(top: 8, bottom: 80),
-                    itemCount: state.deliveries.length,
-                    itemBuilder: (context, index) {
-                      final delivery = state.deliveries[index];
-                      return DeliveryCard(
-                        delivery: delivery,
-                        currentUserId: userId,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (context) => DeliveryDetailScreen(
-                                delivery: delivery,
-                                currentUserId: userId,
+                if (state is DeliveriesLoaded) {
+                  if (state.deliveries.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.local_shipping_outlined,
+                            size: 80,
+                            color: theme.colorScheme.secondary,
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            l10n.deliveryNoDeliveries,
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            l10n.deliveryNoDeliveriesHint,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.6),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          if (kDebugMode) ...[
+                            const SizedBox(height: 24),
+                            FilledButton.icon(
+                              onPressed: _seedDebugDelivery,
+                              icon: const Icon(Icons.bug_report),
+                              label: Text(
+                                AppLocalizations.of(context)!
+                                    .deliverySeedTestButton,
                               ),
                             ),
-                          );
-                        },
-                      );
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      _loadDeliveries();
                     },
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(top: 8, bottom: 80),
+                      itemCount: state.deliveries.length,
+                      itemBuilder: (context, index) {
+                        final delivery = state.deliveries[index];
+                        return DeliveryCard(
+                          delivery: delivery,
+                          currentUserId: userId,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (context) => DeliveryDetailScreen(
+                                  delivery: delivery,
+                                  currentUserId: userId,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  );
+                }
+
+                // Initial state
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.local_shipping_outlined,
+                        size: 80,
+                        color: theme.colorScheme.secondary,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        l10n.deliveryNoDeliveries,
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      if (kDebugMode) ...[
+                        const SizedBox(height: 24),
+                        FilledButton.icon(
+                          onPressed: _seedDebugDelivery,
+                          icon: const Icon(Icons.bug_report),
+                          label: Text(
+                            AppLocalizations.of(context)!
+                                .deliverySeedTestButton,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 );
-              }
-
-              // Initial state
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.local_shipping_outlined,
-                      size: 80,
-                      color: theme.colorScheme.secondary,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      l10n.deliveryNoDeliveries,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                    if (kDebugMode) ...[
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: _seedDebugDelivery,
-                        icon: const Icon(Icons.bug_report),
-                        label: Text(
-                          AppLocalizations.of(context)!.deliverySeedTestButton,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            },
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
