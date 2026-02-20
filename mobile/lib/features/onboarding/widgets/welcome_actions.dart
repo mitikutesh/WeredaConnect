@@ -86,9 +86,9 @@ class WelcomeActions extends StatelessWidget {
                 SnackBar(content: Text(l10n.comingSoon)),
               );
             },
-            child: const Text(
-              'Explore as Guest', // TODO: Add to l10n
-              style: TextStyle(
+            child: Text(
+              l10n.exploreAsGuest,
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
                 decoration: TextDecoration.underline,
