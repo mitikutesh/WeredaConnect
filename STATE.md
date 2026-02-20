@@ -2,17 +2,17 @@
 
 ## Checkpoint
 
-**Date:** 2026-02-19
+**Date:** 2026-02-20
 **Branch:** `telebirr-mock`
-**Status:** R4 Implementation — F-11 complete, F-12 complete, F-13 escrow server done
-**Latest Commit:** 1e40b93 - Merge pull request #6 (listing → main)
+**Status:** R4 Implementation — F-11 ✅, F-12 ✅, F-13 server + mobile done (~85%), F-18 ✅
+**Latest Commit:** ad6451a - feat(delivery): improve debug delivery seeding with role-based status
 
 ---
 
 ## Resumption Context
 
 ```
-R4 IMPLEMENTATION IN PROGRESS (Feb 19, 2026)
+R4 IMPLEMENTATION IN PROGRESS (Feb 20, 2026)
   - F-11 Trip Listings: ✅ COMPLETE (server Lambda + DynamoDB + mobile BLoC + UI + sync + tests)
     - Merged via PR #5 (trips-delivery-escrow) and PR #6 (listing — presentation layer + AOT regex fix)
   - F-12 Delivery Verification: ✅ COMPLETE (server + mobile + UI + QR + GPS + photo + tests)
@@ -20,10 +20,15 @@ R4 IMPLEMENTATION IN PROGRESS (Feb 19, 2026)
     - Mobile: 3 services (QR, GPS, Photo) + 5 screens + 3 widgets + 59 l10n strings × 3 languages
     - Tests: 78 delivery tests + 404 server tests (all pass)
     - REMAINING: T12 (photo upload endpoint), integration tests
-  - F-13 Telebirr Escrow: ✅ SERVER DONE (mock gateway + escrow service + cron)
-    - DynamoDB tables, Lambda CDK definitions, SSM params, EventBridge rules deployed
-    - Server logic implemented with mock Telebirr gateway
-    - Mobile code not started
+  - F-13 Telebirr Escrow: ⚙️ ~85% (server + mobile complete, integration tests pending)
+    - Server: ✅ Mock gateway + EscrowService + cron (auto-release/auto-refund) + DynamoDB + Lambda deployed
+    - Mobile data: ✅ EscrowRepository + EscrowSyncService + models + Payment/PaymentIntent Isar schemas
+    - Mobile UI: ✅ 4 screens (InitiatePayment, EscrowStatus, PaymentHistory, RaiseDispute)
+                  ✅ 4 widgets (StatusBadge, Timeline, PendingIntentCard, AmountDisplay)
+                  ✅ EscrowBloc (events + states + bloc)
+                  ✅ Payments tab wired into main navigation (tab 4, wallet icon)
+                  ✅ "Pay" button added to DeliveryDetail for buyers (pending status)
+    - REMAINING: Integration tests (POST /escrow/initiate E2E), live Telebirr connection
   - F-14 Fraud Detection: ❌ NOT STARTED
   - F-15 Conflict Resolution UI: ⚙️ LOGIC DONE (ConflictResolver class), UI MISSING
   - F-18 S3 Access Logging + Versioning: ✅ COMPLETE (deployed via CDK)
@@ -31,9 +36,10 @@ R4 IMPLEMENTATION IN PROGRESS (Feb 19, 2026)
 WHAT WORKS: Register/login (+251 phone), create crop offline, auto-sync,
   conflict resolution (server-wins), browse crops from server, filter by crop/location,
   trip listings (create/browse/filter offline-first with sync),
-  full delivery verification UI (QR + GPS + photo)
+  full delivery verification UI (QR + GPS + photo),
+  escrow payment UI (initiate, status, history, disputes — wired, pending integration tests)
 
-NEXT: F-13 mobile escrow code, F-14 fraud detection, F-15 conflict resolution UI.
+NEXT: Integration tests for escrow flow, F-14 fraud detection, F-15 conflict resolution UI.
 ```
 
 ---
@@ -70,6 +76,8 @@ NEXT: F-13 mobile escrow code, F-14 fraud detection, F-15 conflict resolution UI
 | Ethiopian Context | `docs/local_reality/README.md` |
 | F-12 Architecture | `specs/decisions/r4-2-delivery-verification-architecture.md` |
 | F-12 Contract | `specs/contracts/delivery-verification-api.md` |
+| F-13 Architecture | `specs/decisions/r4-3-escrow-architecture.md` |
+| F-13 Contract | `specs/contracts/escrow-protocol.md` |
 
 ---
 
@@ -82,4 +90,4 @@ NEXT: F-13 mobile escrow code, F-14 fraud detection, F-15 conflict resolution UI
 
 ---
 
-**Last Updated:** 2026-02-19
+**Last Updated:** 2026-02-20
