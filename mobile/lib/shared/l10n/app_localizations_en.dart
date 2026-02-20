@@ -987,4 +987,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String secondsAbbreviation(int count) {
     return '${count}s';
   }
+
+  @override
+  String get dataUsageDownloaded => 'Downloaded';
+
+  @override
+  String get dataUsageUploaded => 'Uploaded';
+
+  @override
+  String get dataUsageTotal => 'Total';
+
+  @override
+  String get dataUsageReset => 'Reset';
+
+  @override
+  String get dataUsageResetConfirm => 'Clear all data usage statistics?';
+
+  @override
+  String get dataUsageTrackingSince => 'Tracking since';
 }

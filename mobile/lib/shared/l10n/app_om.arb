@@ -1345,5 +1345,29 @@
   "escrowDisputeDetailsTitle": "Ibsa Dhibdee",
   "@escrowDisputeDetailsTitle": {
     "description": "Section heading for dispute info card on escrow status screen"
+  },
+  "dataUsageDownloaded": "Buufame",
+  "@dataUsageDownloaded": {
+    "description": "Label for bytes downloaded counter"
+  },
+  "dataUsageUploaded": "Ergame",
+  "@dataUsageUploaded": {
+    "description": "Label for bytes uploaded counter"
+  },
+  "dataUsageTotal": "Waliigalaa",
+  "@dataUsageTotal": {
+    "description": "Label for combined total bytes"
+  },
+  "dataUsageReset": "Deebi'i",
+  "@dataUsageReset": {
+    "description": "Button to reset data usage statistics"
+  },
+  "dataUsageResetConfirm": "Tilaaloo itti fayyadama daataa haquu?",
+  "@dataUsageResetConfirm": {
+    "description": "Confirmation dialog message before resetting stats"
+  },
+  "dataUsageTrackingSince": "Irraa eegalee",
+  "@dataUsageTrackingSince": {
+    "description": "Label prefix shown before the tracking start date"
   }
 }

@@ -967,4 +967,22 @@ class AppLocalizationsAm extends AppLocalizations {
   String secondsAbbreviation(int count) {
     return '$countሰ';
   }
+
+  @override
+  String get dataUsageDownloaded => 'የተቀበሉ';
+
+  @override
+  String get dataUsageUploaded => 'የተላኩ';
+
+  @override
+  String get dataUsageTotal => 'ጠቅላላ';
+
+  @override
+  String get dataUsageReset => 'ዳግም አስጀምር';
+
+  @override
+  String get dataUsageResetConfirm => 'የውሂብ አጠቃቀም ስታቲስቲክስ ይደመሰስ?';
+
+  @override
+  String get dataUsageTrackingSince => 'ከ ጀምሮ';
 }

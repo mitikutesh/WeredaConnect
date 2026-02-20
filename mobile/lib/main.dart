@@ -22,14 +22,23 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
+import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize data usage tracker before API client so the interceptor
+  // can be attached immediately.
+  final dataUsageTracker = DataUsageTracker();
+  await dataUsageTracker.initialize();
+
   // Initialize API client before AuthBloc creation
-  ApiClient().initialize();
+  ApiClient().initialize(
+    interceptors: [DataUsageInterceptor(dataUsageTracker)],
+  );
 
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
@@ -70,6 +79,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider.value(value: languageProvider),
         ChangeNotifierProvider.value(value: settingsProvider),
+        ChangeNotifierProvider.value(value: dataUsageTracker),
       ],
       child: const WeredaConnectApp(),
     ),

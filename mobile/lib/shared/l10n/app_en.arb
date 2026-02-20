@@ -1346,5 +1346,32 @@
         "example": "30"
       }
     }
+  },
+
+  "@@dataUsageSection": "=== Data Usage Screen ===",
+
+  "dataUsageDownloaded": "Downloaded",
+  "@dataUsageDownloaded": {
+    "description": "Label for bytes downloaded counter"
+  },
+  "dataUsageUploaded": "Uploaded",
+  "@dataUsageUploaded": {
+    "description": "Label for bytes uploaded counter"
+  },
+  "dataUsageTotal": "Total",
+  "@dataUsageTotal": {
+    "description": "Label for combined total bytes"
+  },
+  "dataUsageReset": "Reset",
+  "@dataUsageReset": {
+    "description": "Button to reset data usage statistics"
+  },
+  "dataUsageResetConfirm": "Clear all data usage statistics?",
+  "@dataUsageResetConfirm": {
+    "description": "Confirmation dialog message before resetting stats"
+  },
+  "dataUsageTrackingSince": "Tracking since",
+  "@dataUsageTrackingSince": {
+    "description": "Label prefix shown before the tracking start date"
   }
 }

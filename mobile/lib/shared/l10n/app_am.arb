@@ -1345,5 +1345,29 @@
   "escrowDisputeDetailsTitle": "የቅሬታ ዝርዝር",
   "@escrowDisputeDetailsTitle": {
     "description": "Section heading for dispute info card on escrow status screen"
+  },
+  "dataUsageDownloaded": "የተቀበሉ",
+  "@dataUsageDownloaded": {
+    "description": "Label for bytes downloaded counter"
+  },
+  "dataUsageUploaded": "የተላኩ",
+  "@dataUsageUploaded": {
+    "description": "Label for bytes uploaded counter"
+  },
+  "dataUsageTotal": "ጠቅላላ",
+  "@dataUsageTotal": {
+    "description": "Label for combined total bytes"
+  },
+  "dataUsageReset": "ዳግም አስጀምር",
+  "@dataUsageReset": {
+    "description": "Button to reset data usage statistics"
+  },
+  "dataUsageResetConfirm": "የውሂብ አጠቃቀም ስታቲስቲክስ ይደመሰስ?",
+  "@dataUsageResetConfirm": {
+    "description": "Confirmation dialog message before resetting stats"
+  },
+  "dataUsageTrackingSince": "ከ ጀምሮ",
+  "@dataUsageTrackingSince": {
+    "description": "Label prefix shown before the tracking start date"
   }
 }

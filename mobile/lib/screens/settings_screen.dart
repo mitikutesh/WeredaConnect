@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/screens/data_usage_screen.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
@@ -41,8 +42,10 @@ class SettingsScreen extends StatelessWidget {
             title: Text(l10n.dataUsage),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.comingSoon)),
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const DataUsageScreen(),
+                ),
               );
             },
           ),

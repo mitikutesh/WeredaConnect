@@ -995,4 +995,22 @@ class AppLocalizationsOm extends AppLocalizations {
   String secondsAbbreviation(int count) {
     return '${count}s';
   }
+
+  @override
+  String get dataUsageDownloaded => 'Buufame';
+
+  @override
+  String get dataUsageUploaded => 'Ergame';
+
+  @override
+  String get dataUsageTotal => 'Waliigalaa';
+
+  @override
+  String get dataUsageReset => 'Deebi\'i';
+
+  @override
+  String get dataUsageResetConfirm => 'Tilaaloo itti fayyadama daataa haquu?';
+
+  @override
+  String get dataUsageTrackingSince => 'Irraa eegalee';
 }

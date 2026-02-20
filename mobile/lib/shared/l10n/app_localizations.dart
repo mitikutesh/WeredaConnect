@@ -1965,6 +1965,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count}s'**
   String secondsAbbreviation(int count);
+
+  /// Label for bytes downloaded counter
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded'**
+  String get dataUsageDownloaded;
+
+  /// Label for bytes uploaded counter
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded'**
+  String get dataUsageUploaded;
+
+  /// Label for combined total bytes
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get dataUsageTotal;
+
+  /// Button to reset data usage statistics
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get dataUsageReset;
+
+  /// Confirmation dialog message before resetting stats
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all data usage statistics?'**
+  String get dataUsageResetConfirm;
+
+  /// Label prefix shown before the tracking start date
+  ///
+  /// In en, this message translates to:
+  /// **'Tracking since'**
+  String get dataUsageTrackingSince;
 }
 
 class _AppLocalizationsDelegate
