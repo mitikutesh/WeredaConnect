@@ -724,4 +724,209 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliverySeedTestButton => 'የሙከራ ማድረሻ ፍጠር';
+
+  @override
+  String get escrowPayments => 'ክፍያዎች';
+
+  @override
+  String get escrowPayForDelivery => 'ለማድረሻ ክፈል';
+
+  @override
+  String get escrowPaymentStatus => 'የክፍያ ሁኔታ';
+
+  @override
+  String get escrowPaymentHistory => 'የክፍያ ታሪክ';
+
+  @override
+  String get escrowRaiseDispute => 'ክርክር አቅርብ';
+
+  @override
+  String get escrowStatusInitiated => 'ክፍያ በመጠባበቅ';
+
+  @override
+  String get escrowStatusEscrowed => 'ገንዘብ በጥበቃ ተይዟል';
+
+  @override
+  String get escrowStatusReleased => 'ገንዘብ ተለቋል';
+
+  @override
+  String get escrowStatusCompleted => 'ክፍያ ተጠናቋል';
+
+  @override
+  String get escrowStatusCancelled => 'ተሰርዟል';
+
+  @override
+  String get escrowStatusDisputed => 'ክርክር ቀርቧል';
+
+  @override
+  String get escrowStatusRefunded => 'ተመላሽ ሆኗል';
+
+  @override
+  String get escrowProtectionInfo => 'ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።';
+
+  @override
+  String get escrowTotalAmount => 'ጠቅላላ መጠን';
+
+  @override
+  String escrowCommission(String rate) {
+    return 'ኮሚሽን ($rate%)';
+  }
+
+  @override
+  String get escrowFarmerReceives => 'ገበሬው የሚቀበለው';
+
+  @override
+  String get escrowConfirmPayment => 'ክፍያ አረጋግጥ';
+
+  @override
+  String escrowConfirmPaymentDialog(String amount, String farmerName) {
+    return 'ብር $amount ለ$farmerName ይከፈል?';
+  }
+
+  @override
+  String get escrowFaydaWarning =>
+      'ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
+
+  @override
+  String get escrowFundsHeldInfo => 'ገንዘብ ቢበዛ ለ7 ቀናት ይቀመጣል። ካልደረሰ ተመላሽ ይሆናል።';
+
+  @override
+  String get escrowPaymentQueued => 'ክፍያ ተመዝግቧል። ኢንተርኔት ሲኖር ይከናወናል።';
+
+  @override
+  String get escrowPaymentSuccess => 'ክፍያ በተሳካ ሁኔታ ተጀምሯል።';
+
+  @override
+  String get escrowDeliveryLabel => 'ማድረሻ';
+
+  @override
+  String get escrowFarmerLabel => 'ገበሬ';
+
+  @override
+  String get escrowBuyerLabel => 'ገዢ';
+
+  @override
+  String get escrowCreatedLabel => 'የተፈጠረ';
+
+  @override
+  String get escrowExpiresLabel => 'የሚያልቅ';
+
+  @override
+  String get escrowTelebirrRefLabel => 'ቴሌብር ማጣቀሻ';
+
+  @override
+  String get escrowMayBeOutdated => 'ሁኔታ ያረጀ ሊሆን ይችላል። ለማዘመን ይጎትቱ።';
+
+  @override
+  String escrowLastUpdated(String time) {
+    return 'ለመጨረሻ ጊዜ የዘመነ $time';
+  }
+
+  @override
+  String get escrowFilterAll => 'ሁሉም';
+
+  @override
+  String get escrowFilterBuyer => 'እንደ ገዢ';
+
+  @override
+  String get escrowFilterFarmer => 'እንደ ገበሬ';
+
+  @override
+  String escrowPendingSection(int count) {
+    return 'በመጠባበቅ ($count)';
+  }
+
+  @override
+  String get escrowHistorySection => 'ታሪክ';
+
+  @override
+  String get escrowNoPayments => 'እስካሁን ክፍያ የለም።';
+
+  @override
+  String get escrowNoMatchingPayments => 'ተመሳሳይ ክፍያ አልተገኘም።';
+
+  @override
+  String get escrowCancelIntent => 'ሰርዝ';
+
+  @override
+  String get escrowCancelIntentDialog => 'ይህ በመጠባበቅ ላይ ያለ ክፍያ ይሰረዝ?';
+
+  @override
+  String get escrowIntentCancelled => 'በመጠባበቅ ላይ ያለ ክፍያ ተሰርዟል።';
+
+  @override
+  String escrowDisputeTimeRemaining(int hours, int minutes) {
+    return 'ቀሪ ጊዜ: $hours ሰዓት $minutes ደቂቃ';
+  }
+
+  @override
+  String get escrowDisputeWindowExpired => 'የክርክር ጊዜ አልፏል።';
+
+  @override
+  String get escrowDisputeReasonLabel => 'ምክንያት';
+
+  @override
+  String get escrowDisputeDescriptionLabel => 'ዝርዝር መግለጫ (አማራጭ)';
+
+  @override
+  String get escrowDisputeDescriptionHint => 'ችግሩን ይግለጹ...';
+
+  @override
+  String get escrowDisputeSubmit => 'ክርክር ያቅርቡ';
+
+  @override
+  String get escrowDisputeConfirmDialog => 'ይህ ክፍያውን ለክርክር ያቆማል። ይቀጥሉ?';
+
+  @override
+  String get escrowDisputeSuccess => 'ክርክር ተመዝግቧል። መድረኩ በ48 ሰዓት ውስጥ ይገመግማል።';
+
+  @override
+  String get escrowDisputeReviewInfo => 'ክርክሮች በመድረኩ በ48 ሰዓት ውስጥ ይገመገማሉ።';
+
+  @override
+  String get escrowDisputeRequiresInternet =>
+      'ክርክር ለማቅረብ የኢንተርኔት ግንኙነት ያስፈልጋል።';
+
+  @override
+  String get escrowReasonDamagedGoods => 'የተበላሸ ዕቃ';
+
+  @override
+  String get escrowReasonWrongQuantity => 'የተሳሳተ መጠን';
+
+  @override
+  String get escrowReasonWrongCrop => 'የተሳሳተ የሰብል ዓይነት';
+
+  @override
+  String get escrowReasonNotDelivered => 'አልደረሰም';
+
+  @override
+  String get escrowReasonQualityMismatch => 'ጥራት አይዛመድም';
+
+  @override
+  String get escrowReasonOther => 'ሌላ';
+
+  @override
+  String get escrowErrorInvalidAmount => 'መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።';
+
+  @override
+  String get escrowErrorFaydaRequired =>
+      'ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
+
+  @override
+  String get escrowErrorAlreadyExists => 'ለዚህ ማድረሻ ክፍያ ቀድሞ ተከፍሏል።';
+
+  @override
+  String get escrowErrorGateway => 'የቴሌብር አገልግሎት ስህተት። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get escrowErrorServiceUnavailable =>
+      'ቴሌብር በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።';
+
+  @override
+  String get escrowErrorGeneric => 'ያልተጠበቀ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String escrowEtbAmount(String amount) {
+    return 'ብር $amount';
+  }
 }

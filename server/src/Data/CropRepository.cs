@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Services;
@@ -43,7 +44,11 @@ public sealed class CropRepository : ICropRepository
         // Copy data fields into the item
         foreach (var kvp in data)
         {
-            if (kvp.Key is "cropId" or "version" or "createdAt" or "updatedAt") continue;
+            if (kvp.Key is "cropId" or "version" or "createdAt" or "updatedAt")
+            {
+                continue;
+            }
+
             item[kvp.Key] = ToAttributeValue(kvp.Value);
         }
 
@@ -103,7 +108,11 @@ public sealed class CropRepository : ICropRepository
         var i = 0;
         foreach (var kvp in data)
         {
-            if (kvp.Key is "cropId" or "version" or "createdAt" or "updatedAt") continue;
+            if (kvp.Key is "cropId" or "version" or "createdAt" or "updatedAt")
+            {
+                continue;
+            }
+
             var nameAlias = $"#f{i}";
             var valueAlias = $":f{i}";
             attrNames[nameAlias] = kvp.Key;
@@ -242,10 +251,11 @@ public sealed class CropRepository : ICropRepository
         return value switch
         {
             string s => new AttributeValue { S = s },
-            int n => new AttributeValue { N = n.ToString() },
-            long n => new AttributeValue { N = n.ToString() },
-            double d => new AttributeValue { N = d.ToString() },
-            float f => new AttributeValue { N = f.ToString() },
+            int n => new AttributeValue { N = n.ToString(CultureInfo.InvariantCulture) },
+            long n => new AttributeValue { N = n.ToString(CultureInfo.InvariantCulture) },
+            double d => new AttributeValue { N = d.ToString(CultureInfo.InvariantCulture) },
+            float f => new AttributeValue { N = f.ToString(CultureInfo.InvariantCulture) },
+            decimal m => new AttributeValue { N = m.ToString(CultureInfo.InvariantCulture) },
             bool b => new AttributeValue { BOOL = b },
             null => new AttributeValue { NULL = true },
             // For System.Text.Json deserialized numbers (JsonElement)
@@ -280,17 +290,29 @@ public sealed class CropRepository : ICropRepository
         foreach (var kvp in item)
         {
             if (kvp.Value.S != null)
+            {
                 result[kvp.Key] = kvp.Value.S;
+            }
             else if (kvp.Value.N != null)
+            {
                 result[kvp.Key] = kvp.Value.N;
+            }
             else if (kvp.Value.IsBOOLSet)
+            {
                 result[kvp.Key] = kvp.Value.BOOL;
+            }
             else if (kvp.Value.NULL)
+            {
                 continue; // skip nulls
+            }
             else if (kvp.Value.M != null && kvp.Value.M.Count > 0)
+            {
                 result[kvp.Key] = FromItem(kvp.Value.M); // recursive Map handling
+            }
             else if (kvp.Value.L != null && kvp.Value.L.Count > 0)
+            {
                 result[kvp.Key] = FromList(kvp.Value.L);
+            }
         }
 
         return result;
@@ -306,17 +328,29 @@ public sealed class CropRepository : ICropRepository
         foreach (var attr in list)
         {
             if (attr.S != null)
+            {
                 result.Add(attr.S);
+            }
             else if (attr.N != null)
+            {
                 result.Add(attr.N);
+            }
             else if (attr.IsBOOLSet)
+            {
                 result.Add(attr.BOOL);
+            }
             else if (attr.NULL)
+            {
                 continue; // skip nulls
+            }
             else if (attr.M != null && attr.M.Count > 0)
+            {
                 result.Add(FromItem(attr.M)); // recursive Map handling
+            }
             else if (attr.L != null && attr.L.Count > 0)
+            {
                 result.Add(FromList(attr.L)); // recursive List handling
+            }
         }
 
         return result;

@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
@@ -256,5 +258,277 @@ public class EscrowFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(400, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
+    // Route parsing for all endpoints
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task FunctionHandler_PostRelease_Routes()
+    {
+        var escrowItem = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-001" },
+            { "deliveryId", "del-001" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 5000m },
+            { "commission", 125m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", 4875m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "telebirrHoldRef", "MOCK-HOLD-REF" },
+            { "buyerFaydaVerified", false },
+            { "farmerFaydaVerified", false },
+            { "createdAt", "2026-02-17T10:00:00Z" },
+            { "updatedAt", "2026-02-17T10:00:00Z" },
+            { "expiresAt", "2026-02-24T10:00:00Z" },
+            { "version", 1 }
+        };
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var body = JsonSerializer.Serialize(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = "del-001",
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        }, AppJsonContext.Default.ReleaseEscrowRequest);
+
+        var request = MakePostRequest("/escrow/release", body, "system");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_PostDispute_Routes()
+    {
+        var escrowItem = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-001" },
+            { "deliveryId", "del-001" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 5000m },
+            { "commission", 125m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", 4875m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "buyerFaydaVerified", false },
+            { "farmerFaydaVerified", false },
+            { "createdAt", "2026-02-17T10:00:00Z" },
+            { "updatedAt", "2026-02-17T10:00:00Z" },
+            { "expiresAt", "2026-02-24T10:00:00Z" },
+            { "version", 1 }
+        };
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var body = JsonSerializer.Serialize(new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        }, AppJsonContext.Default.DisputeEscrowRequest);
+
+        var request = MakePostRequest("/escrow/dispute", body, BuyerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_PostRefund_Routes()
+    {
+        var escrowItem = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-001" },
+            { "deliveryId", "del-001" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 5000m },
+            { "commission", 125m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", 4875m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "telebirrHoldRef", "MOCK-HOLD-REF" },
+            { "buyerFaydaVerified", false },
+            { "farmerFaydaVerified", false },
+            { "createdAt", "2026-02-17T10:00:00Z" },
+            { "updatedAt", "2026-02-17T10:00:00Z" },
+            { "expiresAt", "2026-02-24T10:00:00Z" },
+            { "version", 1 }
+        };
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var body = JsonSerializer.Serialize(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = "system:escrow-001:refund:1708257600000"
+        }, AppJsonContext.Default.RefundEscrowRequest);
+
+        var request = MakePostRequest("/escrow/refund", body, "system");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_GetHistory_Routes()
+    {
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 20, null)
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest("/escrow/history", BuyerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
+    // Error response format (EscrowErrorResponse with code, message)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task ErrorResponse_ContainsErrorCodeAndMessage()
+    {
+        var request = MakePostRequest("/escrow/initiate", body: "{{bad json", userId: BuyerId);
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        // Verify the error body contains the expected structure
+        Assert.Contains("\"code\":", response.Body);
+        Assert.Contains("\"message\":", response.Body);
+        Assert.Contains("ESCROW_001", response.Body);
+    }
+
+    [Fact]
+    public async Task ErrorResponse_405_ContainsValidationCode()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "PATCH",
+            Path = "/escrow/initiate",
+            RequestContext = new ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", BuyerId } }
+            }
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(405, response.StatusCode);
+        Assert.Contains("ESCROW_VALIDATION", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // S4: Exception logs don't contain raw messages
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task HandleInitiate_Exception_Returns500WithGenericMessage()
+    {
+        // Force an exception by having the service throw
+        _mockIdempotencyRepo.GetAsync(Arg.Any<string>())
+            .ThrowsAsync(new InvalidOperationException("Sensitive DynamoDB error with phone +251912345678"));
+
+        var body = JsonSerializer.Serialize(new InitiateEscrowRequest
+        {
+            DeliveryId = "del-001",
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 5_000m,
+            Currency = "ETB",
+            IdempotencyKey = $"{BuyerId}:del-001:initiate:1708084800000"
+        }, AppJsonContext.Default.InitiateEscrowRequest);
+
+        var request = MakePostRequest("/escrow/initiate", body, BuyerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("ESCROW_012", response.Body);
+        // The response body should NOT contain the sensitive exception message
+        Assert.DoesNotContain("phone", response.Body);
+        Assert.DoesNotContain("+251912345678", response.Body);
+        Assert.DoesNotContain("Sensitive DynamoDB error", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleRelease_Exception_DoesNotLeakSensitiveData()
+    {
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
+            .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
+
+        var body = JsonSerializer.Serialize(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = "del-001",
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        }, AppJsonContext.Default.ReleaseEscrowRequest);
+
+        var request = MakePostRequest("/escrow/release", body, "system");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.DoesNotContain("arn:aws:dynamodb", response.Body);
+        Assert.DoesNotContain("secret-info", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Invalid JSON for other endpoints
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task HandleRelease_InvalidJson_Returns400()
+    {
+        var request = MakePostRequest("/escrow/release", body: "{{bad json", userId: "system");
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleDispute_InvalidJson_Returns400()
+    {
+        var request = MakePostRequest("/escrow/dispute", body: "{{bad json", userId: BuyerId);
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleRefund_InvalidJson_Returns400()
+    {
+        var request = MakePostRequest("/escrow/refund", body: "{{bad json", userId: "system");
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
+    // GET /escrow/{id} without path parameter
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task HandleGetById_MissingPathParam_Returns405()
+    {
+        // GET /escrow/something without pathParameters containing "id"
+        var request = MakeGetRequest("/escrow/some-id", BuyerId);
+        // No pathParameters set — this won't match the GetById route
+        var response = await _function.FunctionHandler(request, _context);
+
+        // Without "id" in PathParameters, the route falls through to the default case
+        Assert.Equal(405, response.StatusCode);
     }
 }

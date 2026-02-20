@@ -128,7 +128,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error initiating escrow: {ex.Message}");
+            context.Logger.LogError($"Error initiating escrow: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -176,7 +176,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error releasing escrow: {ex.Message}");
+            context.Logger.LogError($"Error releasing escrow: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -224,7 +224,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error disputing escrow: {ex.Message}");
+            context.Logger.LogError($"Error disputing escrow: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -272,7 +272,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error refunding escrow: {ex.Message}");
+            context.Logger.LogError($"Error refunding escrow: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -324,7 +324,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying escrow history: {ex.Message}");
+            context.Logger.LogError($"Error querying escrow history: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -360,7 +360,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting escrow {escrowId}: {ex.Message}");
+            context.Logger.LogError($"Error getting escrow {escrowId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }

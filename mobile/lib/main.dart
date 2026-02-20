@@ -6,8 +6,11 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
@@ -112,6 +115,17 @@ class WeredaConnectApp extends StatelessWidget {
             repository: DeliveryRepository(
               isar: IsarService.instance.db,
               syncQueue: SyncQueue(IsarService.instance.db),
+            ),
+          ),
+        ),
+        BlocProvider<EscrowBloc>(
+          create: (_) => EscrowBloc(
+            repository: EscrowRepository(
+              isar: IsarService.instance.db,
+              apiClient: ApiClient(),
+              connectivityMonitor: ConnectivityMonitor(
+                dio: ApiClient().dio,
+              ),
             ),
           ),
         ),

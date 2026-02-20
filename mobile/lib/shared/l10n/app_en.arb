@@ -965,6 +965,313 @@
   "deliverySeedTestButton": "Seed Test Delivery",
   "@deliverySeedTestButton": {
     "description": "Debug button text to create a test delivery"
+  },
+
+  "@@escrowPaymentSection": "=== Escrow Payment Feature ===",
+
+  "escrowPayments": "Payments",
+  "@escrowPayments": {
+    "description": "Navigation label for escrow payments section"
+  },
+  "escrowPayForDelivery": "Pay for Delivery",
+  "@escrowPayForDelivery": {
+    "description": "Screen title for initiating escrow payment"
+  },
+  "escrowPaymentStatus": "Payment Status",
+  "@escrowPaymentStatus": {
+    "description": "Screen title for viewing single escrow status"
+  },
+  "escrowPaymentHistory": "My Payments",
+  "@escrowPaymentHistory": {
+    "description": "Screen title for payment history list"
+  },
+  "escrowRaiseDispute": "Raise Dispute",
+  "@escrowRaiseDispute": {
+    "description": "Screen title for raising an escrow dispute"
+  },
+
+  "escrowStatusInitiated": "Payment Pending",
+  "@escrowStatusInitiated": {
+    "description": "Status label when escrow payment is initiated but not yet held"
+  },
+  "escrowStatusEscrowed": "Funds Held Safely",
+  "@escrowStatusEscrowed": {
+    "description": "Status label when funds are held in escrow"
+  },
+  "escrowStatusReleased": "Funds Released",
+  "@escrowStatusReleased": {
+    "description": "Status label when funds have been released to farmer"
+  },
+  "escrowStatusCompleted": "Payment Complete",
+  "@escrowStatusCompleted": {
+    "description": "Status label when escrow transaction is fully settled"
+  },
+  "escrowStatusCancelled": "Cancelled",
+  "@escrowStatusCancelled": {
+    "description": "Status label when escrow payment was cancelled"
+  },
+  "escrowStatusDisputed": "Under Dispute",
+  "@escrowStatusDisputed": {
+    "description": "Status label when escrow payment is under dispute"
+  },
+  "escrowStatusRefunded": "Refunded",
+  "@escrowStatusRefunded": {
+    "description": "Status label when escrow payment has been refunded"
+  },
+
+  "escrowProtectionInfo": "Your payment is held safely until delivery is confirmed.",
+  "@escrowProtectionInfo": {
+    "description": "Trust-building message explaining escrow protection"
+  },
+  "escrowTotalAmount": "Total Amount",
+  "@escrowTotalAmount": {
+    "description": "Label for total payment amount"
+  },
+  "escrowCommission": "Commission ({rate}%)",
+  "@escrowCommission": {
+    "description": "Label for platform commission with percentage rate",
+    "placeholders": {
+      "rate": {
+        "type": "String",
+        "example": "2.5"
+      }
+    }
+  },
+  "escrowFarmerReceives": "Farmer Receives",
+  "@escrowFarmerReceives": {
+    "description": "Label for net amount farmer will receive after commission"
+  },
+  "escrowConfirmPayment": "Confirm Payment",
+  "@escrowConfirmPayment": {
+    "description": "Button label to confirm and initiate escrow payment"
+  },
+  "escrowConfirmPaymentDialog": "Pay ETB {amount} to {farmerName}?",
+  "@escrowConfirmPaymentDialog": {
+    "description": "Confirmation dialog message before payment",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      },
+      "farmerName": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowFaydaWarning": "Fayda ID verification required for amounts above ETB 10,000.",
+  "@escrowFaydaWarning": {
+    "description": "Warning shown when payment amount exceeds Fayda ID threshold"
+  },
+  "escrowFundsHeldInfo": "Funds held for 7 days maximum. Refunded if not delivered.",
+  "@escrowFundsHeldInfo": {
+    "description": "Info text explaining escrow fund holding period"
+  },
+  "escrowPaymentQueued": "Payment queued. Will process when you have internet.",
+  "@escrowPaymentQueued": {
+    "description": "Message shown when payment intent is queued offline"
+  },
+  "escrowPaymentSuccess": "Payment initiated successfully.",
+  "@escrowPaymentSuccess": {
+    "description": "Success message after payment is initiated"
+  },
+
+  "escrowDeliveryLabel": "Delivery",
+  "@escrowDeliveryLabel": {
+    "description": "Label for delivery reference on escrow status screen"
+  },
+  "escrowFarmerLabel": "Farmer",
+  "@escrowFarmerLabel": {
+    "description": "Label for farmer name on escrow status screen"
+  },
+  "escrowBuyerLabel": "Buyer",
+  "@escrowBuyerLabel": {
+    "description": "Label for buyer name on escrow status screen"
+  },
+  "escrowCreatedLabel": "Created",
+  "@escrowCreatedLabel": {
+    "description": "Label for escrow creation date"
+  },
+  "escrowExpiresLabel": "Expires",
+  "@escrowExpiresLabel": {
+    "description": "Label for escrow expiration date"
+  },
+  "escrowTelebirrRefLabel": "Telebirr Ref",
+  "@escrowTelebirrRefLabel": {
+    "description": "Label for Telebirr transaction reference number"
+  },
+  "escrowMayBeOutdated": "Status may be outdated. Pull to refresh.",
+  "@escrowMayBeOutdated": {
+    "description": "Warning shown when cached escrow data may be stale"
+  },
+  "escrowLastUpdated": "Last updated {time}",
+  "@escrowLastUpdated": {
+    "description": "Label showing when escrow data was last refreshed",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "5 min ago"
+      }
+    }
+  },
+
+  "escrowFilterAll": "All",
+  "@escrowFilterAll": {
+    "description": "Filter chip label to show all escrow payments"
+  },
+  "escrowFilterBuyer": "As Buyer",
+  "@escrowFilterBuyer": {
+    "description": "Filter chip to show payments where user is buyer"
+  },
+  "escrowFilterFarmer": "As Farmer",
+  "@escrowFilterFarmer": {
+    "description": "Filter chip to show payments where user is farmer"
+  },
+  "escrowPendingSection": "Pending ({count})",
+  "@escrowPendingSection": {
+    "description": "Section header for pending payment intents with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "escrowHistorySection": "History",
+  "@escrowHistorySection": {
+    "description": "Section header for confirmed payment history"
+  },
+  "escrowNoPayments": "No payments yet.",
+  "@escrowNoPayments": {
+    "description": "Empty state message when user has no payment history"
+  },
+  "escrowNoMatchingPayments": "No matching payments.",
+  "@escrowNoMatchingPayments": {
+    "description": "Empty state when no payments match the active filter"
+  },
+  "escrowCancelIntent": "Cancel",
+  "@escrowCancelIntent": {
+    "description": "Button to cancel a queued payment intent"
+  },
+  "escrowCancelIntentDialog": "Cancel this queued payment?",
+  "@escrowCancelIntentDialog": {
+    "description": "Confirmation dialog for cancelling a queued payment intent"
+  },
+  "escrowIntentCancelled": "Queued payment cancelled.",
+  "@escrowIntentCancelled": {
+    "description": "Success message after cancelling a queued payment intent"
+  },
+
+  "escrowDisputeTimeRemaining": "Time remaining: {hours}h {minutes}m",
+  "@escrowDisputeTimeRemaining": {
+    "description": "Countdown showing remaining time to raise a dispute",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "23"
+      },
+      "minutes": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "escrowDisputeWindowExpired": "Dispute window expired.",
+  "@escrowDisputeWindowExpired": {
+    "description": "Message when the 48-hour dispute window has passed"
+  },
+  "escrowDisputeReasonLabel": "Reason",
+  "@escrowDisputeReasonLabel": {
+    "description": "Label for dispute reason selection"
+  },
+  "escrowDisputeDescriptionLabel": "Description (optional)",
+  "@escrowDisputeDescriptionLabel": {
+    "description": "Label for optional dispute description text field"
+  },
+  "escrowDisputeDescriptionHint": "Describe the issue...",
+  "@escrowDisputeDescriptionHint": {
+    "description": "Hint text for dispute description input field"
+  },
+  "escrowDisputeSubmit": "Submit Dispute",
+  "@escrowDisputeSubmit": {
+    "description": "Button to submit a dispute on an escrow payment"
+  },
+  "escrowDisputeConfirmDialog": "This will freeze funds pending review. Continue?",
+  "@escrowDisputeConfirmDialog": {
+    "description": "Confirmation dialog before submitting a dispute"
+  },
+  "escrowDisputeSuccess": "Dispute registered. Platform will review within 48 hours.",
+  "@escrowDisputeSuccess": {
+    "description": "Success message after dispute is submitted"
+  },
+  "escrowDisputeReviewInfo": "Disputes are reviewed by the platform within 48 hours.",
+  "@escrowDisputeReviewInfo": {
+    "description": "Info text about dispute review process"
+  },
+  "escrowDisputeRequiresInternet": "Internet connection required to raise disputes.",
+  "@escrowDisputeRequiresInternet": {
+    "description": "Error message when user tries to raise dispute while offline"
+  },
+
+  "escrowReasonDamagedGoods": "Damaged goods",
+  "@escrowReasonDamagedGoods": {
+    "description": "Dispute reason: goods were damaged"
+  },
+  "escrowReasonWrongQuantity": "Wrong quantity",
+  "@escrowReasonWrongQuantity": {
+    "description": "Dispute reason: received wrong quantity"
+  },
+  "escrowReasonWrongCrop": "Wrong crop type",
+  "@escrowReasonWrongCrop": {
+    "description": "Dispute reason: received wrong crop type"
+  },
+  "escrowReasonNotDelivered": "Not delivered",
+  "@escrowReasonNotDelivered": {
+    "description": "Dispute reason: goods were not delivered"
+  },
+  "escrowReasonQualityMismatch": "Quality mismatch",
+  "@escrowReasonQualityMismatch": {
+    "description": "Dispute reason: quality does not match listing"
+  },
+  "escrowReasonOther": "Other",
+  "@escrowReasonOther": {
+    "description": "Dispute reason: other reason not listed"
+  },
+
+  "escrowErrorInvalidAmount": "Amount must be between ETB 100 and ETB 500,000.",
+  "@escrowErrorInvalidAmount": {
+    "description": "Error when payment amount is outside allowed range"
+  },
+  "escrowErrorFaydaRequired": "Fayda ID verification required for amounts above ETB 10,000.",
+  "@escrowErrorFaydaRequired": {
+    "description": "Error when Fayda ID is required but not verified"
+  },
+  "escrowErrorAlreadyExists": "Payment already exists for this delivery.",
+  "@escrowErrorAlreadyExists": {
+    "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorGateway": "Telebirr service error. Please try again.",
+  "@escrowErrorGateway": {
+    "description": "Error when Telebirr gateway returns an error"
+  },
+  "escrowErrorServiceUnavailable": "Telebirr is currently unavailable. Please try later.",
+  "@escrowErrorServiceUnavailable": {
+    "description": "Error when Telebirr service is down"
+  },
+  "escrowErrorGeneric": "Something went wrong. Please try again.",
+  "@escrowErrorGeneric": {
+    "description": "Generic fallback error message for escrow operations"
+  },
+
+  "escrowEtbAmount": "ETB {amount}",
+  "@escrowEtbAmount": {
+    "description": "Formatted ETB currency amount",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
   }
 }
 

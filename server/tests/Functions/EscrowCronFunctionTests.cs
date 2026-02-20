@@ -2,6 +2,7 @@ using System.Text.Json;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
@@ -282,5 +283,224 @@ public class EscrowCronFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("ESCROW_CRON_VALIDATION", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // S5: Invalid JSON body returns 400
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task FunctionHandler_InvalidJsonBody_Returns400()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/escrow-cron",
+            Body = "{{this is not valid json"
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ESCROW_CRON_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_EmptyBody_Returns400()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/escrow-cron",
+            Body = ""
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ESCROW_CRON_VALIDATION", response.Body);
+        Assert.Contains("action", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_JsonWithoutAction_Returns400()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/escrow-cron",
+            Body = "{\"notAction\": \"something\"}"
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ESCROW_CRON_VALIDATION", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // S5: Unknown action returns specific error (not catch-all)
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("delete_all_data")]
+    [InlineData("")]
+    [InlineData("reconcile")]
+    public async Task FunctionHandler_InvalidActionStrings_Returns400(string action)
+    {
+        var request = MakeCronRequest(action);
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ESCROW_CRON_VALIDATION", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Action from query string
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task FunctionHandler_ActionInQueryString_Routes()
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/escrow-cron",
+            Body = null,
+            QueryStringParameters = new Dictionary<string, string>
+            {
+                { "action", "auto_release_and_refund" }
+            }
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
+    // Reconciliation: Telebirr returns "failed"
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Reconciliation_TelebirrFailed_CancelsEscrow()
+    {
+        var staleCreatedAt = DateTime.UtcNow.AddHours(-1).ToString("o");
+        var escrow = MakeEscrowItem("escrow-recon-004", status: "initiated",
+            telebirrRef: "TBR-FAIL-REF");
+        escrow["createdAt"] = staleCreatedAt;
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        _mockTelebirrGateway.GetTransactionStatusAsync("TBR-FAIL-REF")
+            .Returns(new TransactionStatusResponse
+            {
+                TransactionRef = "TBR-FAIL-REF",
+                Status = "failed",
+                Amount = 0,
+                UpdatedAt = DateTime.UtcNow.ToString("o")
+            });
+
+        var request = MakeCronRequest("reconciliation");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"reconciledToCancelled\":\"1\"", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Reconciliation: Telebirr query throws exception
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Reconciliation_TelebirrQueryFails_SkipsEscrow()
+    {
+        var staleCreatedAt = DateTime.UtcNow.AddHours(-1).ToString("o");
+        var escrow = MakeEscrowItem("escrow-recon-005", status: "initiated",
+            telebirrRef: "TBR-EXCEPTION-REF");
+        escrow["createdAt"] = staleCreatedAt;
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        _mockTelebirrGateway.GetTransactionStatusAsync("TBR-EXCEPTION-REF")
+            .ThrowsAsync(new Exception("Network error"));
+
+        var request = MakeCronRequest("reconciliation");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"skipped\":\"1\"", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // S4: Cron exception logs don't leak sensitive data
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task FunctionHandler_CronException_Returns500WithGenericMessage()
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("ESCROW_CRON_ERROR", response.Body);
+        // Response should NOT contain the sensitive exception message
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Auto-release: delivery not confirmed, skip
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoRelease_DeliveryNotConfirmed_DoesNotRelease()
+    {
+        // No deliveryConfirmedAt set
+        var escrow = MakeEscrowItem("escrow-no-confirm");
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"released\":\"0\"", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Auto-refund: with confirmed delivery, skip
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoRefund_WithConfirmedDelivery_DoesNotRefund()
+    {
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var confirmed = DateTime.UtcNow.AddDays(-2).ToString("o");
+
+        var escrow = MakeEscrowItem("escrow-confirmed-expired",
+            expiresAt: expiredAt,
+            deliveryConfirmedAt: confirmed);
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // Delivery confirmed → should not be auto-refunded
+        Assert.Contains("\"refunded\":\"0\"", response.Body);
     }
 }

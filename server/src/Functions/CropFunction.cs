@@ -222,7 +222,9 @@ public class CropFunction
     private static int GetInt(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0;
+        }
 
         return value switch
         {
@@ -239,7 +241,9 @@ public class CropFunction
     private static decimal GetDecimal(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0m;
+        }
 
         return value switch
         {
@@ -264,9 +268,13 @@ public class CropFunction
         foreach (var kvp in lastEvaluatedKey)
         {
             if (kvp.Value.S != null)
+            {
                 tokenData[kvp.Key] = kvp.Value.S;
+            }
             else if (kvp.Value.N != null)
+            {
                 tokenData[kvp.Key] = kvp.Value.N;
+            }
         }
 
         var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);

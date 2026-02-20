@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 
 /// Service for managing the encrypted Isar database.
 ///
@@ -94,6 +95,7 @@ class IsarService {
         TripSchema,
         DeliverySchema,
         PaymentSchema,
+        PaymentIntentSchema,
         SyncOperationSchema,
       ],
       directory: dir.path,

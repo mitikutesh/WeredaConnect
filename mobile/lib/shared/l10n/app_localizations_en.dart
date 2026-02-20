@@ -735,4 +735,217 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliverySeedTestButton => 'Seed Test Delivery';
+
+  @override
+  String get escrowPayments => 'Payments';
+
+  @override
+  String get escrowPayForDelivery => 'Pay for Delivery';
+
+  @override
+  String get escrowPaymentStatus => 'Payment Status';
+
+  @override
+  String get escrowPaymentHistory => 'My Payments';
+
+  @override
+  String get escrowRaiseDispute => 'Raise Dispute';
+
+  @override
+  String get escrowStatusInitiated => 'Payment Pending';
+
+  @override
+  String get escrowStatusEscrowed => 'Funds Held Safely';
+
+  @override
+  String get escrowStatusReleased => 'Funds Released';
+
+  @override
+  String get escrowStatusCompleted => 'Payment Complete';
+
+  @override
+  String get escrowStatusCancelled => 'Cancelled';
+
+  @override
+  String get escrowStatusDisputed => 'Under Dispute';
+
+  @override
+  String get escrowStatusRefunded => 'Refunded';
+
+  @override
+  String get escrowProtectionInfo =>
+      'Your payment is held safely until delivery is confirmed.';
+
+  @override
+  String get escrowTotalAmount => 'Total Amount';
+
+  @override
+  String escrowCommission(String rate) {
+    return 'Commission ($rate%)';
+  }
+
+  @override
+  String get escrowFarmerReceives => 'Farmer Receives';
+
+  @override
+  String get escrowConfirmPayment => 'Confirm Payment';
+
+  @override
+  String escrowConfirmPaymentDialog(String amount, String farmerName) {
+    return 'Pay ETB $amount to $farmerName?';
+  }
+
+  @override
+  String get escrowFaydaWarning =>
+      'Fayda ID verification required for amounts above ETB 10,000.';
+
+  @override
+  String get escrowFundsHeldInfo =>
+      'Funds held for 7 days maximum. Refunded if not delivered.';
+
+  @override
+  String get escrowPaymentQueued =>
+      'Payment queued. Will process when you have internet.';
+
+  @override
+  String get escrowPaymentSuccess => 'Payment initiated successfully.';
+
+  @override
+  String get escrowDeliveryLabel => 'Delivery';
+
+  @override
+  String get escrowFarmerLabel => 'Farmer';
+
+  @override
+  String get escrowBuyerLabel => 'Buyer';
+
+  @override
+  String get escrowCreatedLabel => 'Created';
+
+  @override
+  String get escrowExpiresLabel => 'Expires';
+
+  @override
+  String get escrowTelebirrRefLabel => 'Telebirr Ref';
+
+  @override
+  String get escrowMayBeOutdated => 'Status may be outdated. Pull to refresh.';
+
+  @override
+  String escrowLastUpdated(String time) {
+    return 'Last updated $time';
+  }
+
+  @override
+  String get escrowFilterAll => 'All';
+
+  @override
+  String get escrowFilterBuyer => 'As Buyer';
+
+  @override
+  String get escrowFilterFarmer => 'As Farmer';
+
+  @override
+  String escrowPendingSection(int count) {
+    return 'Pending ($count)';
+  }
+
+  @override
+  String get escrowHistorySection => 'History';
+
+  @override
+  String get escrowNoPayments => 'No payments yet.';
+
+  @override
+  String get escrowNoMatchingPayments => 'No matching payments.';
+
+  @override
+  String get escrowCancelIntent => 'Cancel';
+
+  @override
+  String get escrowCancelIntentDialog => 'Cancel this queued payment?';
+
+  @override
+  String get escrowIntentCancelled => 'Queued payment cancelled.';
+
+  @override
+  String escrowDisputeTimeRemaining(int hours, int minutes) {
+    return 'Time remaining: ${hours}h ${minutes}m';
+  }
+
+  @override
+  String get escrowDisputeWindowExpired => 'Dispute window expired.';
+
+  @override
+  String get escrowDisputeReasonLabel => 'Reason';
+
+  @override
+  String get escrowDisputeDescriptionLabel => 'Description (optional)';
+
+  @override
+  String get escrowDisputeDescriptionHint => 'Describe the issue...';
+
+  @override
+  String get escrowDisputeSubmit => 'Submit Dispute';
+
+  @override
+  String get escrowDisputeConfirmDialog =>
+      'This will freeze funds pending review. Continue?';
+
+  @override
+  String get escrowDisputeSuccess =>
+      'Dispute registered. Platform will review within 48 hours.';
+
+  @override
+  String get escrowDisputeReviewInfo =>
+      'Disputes are reviewed by the platform within 48 hours.';
+
+  @override
+  String get escrowDisputeRequiresInternet =>
+      'Internet connection required to raise disputes.';
+
+  @override
+  String get escrowReasonDamagedGoods => 'Damaged goods';
+
+  @override
+  String get escrowReasonWrongQuantity => 'Wrong quantity';
+
+  @override
+  String get escrowReasonWrongCrop => 'Wrong crop type';
+
+  @override
+  String get escrowReasonNotDelivered => 'Not delivered';
+
+  @override
+  String get escrowReasonQualityMismatch => 'Quality mismatch';
+
+  @override
+  String get escrowReasonOther => 'Other';
+
+  @override
+  String get escrowErrorInvalidAmount =>
+      'Amount must be between ETB 100 and ETB 500,000.';
+
+  @override
+  String get escrowErrorFaydaRequired =>
+      'Fayda ID verification required for amounts above ETB 10,000.';
+
+  @override
+  String get escrowErrorAlreadyExists =>
+      'Payment already exists for this delivery.';
+
+  @override
+  String get escrowErrorGateway => 'Telebirr service error. Please try again.';
+
+  @override
+  String get escrowErrorServiceUnavailable =>
+      'Telebirr is currently unavailable. Please try later.';
+
+  @override
+  String get escrowErrorGeneric => 'Something went wrong. Please try again.';
+
+  @override
+  String escrowEtbAmount(String amount) {
+    return 'ETB $amount';
+  }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using WeredaConnect.Server.Data;
@@ -39,6 +40,15 @@ public class EscrowServiceTests
             .Returns(true);
 
         _service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+    }
+
+    /// <summary>
+    /// Helper to create an EscrowService with IUserRepository for Fayda tests.
+    /// </summary>
+    private EscrowService CreateServiceWithUserRepo(IUserRepository userRepo)
+    {
+        return new EscrowService(
+            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, userRepo);
     }
 
     private static InitiateEscrowRequest MakeInitiateRequest(
@@ -846,5 +856,815 @@ public class EscrowServiceTests
         Assert.Equal("damaged_goods", dto.Dispute.Reason);
         Assert.Equal("Bags were wet.", dto.Dispute.Description);
         Assert.Equal(2, dto.Dispute.EvidenceRefs!.Count);
+    }
+
+    // ──────────────────────────────────────────────
+    // Security: M1 — Concurrent idempotency key writes
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task InitiateAsync_ConcurrentIdempotencyStore_Returns409()
+    {
+        // Simulate: StoreAsync returns false (another request already claimed the key)
+        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(false);
+
+        var request = MakeInitiateRequest();
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_003", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ConcurrentIdempotencyStore_Returns409()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(false);
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"system:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_003", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_ConcurrentIdempotencyStore_Returns409()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(false);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_003", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task RefundAsync_ConcurrentIdempotencyStore_Returns409()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(false);
+
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = $"system:escrow-001:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_003", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Security: M2 — Authorization checks on release/refund
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task ReleaseAsync_RegularUser_Returns403()
+    {
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"{BuyerId}:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_AsAdmin_Succeeds()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "admin:admin-user");
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task RefundAsync_RegularUser_Returns403()
+    {
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = $"{BuyerId}:escrow-001:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task RefundAsync_FarmerCannotRefund_Returns403()
+    {
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = $"{FarmerId}:escrow-001:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, FarmerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Security: M4 — Fayda ID enforcement for high-value transactions
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task InitiateAsync_HighValueWithoutBuyerFaydaId_Returns403()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(new UserDto
+        {
+            UserId = BuyerId,
+            PhoneNumber = "+251912345678",
+            Role = "Buyer",
+            Woreda = "test-woreda",
+            FaydaId = null, // No Fayda ID
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(new UserDto
+        {
+            UserId = FarmerId,
+            PhoneNumber = "+251922222222",
+            Role = "Farmer",
+            Woreda = "test-woreda",
+            FaydaId = "FAYDA-FARMER-001",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
+        var request = MakeInitiateRequest(amount: 15_000m); // Above 10,000 threshold
+
+        var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_007", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+        Assert.Contains("Buyer", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_HighValueWithoutFarmerFaydaId_Returns403()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(new UserDto
+        {
+            UserId = BuyerId,
+            PhoneNumber = "+251912345678",
+            Role = "Buyer",
+            Woreda = "test-woreda",
+            FaydaId = "FAYDA-BUYER-001",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(new UserDto
+        {
+            UserId = FarmerId,
+            PhoneNumber = "+251922222222",
+            Role = "Farmer",
+            Woreda = "test-woreda",
+            FaydaId = null, // No Fayda ID
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
+        var request = MakeInitiateRequest(amount: 15_000m);
+
+        var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_007", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+        Assert.Contains("Farmer", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_HighValueWithBothFaydaIds_Succeeds()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(new UserDto
+        {
+            UserId = BuyerId,
+            PhoneNumber = "+251912345678",
+            Role = "Buyer",
+            Woreda = "test-woreda",
+            FaydaId = "FAYDA-BUYER-001",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(new UserDto
+        {
+            UserId = FarmerId,
+            PhoneNumber = "+251922222222",
+            Role = "Farmer",
+            Woreda = "test-woreda",
+            FaydaId = "FAYDA-FARMER-001",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
+        var request = MakeInitiateRequest(amount: 15_000m);
+
+        var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrowed", result.Value!.Status);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_BelowFaydaThreshold_SkipsFaydaCheck()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+
+        var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
+        var request = MakeInitiateRequest(amount: 5_000m); // Below 10,000 threshold
+
+        var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        // User repo should NOT be called for amounts <= 10,000
+        await mockUserRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_ExactFaydaThreshold_SkipsFaydaCheck()
+    {
+        // amount == 10,000 should NOT trigger Fayda check (it's > 10,000, not >=)
+        var mockUserRepo = Substitute.For<IUserRepository>();
+
+        var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
+        var request = MakeInitiateRequest(amount: 10_000m);
+
+        var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await mockUserRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    // ──────────────────────────────────────────────
+    // Security: S3 — Number formatting is locale-invariant
+    // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(1.5)]
+    [InlineData(0.001)]
+    [InlineData(1234.56)]
+    public void ToAttributeValue_DecimalValues_UseInvariantCulture(double value)
+    {
+        var decimalValue = (decimal)value;
+        var result = CropRepository.ToAttributeValue(decimalValue);
+
+        Assert.NotNull(result.N);
+        // Must use '.' as decimal separator regardless of culture
+        Assert.DoesNotContain(",", result.N);
+        Assert.Equal(decimalValue.ToString(CultureInfo.InvariantCulture), result.N);
+    }
+
+    [Theory]
+    [InlineData(1.5)]
+    [InlineData(0.001)]
+    [InlineData(1234.56)]
+    public void ToAttributeValue_DoubleValues_UseInvariantCulture(double value)
+    {
+        var result = CropRepository.ToAttributeValue(value);
+
+        Assert.NotNull(result.N);
+        Assert.DoesNotContain(",", result.N);
+        Assert.Equal(value.ToString(CultureInfo.InvariantCulture), result.N);
+    }
+
+    [Theory]
+    [InlineData(42)]
+    [InlineData(-100)]
+    [InlineData(0)]
+    public void ToAttributeValue_IntValues_UseInvariantCulture(int value)
+    {
+        var result = CropRepository.ToAttributeValue(value);
+
+        Assert.NotNull(result.N);
+        Assert.Equal(value.ToString(CultureInfo.InvariantCulture), result.N);
+    }
+
+    [Theory]
+    [InlineData(9999999999L)]
+    [InlineData(-1L)]
+    public void ToAttributeValue_LongValues_UseInvariantCulture(long value)
+    {
+        var result = CropRepository.ToAttributeValue(value);
+
+        Assert.NotNull(result.N);
+        Assert.Equal(value.ToString(CultureInfo.InvariantCulture), result.N);
+    }
+
+    // ──────────────────────────────────────────────
+    // Dispute input validation (S2 security fix)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task DisputeAsync_DescriptionTooLong_ReturnsEscrow017()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            Description = new string('A', 1001), // Exceeds 1000 char limit
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_017", result.Error!.Code);
+        Assert.Equal(400, result.Error.HttpStatus);
+        Assert.Equal("description", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_Description1000Chars_Succeeds()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            Description = new string('A', 1000), // Exactly 1000 — allowed
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_TooManyEvidenceRefs_ReturnsEscrow017()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            EvidenceRefs = new List<string> { "a", "b", "c", "d", "e", "f" }, // 6 > max 5
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_017", result.Error!.Code);
+        Assert.Equal("evidenceRefs", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_EvidenceRefTooLong_ReturnsEscrow017()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            EvidenceRefs = new List<string> { new string('X', 201) }, // Exceeds 200 char limit
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_017", result.Error!.Code);
+        Assert.Equal("evidenceRefs", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_EmptyEvidenceRef_ReturnsEscrow017()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            EvidenceRefs = new List<string> { "valid-ref.jpg", "" }, // Empty ref not allowed
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_017", result.Error!.Code);
+        Assert.Equal("evidenceRefs", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_ValidEvidenceRefs_Succeeds()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            EvidenceRefs = new List<string> { "photo1.jpg", "photo2.jpg", "photo3.jpg" },
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    // ──────────────────────────────────────────────
+    // Dispute from "released" state — invalid
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task DisputeAsync_FromReleasedState_ReturnsInvalidTransition()
+    {
+        var escrowItem = MakeEscrowItem(status: "released");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        Assert.Equal(422, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Release from "released" state — invalid
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task ReleaseAsync_FromReleasedState_ReturnsInvalidTransition()
+    {
+        var escrowItem = MakeEscrowItem(status: "released");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"system:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        Assert.Equal(422, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Commission edge case: 200 ETB → 5 ETB min
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task InitiateAsync_CommissionEdge_200ETB_MinCommission()
+    {
+        // 200 * 0.025 = 5.0 — exactly at the minimum, should be 5 ETB
+        var request = MakeInitiateRequest(amount: 200m);
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(5.0m, result.Value!.Commission);
+        Assert.Equal(195.0m, result.Value.FarmerPayout);
+    }
+
+    // ──────────────────────────────────────────────
+    // Amount boundary tests
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task InitiateAsync_Amount99ETB_ReturnsEscrow001()
+    {
+        var request = MakeInitiateRequest(amount: 99m);
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_001", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_Amount500001ETB_ReturnsEscrow001()
+    {
+        var request = MakeInitiateRequest(amount: 500_001m);
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_001", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_Amount100ETB_Succeeds()
+    {
+        var request = MakeInitiateRequest(amount: 100m);
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_Amount500000ETB_Succeeds()
+    {
+        // No userRepo so Fayda check is skipped
+        var request = MakeInitiateRequest(amount: 500_000m);
+
+        var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    // ──────────────────────────────────────────────
+    // Refund not found
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task RefundAsync_NotFound_ReturnsEscrow016()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-999").Returns((Dictionary<string, object>?)null);
+
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-999",
+            Trigger = "admin_override",
+            IdempotencyKey = $"system:escrow-999:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_016", result.Error!.Code);
+        Assert.Equal(404, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Refund duplicate idempotency
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task RefundAsync_DuplicateIdempotency_ReturnsCached()
+    {
+        var escrowItem = MakeEscrowItem(status: "refunded");
+        escrowItem["refundedAt"] = "2026-02-18T10:00:00Z";
+        escrowItem["telebirrRefundRef"] = "MOCK-REFUND-REF";
+
+        _mockIdempotencyRepo.GetAsync(Arg.Any<string>())
+            .Returns(new Dictionary<string, object>
+            {
+                { "escrowId", "escrow-001" },
+                { "status", "completed" }
+            });
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = $"system:escrow-001:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, "system");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.IsDuplicate);
+    }
+
+    // ──────────────────────────────────────────────
+    // Dispute duplicate idempotency
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task DisputeAsync_DuplicateIdempotency_ReturnsCached()
+    {
+        var escrowItem = MakeEscrowItem(status: "disputed");
+        escrowItem["disputeId"] = "dispute-001";
+        escrowItem["disputedBy"] = BuyerId;
+        escrowItem["disputeReason"] = "damaged_goods";
+        escrowItem["disputeCreatedAt"] = "2026-02-18T14:00:00Z";
+        escrowItem["disputeWindowEndsAt"] = "2026-02-20T14:00:00Z";
+
+        _mockIdempotencyRepo.GetAsync(Arg.Any<string>())
+            .Returns(new Dictionary<string, object>
+            {
+                { "escrowId", "escrow-001" },
+                { "status", "completed" }
+            });
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.IsDuplicate);
+    }
+
+    // ──────────────────────────────────────────────
+    // Dispute not found
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task DisputeAsync_NotFound_ReturnsEscrow016()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-999").Returns((Dictionary<string, object>?)null);
+
+        var request = new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-999",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-999:dispute:1708171200000"
+        };
+
+        var result = await _service.DisputeAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_016", result.Error!.Code);
+        Assert.Equal(404, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Audit trail for Telebirr failures (S1)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task InitiateAsync_TelebirrFailure_CreatesAuditEntry()
+    {
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>())
+            .Returns(new HoldFundsResponse
+            {
+                Success = false,
+                ErrorCode = "TELEBIRR_HOLD_FAILED",
+                ErrorMessage = "Insufficient balance."
+            });
+
+        var request = MakeInitiateRequest();
+        await _service.InitiateAsync(request, BuyerId);
+
+        // initiate audit + hold_failed audit = 2 entries
+        await _mockAuditRepo.Received(2).AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_TelebirrFailure_CreatesAuditEntry()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse
+            {
+                Success = false,
+                ErrorCode = "TELEBIRR_RELEASE_FAILED"
+            });
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"system:escrow-001:release:1708171200000"
+        };
+
+        await _service.ReleaseAsync(request, "system");
+
+        // release_failed audit entry
+        await _mockAuditRepo.Received(1).AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RefundAsync_TelebirrFailure_CreatesAuditEntry()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse
+            {
+                Success = false,
+                ErrorCode = "TELEBIRR_REFUND_FAILED"
+            });
+
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = $"system:escrow-001:refund:1708257600000"
+        };
+
+        await _service.RefundAsync(request, "system");
+
+        // refund_failed audit entry
+        await _mockAuditRepo.Received(1).AppendAsync(Arg.Any<Dictionary<string, object>>());
     }
 }

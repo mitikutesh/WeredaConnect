@@ -965,6 +965,313 @@
   "deliverySeedTestButton": "የሙከራ ማድረሻ ፍጠር",
   "@deliverySeedTestButton": {
     "description": "Debug button text to create a test delivery"
+  },
+
+  "@@escrowPaymentSection": "=== Escrow Payment Feature ===",
+
+  "escrowPayments": "ክፍያዎች",
+  "@escrowPayments": {
+    "description": "Navigation label for escrow payments section"
+  },
+  "escrowPayForDelivery": "ለማድረሻ ክፈል",
+  "@escrowPayForDelivery": {
+    "description": "Screen title for initiating escrow payment"
+  },
+  "escrowPaymentStatus": "የክፍያ ሁኔታ",
+  "@escrowPaymentStatus": {
+    "description": "Screen title for viewing single escrow status"
+  },
+  "escrowPaymentHistory": "የክፍያ ታሪክ",
+  "@escrowPaymentHistory": {
+    "description": "Screen title for payment history list"
+  },
+  "escrowRaiseDispute": "ክርክር አቅርብ",
+  "@escrowRaiseDispute": {
+    "description": "Screen title for raising an escrow dispute"
+  },
+
+  "escrowStatusInitiated": "ክፍያ በመጠባበቅ",
+  "@escrowStatusInitiated": {
+    "description": "Status label when escrow payment is initiated but not yet held"
+  },
+  "escrowStatusEscrowed": "ገንዘብ በጥበቃ ተይዟል",
+  "@escrowStatusEscrowed": {
+    "description": "Status label when funds are held in escrow"
+  },
+  "escrowStatusReleased": "ገንዘብ ተለቋል",
+  "@escrowStatusReleased": {
+    "description": "Status label when funds have been released to farmer"
+  },
+  "escrowStatusCompleted": "ክፍያ ተጠናቋል",
+  "@escrowStatusCompleted": {
+    "description": "Status label when escrow transaction is fully settled"
+  },
+  "escrowStatusCancelled": "ተሰርዟል",
+  "@escrowStatusCancelled": {
+    "description": "Status label when escrow payment was cancelled"
+  },
+  "escrowStatusDisputed": "ክርክር ቀርቧል",
+  "@escrowStatusDisputed": {
+    "description": "Status label when escrow payment is under dispute"
+  },
+  "escrowStatusRefunded": "ተመላሽ ሆኗል",
+  "@escrowStatusRefunded": {
+    "description": "Status label when escrow payment has been refunded"
+  },
+
+  "escrowProtectionInfo": "ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።",
+  "@escrowProtectionInfo": {
+    "description": "Trust-building message explaining escrow protection"
+  },
+  "escrowTotalAmount": "ጠቅላላ መጠን",
+  "@escrowTotalAmount": {
+    "description": "Label for total payment amount"
+  },
+  "escrowCommission": "ኮሚሽን ({rate}%)",
+  "@escrowCommission": {
+    "description": "Label for platform commission with percentage rate",
+    "placeholders": {
+      "rate": {
+        "type": "String",
+        "example": "2.5"
+      }
+    }
+  },
+  "escrowFarmerReceives": "ገበሬው የሚቀበለው",
+  "@escrowFarmerReceives": {
+    "description": "Label for net amount farmer will receive after commission"
+  },
+  "escrowConfirmPayment": "ክፍያ አረጋግጥ",
+  "@escrowConfirmPayment": {
+    "description": "Button label to confirm and initiate escrow payment"
+  },
+  "escrowConfirmPaymentDialog": "ብር {amount} ለ{farmerName} ይከፈል?",
+  "@escrowConfirmPaymentDialog": {
+    "description": "Confirmation dialog message before payment",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      },
+      "farmerName": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowFaydaWarning": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "@escrowFaydaWarning": {
+    "description": "Warning shown when payment amount exceeds Fayda ID threshold"
+  },
+  "escrowFundsHeldInfo": "ገንዘብ ቢበዛ ለ7 ቀናት ይቀመጣል። ካልደረሰ ተመላሽ ይሆናል።",
+  "@escrowFundsHeldInfo": {
+    "description": "Info text explaining escrow fund holding period"
+  },
+  "escrowPaymentQueued": "ክፍያ ተመዝግቧል። ኢንተርኔት ሲኖር ይከናወናል።",
+  "@escrowPaymentQueued": {
+    "description": "Message shown when payment intent is queued offline"
+  },
+  "escrowPaymentSuccess": "ክፍያ በተሳካ ሁኔታ ተጀምሯል።",
+  "@escrowPaymentSuccess": {
+    "description": "Success message after payment is initiated"
+  },
+
+  "escrowDeliveryLabel": "ማድረሻ",
+  "@escrowDeliveryLabel": {
+    "description": "Label for delivery reference on escrow status screen"
+  },
+  "escrowFarmerLabel": "ገበሬ",
+  "@escrowFarmerLabel": {
+    "description": "Label for farmer name on escrow status screen"
+  },
+  "escrowBuyerLabel": "ገዢ",
+  "@escrowBuyerLabel": {
+    "description": "Label for buyer name on escrow status screen"
+  },
+  "escrowCreatedLabel": "የተፈጠረ",
+  "@escrowCreatedLabel": {
+    "description": "Label for escrow creation date"
+  },
+  "escrowExpiresLabel": "የሚያልቅ",
+  "@escrowExpiresLabel": {
+    "description": "Label for escrow expiration date"
+  },
+  "escrowTelebirrRefLabel": "ቴሌብር ማጣቀሻ",
+  "@escrowTelebirrRefLabel": {
+    "description": "Label for Telebirr transaction reference number"
+  },
+  "escrowMayBeOutdated": "ሁኔታ ያረጀ ሊሆን ይችላል። ለማዘመን ይጎትቱ።",
+  "@escrowMayBeOutdated": {
+    "description": "Warning shown when cached escrow data may be stale"
+  },
+  "escrowLastUpdated": "ለመጨረሻ ጊዜ የዘመነ {time}",
+  "@escrowLastUpdated": {
+    "description": "Label showing when escrow data was last refreshed",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "5 min ago"
+      }
+    }
+  },
+
+  "escrowFilterAll": "ሁሉም",
+  "@escrowFilterAll": {
+    "description": "Filter chip label to show all escrow payments"
+  },
+  "escrowFilterBuyer": "እንደ ገዢ",
+  "@escrowFilterBuyer": {
+    "description": "Filter chip to show payments where user is buyer"
+  },
+  "escrowFilterFarmer": "እንደ ገበሬ",
+  "@escrowFilterFarmer": {
+    "description": "Filter chip to show payments where user is farmer"
+  },
+  "escrowPendingSection": "በመጠባበቅ ({count})",
+  "@escrowPendingSection": {
+    "description": "Section header for pending payment intents with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "escrowHistorySection": "ታሪክ",
+  "@escrowHistorySection": {
+    "description": "Section header for confirmed payment history"
+  },
+  "escrowNoPayments": "እስካሁን ክፍያ የለም።",
+  "@escrowNoPayments": {
+    "description": "Empty state message when user has no payment history"
+  },
+  "escrowNoMatchingPayments": "ተመሳሳይ ክፍያ አልተገኘም።",
+  "@escrowNoMatchingPayments": {
+    "description": "Empty state when no payments match the active filter"
+  },
+  "escrowCancelIntent": "ሰርዝ",
+  "@escrowCancelIntent": {
+    "description": "Button to cancel a queued payment intent"
+  },
+  "escrowCancelIntentDialog": "ይህ በመጠባበቅ ላይ ያለ ክፍያ ይሰረዝ?",
+  "@escrowCancelIntentDialog": {
+    "description": "Confirmation dialog for cancelling a queued payment intent"
+  },
+  "escrowIntentCancelled": "በመጠባበቅ ላይ ያለ ክፍያ ተሰርዟል።",
+  "@escrowIntentCancelled": {
+    "description": "Success message after cancelling a queued payment intent"
+  },
+
+  "escrowDisputeTimeRemaining": "ቀሪ ጊዜ: {hours} ሰዓት {minutes} ደቂቃ",
+  "@escrowDisputeTimeRemaining": {
+    "description": "Countdown showing remaining time to raise a dispute",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "23"
+      },
+      "minutes": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "escrowDisputeWindowExpired": "የክርክር ጊዜ አልፏል።",
+  "@escrowDisputeWindowExpired": {
+    "description": "Message when the 48-hour dispute window has passed"
+  },
+  "escrowDisputeReasonLabel": "ምክንያት",
+  "@escrowDisputeReasonLabel": {
+    "description": "Label for dispute reason selection"
+  },
+  "escrowDisputeDescriptionLabel": "ዝርዝር መግለጫ (አማራጭ)",
+  "@escrowDisputeDescriptionLabel": {
+    "description": "Label for optional dispute description text field"
+  },
+  "escrowDisputeDescriptionHint": "ችግሩን ይግለጹ...",
+  "@escrowDisputeDescriptionHint": {
+    "description": "Hint text for dispute description input field"
+  },
+  "escrowDisputeSubmit": "ክርክር ያቅርቡ",
+  "@escrowDisputeSubmit": {
+    "description": "Button to submit a dispute on an escrow payment"
+  },
+  "escrowDisputeConfirmDialog": "ይህ ክፍያውን ለክርክር ያቆማል። ይቀጥሉ?",
+  "@escrowDisputeConfirmDialog": {
+    "description": "Confirmation dialog before submitting a dispute"
+  },
+  "escrowDisputeSuccess": "ክርክር ተመዝግቧል። መድረኩ በ48 ሰዓት ውስጥ ይገመግማል።",
+  "@escrowDisputeSuccess": {
+    "description": "Success message after dispute is submitted"
+  },
+  "escrowDisputeReviewInfo": "ክርክሮች በመድረኩ በ48 ሰዓት ውስጥ ይገመገማሉ።",
+  "@escrowDisputeReviewInfo": {
+    "description": "Info text about dispute review process"
+  },
+  "escrowDisputeRequiresInternet": "ክርክር ለማቅረብ የኢንተርኔት ግንኙነት ያስፈልጋል።",
+  "@escrowDisputeRequiresInternet": {
+    "description": "Error message when user tries to raise dispute while offline"
+  },
+
+  "escrowReasonDamagedGoods": "የተበላሸ ዕቃ",
+  "@escrowReasonDamagedGoods": {
+    "description": "Dispute reason: goods were damaged"
+  },
+  "escrowReasonWrongQuantity": "የተሳሳተ መጠን",
+  "@escrowReasonWrongQuantity": {
+    "description": "Dispute reason: received wrong quantity"
+  },
+  "escrowReasonWrongCrop": "የተሳሳተ የሰብል ዓይነት",
+  "@escrowReasonWrongCrop": {
+    "description": "Dispute reason: received wrong crop type"
+  },
+  "escrowReasonNotDelivered": "አልደረሰም",
+  "@escrowReasonNotDelivered": {
+    "description": "Dispute reason: goods were not delivered"
+  },
+  "escrowReasonQualityMismatch": "ጥራት አይዛመድም",
+  "@escrowReasonQualityMismatch": {
+    "description": "Dispute reason: quality does not match listing"
+  },
+  "escrowReasonOther": "ሌላ",
+  "@escrowReasonOther": {
+    "description": "Dispute reason: other reason not listed"
+  },
+
+  "escrowErrorInvalidAmount": "መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።",
+  "@escrowErrorInvalidAmount": {
+    "description": "Error when payment amount is outside allowed range"
+  },
+  "escrowErrorFaydaRequired": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "@escrowErrorFaydaRequired": {
+    "description": "Error when Fayda ID is required but not verified"
+  },
+  "escrowErrorAlreadyExists": "ለዚህ ማድረሻ ክፍያ ቀድሞ ተከፍሏል።",
+  "@escrowErrorAlreadyExists": {
+    "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorGateway": "የቴሌብር አገልግሎት ስህተት። እባክዎ እንደገና ይሞክሩ።",
+  "@escrowErrorGateway": {
+    "description": "Error when Telebirr gateway returns an error"
+  },
+  "escrowErrorServiceUnavailable": "ቴሌብር በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
+  "@escrowErrorServiceUnavailable": {
+    "description": "Error when Telebirr service is down"
+  },
+  "escrowErrorGeneric": "ያልተጠበቀ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
+  "@escrowErrorGeneric": {
+    "description": "Generic fallback error message for escrow operations"
+  },
+
+  "escrowEtbAmount": "ብር {amount}",
+  "@escrowEtbAmount": {
+    "description": "Formatted ETB currency amount",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
   }
 }
 

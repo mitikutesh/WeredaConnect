@@ -739,4 +739,220 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliverySeedTestButton => 'Geejjiba Qormaataa Uumi';
+
+  @override
+  String get escrowPayments => 'Kaffaltii';
+
+  @override
+  String get escrowPayForDelivery => 'Geejjibaaf Kaffali';
+
+  @override
+  String get escrowPaymentStatus => 'Haala Kaffaltii';
+
+  @override
+  String get escrowPaymentHistory => 'Kaffaltii Koo';
+
+  @override
+  String get escrowRaiseDispute => 'Komii Dhiyeessi';
+
+  @override
+  String get escrowStatusInitiated => 'Kaffaltiin Eeggataa';
+
+  @override
+  String get escrowStatusEscrowed => 'Maallaqni Nagaan Qabame';
+
+  @override
+  String get escrowStatusReleased => 'Maallaqni Gadhiifame';
+
+  @override
+  String get escrowStatusCompleted => 'Kaffaltiin Xumurameera';
+
+  @override
+  String get escrowStatusCancelled => 'Haqame';
+
+  @override
+  String get escrowStatusDisputed => 'Komii Keessa';
+
+  @override
+  String get escrowStatusRefunded => 'Deebifameera';
+
+  @override
+  String get escrowProtectionInfo =>
+      'Kaffaltiin keessan geejjibni mirkanaa\'uu hanga gahutti nagaan qabama.';
+
+  @override
+  String get escrowTotalAmount => 'Hamma Waliigalaa';
+
+  @override
+  String escrowCommission(String rate) {
+    return 'Komishiinii ($rate%)';
+  }
+
+  @override
+  String get escrowFarmerReceives => 'Qonnaan Bulaan Kan Fudhatu';
+
+  @override
+  String get escrowConfirmPayment => 'Kaffaltii Mirkaneessi';
+
+  @override
+  String escrowConfirmPaymentDialog(String amount, String farmerName) {
+    return 'Birrii $amount $farmerName\'f kaffaluu?';
+  }
+
+  @override
+  String get escrowFaydaWarning =>
+      'Hamma Birrii 10,000 olii tiif mirkaneessa Fayda ID barbaachisa.';
+
+  @override
+  String get escrowFundsHeldInfo =>
+      'Maallaqni guyyaa 7 qabama. Yoo hin geejjibamiin deebifama.';
+
+  @override
+  String get escrowPaymentQueued =>
+      'Kaffaltiin galmaa\'e. Intarneetii yeroo argattan raawwatama.';
+
+  @override
+  String get escrowPaymentSuccess => 'Kaffaltiin milkaa\'inaan jalqabame.';
+
+  @override
+  String get escrowDeliveryLabel => 'Geejjiba';
+
+  @override
+  String get escrowFarmerLabel => 'Qonnaan Bulaa';
+
+  @override
+  String get escrowBuyerLabel => 'Bitaa';
+
+  @override
+  String get escrowCreatedLabel => 'Uumame';
+
+  @override
+  String get escrowExpiresLabel => 'Yeroon Darbu';
+
+  @override
+  String get escrowTelebirrRefLabel => 'Wabii Telebirr';
+
+  @override
+  String get escrowMayBeOutdated =>
+      'Haalichi haaromfamuu dhiisuu danda\'a. Haaromsuuf harkisi.';
+
+  @override
+  String escrowLastUpdated(String time) {
+    return 'Dhumarratti haaromfame $time';
+  }
+
+  @override
+  String get escrowFilterAll => 'Hunda';
+
+  @override
+  String get escrowFilterBuyer => 'Akka Bitaa';
+
+  @override
+  String get escrowFilterFarmer => 'Akka Qonnaan Bulaa';
+
+  @override
+  String escrowPendingSection(int count) {
+    return 'Eeggataa ($count)';
+  }
+
+  @override
+  String get escrowHistorySection => 'Seenaa';
+
+  @override
+  String get escrowNoPayments => 'Hanga ammaatti kaffaltiin hin jiru.';
+
+  @override
+  String get escrowNoMatchingPayments => 'Kaffaltiin walsimatu hin argamne.';
+
+  @override
+  String get escrowCancelIntent => 'Haqi';
+
+  @override
+  String get escrowCancelIntentDialog => 'Kaffaltii eeggataa kana haquu?';
+
+  @override
+  String get escrowIntentCancelled => 'Kaffaltiin eeggataa haqameera.';
+
+  @override
+  String escrowDisputeTimeRemaining(int hours, int minutes) {
+    return 'Yeroo hafee: sa\'a $hours daqiiqaa $minutes';
+  }
+
+  @override
+  String get escrowDisputeWindowExpired => 'Yeroon komii darbee jira.';
+
+  @override
+  String get escrowDisputeReasonLabel => 'Sababii';
+
+  @override
+  String get escrowDisputeDescriptionLabel => 'Ibsa (filannoo)';
+
+  @override
+  String get escrowDisputeDescriptionHint => 'Rakkoo ibsi...';
+
+  @override
+  String get escrowDisputeSubmit => 'Komii Galchi';
+
+  @override
+  String get escrowDisputeConfirmDialog =>
+      'Kun maallaqa hanga ilaalametti dhaaba. Itti fufuu?';
+
+  @override
+  String get escrowDisputeSuccess =>
+      'Komiin galmaa\'eera. Waltajjiin sa\'aatii 48 keessatti ilaala.';
+
+  @override
+  String get escrowDisputeReviewInfo =>
+      'Komiin waltajjiidhaan sa\'aatii 48 keessatti ilaalama.';
+
+  @override
+  String get escrowDisputeRequiresInternet =>
+      'Komii dhiyeessuuf intarneetiin barbaachisaadha.';
+
+  @override
+  String get escrowReasonDamagedGoods => 'Meeshaa miidhame';
+
+  @override
+  String get escrowReasonWrongQuantity => 'Hamma dogoggoraa';
+
+  @override
+  String get escrowReasonWrongCrop => 'Gosa midhaan dogoggoraa';
+
+  @override
+  String get escrowReasonNotDelivered => 'Hin geejjibamne';
+
+  @override
+  String get escrowReasonQualityMismatch => 'Qulqullinni wal hin simne';
+
+  @override
+  String get escrowReasonOther => 'Kan biroo';
+
+  @override
+  String get escrowErrorInvalidAmount =>
+      'Hammni Birrii 100 hanga Birrii 500,000 ta\'uu qaba.';
+
+  @override
+  String get escrowErrorFaydaRequired =>
+      'Hamma Birrii 10,000 olii tiif mirkaneessa Fayda ID barbaachisa.';
+
+  @override
+  String get escrowErrorAlreadyExists =>
+      'Geejjiba kanaaf kaffaltiin duraan jira.';
+
+  @override
+  String get escrowErrorGateway =>
+      'Dogoggora tajaajila Telebirr. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get escrowErrorServiceUnavailable =>
+      'Telebirr yeroo ammaa hin argamu. Maaloo booda yaali.';
+
+  @override
+  String get escrowErrorGeneric =>
+      'Wanti dogoggoraa ta\'eera. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String escrowEtbAmount(String amount) {
+    return 'Birrii $amount';
+  }
 }

@@ -277,12 +277,20 @@ public class DeliveryFunction
     private static string? GetAuthenticatedUserId(APIGatewayProxyRequest request)
     {
         var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer == null) return null;
+        if (authorizer == null)
+        {
+            return null;
+        }
 
         if (authorizer.ContainsKey("sub"))
+        {
             return authorizer["sub"]?.ToString();
+        }
+
         if (authorizer.ContainsKey("userId"))
+        {
             return authorizer["userId"]?.ToString();
+        }
 
         return null;
     }
@@ -292,7 +300,10 @@ public class DeliveryFunction
     /// </summary>
     private static bool IsParticipant(Dictionary<string, object> item, string? userId)
     {
-        if (string.IsNullOrEmpty(userId)) return false;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
 
         var farmerId = GetStringOrNull(item, "farmerId");
         var truckerId = GetStringOrNull(item, "truckerId");
@@ -324,7 +335,9 @@ public class DeliveryFunction
     private static int GetInt(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0;
+        }
 
         return value switch
         {
@@ -341,7 +354,9 @@ public class DeliveryFunction
     private static LatLngDto? GetLatLng(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return null;
+        }
 
         // Handle nested dictionary (e.g., from test data or enriched FromItem)
         if (value is Dictionary<string, object> nested)
@@ -366,7 +381,10 @@ public class DeliveryFunction
     /// </summary>
     private static double? ParseDouble(object? value)
     {
-        if (value == null) return null;
+        if (value == null)
+        {
+            return null;
+        }
 
         return value switch
         {

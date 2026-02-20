@@ -81,10 +81,10 @@ public class EscrowCronFunction
                 var payload = JsonSerializer.Deserialize(request.Body, AppJsonContext.Default.DictionaryStringString);
                 payload?.TryGetValue("action", out action);
             }
-            catch
+            catch (JsonException)
             {
-                // Body may be a plain string action
-                action = request.Body.Trim().Trim('"');
+                return LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
+                    "Invalid JSON in request body.");
             }
         }
 
@@ -100,7 +100,8 @@ public class EscrowCronFunction
                 "Missing 'action' field. Expected: auto_release_and_refund, reconciliation.");
         }
 
-        context.Logger.LogInformation($"Cron action: {action}");
+        var safeAction = action.Length > 50 ? action[..50] : action;
+        context.Logger.LogInformation($"Cron action: {safeAction}");
 
         try
         {
@@ -114,7 +115,7 @@ public class EscrowCronFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"EscrowCronFunction error for action '{action}': {ex.Message}");
+            context.Logger.LogError($"EscrowCronFunction error for action '{action}': [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_CRON_ERROR",
                 $"Cron job '{action}' failed unexpectedly.");
         }
@@ -355,7 +356,7 @@ public class EscrowCronFunction
             catch (Exception ex)
             {
                 context.Logger.LogError(
-                    $"Reconciliation: Telebirr query failed for {escrowId}: {ex.Message}");
+                    $"Reconciliation: Telebirr query failed for {escrowId}: [{ex.GetType().Name}]");
                 skipped++;
             }
         }

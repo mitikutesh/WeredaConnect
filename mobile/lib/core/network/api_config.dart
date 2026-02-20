@@ -63,7 +63,19 @@ class ApiConfig {
   // static const String listTransportsEndpoint = '/transports';
   // static const String createTransportEndpoint = '/transports';
 
-  // Escrow payments
-  // static const String createEscrowEndpoint = '/escrow';
-  // static const String releaseEscrowEndpoint = '/escrow/release';
+  // ============================================================================
+  // Escrow payment endpoints (F-13)
+  // ============================================================================
+
+  /// POST /escrow/initiate - Buyer initiates escrow payment
+  static const String escrowInitiate = '/escrow/initiate';
+
+  /// POST /escrow/dispute - Raise dispute on escrowed payment
+  static const String escrowDispute = '/escrow/dispute';
+
+  /// GET /escrow/{id} - Get escrow status (append /{id})
+  static const String escrowStatus = '/escrow';
+
+  /// GET /escrow/history - Get payment history
+  static const String escrowHistory = '/escrow/history';
 }

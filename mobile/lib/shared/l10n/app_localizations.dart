@@ -1515,6 +1515,384 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Seed Test Delivery'**
   String get deliverySeedTestButton;
+
+  /// Navigation label for escrow payments section
+  ///
+  /// In en, this message translates to:
+  /// **'Payments'**
+  String get escrowPayments;
+
+  /// Screen title for initiating escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay for Delivery'**
+  String get escrowPayForDelivery;
+
+  /// Screen title for viewing single escrow status
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Status'**
+  String get escrowPaymentStatus;
+
+  /// Screen title for payment history list
+  ///
+  /// In en, this message translates to:
+  /// **'My Payments'**
+  String get escrowPaymentHistory;
+
+  /// Screen title for raising an escrow dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Raise Dispute'**
+  String get escrowRaiseDispute;
+
+  /// Status label when escrow payment is initiated but not yet held
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Pending'**
+  String get escrowStatusInitiated;
+
+  /// Status label when funds are held in escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Funds Held Safely'**
+  String get escrowStatusEscrowed;
+
+  /// Status label when funds have been released to farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Funds Released'**
+  String get escrowStatusReleased;
+
+  /// Status label when escrow transaction is fully settled
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Complete'**
+  String get escrowStatusCompleted;
+
+  /// Status label when escrow payment was cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get escrowStatusCancelled;
+
+  /// Status label when escrow payment is under dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Under Dispute'**
+  String get escrowStatusDisputed;
+
+  /// Status label when escrow payment has been refunded
+  ///
+  /// In en, this message translates to:
+  /// **'Refunded'**
+  String get escrowStatusRefunded;
+
+  /// Trust-building message explaining escrow protection
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is held safely until delivery is confirmed.'**
+  String get escrowProtectionInfo;
+
+  /// Label for total payment amount
+  ///
+  /// In en, this message translates to:
+  /// **'Total Amount'**
+  String get escrowTotalAmount;
+
+  /// Label for platform commission with percentage rate
+  ///
+  /// In en, this message translates to:
+  /// **'Commission ({rate}%)'**
+  String escrowCommission(String rate);
+
+  /// Label for net amount farmer will receive after commission
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Receives'**
+  String get escrowFarmerReceives;
+
+  /// Button label to confirm and initiate escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Payment'**
+  String get escrowConfirmPayment;
+
+  /// Confirmation dialog message before payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay ETB {amount} to {farmerName}?'**
+  String escrowConfirmPaymentDialog(String amount, String farmerName);
+
+  /// Warning shown when payment amount exceeds Fayda ID threshold
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda ID verification required for amounts above ETB 10,000.'**
+  String get escrowFaydaWarning;
+
+  /// Info text explaining escrow fund holding period
+  ///
+  /// In en, this message translates to:
+  /// **'Funds held for 7 days maximum. Refunded if not delivered.'**
+  String get escrowFundsHeldInfo;
+
+  /// Message shown when payment intent is queued offline
+  ///
+  /// In en, this message translates to:
+  /// **'Payment queued. Will process when you have internet.'**
+  String get escrowPaymentQueued;
+
+  /// Success message after payment is initiated
+  ///
+  /// In en, this message translates to:
+  /// **'Payment initiated successfully.'**
+  String get escrowPaymentSuccess;
+
+  /// Label for delivery reference on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get escrowDeliveryLabel;
+
+  /// Label for farmer name on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer'**
+  String get escrowFarmerLabel;
+
+  /// Label for buyer name on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer'**
+  String get escrowBuyerLabel;
+
+  /// Label for escrow creation date
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get escrowCreatedLabel;
+
+  /// Label for escrow expiration date
+  ///
+  /// In en, this message translates to:
+  /// **'Expires'**
+  String get escrowExpiresLabel;
+
+  /// Label for Telebirr transaction reference number
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr Ref'**
+  String get escrowTelebirrRefLabel;
+
+  /// Warning shown when cached escrow data may be stale
+  ///
+  /// In en, this message translates to:
+  /// **'Status may be outdated. Pull to refresh.'**
+  String get escrowMayBeOutdated;
+
+  /// Label showing when escrow data was last refreshed
+  ///
+  /// In en, this message translates to:
+  /// **'Last updated {time}'**
+  String escrowLastUpdated(String time);
+
+  /// Filter chip label to show all escrow payments
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get escrowFilterAll;
+
+  /// Filter chip to show payments where user is buyer
+  ///
+  /// In en, this message translates to:
+  /// **'As Buyer'**
+  String get escrowFilterBuyer;
+
+  /// Filter chip to show payments where user is farmer
+  ///
+  /// In en, this message translates to:
+  /// **'As Farmer'**
+  String get escrowFilterFarmer;
+
+  /// Section header for pending payment intents with count
+  ///
+  /// In en, this message translates to:
+  /// **'Pending ({count})'**
+  String escrowPendingSection(int count);
+
+  /// Section header for confirmed payment history
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get escrowHistorySection;
+
+  /// Empty state message when user has no payment history
+  ///
+  /// In en, this message translates to:
+  /// **'No payments yet.'**
+  String get escrowNoPayments;
+
+  /// Empty state when no payments match the active filter
+  ///
+  /// In en, this message translates to:
+  /// **'No matching payments.'**
+  String get escrowNoMatchingPayments;
+
+  /// Button to cancel a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get escrowCancelIntent;
+
+  /// Confirmation dialog for cancelling a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel this queued payment?'**
+  String get escrowCancelIntentDialog;
+
+  /// Success message after cancelling a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Queued payment cancelled.'**
+  String get escrowIntentCancelled;
+
+  /// Countdown showing remaining time to raise a dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Time remaining: {hours}h {minutes}m'**
+  String escrowDisputeTimeRemaining(int hours, int minutes);
+
+  /// Message when the 48-hour dispute window has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute window expired.'**
+  String get escrowDisputeWindowExpired;
+
+  /// Label for dispute reason selection
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get escrowDisputeReasonLabel;
+
+  /// Label for optional dispute description text field
+  ///
+  /// In en, this message translates to:
+  /// **'Description (optional)'**
+  String get escrowDisputeDescriptionLabel;
+
+  /// Hint text for dispute description input field
+  ///
+  /// In en, this message translates to:
+  /// **'Describe the issue...'**
+  String get escrowDisputeDescriptionHint;
+
+  /// Button to submit a dispute on an escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Dispute'**
+  String get escrowDisputeSubmit;
+
+  /// Confirmation dialog before submitting a dispute
+  ///
+  /// In en, this message translates to:
+  /// **'This will freeze funds pending review. Continue?'**
+  String get escrowDisputeConfirmDialog;
+
+  /// Success message after dispute is submitted
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute registered. Platform will review within 48 hours.'**
+  String get escrowDisputeSuccess;
+
+  /// Info text about dispute review process
+  ///
+  /// In en, this message translates to:
+  /// **'Disputes are reviewed by the platform within 48 hours.'**
+  String get escrowDisputeReviewInfo;
+
+  /// Error message when user tries to raise dispute while offline
+  ///
+  /// In en, this message translates to:
+  /// **'Internet connection required to raise disputes.'**
+  String get escrowDisputeRequiresInternet;
+
+  /// Dispute reason: goods were damaged
+  ///
+  /// In en, this message translates to:
+  /// **'Damaged goods'**
+  String get escrowReasonDamagedGoods;
+
+  /// Dispute reason: received wrong quantity
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong quantity'**
+  String get escrowReasonWrongQuantity;
+
+  /// Dispute reason: received wrong crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong crop type'**
+  String get escrowReasonWrongCrop;
+
+  /// Dispute reason: goods were not delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered'**
+  String get escrowReasonNotDelivered;
+
+  /// Dispute reason: quality does not match listing
+  ///
+  /// In en, this message translates to:
+  /// **'Quality mismatch'**
+  String get escrowReasonQualityMismatch;
+
+  /// Dispute reason: other reason not listed
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get escrowReasonOther;
+
+  /// Error when payment amount is outside allowed range
+  ///
+  /// In en, this message translates to:
+  /// **'Amount must be between ETB 100 and ETB 500,000.'**
+  String get escrowErrorInvalidAmount;
+
+  /// Error when Fayda ID is required but not verified
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda ID verification required for amounts above ETB 10,000.'**
+  String get escrowErrorFaydaRequired;
+
+  /// Error when escrow payment already exists for delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Payment already exists for this delivery.'**
+  String get escrowErrorAlreadyExists;
+
+  /// Error when Telebirr gateway returns an error
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr service error. Please try again.'**
+  String get escrowErrorGateway;
+
+  /// Error when Telebirr service is down
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr is currently unavailable. Please try later.'**
+  String get escrowErrorServiceUnavailable;
+
+  /// Generic fallback error message for escrow operations
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get escrowErrorGeneric;
+
+  /// Formatted ETB currency amount
+  ///
+  /// In en, this message translates to:
+  /// **'ETB {amount}'**
+  String escrowEtbAmount(String amount);
 }
 
 class _AppLocalizationsDelegate

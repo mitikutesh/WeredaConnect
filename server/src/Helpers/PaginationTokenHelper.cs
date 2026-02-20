@@ -33,9 +33,13 @@ public static class PaginationTokenHelper
         foreach (var kvp in lastEvaluatedKey)
         {
             if (kvp.Value.S != null)
+            {
                 tokenData[kvp.Key] = kvp.Value.S;
+            }
             else if (kvp.Value.N != null)
+            {
                 tokenData[kvp.Key] = kvp.Value.N;
+            }
         }
 
         var json = JsonSerializer.Serialize(tokenData, AppJsonContext.Default.DictionaryStringString);
