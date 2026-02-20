@@ -94,7 +94,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
                     const SizedBox(height: 16),
                     FilledButton(
                       onPressed: _loadEscrow,
-                      child: const Text('Retry'),
+                      child: Text(AppLocalizations.of(context)!.retry),
                     ),
                   ],
                 ),
@@ -214,7 +214,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
 
             // Timeline
             Text(
-              'Timeline',
+              l10n.escrowTimeline,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -312,7 +312,7 @@ class _DisputeInfoCard extends StatelessWidget {
               Icon(Icons.warning, color: Colors.red.shade700),
               const SizedBox(width: 8),
               Text(
-                'Dispute Details',
+                AppLocalizations.of(context)!.escrowDisputeDetailsTitle,
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: Colors.red.shade700,
                   fontWeight: FontWeight.bold,

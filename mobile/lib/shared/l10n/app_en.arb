@@ -1278,6 +1278,23 @@
     }
   },
 
+  "profileRestartApp": "Please restart the app",
+  "@profileRestartApp": {
+    "description": "Message shown when user is not authenticated — prompt to restart"
+  },
+  "profileLoadError": "Could not load user profile",
+  "@profileLoadError": {
+    "description": "Error message when profile data cannot be loaded from the database"
+  },
+  "escrowTimeline": "Timeline",
+  "@escrowTimeline": {
+    "description": "Section heading for escrow event timeline on status screen"
+  },
+  "escrowDisputeDetailsTitle": "Dispute Details",
+  "@escrowDisputeDetailsTitle": {
+    "description": "Section heading for dispute info card on escrow status screen"
+  },
+
   "@@audioNoteSection": "=== Audio Note Feature ===",
 
   "recording": "Recording...",
@@ -1331,4 +1348,3 @@
     }
   }
 }
-

@@ -293,7 +293,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.orange.shade800,
               ),
-              child: const Text('Submit'),
+              child: Text(dl10n.escrowDisputeSubmit),
             ),
           ],
         );

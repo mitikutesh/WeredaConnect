@@ -1329,6 +1329,21 @@
         "example": "30"
       }
     }
+  },
+  "profileRestartApp": "Maaloo app irra deebi'i bani",
+  "@profileRestartApp": {
+    "description": "Message shown when user is not authenticated — prompt to restart"
+  },
+  "profileLoadError": "Profaayilii fayyadamaa fe'uu hin dandeenye",
+  "@profileLoadError": {
+    "description": "Error message when profile data cannot be loaded from the database"
+  },
+  "escrowTimeline": "Tartiiba Yeroo",
+  "@escrowTimeline": {
+    "description": "Section heading for escrow event timeline on status screen"
+  },
+  "escrowDisputeDetailsTitle": "Ibsa Dhibdee",
+  "@escrowDisputeDetailsTitle": {
+    "description": "Section heading for dispute info card on escrow status screen"
   }
 }
-
