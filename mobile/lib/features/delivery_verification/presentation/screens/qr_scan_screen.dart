@@ -48,6 +48,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   // Verified phase data
   GpsCaptureResult? _gpsResult;
   String? _photoRef;
+  String? _scannedNonce;
   bool _isCapturingGps = false;
   bool _isConfirming = false;
 
@@ -74,10 +75,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
     _scannerController?.stop();
 
-    final result = widget.qrService.verifyQrToken(rawValue, widget.delivery);
+    final result = widget.qrService.parseQrToken(rawValue, widget.delivery);
     if (result.isValid) {
       setState(() {
         _phase = _ScanPhase.verified;
+        _scannedNonce = result.nonce;
       });
       _captureGps();
     } else {
@@ -133,6 +135,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               truckerId: widget.delivery.truckerId,
               gpsPickup: gps,
               photoRef: _photoRef,
+              scannedQrNonce: _scannedNonce,
             ),
           );
     } else {
@@ -142,6 +145,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               buyerId: widget.delivery.buyerId,
               gpsDropoff: gps,
               photoRef: _photoRef,
+              scannedQrNonce: _scannedNonce,
             ),
           );
     }
@@ -153,6 +157,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
       _errorMessage = null;
       _gpsResult = null;
       _photoRef = null;
+      _scannedNonce = null;
     });
     _scannerController?.start();
   }

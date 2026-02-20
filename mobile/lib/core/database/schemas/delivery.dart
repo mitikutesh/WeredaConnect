@@ -51,6 +51,9 @@ class Delivery {
   /// QR token for verification at pickup/dropoff
   late String qrToken;
 
+  /// QR nonce persisted by generator for server-side cross-validation.
+  String? qrNonce;
+
   /// GPS coordinates at pickup location (farmer's location)
   LatLng? gpsPickup;
 

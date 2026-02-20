@@ -217,12 +217,50 @@ class DeliveryRepository {
     return delivery;
   }
 
+  /// Persist QR nonce for server-side cross-validation.
+  ///
+  /// Called by the QR generator after creating a token. The nonce is
+  /// saved to the local delivery record and enqueued for sync.
+  Future<void> persistQrNonce({
+    required String deliveryId,
+    required String qrNonce,
+    required String userId,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+
+    if (delivery == null) return;
+
+    await _isar.writeTxn(() async {
+      delivery.qrNonce = qrNonce;
+      delivery.updatedAt = DateTime.now().toUtc();
+      await _isar.deliverys.put(delivery);
+    });
+
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'deliveryId': deliveryId,
+        'qrNonce': qrNonce,
+        'updatedAt': delivery.updatedAt.toIso8601String(),
+        'version': delivery.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
   /// Confirm pickup by trucker. Status → pickedUp.
   Future<void> confirmPickup({
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
     String? photoRef,
+    String? scannedQrNonce,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -265,6 +303,10 @@ class DeliveryRepository {
       syncData['pickupPhotoRef'] = photoRef;
     }
 
+    if (scannedQrNonce != null) {
+      syncData['scannedQrNonce'] = scannedQrNonce;
+    }
+
     await _syncQueue.enqueue(
       userId: truckerId,
       entityType: 'delivery',
@@ -281,6 +323,7 @@ class DeliveryRepository {
     required String buyerId,
     LatLng? gpsDropoff,
     String? photoRef,
+    String? scannedQrNonce,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -321,6 +364,10 @@ class DeliveryRepository {
 
     if (photoRef != null) {
       syncData['dropoffPhotoRef'] = photoRef;
+    }
+
+    if (scannedQrNonce != null) {
+      syncData['scannedQrNonce'] = scannedQrNonce;
     }
 
     await _syncQueue.enqueue(

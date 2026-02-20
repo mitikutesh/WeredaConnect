@@ -126,6 +126,7 @@ void main() {
         ConfirmPickup(
           deliveryId: delivery.deliveryId,
           truckerId: 'trucker-001',
+          scannedQrNonce: 'test-nonce-abc',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -175,6 +176,7 @@ void main() {
         ConfirmDelivery(
           deliveryId: delivery.deliveryId,
           buyerId: 'buyer-001',
+          scannedQrNonce: 'test-nonce-xyz',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));

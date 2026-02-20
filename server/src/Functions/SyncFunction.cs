@@ -56,7 +56,8 @@ public partial class SyncFunction
         "tripId", "listingId", "farmerId", "farmerName", "farmerPhone",
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
-        "pickupPhotoRef", "dropoffPhotoRef", "pickedUpAt", "confirmedAt", "disputeReason"
+        "pickupPhotoRef", "dropoffPhotoRef", "pickedUpAt", "confirmedAt", "disputeReason",
+        "qrNonce", "scannedQrNonce"
     };
 
     private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
@@ -1680,6 +1681,46 @@ public partial class SyncFunction
                                 Status = "error",
                                 Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
                             };
+                        }
+                    }
+
+                    // QR nonce cross-validation for pickedUp/delivered transitions.
+                    // If the generator has synced a qrNonce, the scanner must provide
+                    // a matching scannedQrNonce. If qrNonce is null (generator hasn't
+                    // synced yet), allow the transition (offline-first backward compat).
+                    if (operation.Data.TryGetValue("status", out var statusForNonce))
+                    {
+                        var nStatus = statusForNonce?.ToString();
+                        if (nStatus is "pickedUp" or "delivered")
+                        {
+                            var existingQrNonce = existing.TryGetValue("qrNonce", out var qnAttr)
+                                ? qnAttr.S : null;
+
+                            if (!string.IsNullOrEmpty(existingQrNonce))
+                            {
+                                var scannedNonce = operation.Data.TryGetValue("scannedQrNonce", out var snObj)
+                                    ? snObj?.ToString() : null;
+
+                                if (string.IsNullOrEmpty(scannedNonce))
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = "DELIVERY_NONCE_MISSING: QR nonce verification required for this transition."
+                                    };
+                                }
+
+                                if (scannedNonce != existingQrNonce)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = "DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match generator's nonce."
+                                    };
+                                }
+                            }
                         }
                     }
 

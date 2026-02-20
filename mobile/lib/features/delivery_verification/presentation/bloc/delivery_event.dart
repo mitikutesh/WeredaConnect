@@ -64,16 +64,19 @@ class ConfirmPickup extends DeliveryEvent {
   final String truckerId;
   final LatLng? gpsPickup;
   final String? photoRef;
+  final String? scannedQrNonce;
 
   const ConfirmPickup({
     required this.deliveryId,
     required this.truckerId,
     this.gpsPickup,
     this.photoRef,
+    this.scannedQrNonce,
   });
 
   @override
-  List<Object?> get props => [deliveryId, truckerId, gpsPickup, photoRef];
+  List<Object?> get props =>
+      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce];
 }
 
 /// Confirm delivery received by buyer.
@@ -82,16 +85,19 @@ class ConfirmDelivery extends DeliveryEvent {
   final String buyerId;
   final LatLng? gpsDropoff;
   final String? photoRef;
+  final String? scannedQrNonce;
 
   const ConfirmDelivery({
     required this.deliveryId,
     required this.buyerId,
     this.gpsDropoff,
     this.photoRef,
+    this.scannedQrNonce,
   });
 
   @override
-  List<Object?> get props => [deliveryId, buyerId, gpsDropoff, photoRef];
+  List<Object?> get props =>
+      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce];
 }
 
 /// Raise a dispute on a delivery.

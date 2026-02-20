@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
@@ -307,12 +308,17 @@ class DeliveryDetailScreen extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: () {
+              final deviceKeyService = DeviceSigningKeyService();
               Navigator.push(
                 context,
                 MaterialPageRoute<void>(
                   builder: (context) => QrGenerateScreen(
                     delivery: delivery,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: deviceKeyService,
+                    ),
+                    repository: context.read<DeliveryBloc>().repository,
+                    userId: currentUserId,
                   ),
                 ),
               );
@@ -341,7 +347,9 @@ class DeliveryDetailScreen extends StatelessWidget {
                   builder: (context) => QrScanScreen(
                     delivery: delivery,
                     verificationType: VerificationType.pickup,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: DeviceSigningKeyService(),
+                    ),
                     gpsService: GpsCaptureService(),
                     photoManager: PhotoManager(),
                   ),
@@ -407,7 +415,9 @@ class DeliveryDetailScreen extends StatelessWidget {
                   builder: (context) => QrScanScreen(
                     delivery: delivery,
                     verificationType: VerificationType.delivery,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: DeviceSigningKeyService(),
+                    ),
                     gpsService: GpsCaptureService(),
                     photoManager: PhotoManager(),
                   ),

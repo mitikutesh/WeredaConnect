@@ -1291,6 +1291,156 @@ public class SyncFunctionTests
         Assert.Contains("confirmedAt is missing", response.Body);
     }
 
+    // ===== QR Nonce Cross-Validation Tests =====
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUpWithMatchingNonce_Succeeds()
+    {
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-pickup-nonce",
+            IdempotencyKey = "user:delivery:del-001:update:pickup-nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "pickedUp" },
+                { "scannedQrNonce", "nonce-abc-123" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUpWithMismatchedNonce_ReturnsError()
+    {
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-pickup-bad-nonce",
+            IdempotencyKey = "user:delivery:del-001:update:pickup-bad-nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "pickedUp" },
+                { "scannedQrNonce", "wrong-nonce-xyz" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("DELIVERY_NONCE_MISMATCH", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUpWithMissingNonce_WhenGeneratorSynced_ReturnsError()
+    {
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-pickup-no-nonce",
+            IdempotencyKey = "user:delivery:del-001:update:pickup-no-nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "pickedUp" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("DELIVERY_NONCE_MISSING", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUpWithoutGeneratorNonce_AllowsTransition()
+    {
+        // Generator hasn't synced qrNonce yet — offline-first backward compat
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-pickup-no-gen-nonce",
+            IdempotencyKey = "user:delivery:del-001:update:pickup-no-gen-nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "pickedUp" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+    }
+
+    private void SetupExistingDeliveryWithQrNonce(
+        string deliveryId, string truckerId, string status, int version, string qrNonce)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = deliveryId } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "farmerPhone", new AttributeValue { S = "+251911111111" } },
+            { "truckerId", new AttributeValue { S = truckerId } },
+            { "truckerName", new AttributeValue { S = "Tadesse" } },
+            { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "buyerPhone", new AttributeValue { S = "+251933333333" } },
+            { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+            { "qrNonce", new AttributeValue { S = qrNonce } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } }
+        };
+
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-deliveries-table"))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { item }
+            });
+
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = item
+            });
+    }
+
     private void SetupExistingDelivery(string deliveryId, string truckerId, string status, int version)
     {
         var item = new Dictionary<string, AttributeValue>

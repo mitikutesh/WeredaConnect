@@ -12,6 +12,10 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   final DeliveryRepository _repository;
 
+  /// Exposed for sub-screens that need to call repository methods directly
+  /// (e.g., QrGenerateScreen persisting nonces).
+  DeliveryRepository get repository => _repository;
+
   DeliveryBloc({required DeliveryRepository repository})
       : _repository = repository,
         super(const DeliveryInitial()) {
@@ -78,6 +82,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         truckerId: event.truckerId,
         gpsPickup: event.gpsPickup,
         photoRef: event.photoRef,
+        scannedQrNonce: event.scannedQrNonce,
       );
       emit(const PickupConfirmed());
     } on Exception catch (e) {
@@ -114,6 +119,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         buyerId: event.buyerId,
         gpsDropoff: event.gpsDropoff,
         photoRef: event.photoRef,
+        scannedQrNonce: event.scannedQrNonce,
       );
       emit(const DeliveryConfirmed());
     } on Exception catch (e) {

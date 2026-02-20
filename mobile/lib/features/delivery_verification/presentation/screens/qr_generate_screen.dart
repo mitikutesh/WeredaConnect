@@ -3,20 +3,25 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Display QR code for farmers to show to truckers (or truckers to buyers).
 ///
-/// Generates an HMAC-SHA256 QR token offline with a cryptographic nonce
-/// for physical proximity enforcement. No internet required.
+/// Generates an HMAC-SHA256 QR token offline with a device-local key
+/// and cryptographic nonce. No internet required.
 class QrGenerateScreen extends StatefulWidget {
   final Delivery delivery;
   final QrVerificationService qrService;
+  final DeliveryRepository repository;
+  final String userId;
 
   const QrGenerateScreen({
     required this.delivery,
     required this.qrService,
+    required this.repository,
+    required this.userId,
     super.key,
   });
 
@@ -25,9 +30,8 @@ class QrGenerateScreen extends StatefulWidget {
 }
 
 class _QrGenerateScreenState extends State<QrGenerateScreen> {
-  late String _token;
-  // ignore: unused_field
-  late String _nonce; // Stored for future server nonce validation (F12-CR-01)
+  String? _token;
+  bool _isGenerating = true;
 
   @override
   void initState() {
@@ -35,12 +39,24 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
     _generateToken();
   }
 
-  void _generateToken() {
-    final (token, nonce) = widget.qrService.generateQrToken(widget.delivery);
-    setState(() {
-      _token = token;
-      _nonce = nonce;
-    });
+  Future<void> _generateToken() async {
+    setState(() => _isGenerating = true);
+
+    final (token, nonce) =
+        await widget.qrService.generateQrToken(widget.delivery);
+
+    await widget.repository.persistQrNonce(
+      deliveryId: widget.delivery.deliveryId,
+      qrNonce: nonce,
+      userId: widget.userId,
+    );
+
+    if (mounted) {
+      setState(() {
+        _token = token;
+        _isGenerating = false;
+      });
+    }
   }
 
   @override
@@ -70,7 +86,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              // QR code
+              // QR code or loading indicator
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -84,11 +100,17 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                     ),
                   ],
                 ),
-                child: QrImageView(
-                  data: _token,
-                  size: 280,
-                  errorCorrectionLevel: QrErrorCorrectLevel.M,
-                ),
+                child: _isGenerating || _token == null
+                    ? const SizedBox(
+                        width: 280,
+                        height: 280,
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : QrImageView(
+                        data: _token!,
+                        size: 280,
+                        errorCorrectionLevel: QrErrorCorrectLevel.M,
+                      ),
               ),
               const SizedBox(height: 24),
               // Delivery info
@@ -113,7 +135,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
               const SizedBox(height: 24),
               // Regenerate button
               OutlinedButton.icon(
-                onPressed: _generateToken,
+                onPressed: _isGenerating ? null : _generateToken,
                 icon: const Icon(Icons.refresh),
                 label: Text(l10n.deliveryRegenerateQr),
               ),
