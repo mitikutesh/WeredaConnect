@@ -86,7 +86,10 @@ class WeredaConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
+    return Provider<ConnectivityMonitor>(
+      create: (_) => ConnectivityMonitor(dio: ApiClient().dio),
+      dispose: (_, monitor) => monitor.dispose(),
+      child: MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>(
           create: (_) => AuthBloc()..add(const AuthCheckRequested()),
@@ -119,13 +122,11 @@ class WeredaConnectApp extends StatelessWidget {
           ),
         ),
         BlocProvider<EscrowBloc>(
-          create: (_) => EscrowBloc(
+          create: (context) => EscrowBloc(
             repository: EscrowRepository(
               isar: IsarService.instance.db,
               apiClient: ApiClient(),
-              connectivityMonitor: ConnectivityMonitor(
-                dio: ApiClient().dio,
-              ),
+              connectivityMonitor: context.read<ConnectivityMonitor>(),
             ),
           ),
         ),
@@ -162,6 +163,7 @@ class WeredaConnectApp extends StatelessWidget {
           );
         },
       ),
+    ),
     );
   }
 }

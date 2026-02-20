@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -26,6 +30,29 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+  bool _isOnline = true; // Optimistic default until first stream event
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
+  @override
+  void initState() {
+    super.initState();
+    final monitor = context.read<ConnectivityMonitor>();
+    // Seed with real current state
+    monitor.isConnected().then((online) {
+      if (mounted) setState(() => _isOnline = online);
+    });
+    // Listen for changes (debounced — safe on flaky 3G)
+    _connectivitySub = monitor.onConnectivityChanged.listen((results) {
+      final online = monitor.isConnectedFromResults(results);
+      if (mounted) setState(() => _isOnline = online);
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectivitySub?.cancel();
+    super.dispose();
+  }
 
   List<Widget> _buildScreens() {
     return [
@@ -135,11 +162,27 @@ class _MainNavigationState extends State<MainNavigation> {
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
             actions: [
               IconButton(
-                icon: const Icon(Icons.cloud_done_outlined),
-                tooltip: l10n.offlineReady,
+                icon: Icon(
+                  _isOnline
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_off_outlined,
+                  color: _isOnline
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.4),
+                ),
+                tooltip: _isOnline ? l10n.offlineReady : l10n.offlineMode,
                 onPressed: () {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.offlineReady)),
+                    SnackBar(
+                      content: Text(
+                        _isOnline
+                            ? l10n.syncComplete
+                            : l10n.offlineModeIndicator,
+                      ),
+                    ),
                   );
                 },
               ),
@@ -238,7 +281,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       ),
                 ),
                 Text(
-                  l10n.offlineReady,
+                  _isOnline ? l10n.offlineReady : l10n.offlineMode,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onPrimaryContainer,
                       ),
