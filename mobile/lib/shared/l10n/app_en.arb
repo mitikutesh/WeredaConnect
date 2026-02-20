@@ -1272,6 +1272,59 @@
         "example": "15,000.00"
       }
     }
+  },
+
+  "@@audioNoteSection": "=== Audio Note Feature ===",
+
+  "recording": "Recording...",
+  "@recording": {
+    "description": "Label shown while recording audio"
+  },
+  "stopRecording": "Stop Recording",
+  "@stopRecording": {
+    "description": "Button to stop audio recording"
+  },
+  "playAudio": "Play",
+  "@playAudio": {
+    "description": "Button to play audio"
+  },
+  "pauseAudio": "Pause",
+  "@pauseAudio": {
+    "description": "Button to pause audio playback"
+  },
+  "deleteRecording": "Delete Recording",
+  "@deleteRecording": {
+    "description": "Button to delete a voice note recording"
+  },
+  "deleteRecordingConfirm": "Delete this voice note?",
+  "@deleteRecordingConfirm": {
+    "description": "Confirmation dialog for deleting a voice note"
+  },
+  "microphonePermissionRequired": "Microphone permission is required to record audio",
+  "@microphonePermissionRequired": {
+    "description": "Error when microphone permission is denied"
+  },
+  "audioRecorded": "Voice note recorded",
+  "@audioRecorded": {
+    "description": "Success message after recording completes"
+  },
+  "audioTooLong": "Maximum recording length is 60 seconds",
+  "@audioTooLong": {
+    "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingFailed": "Recording failed. Please try again.",
+  "@audioRecordingFailed": {
+    "description": "Error message when recording fails"
+  },
+  "secondsAbbreviation": "{count}s",
+  "@secondsAbbreviation": {
+    "description": "Abbreviated seconds display for duration",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
   }
 }
 

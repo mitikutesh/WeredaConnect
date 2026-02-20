@@ -948,4 +948,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }
+
+  @override
+  String get recording => 'Recording...';
+
+  @override
+  String get stopRecording => 'Stop Recording';
+
+  @override
+  String get playAudio => 'Play';
+
+  @override
+  String get pauseAudio => 'Pause';
+
+  @override
+  String get deleteRecording => 'Delete Recording';
+
+  @override
+  String get deleteRecordingConfirm => 'Delete this voice note?';
+
+  @override
+  String get microphonePermissionRequired =>
+      'Microphone permission is required to record audio';
+
+  @override
+  String get audioRecorded => 'Voice note recorded';
+
+  @override
+  String get audioTooLong => 'Maximum recording length is 60 seconds';
+
+  @override
+  String get audioRecordingFailed => 'Recording failed. Please try again.';
+
+  @override
+  String secondsAbbreviation(int count) {
+    return '${count}s';
+  }
 }

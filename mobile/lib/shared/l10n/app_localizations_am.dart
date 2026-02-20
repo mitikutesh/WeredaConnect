@@ -929,4 +929,39 @@ class AppLocalizationsAm extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'ብር $amount';
   }
+
+  @override
+  String get recording => 'በመቅዳት ላይ...';
+
+  @override
+  String get stopRecording => 'ቅዳት አቁም';
+
+  @override
+  String get playAudio => 'አጫውት';
+
+  @override
+  String get pauseAudio => 'አቁም';
+
+  @override
+  String get deleteRecording => 'ቅዳት ሰርዝ';
+
+  @override
+  String get deleteRecordingConfirm => 'ይህን የድምጽ ማስታወሻ ይሰርዙ?';
+
+  @override
+  String get microphonePermissionRequired => 'ድምጽ ለመቅዳት የማይክሮፎን ፈቃድ ያስፈልጋል';
+
+  @override
+  String get audioRecorded => 'የድምጽ ማስታወሻ ተቀድቷል';
+
+  @override
+  String get audioTooLong => 'ከፍተኛ የቅዳት ጊዜ 60 ሰከንድ ነው';
+
+  @override
+  String get audioRecordingFailed => 'ቅዳት አልተሳካም። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String secondsAbbreviation(int count) {
+    return '$countሰ';
+  }
 }

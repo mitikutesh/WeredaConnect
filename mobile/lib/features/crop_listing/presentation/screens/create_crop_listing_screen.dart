@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -9,6 +10,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Screen for creating a new crop listing.
 ///
@@ -32,7 +34,11 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   final _locationController = TextEditingController();
   final _descriptionController = TextEditingController();
 
+  /// Pre-generated listing ID used for audio file naming.
+  final String _listingId = const Uuid().v4();
+
   CropType? _selectedCropType;
+  String? _audioNoteRef;
 
   @override
   void dispose() {
@@ -73,6 +79,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             latitude: 9.0192,
             longitude: 38.7525,
             description: _descriptionController.text.trim(),
+            audioNoteRef: _audioNoteRef,
           ),
         );
   }
@@ -240,19 +247,25 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Audio note placeholder
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.comingSoon)),
+                      // Audio voice note
+                      Builder(
+                        builder: (context) {
+                          final authState = context.read<AuthBloc>().state;
+                          final userId = authState is AuthAuthenticated
+                              ? authState.userId
+                              : '';
+                          return VoiceNoteWidget(
+                            audioFilePath: _audioNoteRef,
+                            userId: userId,
+                            entityId: _listingId,
+                            onRecorded: (path) {
+                              setState(() => _audioNoteRef = path);
+                            },
+                            onDeleted: () {
+                              setState(() => _audioNoteRef = null);
+                            },
                           );
                         },
-                        icon: const Icon(Icons.mic),
-                        label: Text(l10n.recordAudioNote),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          minimumSize: const Size.fromHeight(48),
-                        ),
                       ),
                       const SizedBox(height: 24),
 

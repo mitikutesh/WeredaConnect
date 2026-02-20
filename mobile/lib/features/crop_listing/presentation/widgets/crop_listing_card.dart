@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Card displaying a single crop listing.
 ///
@@ -72,12 +75,23 @@ class CropListingCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      dateFormat.format(listing.createdAt),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          dateFormat.format(listing.createdAt),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
+                        if (listing.audioNoteRef != null &&
+                            File(listing.audioNoteRef!).existsSync()) ...[
+                          const SizedBox(width: 8),
+                          VoiceNotePlaybackWidget(
+                            audioFilePath: listing.audioNoteRef!,
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

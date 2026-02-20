@@ -955,4 +955,41 @@ class AppLocalizationsOm extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'Birrii $amount';
   }
+
+  @override
+  String get recording => 'Waraabamaa jira...';
+
+  @override
+  String get stopRecording => 'Waraabbii Dhaabi';
+
+  @override
+  String get playAudio => 'Taphadhu';
+
+  @override
+  String get pauseAudio => 'Dhaabi';
+
+  @override
+  String get deleteRecording => 'Waraabbii Haqi';
+
+  @override
+  String get deleteRecordingConfirm => 'Yaadannoo sagalee kana haquu?';
+
+  @override
+  String get microphonePermissionRequired =>
+      'Sagalee waraabbuuf hayyama maayikiroofoonii barbaachisa';
+
+  @override
+  String get audioRecorded => 'Yaadannoon sagalee waraabame';
+
+  @override
+  String get audioTooLong => 'Dheerinni waraabbii guddaan sekoondii 60';
+
+  @override
+  String get audioRecordingFailed =>
+      'Waraabbiiin hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String secondsAbbreviation(int count) {
+    return '${count}s';
+  }
 }

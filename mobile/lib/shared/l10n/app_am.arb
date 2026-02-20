@@ -1272,6 +1272,59 @@
         "example": "15,000.00"
       }
     }
+  },
+
+  "@@audioNoteSection": "=== Audio Note Feature ===",
+
+  "recording": "በመቅዳት ላይ...",
+  "@recording": {
+    "description": "Label shown while recording audio"
+  },
+  "stopRecording": "ቅዳት አቁም",
+  "@stopRecording": {
+    "description": "Button to stop audio recording"
+  },
+  "playAudio": "አጫውት",
+  "@playAudio": {
+    "description": "Button to play audio"
+  },
+  "pauseAudio": "አቁም",
+  "@pauseAudio": {
+    "description": "Button to pause audio playback"
+  },
+  "deleteRecording": "ቅዳት ሰርዝ",
+  "@deleteRecording": {
+    "description": "Button to delete a voice note recording"
+  },
+  "deleteRecordingConfirm": "ይህን የድምጽ ማስታወሻ ይሰርዙ?",
+  "@deleteRecordingConfirm": {
+    "description": "Confirmation dialog for deleting a voice note"
+  },
+  "microphonePermissionRequired": "ድምጽ ለመቅዳት የማይክሮፎን ፈቃድ ያስፈልጋል",
+  "@microphonePermissionRequired": {
+    "description": "Error when microphone permission is denied"
+  },
+  "audioRecorded": "የድምጽ ማስታወሻ ተቀድቷል",
+  "@audioRecorded": {
+    "description": "Success message after recording completes"
+  },
+  "audioTooLong": "ከፍተኛ የቅዳት ጊዜ 60 ሰከንድ ነው",
+  "@audioTooLong": {
+    "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingFailed": "ቅዳት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+  "@audioRecordingFailed": {
+    "description": "Error message when recording fails"
+  },
+  "secondsAbbreviation": "{count}ሰ",
+  "@secondsAbbreviation": {
+    "description": "Abbreviated seconds display for duration",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
   }
 }
 

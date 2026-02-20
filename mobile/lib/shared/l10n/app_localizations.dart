@@ -1893,6 +1893,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ETB {amount}'**
   String escrowEtbAmount(String amount);
+
+  /// Label shown while recording audio
+  ///
+  /// In en, this message translates to:
+  /// **'Recording...'**
+  String get recording;
+
+  /// Button to stop audio recording
+  ///
+  /// In en, this message translates to:
+  /// **'Stop Recording'**
+  String get stopRecording;
+
+  /// Button to play audio
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get playAudio;
+
+  /// Button to pause audio playback
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pauseAudio;
+
+  /// Button to delete a voice note recording
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Recording'**
+  String get deleteRecording;
+
+  /// Confirmation dialog for deleting a voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this voice note?'**
+  String get deleteRecordingConfirm;
+
+  /// Error when microphone permission is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone permission is required to record audio'**
+  String get microphonePermissionRequired;
+
+  /// Success message after recording completes
+  ///
+  /// In en, this message translates to:
+  /// **'Voice note recorded'**
+  String get audioRecorded;
+
+  /// Warning when recording reaches max duration
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum recording length is 60 seconds'**
+  String get audioTooLong;
+
+  /// Error message when recording fails
+  ///
+  /// In en, this message translates to:
+  /// **'Recording failed. Please try again.'**
+  String get audioRecordingFailed;
+
+  /// Abbreviated seconds display for duration
+  ///
+  /// In en, this message translates to:
+  /// **'{count}s'**
+  String secondsAbbreviation(int count);
 }
 
 class _AppLocalizationsDelegate

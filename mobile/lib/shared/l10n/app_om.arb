@@ -1272,6 +1272,59 @@
         "example": "15,000.00"
       }
     }
+  },
+
+  "@@audioNoteSection": "=== Audio Note Feature ===",
+
+  "recording": "Waraabamaa jira...",
+  "@recording": {
+    "description": "Label shown while recording audio"
+  },
+  "stopRecording": "Waraabbii Dhaabi",
+  "@stopRecording": {
+    "description": "Button to stop audio recording"
+  },
+  "playAudio": "Taphadhu",
+  "@playAudio": {
+    "description": "Button to play audio"
+  },
+  "pauseAudio": "Dhaabi",
+  "@pauseAudio": {
+    "description": "Button to pause audio playback"
+  },
+  "deleteRecording": "Waraabbii Haqi",
+  "@deleteRecording": {
+    "description": "Button to delete a voice note recording"
+  },
+  "deleteRecordingConfirm": "Yaadannoo sagalee kana haquu?",
+  "@deleteRecordingConfirm": {
+    "description": "Confirmation dialog for deleting a voice note"
+  },
+  "microphonePermissionRequired": "Sagalee waraabbuuf hayyama maayikiroofoonii barbaachisa",
+  "@microphonePermissionRequired": {
+    "description": "Error when microphone permission is denied"
+  },
+  "audioRecorded": "Yaadannoon sagalee waraabame",
+  "@audioRecorded": {
+    "description": "Success message after recording completes"
+  },
+  "audioTooLong": "Dheerinni waraabbii guddaan sekoondii 60",
+  "@audioTooLong": {
+    "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingFailed": "Waraabbiiin hin milkoofne. Maaloo irra deebi'ii yaali.",
+  "@audioRecordingFailed": {
+    "description": "Error message when recording fails"
+  },
+  "secondsAbbreviation": "{count}s",
+  "@secondsAbbreviation": {
+    "description": "Abbreviated seconds display for duration",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
   }
 }
 
