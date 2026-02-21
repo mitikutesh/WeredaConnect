@@ -138,99 +138,100 @@ class WeredaConnectApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider<ConnectivityMonitor>.value(
-          value: connectivityMonitor,
+        Provider<ConnectivityMonitor>(
+          create: (_) => connectivityMonitor,
           dispose: (_, monitor) => monitor.dispose(),
         ),
-        Provider<EscrowSyncService>.value(
-          value: escrowSyncService,
+        Provider<EscrowSyncService>(
+          create: (_) => escrowSyncService,
           dispose: (_, service) => service.dispose(),
         ),
-        Provider<ConflictNotificationService>.value(
-          value: conflictNotificationService,
+        Provider<ConflictNotificationService>(
+          create: (_) => conflictNotificationService,
           dispose: (_, service) => service.dispose(),
         ),
       ],
       child: MultiBlocProvider(
         providers: [
-        BlocProvider<AuthBloc>(
-          create: (_) => AuthBloc()..add(const AuthCheckRequested()),
-        ),
-        BlocProvider<OnboardingBloc>(
-          create: (_) => OnboardingBloc(),
-        ),
-        BlocProvider<CropListingBloc>(
-          create: (_) => CropListingBloc(
-            repository: CropListingRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
+          BlocProvider<AuthBloc>(
+            create: (_) => AuthBloc()..add(const AuthCheckRequested()),
           ),
-        ),
-        BlocProvider<TripListingBloc>(
-          create: (_) => TripListingBloc(
-            repository: TripListingRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
+          BlocProvider<OnboardingBloc>(
+            create: (_) => OnboardingBloc(),
           ),
-        ),
-        BlocProvider<DeliveryBloc>(
-          create: (_) => DeliveryBloc(
-            repository: DeliveryRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
-          ),
-        ),
-        BlocProvider<ConflictBloc>(
-          create: (context) => ConflictBloc(
-            notificationService: context.read<ConflictNotificationService>(),
-          ),
-        ),
-        BlocProvider<EscrowBloc>(
-          create: (context) => EscrowBloc(
-            repository: EscrowRepository(
-              isar: IsarService.instance.db,
-              apiClient: ApiClient(),
-              connectivityMonitor: context.read<ConnectivityMonitor>(),
-            ),
-          ),
-        ),
-      ],
-      child: Consumer<LanguageProvider>(
-        builder: (context, languageProvider, child) {
-          return MaterialApp(
-            title: 'WeredaConnect',
-
-            // Localization - use dynamic locale from provider
-            locale: languageProvider.locale,
-            localizationsDelegates: const [
-              AppLocalizations.delegate,
-              FallbackMaterialLocalizationsDelegate(),
-              GlobalWidgetsLocalizations.delegate,
-              FallbackCupertinoLocalizationsDelegate(),
-            ],
-            supportedLocales: const [
-              Locale('en'), // English
-              Locale('am'), // Amharic (app text + English Material widgets)
-              Locale('om'), // Afan Oromo (app text + English Material widgets)
-            ],
-
-            // Theme
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: Colors.green,
+          BlocProvider<CropListingBloc>(
+            create: (_) => CropListingBloc(
+              repository: CropListingRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
               ),
-              useMaterial3: true,
             ),
+          ),
+          BlocProvider<TripListingBloc>(
+            create: (_) => TripListingBloc(
+              repository: TripListingRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
+              ),
+            ),
+          ),
+          BlocProvider<DeliveryBloc>(
+            create: (_) => DeliveryBloc(
+              repository: DeliveryRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
+              ),
+            ),
+          ),
+          BlocProvider<ConflictBloc>(
+            create: (context) => ConflictBloc(
+              notificationService: context.read<ConflictNotificationService>(),
+            ),
+          ),
+          BlocProvider<EscrowBloc>(
+            create: (context) => EscrowBloc(
+              repository: EscrowRepository(
+                isar: IsarService.instance.db,
+                apiClient: ApiClient(),
+                connectivityMonitor: context.read<ConnectivityMonitor>(),
+              ),
+            ),
+          ),
+        ],
+        child: Consumer<LanguageProvider>(
+          builder: (context, languageProvider, child) {
+            return MaterialApp(
+              title: 'WeredaConnect',
 
-            // Auth gate handles routing based on authentication state
-            home: const AuthGate(),
-          );
-        },
+              // Localization - use dynamic locale from provider
+              locale: languageProvider.locale,
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                FallbackMaterialLocalizationsDelegate(),
+                GlobalWidgetsLocalizations.delegate,
+                FallbackCupertinoLocalizationsDelegate(),
+              ],
+              supportedLocales: const [
+                Locale('en'), // English
+                Locale('am'), // Amharic (app text + English Material widgets)
+                Locale(
+                    'om'), // Afan Oromo (app text + English Material widgets)
+              ],
+
+              // Theme
+              theme: ThemeData(
+                colorScheme: ColorScheme.fromSeed(
+                  seedColor: Colors.green,
+                ),
+                useMaterial3: true,
+              ),
+
+              // Auth gate handles routing based on authentication state
+              home: const AuthGate(),
+            );
+          },
+        ),
       ),
-    ),
     );
   }
 }
