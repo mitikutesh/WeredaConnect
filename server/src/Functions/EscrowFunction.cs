@@ -42,7 +42,7 @@ public class EscrowFunction
         var escrowRepo = new EscrowRepository(dynamoDb, escrowsTable);
         var auditRepo = new EscrowAuditRepository(dynamoDb, auditTable);
         var idempotencyRepo = new EscrowIdempotencyRepository(dynamoDb, idempotencyTable);
-        var telebirrGateway = new MockTelebirrGateway();
+        var telebirrGateway = CreateTelebirrGateway();
 
         var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
         IUserRepository? userRepo = null;
@@ -168,9 +168,11 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
+        var role = GetAuthenticatedUserRole(request);
+
         try
         {
-            var result = await _escrowService.ReleaseAsync(body, userId);
+            var result = await _escrowService.ReleaseAsync(body, userId, role);
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.ReleaseEscrowResponse));
         }
@@ -264,9 +266,11 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
+        var role = GetAuthenticatedUserRole(request);
+
         try
         {
-            var result = await _escrowService.RefundAsync(body, userId);
+            var result = await _escrowService.RefundAsync(body, userId, role);
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.RefundEscrowResponse));
         }
@@ -440,6 +444,50 @@ public class EscrowFunction
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Extract the JWT role claim from the authorizer context.
+    /// The API Gateway authorizer populates "role" from the Cognito custom:role claim.
+    /// Returns null if the role claim is absent (e.g. for unauthenticated or legacy requests).
+    /// </summary>
+    private static string? GetAuthenticatedUserRole(APIGatewayProxyRequest request)
+    {
+        var authorizer = request.RequestContext?.Authorizer;
+        if (authorizer == null)
+        {
+            return null;
+        }
+
+        return authorizer.ContainsKey("role") ? authorizer["role"]?.ToString() : null;
+    }
+
+    // ──────────────────────────────────────────────
+    // Gateway factory
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Create the Telebirr gateway based on the TELEBIRR_MOCK environment variable.
+    /// Set TELEBIRR_MOCK=true in development/staging to use the mock gateway.
+    /// In production (TELEBIRR_MOCK absent or false), this throws to prevent
+    /// accidental mock usage with real user funds.
+    /// </summary>
+    private static ITelebirrGateway CreateTelebirrGateway()
+    {
+        var useMock = string.Equals(
+            Environment.GetEnvironmentVariable("TELEBIRR_MOCK"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (useMock)
+        {
+            return new MockTelebirrGateway();
+        }
+
+        throw new InvalidOperationException(
+            "Real Telebirr gateway is not yet implemented. " +
+            "Set TELEBIRR_MOCK=true for development/staging environments. " +
+            "Do NOT deploy to production until a real ITelebirrGateway is wired here.");
     }
 
     // ──────────────────────────────────────────────

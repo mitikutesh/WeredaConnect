@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
@@ -43,6 +44,19 @@ Future<void> main() async {
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
   await IsarService.instance.initialize();
+
+  // Create ConnectivityMonitor early so it can be shared between
+  // the widget tree and EscrowSyncService.
+  final connectivityMonitor = ConnectivityMonitor(dio: ApiClient().dio);
+
+  // Start escrow sync service to process offline payment intents
+  // when connectivity returns (MH2 / MH4 requirements).
+  final escrowSyncService = EscrowSyncService(
+    isar: IsarService.instance.db,
+    apiClient: ApiClient(),
+    connectivityMonitor: connectivityMonitor,
+  );
+  escrowSyncService.startListening();
 
   // Initialize language provider and load saved language preference
   final languageProvider = LanguageProvider();
@@ -81,7 +95,10 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: dataUsageTracker),
       ],
-      child: const WeredaConnectApp(),
+      child: WeredaConnectApp(
+        connectivityMonitor: connectivityMonitor,
+        escrowSyncService: escrowSyncService,
+      ),
     ),
   );
 }
@@ -100,15 +117,30 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 }
 
 class WeredaConnectApp extends StatelessWidget {
-  const WeredaConnectApp({super.key});
+  final ConnectivityMonitor connectivityMonitor;
+  final EscrowSyncService escrowSyncService;
+
+  const WeredaConnectApp({
+    required this.connectivityMonitor,
+    required this.escrowSyncService,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Provider<ConnectivityMonitor>(
-      create: (_) => ConnectivityMonitor(dio: ApiClient().dio),
-      dispose: (_, monitor) => monitor.dispose(),
-      child: MultiBlocProvider(
+    return MultiProvider(
       providers: [
+        Provider<ConnectivityMonitor>.value(
+          value: connectivityMonitor,
+          dispose: (_, monitor) => monitor.dispose(),
+        ),
+        Provider<EscrowSyncService>.value(
+          value: escrowSyncService,
+          dispose: (_, service) => service.dispose(),
+        ),
+      ],
+      child: MultiBlocProvider(
+        providers: [
         BlocProvider<AuthBloc>(
           create: (_) => AuthBloc()..add(const AuthCheckRequested()),
         ),

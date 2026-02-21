@@ -13,7 +13,7 @@ namespace WeredaConnect.Server.Data;
 /// </summary>
 public sealed class EscrowIdempotencyRepository : IEscrowIdempotencyRepository
 {
-    private static readonly int TtlDays = 30;
+    private const int TtlDays = 30;
 
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;

@@ -36,14 +36,6 @@ public sealed class EscrowService
     /// </summary>
     internal const string SystemActor = "system";
 
-    private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
-    {
-        { "initiated", new HashSet<string> { "escrowed", "cancelled" } },
-        { "escrowed", new HashSet<string> { "released", "disputed", "refunded" } },
-        { "disputed", new HashSet<string> { "released", "refunded" } },
-        { "released", new HashSet<string> { "completed" } }
-    };
-
     private static readonly HashSet<string> ValidDisputeReasons = new()
     {
         "damaged_goods", "wrong_quantity", "wrong_crop",
@@ -263,11 +255,12 @@ public sealed class EscrowService
     /// Release escrowed funds to the farmer. Transitions: escrowed/disputed → released → completed.
     /// Only callable by system (cron) or admin. Regular users cannot release.
     /// </summary>
+    /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseAsync(
-        ReleaseEscrowRequest request, string authenticatedUserId)
+        ReleaseEscrowRequest request, string authenticatedUserId, string? role = null)
     {
         // 1. Authorization: only system or admin can release funds
-        if (!IsSystemOrAdmin(authenticatedUserId))
+        if (!IsSystemOrAdmin(authenticatedUserId, role))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 403, "ESCROW_006", "Only system or admin can release escrow funds.");
@@ -566,11 +559,12 @@ public sealed class EscrowService
     /// Refund escrowed funds to the buyer (full amount, no commission deducted).
     /// Only callable by system (cron) or admin. Regular users cannot refund.
     /// </summary>
+    /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<RefundEscrowResponse>> RefundAsync(
-        RefundEscrowRequest request, string authenticatedUserId)
+        RefundEscrowRequest request, string authenticatedUserId, string? role = null)
     {
         // 1. Authorization: only system or admin can refund
-        if (!IsSystemOrAdmin(authenticatedUserId))
+        if (!IsSystemOrAdmin(authenticatedUserId, role))
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 403, "ESCROW_006", "Only system or admin can refund escrow funds.");
@@ -777,13 +771,6 @@ public sealed class EscrowService
     }
 
     // ──────────────────────────────────────────────
-    // State machine
-    // ──────────────────────────────────────────────
-
-    internal static bool IsValidTransition(string from, string to)
-        => ValidTransitions.TryGetValue(from, out var valid) && valid.Contains(to);
-
-    // ──────────────────────────────────────────────
     // DTO mapping helpers
     // ──────────────────────────────────────────────
 
@@ -976,10 +963,12 @@ public sealed class EscrowService
     /// <summary>
     /// Check if the actor is the system cron or an admin user.
     /// Release and refund operations are restricted to system/admin.
+    /// System actor ("system") is used by cron jobs.
+    /// Admin users are identified by the "admin" JWT role claim, not by a userId prefix.
     /// </summary>
-    private static bool IsSystemOrAdmin(string userId)
+    private static bool IsSystemOrAdmin(string userId, string? role)
         => string.Equals(userId, SystemActor, StringComparison.Ordinal)
-           || userId.StartsWith("admin:", StringComparison.Ordinal);
+           || string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
 
     // ──────────────────────────────────────────────
     // Validation helpers

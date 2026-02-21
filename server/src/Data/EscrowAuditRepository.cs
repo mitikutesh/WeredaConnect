@@ -34,7 +34,7 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
                 continue;
             }
 
-            item[kvp.Key] = CropRepository.ToAttributeValue(kvp.Value);
+            item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
         }
 
         var request = new PutItemRequest
@@ -71,7 +71,7 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
             }
 
             var response = await _dynamoDb.QueryAsync(request);
-            allItems.AddRange(response.Items.Select(CropRepository.FromItem));
+            allItems.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
             lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
         } while (lastKey != null);
 

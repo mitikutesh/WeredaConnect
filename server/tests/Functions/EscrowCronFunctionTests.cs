@@ -192,6 +192,78 @@ public class EscrowCronFunctionTests
     }
 
     // ──────────────────────────────────────────────
+    // Crash-recovery: released → completed
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task CompleteReleased_StuckInReleasedState_CompletesSuccessfully()
+    {
+        var escrow = MakeEscrowItem("escrow-stuck-released", status: "released");
+        escrow["releasedAt"] = DateTime.UtcNow.AddMinutes(-5).ToString("o");
+        escrow["telebirrReleaseRef"] = "MOCK-RELEASE-REF";
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"completed\":\"1\"", response.Body);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-stuck-released",
+            "2026-02-10T10:00:00.0000000Z",
+            "completed",
+            "released",
+            Arg.Any<Dictionary<string, object>>());
+        await _mockAuditRepo.Received(1).AppendAsync(
+            Arg.Is<Dictionary<string, object>>(d =>
+                d.ContainsKey("action") && d["action"].ToString() == "complete" &&
+                d.ContainsKey("fromState") && d["fromState"].ToString() == "released" &&
+                d.ContainsKey("toState") && d["toState"].ToString() == "completed"));
+    }
+
+    [Fact]
+    public async Task CompleteReleased_NoStuckEscrows_NoOp()
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"completed\":\"0\"", response.Body);
+    }
+
+    [Fact]
+    public async Task CompleteReleased_UpdateFails_LogsErrorAndContinues()
+    {
+        var escrow1 = MakeEscrowItem("escrow-stuck-001", status: "released");
+        var escrow2 = MakeEscrowItem("escrow-stuck-002", status: "released");
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("released", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow1, escrow2 });
+
+        // First escrow update throws (e.g. conditional check failure due to race)
+        _mockEscrowRepo.UpdateStatusAsync("escrow-stuck-001", Arg.Any<string>(), "completed", "released", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new Amazon.DynamoDBv2.Model.ConditionalCheckFailedException("Already updated"));
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await _function.FunctionHandler(request, _context);
+
+        // Should not 500 — continues and completes the second escrow
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"completed\":\"1\"", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
     // Reconciliation
     // ──────────────────────────────────────────────
 

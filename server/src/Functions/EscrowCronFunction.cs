@@ -46,7 +46,7 @@ public class EscrowCronFunction
         _escrowRepo = new EscrowRepository(dynamoDb, escrowsTable);
         _auditRepo = new EscrowAuditRepository(dynamoDb, auditTable);
         var idempotencyRepo = new EscrowIdempotencyRepository(dynamoDb, idempotencyTable);
-        _telebirrGateway = new MockTelebirrGateway();
+        _telebirrGateway = CreateTelebirrGateway();
 
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway);
     }
@@ -133,17 +133,19 @@ public class EscrowCronFunction
     {
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
+        var completedCount = await CompleteReleasedAsync(context);
 
         var summary = new Dictionary<string, string>
         {
             { "action", "auto_release_and_refund" },
             { "released", releaseCount.ToString() },
             { "refunded", refundCount.ToString() },
+            { "completed", completedCount.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
-            $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded.");
+            $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, {completedCount} crash-recovered to completed.");
 
         return new APIGatewayProxyResponse
         {
@@ -261,6 +263,52 @@ public class EscrowCronFunction
         }
 
         return refundCount;
+    }
+
+    /// <summary>
+    /// Crash-recovery sweep: query escrows stuck in "released" state and complete them.
+    ///
+    /// EscrowService.ReleaseAsync performs two sequential DynamoDB writes:
+    ///   1. escrowed/disputed → released  (Telebirr ReleaseFunds succeeded)
+    ///   2. released → completed
+    ///
+    /// If Lambda crashes between the two writes the escrow is permanently stuck in "released".
+    /// Money has already moved at this point so no Telebirr call is required — we only need
+    /// to write the final status and append an audit entry.
+    /// </summary>
+    private async Task<int> CompleteReleasedAsync(ILambdaContext context)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        var escrows = await _escrowRepo.QueryByStatusForCronAsync("released")
+                      ?? new List<Dictionary<string, object>>();
+
+        var completedCount = 0;
+        foreach (var escrow in escrows)
+        {
+            var escrowId = GetString(escrow, "escrowId");
+            var createdAt = GetString(escrow, "createdAt");
+
+            context.Logger.LogInformation(
+                $"Crash-recovery: completing stuck 'released' escrow {escrowId}.");
+
+            try
+            {
+                await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
+                    new Dictionary<string, object> { { "completedAt", now } });
+
+                await AppendAuditAsync(escrowId, "complete", "released", "completed",
+                    "system", metadata: "crash_recovery");
+
+                completedCount++;
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(
+                    $"Crash-recovery: failed to complete 'released' escrow {escrowId}: [{ex.GetType().Name}]");
+            }
+        }
+
+        return completedCount;
     }
 
     // ──────────────────────────────────────────────
@@ -419,4 +467,28 @@ public class EscrowCronFunction
 
     private static string? GetStringOrNull(Dictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) ? value.ToString() : null;
+
+    /// <summary>
+    /// Create the Telebirr gateway based on the TELEBIRR_MOCK environment variable.
+    /// Set TELEBIRR_MOCK=true in development/staging to use the mock gateway.
+    /// In production (TELEBIRR_MOCK absent or false), this throws to prevent
+    /// accidental mock usage with real user funds.
+    /// </summary>
+    private static ITelebirrGateway CreateTelebirrGateway()
+    {
+        var useMock = string.Equals(
+            Environment.GetEnvironmentVariable("TELEBIRR_MOCK"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (useMock)
+        {
+            return new MockTelebirrGateway();
+        }
+
+        throw new InvalidOperationException(
+            "Real Telebirr gateway is not yet implemented. " +
+            "Set TELEBIRR_MOCK=true for development/staging environments. " +
+            "Do NOT deploy to production until a real ITelebirrGateway is wired here.");
+    }
 }

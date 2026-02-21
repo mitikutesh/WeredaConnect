@@ -78,15 +78,18 @@ public class EscrowFlowIntegrationTests
     // ──────────────────────────────────────────────
 
     private static APIGatewayProxyRequest MakePostRequest(
-        string path, string? body = null, string? userId = null)
+        string path, string? body = null, string? userId = null, string? role = null)
     {
         var req = new APIGatewayProxyRequest { HttpMethod = "POST", Path = path, Body = body };
         if (userId != null)
         {
-            req.RequestContext = new ProxyRequestContext
+            var context = new APIGatewayCustomAuthorizerContext { { "sub", userId } };
+            if (role != null)
             {
-                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } }
-            };
+                context["role"] = role;
+            }
+
+            req.RequestContext = new ProxyRequestContext { Authorizer = context };
         }
 
         return req;
@@ -310,7 +313,7 @@ public class EscrowFlowIntegrationTests
         }, AppJsonContext.Default.RefundEscrowRequest);
 
         var refundResponse = await _function.FunctionHandler(
-            MakePostRequest("/escrow/refund", refundBody, "admin:resolver"), _context);
+            MakePostRequest("/escrow/refund", refundBody, "resolver", role: "admin"), _context);
 
         Assert.Equal(200, refundResponse.StatusCode);
         Assert.Equal("refunded", GetStr(refundResponse.Body, "status"));
@@ -389,7 +392,7 @@ public class EscrowFlowIntegrationTests
         }, AppJsonContext.Default.ReleaseEscrowRequest);
 
         var releaseResponse = await _function.FunctionHandler(
-            MakePostRequest("/escrow/release", releaseBody, "admin:resolver"), _context);
+            MakePostRequest("/escrow/release", releaseBody, "resolver", role: "admin"), _context);
 
         Assert.Equal(200, releaseResponse.StatusCode);
         Assert.Equal("completed", GetStr(releaseResponse.Body, "status"));
@@ -701,7 +704,7 @@ public class EscrowFlowIntegrationTests
         }, AppJsonContext.Default.RefundEscrowRequest);
 
         var response = await _function.FunctionHandler(
-            MakePostRequest("/escrow/refund", refundBody, "admin:resolver"), _context);
+            MakePostRequest("/escrow/refund", refundBody, "resolver", role: "admin"), _context);
 
         Assert.Equal(422, response.StatusCode);
         Assert.Contains("ESCROW_INVALID_TRANSITION", response.Body);

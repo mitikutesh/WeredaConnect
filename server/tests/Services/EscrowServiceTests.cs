@@ -325,7 +325,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"system:escrow-001:release:1708171200000"
         };
 
-        var result = await _service.ReleaseAsync(request, "admin:resolver");
+        var result = await _service.ReleaseAsync(request, "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("completed", result.Value!.Status);
@@ -647,7 +647,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"admin:escrow-001:refund:1708257600000"
         };
 
-        var result = await _service.RefundAsync(request, "admin:resolver");
+        var result = await _service.RefundAsync(request, "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("refunded", result.Value!.Status);
@@ -788,29 +788,6 @@ public class EscrowServiceTests
         await _mockEscrowRepo.Received(1).QueryByFarmerAsync(FarmerId, null, 20, null);
         await _mockEscrowRepo.DidNotReceive().QueryByBuyerAsync(Arg.Any<string>(), Arg.Any<string?>(),
             Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
-    }
-
-    // ──────────────────────────────────────────────
-    // State machine: IsValidTransition
-    // ──────────────────────────────────────────────
-
-    [Theory]
-    [InlineData("initiated", "escrowed", true)]
-    [InlineData("initiated", "cancelled", true)]
-    [InlineData("escrowed", "released", true)]
-    [InlineData("escrowed", "disputed", true)]
-    [InlineData("escrowed", "refunded", true)]
-    [InlineData("disputed", "released", true)]
-    [InlineData("disputed", "refunded", true)]
-    [InlineData("released", "completed", true)]
-    [InlineData("initiated", "released", false)]
-    [InlineData("escrowed", "completed", false)]
-    [InlineData("completed", "released", false)]
-    [InlineData("refunded", "escrowed", false)]
-    [InlineData("cancelled", "escrowed", false)]
-    public void IsValidTransition_ReturnsExpected(string from, string to, bool expected)
-    {
-        Assert.Equal(expected, EscrowService.IsValidTransition(from, to));
     }
 
     // ──────────────────────────────────────────────
@@ -985,7 +962,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"admin:escrow-001:release:1708171200000"
         };
 
-        var result = await _service.ReleaseAsync(request, "admin:admin-user");
+        var result = await _service.ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.True(result.IsSuccess);
     }
