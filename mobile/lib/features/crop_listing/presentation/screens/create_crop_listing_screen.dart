@@ -97,12 +97,28 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           );
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message),
-              backgroundColor: Colors.red,
-            ),
-          );
+          if (state.message.contains('FRAUD_DUPLICATE_LISTING')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.fraudDuplicateListing),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else if (state.message.contains('FRAUD_VELOCITY_EXCEEDED')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.fraudVelocityExceeded),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       },
       child: Scaffold(

@@ -36,10 +36,10 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 | Order | Feature | Score | Status | Delivers |
 |-------|---------|-------|--------|----------|
 | R4.1 | F-11: Trip listing flow | 13 | ✅ COMPLETE | Transport marketplace |
-| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | ⚙️ Backend done, UI missing | Trust mechanism |
-| R4.3 | F-13: Telebirr escrow integration | 19 | ✅ COMPLETE (server + mobile + 20 integration tests) | Revenue |
+| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | ✅ Backend done, UI complete | Trust mechanism |
+| R4.3 | F-13: Telebirr escrow integration | 19 | ✅ COMPLETE (server + 20 server integration tests, mobile UI & unit tests) | Revenue |
 | R4.4 | F-14: Fraud detection checks | 13 | ❌ Not started | Platform safety |
-| R4.5 | F-15: Conflict resolution UI | 10 | ⚙️ Logic done, UI missing | User experience |
+| R4.5 | F-15: Conflict resolution UI | 10 | ✅ Logic done, UI complete | User experience |
 | R4.6 | F-18: S3 access logging + versioning | 3 | ✅ COMPLETE | Audit trail |
 
 **Exit Criteria**:

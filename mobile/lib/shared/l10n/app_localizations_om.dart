@@ -1013,4 +1013,82 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dataUsageTrackingSince => 'Irraa eegalee';
+
+  @override
+  String get conflictTitle => 'Deetaan Haaromfame';
+
+  @override
+  String get conflictExplanation =>
+      'Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.';
+
+  @override
+  String get conflictAccept => 'Tole, Hubadhe';
+
+  @override
+  String get conflictDismiss => 'Cufi';
+
+  @override
+  String get conflictEntityCropListing => 'Tarree Midhaan';
+
+  @override
+  String get conflictEntityDelivery => 'Geejjiba';
+
+  @override
+  String get conflictEntityTrip => 'Imala';
+
+  @override
+  String get conflictServerValues => 'Gatii Ammaa';
+
+  @override
+  String get conflictNoDetails => 'Bal\'inni hin jiru';
+
+  @override
+  String conflictBannerSingle(String entityType) {
+    return '$entityType kee meeshaa biraan haaromfame';
+  }
+
+  @override
+  String conflictBannerMultiple(int count) {
+    return 'Galmeeleen $count haaromfaman';
+  }
+
+  @override
+  String get conflictBannerAction => 'Jijjiirama ilaali';
+
+  @override
+  String get conflictScreenTitle => 'Haaromsa';
+
+  @override
+  String get conflictYourVersion => 'Versiinkee';
+
+  @override
+  String get conflictCurrentVersion => 'Versii Ammaa';
+
+  @override
+  String get conflictServerApplied => 'Versii ammaa hojiirra ooleera';
+
+  @override
+  String get conflictGotIt => 'Hubadhe';
+
+  @override
+  String get conflictEmptyTitle => 'Hundumtuu Haaraa Dha';
+
+  @override
+  String get conflictEmptySubtitle => 'Haaromsi hin jiru';
+
+  @override
+  String conflictEntityDeleted(String entityType) {
+    return '$entityType kun haquudhaan balleeffame';
+  }
+
+  @override
+  String get conflictShowAllChanges => 'Jijjiirama hunda agarsiisi';
+
+  @override
+  String get fraudDuplicateListing =>
+      'Tarreen walfakkaataan duraan jira. Maaloo tarree jiru haaromsi.';
+
+  @override
+  String get fraudVelocityExceeded =>
+      'Gaaffiin baay\'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi\'ii yaali.';
 }

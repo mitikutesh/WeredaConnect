@@ -1005,4 +1005,82 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dataUsageTrackingSince => 'Tracking since';
+
+  @override
+  String get conflictTitle => 'Data Updated';
+
+  @override
+  String get conflictExplanation =>
+      'Another device or the server updated this record. Your local copy has been updated to match.';
+
+  @override
+  String get conflictAccept => 'OK, Got It';
+
+  @override
+  String get conflictDismiss => 'Dismiss';
+
+  @override
+  String get conflictEntityCropListing => 'Crop Listing';
+
+  @override
+  String get conflictEntityDelivery => 'Delivery';
+
+  @override
+  String get conflictEntityTrip => 'Trip';
+
+  @override
+  String get conflictServerValues => 'Updated values from server:';
+
+  @override
+  String get conflictNoDetails => 'No details available.';
+
+  @override
+  String conflictBannerSingle(String entityType) {
+    return 'Your $entityType was updated on another device';
+  }
+
+  @override
+  String conflictBannerMultiple(int count) {
+    return '$count items were updated on another device';
+  }
+
+  @override
+  String get conflictBannerAction => 'View Changes';
+
+  @override
+  String get conflictScreenTitle => 'Updates from Sync';
+
+  @override
+  String get conflictYourVersion => 'Your version';
+
+  @override
+  String get conflictCurrentVersion => 'Current version';
+
+  @override
+  String get conflictServerApplied => 'Server version applied';
+
+  @override
+  String get conflictGotIt => 'Got It';
+
+  @override
+  String get conflictEmptyTitle => 'Everything is up to date';
+
+  @override
+  String get conflictEmptySubtitle => 'No changes from other devices.';
+
+  @override
+  String conflictEntityDeleted(String entityType) {
+    return 'This $entityType was removed on another device';
+  }
+
+  @override
+  String get conflictShowAllChanges => 'Show all changes';
+
+  @override
+  String get fraudDuplicateListing =>
+      'A similar listing already exists. Please update your existing listing instead.';
+
+  @override
+  String get fraudVelocityExceeded =>
+      'Too many requests. Please wait a moment and try again.';
 }

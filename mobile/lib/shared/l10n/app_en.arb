@@ -1373,5 +1373,121 @@
   "dataUsageTrackingSince": "Tracking since",
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
+  },
+
+  "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
+
+  "conflictTitle": "Data Updated",
+  "@conflictTitle": {
+    "description": "Title shown on conflict resolution modal when server overwrites local data"
+  },
+  "conflictExplanation": "Another device or the server updated this record. Your local copy has been updated to match.",
+  "@conflictExplanation": {
+    "description": "Explanation of what happened during a sync conflict"
+  },
+  "conflictAccept": "OK, Got It",
+  "@conflictAccept": {
+    "description": "Primary button to acknowledge the conflict resolution"
+  },
+  "conflictDismiss": "Dismiss",
+  "@conflictDismiss": {
+    "description": "Secondary button to dismiss the conflict notification"
+  },
+  "conflictEntityCropListing": "Crop Listing",
+  "@conflictEntityCropListing": {
+    "description": "Entity type label for crop listing in conflict dialog"
+  },
+  "conflictEntityDelivery": "Delivery",
+  "@conflictEntityDelivery": {
+    "description": "Entity type label for delivery in conflict dialog"
+  },
+  "conflictEntityTrip": "Trip",
+  "@conflictEntityTrip": {
+    "description": "Entity type label for trip in conflict dialog"
+  },
+  "conflictServerValues": "Updated values from server:",
+  "@conflictServerValues": {
+    "description": "Section header showing server-side field values"
+  },
+  "conflictNoDetails": "No details available.",
+  "@conflictNoDetails": {
+    "description": "Shown when conflict event has no displayable field changes"
+  },
+  "conflictBannerSingle": "Your {entityType} was updated on another device",
+  "@conflictBannerSingle": {
+    "description": "Banner text for single conflict notification",
+    "placeholders": {
+      "entityType": {
+        "type": "String",
+        "example": "crop listing"
+      }
+    }
+  },
+  "conflictBannerMultiple": "{count} items were updated on another device",
+  "@conflictBannerMultiple": {
+    "description": "Banner text for multiple conflict notifications",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "conflictBannerAction": "View Changes",
+  "@conflictBannerAction": {
+    "description": "Action button text on conflict notification banner"
+  },
+  "conflictScreenTitle": "Updates from Sync",
+  "@conflictScreenTitle": {
+    "description": "App bar title for conflict resolution screen"
+  },
+  "conflictYourVersion": "Your version",
+  "@conflictYourVersion": {
+    "description": "Label for user's local version in conflict diff"
+  },
+  "conflictCurrentVersion": "Current version",
+  "@conflictCurrentVersion": {
+    "description": "Label for server's current version in conflict diff"
+  },
+  "conflictServerApplied": "Server version applied",
+  "@conflictServerApplied": {
+    "description": "Badge text confirming server version was applied"
+  },
+  "conflictGotIt": "Got It",
+  "@conflictGotIt": {
+    "description": "Primary button to acknowledge and dismiss all conflicts"
+  },
+  "conflictEmptyTitle": "Everything is up to date",
+  "@conflictEmptyTitle": {
+    "description": "Empty state title when no conflicts exist"
+  },
+  "conflictEmptySubtitle": "No changes from other devices.",
+  "@conflictEmptySubtitle": {
+    "description": "Empty state subtitle when no conflicts exist"
+  },
+  "conflictEntityDeleted": "This {entityType} was removed on another device",
+  "@conflictEntityDeleted": {
+    "description": "Message when a conflicting entity was deleted on server",
+    "placeholders": {
+      "entityType": {
+        "type": "String",
+        "example": "crop listing"
+      }
+    }
+  },
+  "conflictShowAllChanges": "Show all changes",
+  "@conflictShowAllChanges": {
+    "description": "Expandable button to show all field changes when more than 4 fields changed"
+  },
+
+  "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
+
+  "fraudDuplicateListing": "A similar listing already exists. Please update your existing listing instead.",
+  "@fraudDuplicateListing": {
+    "description": "Error when duplicate crop listing detected by server fraud check"
+  },
+  "fraudVelocityExceeded": "Too many requests. Please wait a moment and try again.",
+  "@fraudVelocityExceeded": {
+    "description": "Error when velocity limit exceeded by server fraud check"
   }
 }

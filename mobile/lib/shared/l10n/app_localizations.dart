@@ -2001,6 +2001,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tracking since'**
   String get dataUsageTrackingSince;
+
+  /// Title shown on conflict resolution modal when server overwrites local data
+  ///
+  /// In en, this message translates to:
+  /// **'Data Updated'**
+  String get conflictTitle;
+
+  /// Explanation of what happened during a sync conflict
+  ///
+  /// In en, this message translates to:
+  /// **'Another device or the server updated this record. Your local copy has been updated to match.'**
+  String get conflictExplanation;
+
+  /// Primary button to acknowledge the conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'OK, Got It'**
+  String get conflictAccept;
+
+  /// Secondary button to dismiss the conflict notification
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get conflictDismiss;
+
+  /// Entity type label for crop listing in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Listing'**
+  String get conflictEntityCropListing;
+
+  /// Entity type label for delivery in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get conflictEntityDelivery;
+
+  /// Entity type label for trip in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get conflictEntityTrip;
+
+  /// Section header showing server-side field values
+  ///
+  /// In en, this message translates to:
+  /// **'Updated values from server:'**
+  String get conflictServerValues;
+
+  /// Shown when conflict event has no displayable field changes
+  ///
+  /// In en, this message translates to:
+  /// **'No details available.'**
+  String get conflictNoDetails;
+
+  /// Banner text for single conflict notification
+  ///
+  /// In en, this message translates to:
+  /// **'Your {entityType} was updated on another device'**
+  String conflictBannerSingle(String entityType);
+
+  /// Banner text for multiple conflict notifications
+  ///
+  /// In en, this message translates to:
+  /// **'{count} items were updated on another device'**
+  String conflictBannerMultiple(int count);
+
+  /// Action button text on conflict notification banner
+  ///
+  /// In en, this message translates to:
+  /// **'View Changes'**
+  String get conflictBannerAction;
+
+  /// App bar title for conflict resolution screen
+  ///
+  /// In en, this message translates to:
+  /// **'Updates from Sync'**
+  String get conflictScreenTitle;
+
+  /// Label for user's local version in conflict diff
+  ///
+  /// In en, this message translates to:
+  /// **'Your version'**
+  String get conflictYourVersion;
+
+  /// Label for server's current version in conflict diff
+  ///
+  /// In en, this message translates to:
+  /// **'Current version'**
+  String get conflictCurrentVersion;
+
+  /// Badge text confirming server version was applied
+  ///
+  /// In en, this message translates to:
+  /// **'Server version applied'**
+  String get conflictServerApplied;
+
+  /// Primary button to acknowledge and dismiss all conflicts
+  ///
+  /// In en, this message translates to:
+  /// **'Got It'**
+  String get conflictGotIt;
+
+  /// Empty state title when no conflicts exist
+  ///
+  /// In en, this message translates to:
+  /// **'Everything is up to date'**
+  String get conflictEmptyTitle;
+
+  /// Empty state subtitle when no conflicts exist
+  ///
+  /// In en, this message translates to:
+  /// **'No changes from other devices.'**
+  String get conflictEmptySubtitle;
+
+  /// Message when a conflicting entity was deleted on server
+  ///
+  /// In en, this message translates to:
+  /// **'This {entityType} was removed on another device'**
+  String conflictEntityDeleted(String entityType);
+
+  /// Expandable button to show all field changes when more than 4 fields changed
+  ///
+  /// In en, this message translates to:
+  /// **'Show all changes'**
+  String get conflictShowAllChanges;
+
+  /// Error when duplicate crop listing detected by server fraud check
+  ///
+  /// In en, this message translates to:
+  /// **'A similar listing already exists. Please update your existing listing instead.'**
+  String get fraudDuplicateListing;
+
+  /// Error when velocity limit exceeded by server fraud check
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please wait a moment and try again.'**
+  String get fraudVelocityExceeded;
 }
 
 class _AppLocalizationsDelegate

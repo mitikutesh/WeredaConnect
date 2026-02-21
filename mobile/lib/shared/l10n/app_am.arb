@@ -1369,5 +1369,118 @@
   "dataUsageTrackingSince": "ከ ጀምሮ",
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
+  },
+
+  "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
+
+  "conflictTitle": "ዳታ ተዘምኗል",
+  "@conflictTitle": {
+    "description": "Title shown on conflict resolution modal when server overwrites local data"
+  },
+  "conflictExplanation": "ሌላ መሳሪያ ወይም አገልጋይ ይህን መዝገብ ዘምኗል። የአካባቢ ቅጂዎ ተዘምኗል።",
+  "@conflictExplanation": {
+    "description": "Explanation of what happened during a sync conflict"
+  },
+  "conflictAccept": "እሺ፣ ገባኝ",
+  "@conflictAccept": {
+    "description": "Primary button to acknowledge the conflict resolution"
+  },
+  "conflictDismiss": "ዝጋ",
+  "@conflictDismiss": {
+    "description": "Secondary button to dismiss the conflict notification"
+  },
+  "conflictEntityCropListing": "የሰብል ዝርዝር",
+  "@conflictEntityCropListing": {
+    "description": "Entity type label for crop listing in conflict dialog"
+  },
+  "conflictEntityDelivery": "ማድረስ",
+  "@conflictEntityDelivery": {
+    "description": "Entity type label for delivery in conflict dialog"
+  },
+  "conflictEntityTrip": "ጉዞ",
+  "@conflictEntityTrip": {
+    "description": "Entity type label for trip in conflict dialog"
+  },
+  "conflictServerValues": "የአሁኑ እሴቶች",
+  "@conflictServerValues": {
+    "description": "Section header showing server-side field values"
+  },
+  "conflictNoDetails": "ምንም ዝርዝሮች የሉም",
+  "@conflictNoDetails": {
+    "description": "Shown when conflict event has no displayable field changes"
+  },
+  "conflictBannerSingle": "የእርስዎ {entityType} በሌላ መሳሪያ ተዘምኗል",
+  "@conflictBannerSingle": {
+    "description": "Banner text for single conflict notification",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictBannerMultiple": "{count} መዝገቦች ተዘምነዋል",
+  "@conflictBannerMultiple": {
+    "description": "Banner text for multiple conflict notifications",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "conflictBannerAction": "ለውጦችን ይመልከቱ",
+  "@conflictBannerAction": {
+    "description": "Action button text on conflict notification banner"
+  },
+  "conflictScreenTitle": "ዝማኔዎች",
+  "@conflictScreenTitle": {
+    "description": "App bar title for conflict resolution screen"
+  },
+  "conflictYourVersion": "የእርስዎ ስሪት",
+  "@conflictYourVersion": {
+    "description": "Label for user's local version in conflict diff"
+  },
+  "conflictCurrentVersion": "የአሁኑ ስሪት",
+  "@conflictCurrentVersion": {
+    "description": "Label for server's current version in conflict diff"
+  },
+  "conflictServerApplied": "የአሁኑ ስሪት ተፈጽሟል",
+  "@conflictServerApplied": {
+    "description": "Badge text confirming server version was applied"
+  },
+  "conflictGotIt": "ገባኝ",
+  "@conflictGotIt": {
+    "description": "Primary button to acknowledge and dismiss all conflicts"
+  },
+  "conflictEmptyTitle": "ሁሉም ወቅታዊ ነው",
+  "@conflictEmptyTitle": {
+    "description": "Empty state title when no conflicts exist"
+  },
+  "conflictEmptySubtitle": "ምንም ዝማኔዎች የሉም",
+  "@conflictEmptySubtitle": {
+    "description": "Empty state subtitle when no conflicts exist"
+  },
+  "conflictEntityDeleted": "ይህ {entityType} ተሰርዟል",
+  "@conflictEntityDeleted": {
+    "description": "Message when a conflicting entity was deleted on server",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictShowAllChanges": "ሁሉንም ለውጦች አሳይ",
+  "@conflictShowAllChanges": {
+    "description": "Expandable button to show all field changes when more than 4 fields changed"
+  },
+
+  "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
+
+  "fraudDuplicateListing": "ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።",
+  "@fraudDuplicateListing": {
+    "description": "Error when duplicate crop listing detected by server fraud check"
+  },
+  "fraudVelocityExceeded": "በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።",
+  "@fraudVelocityExceeded": {
+    "description": "Error when velocity limit exceeded by server fraud check"
   }
 }

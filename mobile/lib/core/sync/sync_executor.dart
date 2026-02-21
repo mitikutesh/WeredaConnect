@@ -9,6 +9,8 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
+import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 
 /// Callback for handling sync conflicts.
 ///
@@ -182,6 +184,7 @@ class SyncExecutor {
   final String _clientId;
   final ConflictHandler? _onConflict;
   final ConflictResolver? _conflictResolver;
+  final ConflictNotificationService? _conflictNotificationService;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _isSyncing = false;
@@ -225,12 +228,14 @@ class SyncExecutor {
     required String clientId,
     ConflictHandler? onConflict,
     ConflictResolver? conflictResolver,
+    ConflictNotificationService? conflictNotificationService,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
         _clientId = clientId,
         _onConflict = onConflict,
-        _conflictResolver = conflictResolver;
+        _conflictResolver = conflictResolver,
+        _conflictNotificationService = conflictNotificationService;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -460,6 +465,18 @@ class SyncExecutor {
                   operation: operation,
                   serverData: serverData,
                   serverVersion: serverVersion ?? 0,
+                );
+
+                // Notify UI about the resolved conflict
+                _conflictNotificationService?.notify(
+                  ConflictEvent(
+                    operation: operation,
+                    serverData: serverData,
+                    serverVersion: serverVersion ?? 0,
+                    entityType: operation.entityType,
+                    entityId: operation.entityId,
+                    resolvedAt: DateTime.now().toUtc(),
+                  ),
                 );
               } on ConflictResolutionException {
                 // If conflict resolution fails, mark as failed for retry

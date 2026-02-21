@@ -1369,5 +1369,118 @@
   "dataUsageTrackingSince": "Irraa eegalee",
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
+  },
+
+  "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
+
+  "conflictTitle": "Deetaan Haaromfame",
+  "@conflictTitle": {
+    "description": "Title shown on conflict resolution modal when server overwrites local data"
+  },
+  "conflictExplanation": "Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.",
+  "@conflictExplanation": {
+    "description": "Explanation of what happened during a sync conflict"
+  },
+  "conflictAccept": "Tole, Hubadhe",
+  "@conflictAccept": {
+    "description": "Primary button to acknowledge the conflict resolution"
+  },
+  "conflictDismiss": "Cufi",
+  "@conflictDismiss": {
+    "description": "Secondary button to dismiss the conflict notification"
+  },
+  "conflictEntityCropListing": "Tarree Midhaan",
+  "@conflictEntityCropListing": {
+    "description": "Entity type label for crop listing in conflict dialog"
+  },
+  "conflictEntityDelivery": "Geejjiba",
+  "@conflictEntityDelivery": {
+    "description": "Entity type label for delivery in conflict dialog"
+  },
+  "conflictEntityTrip": "Imala",
+  "@conflictEntityTrip": {
+    "description": "Entity type label for trip in conflict dialog"
+  },
+  "conflictServerValues": "Gatii Ammaa",
+  "@conflictServerValues": {
+    "description": "Section header showing server-side field values"
+  },
+  "conflictNoDetails": "Bal'inni hin jiru",
+  "@conflictNoDetails": {
+    "description": "Shown when conflict event has no displayable field changes"
+  },
+  "conflictBannerSingle": "{entityType} kee meeshaa biraan haaromfame",
+  "@conflictBannerSingle": {
+    "description": "Banner text for single conflict notification",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictBannerMultiple": "Galmeeleen {count} haaromfaman",
+  "@conflictBannerMultiple": {
+    "description": "Banner text for multiple conflict notifications",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "conflictBannerAction": "Jijjiirama ilaali",
+  "@conflictBannerAction": {
+    "description": "Action button text on conflict notification banner"
+  },
+  "conflictScreenTitle": "Haaromsa",
+  "@conflictScreenTitle": {
+    "description": "App bar title for conflict resolution screen"
+  },
+  "conflictYourVersion": "Versiinkee",
+  "@conflictYourVersion": {
+    "description": "Label for user's local version in conflict diff"
+  },
+  "conflictCurrentVersion": "Versii Ammaa",
+  "@conflictCurrentVersion": {
+    "description": "Label for server's current version in conflict diff"
+  },
+  "conflictServerApplied": "Versii ammaa hojiirra ooleera",
+  "@conflictServerApplied": {
+    "description": "Badge text confirming server version was applied"
+  },
+  "conflictGotIt": "Hubadhe",
+  "@conflictGotIt": {
+    "description": "Primary button to acknowledge and dismiss all conflicts"
+  },
+  "conflictEmptyTitle": "Hundumtuu Haaraa Dha",
+  "@conflictEmptyTitle": {
+    "description": "Empty state title when no conflicts exist"
+  },
+  "conflictEmptySubtitle": "Haaromsi hin jiru",
+  "@conflictEmptySubtitle": {
+    "description": "Empty state subtitle when no conflicts exist"
+  },
+  "conflictEntityDeleted": "{entityType} kun haquudhaan balleeffame",
+  "@conflictEntityDeleted": {
+    "description": "Message when a conflicting entity was deleted on server",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictShowAllChanges": "Jijjiirama hunda agarsiisi",
+  "@conflictShowAllChanges": {
+    "description": "Expandable button to show all field changes when more than 4 fields changed"
+  },
+
+  "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
+
+  "fraudDuplicateListing": "Tarreen walfakkaataan duraan jira. Maaloo tarree jiru haaromsi.",
+  "@fraudDuplicateListing": {
+    "description": "Error when duplicate crop listing detected by server fraud check"
+  },
+  "fraudVelocityExceeded": "Gaaffiin baay'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi'ii yaali.",
+  "@fraudVelocityExceeded": {
+    "description": "Error when velocity limit exceeded by server fraud check"
   }
 }

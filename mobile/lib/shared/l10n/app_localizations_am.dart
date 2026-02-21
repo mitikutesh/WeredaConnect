@@ -985,4 +985,80 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get dataUsageTrackingSince => 'ከ ጀምሮ';
+
+  @override
+  String get conflictTitle => 'ዳታ ተዘምኗል';
+
+  @override
+  String get conflictExplanation =>
+      'ሌላ መሳሪያ ወይም አገልጋይ ይህን መዝገብ ዘምኗል። የአካባቢ ቅጂዎ ተዘምኗል።';
+
+  @override
+  String get conflictAccept => 'እሺ፣ ገባኝ';
+
+  @override
+  String get conflictDismiss => 'ዝጋ';
+
+  @override
+  String get conflictEntityCropListing => 'የሰብል ዝርዝር';
+
+  @override
+  String get conflictEntityDelivery => 'ማድረስ';
+
+  @override
+  String get conflictEntityTrip => 'ጉዞ';
+
+  @override
+  String get conflictServerValues => 'የአሁኑ እሴቶች';
+
+  @override
+  String get conflictNoDetails => 'ምንም ዝርዝሮች የሉም';
+
+  @override
+  String conflictBannerSingle(String entityType) {
+    return 'የእርስዎ $entityType በሌላ መሳሪያ ተዘምኗል';
+  }
+
+  @override
+  String conflictBannerMultiple(int count) {
+    return '$count መዝገቦች ተዘምነዋል';
+  }
+
+  @override
+  String get conflictBannerAction => 'ለውጦችን ይመልከቱ';
+
+  @override
+  String get conflictScreenTitle => 'ዝማኔዎች';
+
+  @override
+  String get conflictYourVersion => 'የእርስዎ ስሪት';
+
+  @override
+  String get conflictCurrentVersion => 'የአሁኑ ስሪት';
+
+  @override
+  String get conflictServerApplied => 'የአሁኑ ስሪት ተፈጽሟል';
+
+  @override
+  String get conflictGotIt => 'ገባኝ';
+
+  @override
+  String get conflictEmptyTitle => 'ሁሉም ወቅታዊ ነው';
+
+  @override
+  String get conflictEmptySubtitle => 'ምንም ዝማኔዎች የሉም';
+
+  @override
+  String conflictEntityDeleted(String entityType) {
+    return 'ይህ $entityType ተሰርዟል';
+  }
+
+  @override
+  String get conflictShowAllChanges => 'ሁሉንም ለውጦች አሳይ';
+
+  @override
+  String get fraudDuplicateListing => 'ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።';
+
+  @override
+  String get fraudVelocityExceeded => 'በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።';
 }

@@ -9,6 +9,8 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
@@ -58,6 +60,9 @@ Future<void> main() async {
   );
   escrowSyncService.startListening();
 
+  // Create conflict notification service for sync conflict UI
+  final conflictNotificationService = ConflictNotificationService();
+
   // Initialize language provider and load saved language preference
   final languageProvider = LanguageProvider();
   await languageProvider.initialize();
@@ -98,6 +103,7 @@ Future<void> main() async {
       child: WeredaConnectApp(
         connectivityMonitor: connectivityMonitor,
         escrowSyncService: escrowSyncService,
+        conflictNotificationService: conflictNotificationService,
       ),
     ),
   );
@@ -119,10 +125,12 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 class WeredaConnectApp extends StatelessWidget {
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
+  final ConflictNotificationService conflictNotificationService;
 
   const WeredaConnectApp({
     required this.connectivityMonitor,
     required this.escrowSyncService,
+    required this.conflictNotificationService,
     super.key,
   });
 
@@ -136,6 +144,10 @@ class WeredaConnectApp extends StatelessWidget {
         ),
         Provider<EscrowSyncService>.value(
           value: escrowSyncService,
+          dispose: (_, service) => service.dispose(),
+        ),
+        Provider<ConflictNotificationService>.value(
+          value: conflictNotificationService,
           dispose: (_, service) => service.dispose(),
         ),
       ],
@@ -169,6 +181,11 @@ class WeredaConnectApp extends StatelessWidget {
               isar: IsarService.instance.db,
               syncQueue: SyncQueue(IsarService.instance.db),
             ),
+          ),
+        ),
+        BlocProvider<ConflictBloc>(
+          create: (context) => ConflictBloc(
+            notificationService: context.read<ConflictNotificationService>(),
           ),
         ),
         BlocProvider<EscrowBloc>(
