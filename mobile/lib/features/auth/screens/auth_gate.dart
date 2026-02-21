@@ -5,9 +5,6 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
-import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
-import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
-import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
@@ -46,23 +43,7 @@ class _AuthGateState extends State<AuthGate> {
         if (authState is AuthAuthenticated) {
           // Mark welcome as seen when user successfully authenticates
           context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
-          return BlocListener<ConflictBloc, ConflictState>(
-            listener: (context, state) {
-              if (state is ConflictPending) {
-                showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  isDismissible: true,
-                  builder: (_) => BlocProvider.value(
-                    value: context.read<ConflictBloc>(),
-                    child:
-                        ConflictResolutionScreen(conflict: state.conflict),
-                  ),
-                );
-              }
-            },
-            child: const MainNavigation(),
-          );
+          return const MainNavigation();
         }
 
         // If OTP verification required, show OTP screen

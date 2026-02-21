@@ -2,17 +2,17 @@
 
 ## Checkpoint
 
-**Date:** 2026-02-20
+**Date:** 2026-02-21
 **Branch:** `telebirr-mock`
-**Status:** R4 Implementation — F-11 ✅, F-12 ✅, F-13 server + mobile done (~85%), F-18 ✅
-**Latest Commit:** ad6451a - feat(delivery): improve debug delivery seeding with role-based status
+**Status:** R4 Implementation — F-11 ✅, F-12 ✅, F-13 ✅, F-15 ✅, F-18 ✅
+**Latest Commit:** dbb6ff6 - feat(conflict-resolution): implement conflict resolution feature with UI and state management
 
 ---
 
 ## Resumption Context
 
 ```
-R4 IMPLEMENTATION IN PROGRESS (Feb 20, 2026)
+R4 IMPLEMENTATION IN PROGRESS (Feb 21, 2026)
   - F-11 Trip Listings: ✅ COMPLETE (server Lambda + DynamoDB + mobile BLoC + UI + sync + tests)
     - Merged via PR #5 (trips-delivery-escrow) and PR #6 (listing — presentation layer + AOT regex fix)
   - F-12 Delivery Verification: ✅ COMPLETE (server + mobile + UI + QR + GPS + photo + tests)
@@ -20,26 +20,29 @@ R4 IMPLEMENTATION IN PROGRESS (Feb 20, 2026)
     - Mobile: 3 services (QR, GPS, Photo) + 5 screens + 3 widgets + 59 l10n strings × 3 languages
     - Tests: 78 delivery tests + 404 server tests (all pass)
     - REMAINING: T12 (photo upload endpoint), integration tests
-  - F-13 Telebirr Escrow: ⚙️ ~85% (server + mobile complete, integration tests pending)
+  - F-13 Telebirr Escrow: ✅ COMPLETE (server + mobile + 20 integration tests, 589 total pass)
     - Server: ✅ Mock gateway + EscrowService + cron (auto-release/auto-refund) + DynamoDB + Lambda deployed
     - Mobile data: ✅ EscrowRepository + EscrowSyncService + models + Payment/PaymentIntent Isar schemas
-    - Mobile UI: ✅ 4 screens (InitiatePayment, EscrowStatus, PaymentHistory, RaiseDispute)
-                  ✅ 4 widgets (StatusBadge, Timeline, PendingIntentCard, AmountDisplay)
-                  ✅ EscrowBloc (events + states + bloc)
-                  ✅ Payments tab wired into main navigation (tab 4, wallet icon)
-                  ✅ "Pay" button added to DeliveryDetail for buyers (pending status)
-    - REMAINING: Integration tests (POST /escrow/initiate E2E), live Telebirr connection
+    - Mobile UI: ✅ 4 screens + 4 widgets + BLoC + repo + Payments nav tab + Pay button
   - F-14 Fraud Detection: ❌ NOT STARTED
-  - F-15 Conflict Resolution UI: ⚙️ LOGIC DONE (ConflictResolver class), UI MISSING
+  - F-15 Conflict Resolution UI: ✅ COMPLETE (Feb 21, 2026)
+    - Core: ConflictResolver (330 lines) + ConflictNotificationService (replay buffer) + ConflictBloc
+    - UI: ConflictResolutionScreen (modal bottom sheet) + 4 widgets (banner, detail card, field diff, empty state)
+    - Wiring: ConflictNotificationBanner via MaterialBanner in MainNavigation, 8s auto-dismiss
+    - L10n: 16 keys × 3 languages (EN, AM, OM)
+    - Security: All 7 findings verified (2 required fixes applied, 5 advisory confirmed)
+    - Tests: 49 passing (resolver + service + bloc + screen + 4 widget tests)
+    - Bug fix: replay buffer microtask scheduling (events were lost before listener attached)
   - F-18 S3 Access Logging + Versioning: ✅ COMPLETE (deployed via CDK)
 
 WHAT WORKS: Register/login (+251 phone), create crop offline, auto-sync,
-  conflict resolution (server-wins), browse crops from server, filter by crop/location,
+  conflict resolution (server-wins with notification banner + detail screen),
+  browse crops from server, filter by crop/location,
   trip listings (create/browse/filter offline-first with sync),
   full delivery verification UI (QR + GPS + photo),
-  escrow payment UI (initiate, status, history, disputes — wired, pending integration tests)
+  escrow payment UI (initiate, status, history, disputes)
 
-NEXT: Integration tests for escrow flow, F-14 fraud detection, F-15 conflict resolution UI.
+NEXT: F-14 fraud detection, security cleanup (F-01, F-05).
 ```
 
 ---
@@ -78,6 +81,9 @@ NEXT: Integration tests for escrow flow, F-14 fraud detection, F-15 conflict res
 | F-12 Contract | `specs/contracts/delivery-verification-api.md` |
 | F-13 Architecture | `specs/decisions/r4-3-escrow-architecture.md` |
 | F-13 Contract | `specs/contracts/escrow-protocol.md` |
+| F-15 Architecture | `specs/decisions/f15-conflict-resolution-ui.md` |
+| F-15 UX Design | `specs/decisions/f15-ux-design.md` |
+| F-15 Security Review | `specs/decisions/f15-security-review.md` |
 
 ---
 
@@ -90,4 +96,4 @@ NEXT: Integration tests for escrow flow, F-14 fraud detection, F-15 conflict res
 
 ---
 
-**Last Updated:** 2026-02-20
+**Last Updated:** 2026-02-21

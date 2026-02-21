@@ -26,12 +26,19 @@ class ConflictNotificationService {
   /// a subscriber was present (fixes startup race condition).
   Stream<ConflictEvent> get onConflict {
     _hasSubscriber = true;
-    // Replay any buffered events on first subscription
+    // Replay any buffered events on first subscription.
+    // Scheduled as a microtask so replay happens AFTER .listen() is called
+    // on the returned broadcast stream.
     if (_pendingEvents.isNotEmpty) {
-      for (final event in _pendingEvents) {
-        _controller.add(event);
-      }
+      final pending = List<ConflictEvent>.of(_pendingEvents);
       _pendingEvents.clear();
+      Future.microtask(() {
+        for (final event in pending) {
+          if (!_controller.isClosed) {
+            _controller.add(event);
+          }
+        }
+      });
     }
     return _controller.stream;
   }

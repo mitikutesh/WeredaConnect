@@ -9,6 +9,9 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
@@ -151,85 +154,133 @@ class _MainNavigationState extends State<MainNavigation> {
           curr is! AuthAuthenticated ||
           prev.role != curr.role,
       builder: (context, authState) {
-        final role = authState is AuthAuthenticated
-            ? authState.role
-            : UserRole.farmer;
+        final role =
+            authState is AuthAuthenticated ? authState.role : UserRole.farmer;
         final screens = _buildScreens();
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(_getTitle(l10n)),
-            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-            actions: [
-              IconButton(
-                icon: Icon(
-                  _isOnline
-                      ? Icons.cloud_done_outlined
-                      : Icons.cloud_off_outlined,
-                  color: _isOnline
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.4),
-                ),
-                tooltip: _isOnline ? l10n.offlineReady : l10n.offlineMode,
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        _isOnline
-                            ? l10n.syncComplete
-                            : l10n.offlineModeIndicator,
-                      ),
+        return BlocListener<ConflictBloc, ConflictState>(
+          listener: (context, state) {
+            if (state is ConflictPending) {
+              final messenger = ScaffoldMessenger.of(context);
+              final message =
+                  l10n.conflictBannerSingle(state.conflict.entityType);
+              messenger.showMaterialBanner(
+                MaterialBanner(
+                  backgroundColor: Colors.amber.shade50,
+                  leading: Icon(
+                    Icons.sync,
+                    size: 24,
+                    color: Colors.amber.shade700,
+                  ),
+                  content: Text(
+                    message,
+                    style: const TextStyle(fontSize: 16),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        messenger.hideCurrentMaterialBanner();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => BlocProvider.value(
+                              value: context.read<ConflictBloc>(),
+                              child: ConflictResolutionScreen(
+                                conflict: state.conflict,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      child: Text(l10n.conflictBannerAction),
                     ),
-                  );
-                },
-              ),
-            ],
-          ),
-          drawer: _buildDrawer(context, l10n),
-          body: screens[_currentIndex],
-          floatingActionButton: _buildFab(role),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _currentIndex,
-            onDestinationSelected: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            destinations: [
-              NavigationDestination(
-                icon: const Icon(Icons.home_outlined),
-                selectedIcon: const Icon(Icons.home),
-                label: l10n.home,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.list_alt_outlined),
-                selectedIcon: const Icon(Icons.list_alt),
-                label: _getListingsTabLabel(l10n, role),
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.local_shipping_outlined),
-                selectedIcon: const Icon(Icons.local_shipping),
-                label: _getTripsTabLabel(l10n, role),
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.inventory_2_outlined),
-                selectedIcon: const Icon(Icons.inventory_2),
-                label: l10n.deliveries,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.account_balance_wallet_outlined),
-                selectedIcon: const Icon(Icons.account_balance_wallet),
-                label: l10n.escrowPayments,
-              ),
-              NavigationDestination(
-                icon: const Icon(Icons.person_outline),
-                selectedIcon: const Icon(Icons.person),
-                label: l10n.profile,
-              ),
-            ],
+                  ],
+                  onVisible: () {
+                    Future.delayed(const Duration(seconds: 8), () {
+                      messenger.hideCurrentMaterialBanner();
+                    });
+                  },
+                ),
+              );
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(_getTitle(l10n)),
+              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+              actions: [
+                IconButton(
+                  icon: Icon(
+                    _isOnline
+                        ? Icons.cloud_done_outlined
+                        : Icons.cloud_off_outlined,
+                    color: _isOnline
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4),
+                  ),
+                  tooltip: _isOnline ? l10n.offlineReady : l10n.offlineMode,
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          _isOnline
+                              ? l10n.syncComplete
+                              : l10n.offlineModeIndicator,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            drawer: _buildDrawer(context, l10n),
+            body: screens[_currentIndex],
+            floatingActionButton: _buildFab(role),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.home_outlined),
+                  selectedIcon: const Icon(Icons.home),
+                  label: l10n.home,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.list_alt_outlined),
+                  selectedIcon: const Icon(Icons.list_alt),
+                  label: _getListingsTabLabel(l10n, role),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.local_shipping_outlined),
+                  selectedIcon: const Icon(Icons.local_shipping),
+                  label: _getTripsTabLabel(l10n, role),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.inventory_2_outlined),
+                  selectedIcon: const Icon(Icons.inventory_2),
+                  label: l10n.deliveries,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                  selectedIcon: const Icon(Icons.account_balance_wallet),
+                  label: l10n.escrowPayments,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.person_outline),
+                  selectedIcon: const Icon(Icons.person),
+                  label: l10n.profile,
+                ),
+              ],
+            ),
           ),
         );
       },
