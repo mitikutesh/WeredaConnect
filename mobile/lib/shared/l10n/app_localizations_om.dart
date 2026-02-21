@@ -960,6 +960,18 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get profileRestartApp => 'Maaloo app irra deebi\'i bani';
+
+  @override
+  String get profileLoadError => 'Profaayilii fayyadamaa fe\'uu hin dandeenye';
+
+  @override
+  String get escrowTimeline => 'Tartiiba Yeroo';
+
+  @override
+  String get escrowDisputeDetailsTitle => 'Ibsa Dhibdee';
+
+  @override
   String get recording => 'Waraabamaa jira...';
 
   @override

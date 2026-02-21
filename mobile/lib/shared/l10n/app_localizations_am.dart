@@ -934,6 +934,18 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get profileRestartApp => 'እባክዎ ፕሮግራሙን እንደገና ያስነሱ';
+
+  @override
+  String get profileLoadError => 'የተጠቃሚ መረጃ ሊጫን አልቻለም';
+
+  @override
+  String get escrowTimeline => 'ጊዜ ሰሌዳ';
+
+  @override
+  String get escrowDisputeDetailsTitle => 'የቅሬታ ዝርዝር';
+
+  @override
   String get recording => 'በመቅዳት ላይ...';
 
   @override
@@ -1057,8 +1069,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get conflictShowAllChanges => 'ሁሉንም ለውጦች አሳይ';
 
   @override
-  String get fraudDuplicateListing => 'ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።';
+  String get fraudDuplicateListing =>
+      'ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።';
 
   @override
-  String get fraudVelocityExceeded => 'በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።';
+  String get fraudVelocityExceeded =>
+      'በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።';
 }

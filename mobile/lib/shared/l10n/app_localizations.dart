@@ -1900,6 +1900,30 @@ abstract class AppLocalizations {
   /// **'ETB {amount}'**
   String escrowEtbAmount(String amount);
 
+  /// Message shown when user is not authenticated — prompt to restart
+  ///
+  /// In en, this message translates to:
+  /// **'Please restart the app'**
+  String get profileRestartApp;
+
+  /// Error message when profile data cannot be loaded from the database
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load user profile'**
+  String get profileLoadError;
+
+  /// Section heading for escrow event timeline on status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get escrowTimeline;
+
+  /// Section heading for dispute info card on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute Details'**
+  String get escrowDisputeDetailsTitle;
+
   /// Label shown while recording audio
   ///
   /// In en, this message translates to:

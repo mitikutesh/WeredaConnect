@@ -953,6 +953,18 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get profileRestartApp => 'Please restart the app';
+
+  @override
+  String get profileLoadError => 'Could not load user profile';
+
+  @override
+  String get escrowTimeline => 'Timeline';
+
+  @override
+  String get escrowDisputeDetailsTitle => 'Dispute Details';
+
+  @override
   String get recording => 'Recording...';
 
   @override
