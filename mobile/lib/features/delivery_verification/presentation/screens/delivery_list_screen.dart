@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/data/mock/delivery_mock_seeder.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -15,8 +15,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Browse and filter deliveries for the current user.
 ///
-/// Shows role-based and status-based filter chips with a list
-/// of delivery cards. Follows the BrowseTripsScreen pattern.
+/// Shows status-based filter chips with a list of delivery cards.
+/// The user's role is automatically locked to their authenticated role.
 class DeliveryListScreen extends StatefulWidget {
   const DeliveryListScreen({super.key});
 
@@ -25,16 +25,17 @@ class DeliveryListScreen extends StatefulWidget {
 }
 
 class _DeliveryListScreenState extends State<DeliveryListScreen> {
-  String? _selectedRole;
   String? _selectedStatus;
+
+  /// The user's role from auth — always locked to their actual role.
+  String? _userRole;
 
   @override
   void initState() {
     super.initState();
-    // Auto-select role filter based on authenticated user's role
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
-      _selectedRole = authState.role.name;
+      _userRole = authState.role.name;
     }
     _loadDeliveries();
   }
@@ -51,7 +52,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
     final userId = _getUserId();
     if (userId != null) {
       context.read<DeliveryBloc>().add(
-            LoadUserDeliveries(userId: userId, role: _selectedRole),
+            LoadUserDeliveries(userId: userId, role: _userRole),
           );
     }
   }
@@ -63,19 +64,15 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
     context.read<DeliveryBloc>().add(
           FilterUserDeliveries(
             userId: userId,
-            role: _selectedRole,
+            role: _userRole,
             statusFilter: _selectedStatus,
           ),
         );
   }
 
-  /// Debug-only: seed a sample delivery at the right lifecycle stage
-  /// so the current user has an actionable delivery.
-  ///
-  /// - farmer → pending (show QR code)
-  /// - trucker → pending (scan QR to confirm pickup)
-  /// - buyer → inTransit (scan QR to confirm delivery)
-  Future<void> _seedDebugDelivery() async {
+  /// Debug-only: seed 4 deliveries at each lifecycle stage
+  /// (pending, pickedUp, inTransit, delivered) for the current role.
+  Future<void> _seedDebugDeliveries() async {
     final userId = _getUserId();
     if (userId == null) return;
 
@@ -83,83 +80,26 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
     final role =
         authState is AuthAuthenticated ? authState.role.name : 'farmer';
 
-    const uuid = Uuid();
-    final String farmerId;
-    final String farmerName;
-    final String truckerId;
-    final String truckerName;
-    final String buyerId;
-    final String buyerName;
-
-    switch (role) {
-      case 'trucker':
-        farmerId = uuid.v4();
-        farmerName = 'Abebe Farmer';
-        truckerId = userId;
-        truckerName = 'You (Trucker)';
-        buyerId = uuid.v4();
-        buyerName = 'Addis Wholesale';
-      case 'buyer':
-        farmerId = uuid.v4();
-        farmerName = 'Abebe Farmer';
-        truckerId = uuid.v4();
-        truckerName = 'Kebede Transport';
-        buyerId = userId;
-        buyerName = 'You (Buyer)';
-      default: // farmer
-        farmerId = userId;
-        farmerName = 'You (Farmer)';
-        truckerId = uuid.v4();
-        truckerName = 'Kebede Transport';
-        buyerId = uuid.v4();
-        buyerName = 'Addis Wholesale';
-    }
-
     final repo = context.read<DeliveryBloc>().repository;
 
     try {
-      // 1. Create the delivery (always starts as pending)
-      final delivery = await repo.createDelivery(
-        tripId: uuid.v4(),
-        listingId: uuid.v4(),
-        farmerId: farmerId,
-        farmerName: farmerName,
-        truckerId: truckerId,
-        truckerName: truckerName,
-        buyerId: buyerId,
-        buyerName: buyerName,
-        qrToken: 'debug-seed-token',
+      await seedMockDeliveries(
+        repo: repo,
+        userId: userId,
+        role: role,
+        statusFilter: _selectedStatus,
       );
 
-      // 2. Advance to the right stage for the role
-      final String statusLabel;
-      switch (role) {
-        case 'trucker':
-          // Trucker needs pending to scan QR for pickup
-          statusLabel = 'pending';
-        case 'buyer':
-          // Buyer needs inTransit to confirm delivery — advance through stages
-          await repo.confirmPickup(
-            deliveryId: delivery.deliveryId,
-            truckerId: truckerId,
-          );
-          await repo.markInTransit(
-            deliveryId: delivery.deliveryId,
-            truckerId: truckerId,
-          );
-          statusLabel = 'inTransit';
-        default:
-          // Farmer needs pending to show QR
-          statusLabel = 'pending';
-      }
-
       if (mounted) {
+        final filterLabel = _selectedStatus ?? 'all statuses';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Debug delivery created ($statusLabel, you = $role)'),
+            content: Text(
+              'Debug deliveries seeded ($filterLabel, you = $role)',
+            ),
           ),
         );
-        _loadDeliveries();
+        _applyFilters();
       }
     } on Exception catch (e) {
       if (mounted) {
@@ -201,53 +141,6 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
               ),
             ),
           ),
-          // Role filter chips
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _RoleChip(
-                    label: l10n.deliveryFilterAll,
-                    selected: _selectedRole == null,
-                    onSelected: () {
-                      setState(() => _selectedRole = null);
-                      _applyFilters();
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  _RoleChip(
-                    label: l10n.deliveryFarmer,
-                    selected: _selectedRole == 'farmer',
-                    onSelected: () {
-                      setState(() => _selectedRole = 'farmer');
-                      _applyFilters();
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  _RoleChip(
-                    label: l10n.deliveryTrucker,
-                    selected: _selectedRole == 'trucker',
-                    onSelected: () {
-                      setState(() => _selectedRole = 'trucker');
-                      _applyFilters();
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  _RoleChip(
-                    label: l10n.deliveryBuyer,
-                    selected: _selectedRole == 'buyer',
-                    onSelected: () {
-                      setState(() => _selectedRole = 'buyer');
-                      _applyFilters();
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
           // Status filter chips
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -324,7 +217,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                           if (kDebugMode) ...[
                             const SizedBox(height: 24),
                             FilledButton.icon(
-                              onPressed: _seedDebugDelivery,
+                              onPressed: _seedDebugDeliveries,
                               icon: const Icon(Icons.bug_report),
                               label: Text(
                                 AppLocalizations.of(context)!
@@ -384,7 +277,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                       if (kDebugMode) ...[
                         const SizedBox(height: 24),
                         FilledButton.icon(
-                          onPressed: _seedDebugDelivery,
+                          onPressed: _seedDebugDeliveries,
                           icon: const Icon(Icons.bug_report),
                           label: Text(
                             AppLocalizations.of(context)!
@@ -411,6 +304,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
       ('inTransit', l10n.deliveryFilterInTransit),
       ('delivered', l10n.deliveryFilterDelivered),
       ('disputed', l10n.deliveryStatusDisputed),
+      ('cancelled', l10n.deliveryStatusCancelled),
     ];
 
     final chips = <Widget>[];
@@ -428,27 +322,6 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
       chips.add(const SizedBox(width: 8));
     }
     return chips;
-  }
-}
-
-class _RoleChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onSelected;
-
-  const _RoleChip({
-    required this.label,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onSelected(),
-    );
   }
 }
 

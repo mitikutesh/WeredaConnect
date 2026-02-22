@@ -1489,5 +1489,20 @@
   "fraudVelocityExceeded": "Too many requests. Please wait a moment and try again.",
   "@fraudVelocityExceeded": {
     "description": "Error when velocity limit exceeded by server fraud check"
+  },
+
+  "@@profileSection": "=== Profile Feature ===",
+
+  "profileSaved": "Profile updated",
+  "@profileSaved": {
+    "description": "Snackbar message after profile is saved successfully"
+  },
+  "noNotificationsYet": "No notifications yet",
+  "@noNotificationsYet": {
+    "description": "Empty state title on notifications screen"
+  },
+  "noNotificationsDescription": "You'll see your alerts here",
+  "@noNotificationsDescription": {
+    "description": "Empty state subtitle on notifications screen"
   }
 }

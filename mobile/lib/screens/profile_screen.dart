@@ -9,8 +9,18 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Profile screen - user profile and account settings
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+class ProfileScreen extends StatefulWidget {
+  final ValueChanged<int>? onNavigateToTab;
+
+  const ProfileScreen({super.key, this.onNavigateToTab});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  /// Key to force FutureBuilder rebuild after edit
+  int _rebuildKey = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -28,8 +38,6 @@ class ProfileScreen extends StatelessWidget {
         }
 
         // User not authenticated - show login prompt
-        // (This should never happen since MainNavigation requires auth,
-        // but handle it gracefully)
         return _buildUnauthenticatedPrompt(context, l10n);
       },
     );
@@ -41,6 +49,7 @@ class ProfileScreen extends StatelessWidget {
     AppLocalizations l10n,
   ) {
     return FutureBuilder<User?>(
+      key: ValueKey(_rebuildKey),
       future: _getUserFromDatabase(userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -49,7 +58,6 @@ class ProfileScreen extends StatelessWidget {
 
         final user = snapshot.data;
         if (user == null) {
-          // User not found in database - show error
           return _buildErrorState(context, l10n);
         }
 
@@ -116,12 +124,7 @@ class ProfileScreen extends StatelessWidget {
                 icon: Icons.person_outline,
                 title: l10n.edit,
                 subtitle: l10n.updateDetails,
-                onTap: () {
-                  // TODO: Navigate to edit profile screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.comingSoon)),
-                  );
-                },
+                onTap: () => _showEditProfileSheet(context, user, l10n),
               ),
 
               const SizedBox(height: 12),
@@ -131,10 +134,7 @@ class ProfileScreen extends StatelessWidget {
                 title: l10n.listings,
                 subtitle: l10n.viewCropListings,
                 onTap: () {
-                  // TODO: Navigate to user's listings
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.comingSoon)),
-                  );
+                  widget.onNavigateToTab?.call(1);
                 },
               ),
 
@@ -145,10 +145,7 @@ class ProfileScreen extends StatelessWidget {
                 title: l10n.myOrders,
                 subtitle: l10n.viewOrderHistory,
                 onTap: () {
-                  // TODO: Navigate to orders screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.comingSoon)),
-                  );
+                  widget.onNavigateToTab?.call(3);
                 },
               ),
 
@@ -159,16 +156,18 @@ class ProfileScreen extends StatelessWidget {
                 title: l10n.notifications,
                 subtitle: l10n.manageAlerts,
                 onTap: () {
-                  // TODO: Navigate to notifications settings
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(l10n.comingSoon)),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => _NotificationsScreen(l10n: l10n),
+                    ),
                   );
                 },
               ),
 
               const SizedBox(height: 32),
 
-              // Logout button (moved from drawer)
+              // Logout button
               OutlinedButton.icon(
                 onPressed: () => _showLogoutConfirmation(context, l10n),
                 icon: const Icon(Icons.logout, color: Colors.red),
@@ -190,11 +189,144 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  void _showEditProfileSheet(
+    BuildContext context,
+    User user,
+    AppLocalizations l10n,
+  ) {
+    final nameController = TextEditingController(text: user.name);
+    final weredaController = TextEditingController(text: user.woreda);
+    final formKey = GlobalKey<FormState>();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Text(
+                  l10n.editProfile,
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 24),
+
+                TextFormField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: l10n.fullName,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.person_outline),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return l10n.fullName;
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                TextFormField(
+                  controller: weredaController,
+                  decoration: InputDecoration(
+                    labelText: l10n.wereda,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.location_on_outlined),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        child: Text(l10n.cancel),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () async {
+                          if (!formKey.currentState!.validate()) return;
+
+                          await _saveProfile(
+                            user,
+                            nameController.text.trim(),
+                            weredaController.text.trim(),
+                          );
+
+                          if (!sheetContext.mounted) return;
+                          Navigator.pop(sheetContext);
+                          if (!context.mounted) return;
+                          setState(() => _rebuildKey++);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(l10n.profileSaved)),
+                          );
+                        },
+                        child: Text(l10n.save),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _saveProfile(
+    User user,
+    String name,
+    String woreda,
+  ) async {
+    final isar = IsarService.instance.db;
+    await isar.writeTxn(() async {
+      user.name = name;
+      if (woreda.isNotEmpty) {
+        user.woreda = woreda;
+      }
+      user.updatedAt = DateTime.now().toUtc();
+      await isar.users.put(user);
+    });
+  }
+
   Widget _buildUnauthenticatedPrompt(
     BuildContext context,
     AppLocalizations l10n,
   ) {
-    // This shouldn't happen, but handle gracefully
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -255,7 +387,6 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  /// Fetch user from Isar database by userId
   Future<User?> _getUserFromDatabase(String userId) async {
     try {
       final isar = IsarService.instance.db;
@@ -374,6 +505,52 @@ class _ProfileActionCard extends StatelessWidget {
               const Icon(Icons.chevron_right),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Simple notifications screen with empty state placeholder
+class _NotificationsScreen extends StatelessWidget {
+  final AppLocalizations l10n;
+
+  const _NotificationsScreen({required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(l10n.notifications),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.notifications_none_outlined,
+              size: 80,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              l10n.noNotificationsYet,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.noNotificationsDescription,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.6),
+                  ),
+            ),
+          ],
         ),
       ),
     );

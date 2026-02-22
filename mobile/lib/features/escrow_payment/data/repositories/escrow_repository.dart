@@ -59,6 +59,9 @@ class EscrowRepository {
   /// Maximum escrow amount in ETB (UX pre-check; server enforces).
   static const double maxAmount = 500000.0;
 
+  /// Exposed for debug mock seeding only.
+  Isar get isar => _isar;
+
   EscrowRepository({
     required Isar isar,
     required ApiClient apiClient,

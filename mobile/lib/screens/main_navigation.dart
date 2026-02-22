@@ -68,7 +68,11 @@ class _MainNavigationState extends State<MainNavigation> {
       const BrowseTripsScreen(),
       const DeliveryListScreen(),
       const PaymentHistoryScreen(),
-      const ProfileScreen(),
+      ProfileScreen(
+        onNavigateToTab: (index) {
+          setState(() => _currentIndex = index);
+        },
+      ),
     ];
   }
 

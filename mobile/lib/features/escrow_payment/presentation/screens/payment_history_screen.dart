@@ -1,8 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/data/mock/payment_mock_seeder.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -15,11 +19,10 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// Filterable list of user's escrow transactions with pending intents.
 ///
 /// Features:
-/// - Role filter chips (All / As Buyer / As Farmer)
 /// - Status filter chips (All / Escrowed / Released / Disputed / Refunded)
 /// - Pending intents section with cancel button
 /// - Pull-to-refresh
-/// - Empty states for no payments / no matching payments
+/// - Debug seed button for mock data
 class PaymentHistoryScreen extends StatefulWidget {
   const PaymentHistoryScreen({super.key});
 
@@ -28,13 +31,62 @@ class PaymentHistoryScreen extends StatefulWidget {
 }
 
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
-  String? _roleFilter;
   String? _statusFilter;
 
   @override
   void initState() {
     super.initState();
     context.read<EscrowBloc>().add(const LoadPaymentHistory());
+  }
+
+  String? _getUserId() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.userId;
+    }
+    return null;
+  }
+
+  /// Debug-only: seed mock payments matching the current status filter.
+  Future<void> _seedDebugPayments() async {
+    final userId = _getUserId();
+    if (userId == null) return;
+
+    final authState = context.read<AuthBloc>().state;
+    final role =
+        authState is AuthAuthenticated ? authState.role.name : 'farmer';
+
+    final isar = context.read<EscrowBloc>().repository.isar;
+
+    try {
+      await seedMockPayments(
+        isar: isar,
+        userId: userId,
+        role: role,
+        statusFilter: _statusFilter,
+      );
+
+      if (mounted) {
+        final filterLabel = _statusFilter ?? 'all statuses';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Debug payments seeded ($filterLabel, you = $role)',
+            ),
+          ),
+        );
+        _dispatchFilter();
+      }
+    } on Exception catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Seed failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -54,43 +106,16 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
             context.read<EscrowBloc>().add(
                   LoadPaymentHistory(
                     statusFilter: _statusFilter,
-                    roleFilter: _roleFilter,
                   ),
                 );
           }
         },
         child: Column(
           children: [
-            // Role filter chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  _FilterChip(
-                    label: l10n.escrowFilterAll,
-                    selected: _roleFilter == null,
-                    onSelected: () => _applyRoleFilter(null),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowFilterBuyer,
-                    selected: _roleFilter == 'buyer',
-                    onSelected: () => _applyRoleFilter('buyer'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowFilterFarmer,
-                    selected: _roleFilter == 'farmer',
-                    onSelected: () => _applyRoleFilter('farmer'),
-                  ),
-                ],
-              ),
-            ),
             // Status filter chips
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
                   _FilterChip(
@@ -160,15 +185,15 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
                   if (!hasContent) {
                     return _EmptyState(
-                      hasFilter: _statusFilter != null || _roleFilter != null,
+                      hasFilter: _statusFilter != null,
                       theme: theme,
+                      onSeedDebug: kDebugMode ? _seedDebugPayments : null,
                     );
                   }
 
                   return _HistoryContent(
                     state: state,
                     statusFilter: _statusFilter,
-                    roleFilter: _roleFilter,
                     onCancelIntent: _showCancelConfirmation,
                   );
                 },
@@ -180,11 +205,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     );
   }
 
-  void _applyRoleFilter(String? role) {
-    setState(() => _roleFilter = role);
-    _dispatchFilter();
-  }
-
   void _applyStatusFilter(String? status) {
     setState(() => _statusFilter = status);
     _dispatchFilter();
@@ -194,7 +214,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     context.read<EscrowBloc>().add(
           FilterPaymentHistory(
             statusFilter: _statusFilter,
-            roleFilter: _roleFilter,
           ),
         );
   }
@@ -232,14 +251,12 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 class _HistoryContent extends StatelessWidget {
   final PaymentHistoryLoaded state;
   final String? statusFilter;
-  final String? roleFilter;
   final void Function(String idempotencyKey) onCancelIntent;
 
   const _HistoryContent({
     required this.state,
     required this.onCancelIntent,
     this.statusFilter,
-    this.roleFilter,
   });
 
   @override
@@ -252,7 +269,6 @@ class _HistoryContent extends StatelessWidget {
         context.read<EscrowBloc>().add(
               RefreshPaymentHistory(
                 statusFilter: statusFilter,
-                roleFilter: roleFilter,
               ),
             );
       },
@@ -313,8 +329,13 @@ class _HistoryContent extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   final bool hasFilter;
   final ThemeData theme;
+  final VoidCallback? onSeedDebug;
 
-  const _EmptyState({required this.hasFilter, required this.theme});
+  const _EmptyState({
+    required this.hasFilter,
+    required this.theme,
+    this.onSeedDebug,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -337,6 +358,14 @@ class _EmptyState extends StatelessWidget {
               color: theme.colorScheme.outline,
             ),
           ),
+          if (onSeedDebug != null) ...[
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onSeedDebug,
+              icon: const Icon(Icons.bug_report),
+              label: const Text('Seed Test Payments'),
+            ),
+          ],
         ],
       ),
     );

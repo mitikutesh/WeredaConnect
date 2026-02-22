@@ -1095,4 +1095,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get fraudVelocityExceeded =>
       'Too many requests. Please wait a moment and try again.';
+
+  @override
+  String get profileSaved => 'Profile updated';
+
+  @override
+  String get noNotificationsYet => 'No notifications yet';
+
+  @override
+  String get noNotificationsDescription => 'You\'ll see your alerts here';
 }

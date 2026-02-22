@@ -2163,6 +2163,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Too many requests. Please wait a moment and try again.'**
   String get fraudVelocityExceeded;
+
+  /// Snackbar message after profile is saved successfully
+  ///
+  /// In en, this message translates to:
+  /// **'Profile updated'**
+  String get profileSaved;
+
+  /// Empty state title on notifications screen
+  ///
+  /// In en, this message translates to:
+  /// **'No notifications yet'**
+  String get noNotificationsYet;
+
+  /// Empty state subtitle on notifications screen
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ll see your alerts here'**
+  String get noNotificationsDescription;
 }
 
 class _AppLocalizationsDelegate

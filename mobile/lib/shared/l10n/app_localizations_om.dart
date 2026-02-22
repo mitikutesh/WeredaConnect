@@ -1103,4 +1103,14 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get fraudVelocityExceeded =>
       'Gaaffiin baay\'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi\'ii yaali.';
+
+  @override
+  String get profileSaved => 'Profaayiliin haaromfame';
+
+  @override
+  String get noNotificationsYet => 'Hanga ammaatti beeksisni hin jiru';
+
+  @override
+  String get noNotificationsDescription =>
+      'Akeekkachiisni keessan asitti mul\'ata';
 }

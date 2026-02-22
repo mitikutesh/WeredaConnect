@@ -1075,4 +1075,13 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get fraudVelocityExceeded =>
       'በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።';
+
+  @override
+  String get profileSaved => 'መገለጫ ተዘምኗል';
+
+  @override
+  String get noNotificationsYet => 'እስካሁን ማሳወቂያዎች የሉም';
+
+  @override
+  String get noNotificationsDescription => 'ማስጠንቀቂያዎችዎ እዚህ ይታያሉ';
 }

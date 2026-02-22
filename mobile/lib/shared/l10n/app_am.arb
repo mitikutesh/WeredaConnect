@@ -1482,5 +1482,18 @@
   "fraudVelocityExceeded": "በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።",
   "@fraudVelocityExceeded": {
     "description": "Error when velocity limit exceeded by server fraud check"
+  },
+
+  "profileSaved": "መገለጫ ተዘምኗል",
+  "@profileSaved": {
+    "description": "Snackbar message after profile is saved successfully"
+  },
+  "noNotificationsYet": "እስካሁን ማሳወቂያዎች የሉም",
+  "@noNotificationsYet": {
+    "description": "Empty state title on notifications screen"
+  },
+  "noNotificationsDescription": "ማስጠንቀቂያዎችዎ እዚህ ይታያሉ",
+  "@noNotificationsDescription": {
+    "description": "Empty state subtitle on notifications screen"
   }
 }

@@ -13,6 +13,9 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
   final repo.EscrowRepository _repository;
 
+  /// Exposed for debug mock seeding (matches DeliveryBloc pattern).
+  repo.EscrowRepository get repository => _repository;
+
   EscrowBloc({required repo.EscrowRepository repository})
       : _repository = repository,
         super(const EscrowInitial()) {

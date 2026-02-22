@@ -1482,5 +1482,18 @@
   "fraudVelocityExceeded": "Gaaffiin baay'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi'ii yaali.",
   "@fraudVelocityExceeded": {
     "description": "Error when velocity limit exceeded by server fraud check"
+  },
+
+  "profileSaved": "Profaayiliin haaromfame",
+  "@profileSaved": {
+    "description": "Snackbar message after profile is saved successfully"
+  },
+  "noNotificationsYet": "Hanga ammaatti beeksisni hin jiru",
+  "@noNotificationsYet": {
+    "description": "Empty state title on notifications screen"
+  },
+  "noNotificationsDescription": "Akeekkachiisni keessan asitti mul'ata",
+  "@noNotificationsDescription": {
+    "description": "Empty state subtitle on notifications screen"
   }
 }
