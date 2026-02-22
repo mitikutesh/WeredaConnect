@@ -1,9 +1,13 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -29,6 +33,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final OfflineAuthCache _offlineCache;
+  final Isar? _isar;
   String? _currentPhoneNumber;
   // Temporary storage for registration data (cleared after OTP verification)
   String? _pendingName;
@@ -47,8 +52,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
+    Isar? isar,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
+        _isar = isar,
         super(const AuthInitial()) {
     // Register event handlers
     on<AuthCheckRequested>(_onAuthCheckRequested);
@@ -387,6 +394,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   /// Handle logout.
+  ///
+  /// When [clearCache] is true, also clears user-specific business data
+  /// from the local Isar database (crop listings, deliveries, payments)
+  /// to prevent data leakage on shared devices.
   Future<void> _onAuthLogoutRequested(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
@@ -396,15 +407,58 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (currentState is AuthAuthenticated) {
       emit(const AuthLoading());
 
+      final userId = currentState.userId;
+
       await _authService.logout(
         phoneNumber: _currentPhoneNumber ?? '',
         accessToken: currentState.tokens.accessToken,
         clearCache: event.clearCache,
       );
 
+      if (event.clearCache && _isar != null) {
+        await _clearUserBusinessData(_isar, userId);
+      }
+
       await _clearSession();
 
       emit(const AuthUnauthenticated());
     }
+  }
+
+  /// Delete business data belonging to [userId] from the local cache.
+  ///
+  /// Clears: crop listings, deliveries, payments where user is a participant.
+  /// Keeps other users' data intact for multi-account devices.
+  Future<void> _clearUserBusinessData(Isar isar, String userId) async {
+    await isar.writeTxn(() async {
+      // Delete user's crop listings
+      final listings =
+          await isar.cropListings.filter().farmerIdEqualTo(userId).findAll();
+      await isar.cropListings.deleteAll(listings.map((l) => l.id).toList());
+
+      // Delete deliveries where user is a participant
+      final asFarmer =
+          await isar.deliverys.filter().farmerIdEqualTo(userId).findAll();
+      final asTrucker =
+          await isar.deliverys.filter().truckerIdEqualTo(userId).findAll();
+      final asBuyer =
+          await isar.deliverys.filter().buyerIdEqualTo(userId).findAll();
+      final deliveryIds = <int>{};
+      for (final d in [...asFarmer, ...asTrucker, ...asBuyer]) {
+        deliveryIds.add(d.id);
+      }
+      await isar.deliverys.deleteAll(deliveryIds.toList());
+
+      // Delete payments where user is a participant
+      final farmerPayments =
+          await isar.payments.filter().farmerIdEqualTo(userId).findAll();
+      final buyerPayments =
+          await isar.payments.filter().buyerIdEqualTo(userId).findAll();
+      final paymentIds = <int>{};
+      for (final p in [...farmerPayments, ...buyerPayments]) {
+        paymentIds.add(p.id);
+      }
+      await isar.payments.deleteAll(paymentIds.toList());
+    });
   }
 }

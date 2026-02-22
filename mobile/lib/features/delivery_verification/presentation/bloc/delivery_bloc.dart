@@ -39,7 +39,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     emit(const DeliveryLoading());
 
     try {
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));
@@ -140,7 +143,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         reason: event.reason,
       );
       emit(const DisputeRaised());
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));
@@ -159,7 +165,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
       );
       emit(const DeliveryCancelled());
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
       emit(DeliveryError(message: e.toString()));
@@ -179,9 +188,15 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
           (s) => s.name == event.statusFilter,
           orElse: () => DeliveryStatus.pending,
         );
-        deliveries = await _repository.getDeliveriesByStatus(status);
+        deliveries = await _repository.getDeliveriesByStatus(
+          status,
+          userId: event.userId,
+        );
       } else {
-        deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+        deliveries = await _repository.getDeliveriesByTrip(
+          event.tripId,
+          userId: event.userId,
+        );
       }
       emit(
         DeliveriesLoaded(
@@ -216,7 +231,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   ) async {
     emit(const DeliveryLoading());
     try {
-      final delivery = await _repository.getDeliveryById(event.deliveryId);
+      final delivery = await _repository.getDeliveryById(
+        event.deliveryId,
+        userId: event.userId,
+      );
       if (delivery != null) {
         emit(DeliveryDetailLoaded(delivery: delivery));
       } else {

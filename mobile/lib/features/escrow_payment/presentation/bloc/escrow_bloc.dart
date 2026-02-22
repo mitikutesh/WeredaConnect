@@ -106,6 +106,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
     emit(const EscrowLoading());
     try {
       final payments = await _repository.getHistory(
+        userId: event.userId,
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );
@@ -145,6 +146,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
     // Silent refresh — no loading state
     try {
       final payments = await _repository.refreshHistory(
+        userId: event.userId,
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );
@@ -204,6 +206,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
     emit(const EscrowLoading());
     try {
       final payments = await _repository.getHistory(
+        userId: event.userId,
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );

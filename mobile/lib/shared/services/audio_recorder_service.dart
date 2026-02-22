@@ -5,7 +5,7 @@ import 'package:record/record.dart';
 
 /// Audio recording service for voice notes.
 ///
-/// Records AAC-LC at 32kbps in M4A container, max 60 seconds (~240KB).
+/// Records AAC-LC at 64kbps / 44.1kHz mono in M4A container, max 30s (~240KB).
 /// Modeled on [PhotoManager] for consistency:
 /// - UUID validation before path construction (path traversal prevention)
 /// - App-private storage directory
@@ -18,8 +18,12 @@ class AudioRecorderService {
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
   );
 
-  static const int maxDurationSeconds = 60;
-  static const int audioBitrate = 32000;
+  /// Safe path segment: alphanumeric, hyphens, underscores, dots.
+  /// Prevents path traversal while allowing non-UUID identifiers.
+  static final RegExp _safePathSegment = RegExp(r'^[a-zA-Z0-9_.\-]+$');
+
+  static const int maxDurationSeconds = 30;
+  static const int audioBitrate = 64000;
   static const String _audioDir = 'audio';
 
   AudioRecorderService({AudioRecorder? recorder})
@@ -36,7 +40,7 @@ class AudioRecorderService {
     if (!_uuidRegex.hasMatch(entityId)) {
       return const AudioResult.error('Invalid entity ID format');
     }
-    if (!_uuidRegex.hasMatch(userId)) {
+    if (!_safePathSegment.hasMatch(userId)) {
       return const AudioResult.error('Invalid user ID format');
     }
 
@@ -49,7 +53,7 @@ class AudioRecorderService {
         await _recorder.start(
           const RecordConfig(
             bitRate: audioBitrate,
-            sampleRate: 22050,
+            sampleRate: 44100,
             numChannels: 1,
           ),
           path: filePath,
@@ -110,7 +114,7 @@ class AudioRecorderService {
     required String userId,
     required String entityId,
   }) async {
-    if (!_uuidRegex.hasMatch(entityId) || !_uuidRegex.hasMatch(userId)) {
+    if (!_uuidRegex.hasMatch(entityId) || !_safePathSegment.hasMatch(userId)) {
       return null;
     }
 

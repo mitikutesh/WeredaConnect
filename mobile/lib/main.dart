@@ -154,7 +154,11 @@ class WeredaConnectApp extends StatelessWidget {
       child: MultiBlocProvider(
         providers: [
           BlocProvider<AuthBloc>(
-            create: (_) => AuthBloc()..add(const AuthCheckRequested()),
+            create: (_) => AuthBloc(
+              isar: IsarService.instance.isInitialized
+                  ? IsarService.instance.db
+                  : null,
+            )..add(const AuthCheckRequested()),
           ),
           BlocProvider<OnboardingBloc>(
             create: (_) => OnboardingBloc(),

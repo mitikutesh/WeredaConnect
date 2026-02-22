@@ -1312,9 +1312,17 @@
   "@audioRecorded": {
     "description": "Success message after recording completes"
   },
-  "audioTooLong": "Dheerinni waraabbii guddaan sekoondii 60",
+  "audioTooLong": "Dheerinni waraabbii guddaan sekoondii 30",
   "@audioTooLong": {
     "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingLimit": "Guddaan sekoondii 30",
+  "@audioRecordingLimit": {
+    "description": "Hint text shown below the record button indicating the recording time limit"
+  },
+  "reRecord": "Irra Deebi'ii Waraabi",
+  "@reRecord": {
+    "description": "Button label to re-record a voice note"
   },
   "audioRecordingFailed": "Waraabbiiin hin milkoofne. Maaloo irra deebi'ii yaali.",
   "@audioRecordingFailed": {

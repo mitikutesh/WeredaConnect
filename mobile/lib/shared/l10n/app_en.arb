@@ -1329,9 +1329,17 @@
   "@audioRecorded": {
     "description": "Success message after recording completes"
   },
-  "audioTooLong": "Maximum recording length is 60 seconds",
+  "audioTooLong": "Maximum recording length is 30 seconds",
   "@audioTooLong": {
     "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingLimit": "Maximum 30 seconds",
+  "@audioRecordingLimit": {
+    "description": "Hint text shown below the record button indicating the recording time limit"
+  },
+  "reRecord": "Re-record",
+  "@reRecord": {
+    "description": "Button label to re-record a voice note"
   },
   "audioRecordingFailed": "Recording failed. Please try again.",
   "@audioRecordingFailed": {

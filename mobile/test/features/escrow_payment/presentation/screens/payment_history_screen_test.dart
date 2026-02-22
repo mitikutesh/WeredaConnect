@@ -3,8 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -13,6 +16,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pend
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
+
+class MockAuthBloc extends Mock implements AuthBloc {}
 
 class FakeEscrowEvent extends Fake implements EscrowEvent {}
 
@@ -56,6 +61,7 @@ PaymentIntent _makeIntent({
 
 void main() {
   late MockEscrowBloc escrowBloc;
+  late MockAuthBloc authBloc;
 
   setUpAll(() {
     registerFallbackValue(FakeEscrowEvent());
@@ -64,11 +70,27 @@ void main() {
 
   setUp(() {
     escrowBloc = MockEscrowBloc();
+    authBloc = MockAuthBloc();
+    when(() => authBloc.state).thenReturn(
+      const AuthAuthenticated(
+        userId: 'farmer-001',
+        tokens: AuthTokens(
+          accessToken: 'test-access',
+          refreshToken: 'test-refresh',
+          idToken: 'test-id',
+        ),
+      ),
+    );
+    when(() => authBloc.stream)
+        .thenAnswer((_) => const Stream<AuthState>.empty());
   });
 
   Widget buildScreen() {
-    return BlocProvider<EscrowBloc>.value(
-      value: escrowBloc,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<EscrowBloc>.value(value: escrowBloc),
+        BlocProvider<AuthBloc>.value(value: authBloc),
+      ],
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -175,7 +197,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pump();
 
-      verify(() => escrowBloc.add(const LoadPaymentHistory())).called(1);
+      verify(() =>
+              escrowBloc.add(const LoadPaymentHistory(userId: 'farmer-001')))
+          .called(1);
     });
 
     testWidgets('tapping status filter chip dispatches FilterPaymentHistory',
@@ -195,9 +219,9 @@ void main() {
       final allChips = find.byType(FilterChip);
       expect(allChips, findsWidgets);
 
-      // Count chips — should be role (3) + status (5) = 8
+      // Count chips — status filter: All, Escrowed, Released, Disputed, Refunded = 5
       final chipCount = tester.widgetList(allChips).length;
-      expect(chipCount, 8);
+      expect(chipCount, 5);
     });
   });
 }

@@ -997,7 +997,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String get audioRecorded => 'Yaadannoon sagalee waraabame';
 
   @override
-  String get audioTooLong => 'Dheerinni waraabbii guddaan sekoondii 60';
+  String get audioTooLong => 'Dheerinni waraabbii guddaan sekoondii 30';
+
+  @override
+  String get audioRecordingLimit => 'Guddaan sekoondii 30';
+
+  @override
+  String get reRecord => 'Irra Deebi\'ii Waraabi';
 
   @override
   String get audioRecordingFailed =>

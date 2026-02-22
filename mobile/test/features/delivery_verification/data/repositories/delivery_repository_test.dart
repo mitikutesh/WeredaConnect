@@ -539,7 +539,8 @@ void main() {
         qrToken: 'qr-3',
       );
 
-      final deliveries = await repository.getDeliveriesByTrip('trip-001');
+      final deliveries = await repository.getDeliveriesByTrip('trip-001',
+          userId: 'trucker-001');
       expect(deliveries.length, 2);
       expect(
         deliveries.every((d) => d.tripId == 'trip-001'),
@@ -577,13 +578,14 @@ void main() {
         truckerId: 'trucker-001',
       );
 
-      final pickedUp =
-          await repository.getDeliveriesByStatus(DeliveryStatus.pickedUp);
+      final pickedUp = await repository.getDeliveriesByStatus(
+          DeliveryStatus.pickedUp,
+          userId: 'trucker-001');
       expect(pickedUp.length, 1);
       expect(pickedUp.first.deliveryId, d1.deliveryId);
 
-      final pendingList =
-          await repository.getDeliveriesByStatus(DeliveryStatus.pending);
+      final pendingList = await repository
+          .getDeliveriesByStatus(DeliveryStatus.pending, userId: 'trucker-001');
       expect(pendingList.length, 1);
     });
 
@@ -600,25 +602,27 @@ void main() {
         qrToken: 'qr-token',
       );
 
-      final result = await repository.getDeliveryById(delivery.deliveryId);
+      final result = await repository.getDeliveryById(delivery.deliveryId,
+          userId: 'farmer-001');
       expect(result, isNotNull);
       expect(result!.farmerId, 'farmer-001');
     });
 
     test('getDeliveryById returns null for nonexistent ID', () async {
-      final result = await repository.getDeliveryById('nonexistent-id');
+      final result = await repository.getDeliveryById('nonexistent-id',
+          userId: 'farmer-001');
       expect(result, isNull);
     });
 
     test('getDeliveriesByTrip returns empty list for unknown trip', () async {
-      final deliveries =
-          await repository.getDeliveriesByTrip('nonexistent-trip');
+      final deliveries = await repository
+          .getDeliveriesByTrip('nonexistent-trip', userId: 'farmer-001');
       expect(deliveries, isEmpty);
     });
 
     test('getDeliveriesByStatus returns empty when no matches', () async {
-      final deliveries =
-          await repository.getDeliveriesByStatus(DeliveryStatus.disputed);
+      final deliveries = await repository
+          .getDeliveriesByStatus(DeliveryStatus.disputed, userId: 'farmer-001');
       expect(deliveries, isEmpty);
     });
 

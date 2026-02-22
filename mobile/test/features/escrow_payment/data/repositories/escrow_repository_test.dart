@@ -485,7 +485,7 @@ void main() {
           deliveryId: 'del-002',
         );
 
-        final payments = await repository.getHistory();
+        final payments = await repository.getHistory(userId: 'farmer-001');
         expect(payments.length, 2);
       });
 
@@ -500,13 +500,14 @@ void main() {
           status: PaymentStatus.completed,
         );
 
-        final payments = await repository.getHistory(statusFilter: 'escrowed');
+        final payments = await repository.getHistory(
+            userId: 'farmer-001', statusFilter: 'escrowed');
         expect(payments.length, 1);
         expect(payments.first.paymentId, 'esc-001');
       });
 
       test('returns empty list when no payments', () async {
-        final payments = await repository.getHistory();
+        final payments = await repository.getHistory(userId: 'farmer-001');
         expect(payments, isEmpty);
       });
     });

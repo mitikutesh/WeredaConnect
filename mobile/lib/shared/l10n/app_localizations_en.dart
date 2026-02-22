@@ -990,7 +990,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get audioRecorded => 'Voice note recorded';
 
   @override
-  String get audioTooLong => 'Maximum recording length is 60 seconds';
+  String get audioTooLong => 'Maximum recording length is 30 seconds';
+
+  @override
+  String get audioRecordingLimit => 'Maximum 30 seconds';
+
+  @override
+  String get reRecord => 'Re-record';
 
   @override
   String get audioRecordingFailed => 'Recording failed. Please try again.';

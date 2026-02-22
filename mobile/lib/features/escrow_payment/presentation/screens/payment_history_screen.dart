@@ -36,7 +36,10 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<EscrowBloc>().add(const LoadPaymentHistory());
+    final userId = _getUserId();
+    if (userId != null) {
+      context.read<EscrowBloc>().add(LoadPaymentHistory(userId: userId));
+    }
   }
 
   String? _getUserId() {
@@ -103,11 +106,15 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               SnackBar(content: Text(l10n.escrowIntentCancelled)),
             );
             // Reload history after cancellation
-            context.read<EscrowBloc>().add(
-                  LoadPaymentHistory(
-                    statusFilter: _statusFilter,
-                  ),
-                );
+            final userId = _getUserId();
+            if (userId != null) {
+              context.read<EscrowBloc>().add(
+                    LoadPaymentHistory(
+                      userId: userId,
+                      statusFilter: _statusFilter,
+                    ),
+                  );
+            }
           }
         },
         child: Column(
@@ -211,8 +218,11 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   }
 
   void _dispatchFilter() {
+    final userId = _getUserId();
+    if (userId == null) return;
     context.read<EscrowBloc>().add(
           FilterPaymentHistory(
+            userId: userId,
             statusFilter: _statusFilter,
           ),
         );
@@ -266,11 +276,15 @@ class _HistoryContent extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: () async {
-        context.read<EscrowBloc>().add(
-              RefreshPaymentHistory(
-                statusFilter: statusFilter,
-              ),
-            );
+        final authState = context.read<AuthBloc>().state;
+        if (authState is AuthAuthenticated) {
+          context.read<EscrowBloc>().add(
+                RefreshPaymentHistory(
+                  userId: authState.userId,
+                  statusFilter: statusFilter,
+                ),
+              );
+        }
       },
       child: ListView(
         children: [

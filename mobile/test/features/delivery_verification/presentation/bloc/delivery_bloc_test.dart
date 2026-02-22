@@ -63,7 +63,7 @@ void main() {
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
 
-      bloc.add(const LoadDeliveries(tripId: 'trip-001'));
+      bloc.add(const LoadDeliveries(tripId: 'trip-001', userId: 'trucker-001'));
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       expect(states.length, 2);
@@ -327,6 +327,7 @@ void main() {
       bloc.add(
         const FilterDeliveries(
           tripId: 'trip-001',
+          userId: 'trucker-001',
           statusFilter: 'pickedUp',
         ),
       );
@@ -373,7 +374,7 @@ void main() {
       final subscription = bloc.stream.listen(states.add);
 
       bloc.add(
-        const FilterDeliveries(tripId: 'trip-001'),
+        const FilterDeliveries(tripId: 'trip-001', userId: 'trucker-001'),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
@@ -392,7 +393,8 @@ void main() {
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
 
-      bloc.add(const LoadDeliveries(tripId: 'nonexistent-trip'));
+      bloc.add(const LoadDeliveries(
+          tripId: 'nonexistent-trip', userId: 'trucker-001'));
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       expect(states.length, 2);
@@ -426,7 +428,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       // Now load deliveries
-      bloc.add(const LoadDeliveries(tripId: 'trip-001'));
+      bloc.add(const LoadDeliveries(tripId: 'trip-001', userId: 'trucker-001'));
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       // Should have: Loading, Created, Loading, Loaded(1 delivery)

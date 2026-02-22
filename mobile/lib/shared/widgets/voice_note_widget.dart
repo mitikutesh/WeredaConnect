@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -13,8 +12,8 @@ import 'package:wereda_connect/shared/services/audio_recorder_service.dart';
 /// States:
 /// 1. **Empty** — shows record button (mic icon)
 /// 2. **Recording** — stop button + elapsed timer + animated red dot
-/// 3. **Recorded/Has file** — play/pause + duration + delete
-/// 4. **Playing** — pause button + progress indicator
+/// 3. **Recorded/Has file** — play/pause + duration + delete + re-record
+/// 4. **Playing** — pause button + progress indicator + re-record
 class VoiceNoteWidget extends StatefulWidget {
   /// Path to existing audio file (null if no recording yet).
   final String? audioFilePath;
@@ -31,12 +30,20 @@ class VoiceNoteWidget extends StatefulWidget {
   /// Called when a recording is deleted.
   final VoidCallback onDeleted;
 
+  /// Injectable recorder service (for testing).
+  final AudioRecorderService? recorderService;
+
+  /// Injectable player service (for testing).
+  final AudioPlayerService? playerService;
+
   const VoiceNoteWidget({
     required this.userId,
     required this.entityId,
     required this.onRecorded,
     required this.onDeleted,
     this.audioFilePath,
+    this.recorderService,
+    this.playerService,
     super.key,
   });
 
@@ -46,23 +53,36 @@ class VoiceNoteWidget extends StatefulWidget {
 
 enum _VoiceNoteState { empty, recording, recorded, playing }
 
-class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
-  final AudioRecorderService _recorderService = AudioRecorderService();
-  final AudioPlayerService _playerService = AudioPlayerService();
+class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
+    with SingleTickerProviderStateMixin {
+  late final AudioRecorderService _recorderService;
+  late final AudioPlayerService _playerService;
 
   _VoiceNoteState _state = _VoiceNoteState.empty;
   int _recordingSeconds = 0;
+  int _recordedDuration = 0;
   Timer? _recordingTimer;
   Duration _playbackPosition = Duration.zero;
   Duration _playbackDuration = Duration.zero;
 
-  StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<bool>? _completedSub;
   StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<Duration?>? _durationSub;
+
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
+    _recorderService = widget.recorderService ?? AudioRecorderService();
+    _playerService = widget.playerService ?? AudioPlayerService();
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+      lowerBound: 0.3,
+    );
+
     if (widget.audioFilePath != null &&
         File(widget.audioFilePath!).existsSync()) {
       _state = _VoiceNoteState.recorded;
@@ -71,14 +91,12 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
   }
 
   void _setupPlayerListeners() {
-    _playerStateSub = _playerService.onPlayerStateChanged.listen((state) {
-      if (!mounted) return;
-      if (state == PlayerState.completed) {
-        setState(() {
-          _state = _VoiceNoteState.recorded;
-          _playbackPosition = Duration.zero;
-        });
-      }
+    _completedSub = _playerService.onCompleted.listen((completed) {
+      if (!mounted || !completed) return;
+      setState(() {
+        _state = _VoiceNoteState.recorded;
+        _playbackPosition = Duration.zero;
+      });
     });
     _positionSub = _playerService.onPositionChanged.listen((position) {
       if (!mounted) return;
@@ -87,7 +105,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
       });
     });
     _durationSub = _playerService.onDurationChanged.listen((duration) {
-      if (!mounted) return;
+      if (!mounted || duration == null) return;
       setState(() {
         _playbackDuration = duration;
       });
@@ -110,12 +128,22 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
   @override
   void dispose() {
     _recordingTimer?.cancel();
-    _playerStateSub?.cancel();
+    _pulseController.dispose();
+    _completedSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();
     _recorderService.dispose();
     _playerService.dispose();
     super.dispose();
+  }
+
+  /// Display duration: prefer playback duration (more accurate from codec),
+  /// fall back to recorded timer value.
+  int get _displayDuration {
+    if (_playbackDuration > Duration.zero) {
+      return _playbackDuration.inSeconds;
+    }
+    return _recordedDuration;
   }
 
   Future<void> _startRecording() async {
@@ -142,6 +170,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
       _recordingSeconds = 0;
     });
 
+    _pulseController.repeat(reverse: true);
+
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -152,6 +182,11 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
       });
       if (_recordingSeconds >= AudioRecorderService.maxDurationSeconds) {
         _stopRecording();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.audioTooLong)),
+          );
+        }
       }
     });
   }
@@ -159,6 +194,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
   Future<void> _stopRecording() async {
     _recordingTimer?.cancel();
     _recordingTimer = null;
+    _pulseController.stop();
+    _pulseController.value = _pulseController.lowerBound;
 
     final result = await _recorderService.stopRecording();
 
@@ -166,6 +203,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
 
     if (result.success && result.localPath != null) {
       setState(() {
+        _recordedDuration = _recordingSeconds;
         _state = _VoiceNoteState.recorded;
       });
       widget.onRecorded(result.localPath!);
@@ -195,6 +233,21 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
     setState(() {
       _state = _VoiceNoteState.recorded;
     });
+  }
+
+  Future<void> _reRecord() async {
+    await _playerService.stop();
+    if (widget.audioFilePath != null) {
+      await _recorderService.deleteLocalAudio(widget.audioFilePath!);
+    }
+    if (!mounted) return;
+    setState(() {
+      _playbackPosition = Duration.zero;
+      _playbackDuration = Duration.zero;
+      _recordedDuration = 0;
+    });
+    widget.onDeleted();
+    await _startRecording();
   }
 
   Future<void> _deleteRecording() async {
@@ -229,6 +282,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
       _state = _VoiceNoteState.empty;
       _playbackPosition = Duration.zero;
       _playbackDuration = Duration.zero;
+      _recordedDuration = 0;
     });
     widget.onDeleted();
   }
@@ -245,14 +299,28 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
 
   Widget _buildEmptyState() {
     final l10n = AppLocalizations.of(context)!;
-    return OutlinedButton.icon(
-      onPressed: _startRecording,
-      icon: const Icon(Icons.mic),
-      label: Text(l10n.recordAudioNote),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        minimumSize: const Size.fromHeight(48),
-      ),
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: _startRecording,
+          icon: const Icon(Icons.mic),
+          label: Text(l10n.recordAudioNote),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            minimumSize: const Size.fromHeight(48),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          l10n.audioRecordingLimit,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 
@@ -270,24 +338,17 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
       child: Row(
         children: [
           // Animated red dot
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.3, end: 1.0),
-            duration: const Duration(milliseconds: 800),
-            builder: (context, value, child) {
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
               return Container(
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: value),
+                  color: Colors.red.withValues(alpha: _pulseController.value),
                   shape: BoxShape.circle,
                 ),
               );
-            },
-            onEnd: () {
-              // Restart animation for pulsing effect
-              if (mounted && _state == _VoiceNoteState.recording) {
-                setState(() {});
-              }
             },
           ),
           const SizedBox(width: 12),
@@ -351,7 +412,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
             ),
           ),
           const SizedBox(width: 12),
-          // Voice note label
+          // Voice note label + duration
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -362,15 +423,23 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (_playbackDuration > Duration.zero)
+                if (_displayDuration > 0)
                   Text(
-                    l10n.secondsAbbreviation(_playbackDuration.inSeconds),
+                    l10n.secondsAbbreviation(_displayDuration),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
               ],
             ),
+          ),
+          // Re-record button
+          IconButton(
+            onPressed: _reRecord,
+            icon: const Icon(Icons.mic),
+            iconSize: 20,
+            tooltip: l10n.reRecord,
+            color: theme.colorScheme.primary,
           ),
           // Delete button
           IconButton(
@@ -434,6 +503,14 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> {
               ],
             ),
           ),
+          // Re-record button
+          IconButton(
+            onPressed: _reRecord,
+            icon: const Icon(Icons.mic),
+            iconSize: 20,
+            tooltip: l10n.reRecord,
+            color: theme.colorScheme.primary,
+          ),
           // Delete button
           IconButton(
             onPressed: _deleteRecording,
@@ -469,37 +546,33 @@ class _VoiceNotePlaybackWidgetState extends State<VoiceNotePlaybackWidget> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
-  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<bool>? _completedSub;
   StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration>? _durSub;
+  StreamSubscription<Duration?>? _durSub;
 
   @override
   void initState() {
     super.initState();
-    _stateSub = _playerService.onPlayerStateChanged.listen((state) {
-      if (!mounted) return;
+    _completedSub = _playerService.onCompleted.listen((completed) {
+      if (!mounted || !completed) return;
       setState(() {
-        _isPlaying = state == PlayerState.playing;
+        _isPlaying = false;
+        _position = Duration.zero;
       });
-      if (state == PlayerState.completed) {
-        setState(() {
-          _position = Duration.zero;
-        });
-      }
     });
     _posSub = _playerService.onPositionChanged.listen((pos) {
       if (!mounted) return;
       setState(() => _position = pos);
     });
     _durSub = _playerService.onDurationChanged.listen((dur) {
-      if (!mounted) return;
+      if (!mounted || dur == null) return;
       setState(() => _duration = dur);
     });
   }
 
   @override
   void dispose() {
-    _stateSub?.cancel();
+    _completedSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
     _playerService.dispose();
@@ -509,8 +582,12 @@ class _VoiceNotePlaybackWidgetState extends State<VoiceNotePlaybackWidget> {
   Future<void> _toggle() async {
     if (_isPlaying) {
       await _playerService.stop();
+      if (!mounted) return;
+      setState(() => _isPlaying = false);
     } else {
       await _playerService.play(widget.audioFilePath);
+      if (!mounted) return;
+      setState(() => _isPlaying = true);
     }
   }
 

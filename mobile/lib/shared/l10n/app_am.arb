@@ -1312,9 +1312,17 @@
   "@audioRecorded": {
     "description": "Success message after recording completes"
   },
-  "audioTooLong": "ከፍተኛ የቅዳት ጊዜ 60 ሰከንድ ነው",
+  "audioTooLong": "ከፍተኛ የቅዳት ጊዜ 30 ሰከንድ ነው",
   "@audioTooLong": {
     "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingLimit": "ከፍተኛ 30 ሰከንድ",
+  "@audioRecordingLimit": {
+    "description": "Hint text shown below the record button indicating the recording time limit"
+  },
+  "reRecord": "እንደገና ቅዳ",
+  "@reRecord": {
+    "description": "Button label to re-record a voice note"
   },
   "audioRecordingFailed": "ቅዳት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
   "@audioRecordingFailed": {

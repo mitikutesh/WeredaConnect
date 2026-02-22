@@ -1975,8 +1975,20 @@ abstract class AppLocalizations {
   /// Warning when recording reaches max duration
   ///
   /// In en, this message translates to:
-  /// **'Maximum recording length is 60 seconds'**
+  /// **'Maximum recording length is 30 seconds'**
   String get audioTooLong;
+
+  /// Hint text shown below the record button indicating the recording time limit
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum 30 seconds'**
+  String get audioRecordingLimit;
+
+  /// Button label to re-record a voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Re-record'**
+  String get reRecord;
 
   /// Error message when recording fails
   ///

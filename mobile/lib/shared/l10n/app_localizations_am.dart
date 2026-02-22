@@ -970,7 +970,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String get audioRecorded => 'የድምጽ ማስታወሻ ተቀድቷል';
 
   @override
-  String get audioTooLong => 'ከፍተኛ የቅዳት ጊዜ 60 ሰከንድ ነው';
+  String get audioTooLong => 'ከፍተኛ የቅዳት ጊዜ 30 ሰከንድ ነው';
+
+  @override
+  String get audioRecordingLimit => 'ከፍተኛ 30 ሰከንድ';
+
+  @override
+  String get reRecord => 'እንደገና ቅዳ';
 
   @override
   String get audioRecordingFailed => 'ቅዳት አልተሳካም። እባክዎ እንደገና ይሞክሩ።';

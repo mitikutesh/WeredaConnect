@@ -226,12 +226,17 @@ class EscrowRepository {
     return _isar.payments.filter().deliveryIdEqualTo(deliveryId).findFirst();
   }
 
-  /// Get payment history from local cache.
+  /// Get payment history from local cache, scoped by userId.
+  ///
+  /// Returns only payments where [userId] is the farmer or buyer.
   Future<List<Payment>> getHistory({
+    required String userId,
     String? statusFilter,
     String? roleFilter,
   }) async {
-    var query = _isar.payments.filter().paymentIdIsNotEmpty();
+    var query = _isar.payments.filter().paymentIdIsNotEmpty().group(
+          (q) => q.farmerIdEqualTo(userId).or().buyerIdEqualTo(userId),
+        );
 
     if (statusFilter != null) {
       final status = PaymentStatus.values.firstWhere(
@@ -269,6 +274,7 @@ class EscrowRepository {
 
   /// Refresh payment history from server. Updates local cache.
   Future<List<Payment>> refreshHistory({
+    required String userId,
     String? statusFilter,
     String? roleFilter,
     int limit = 20,
@@ -276,7 +282,11 @@ class EscrowRepository {
   }) async {
     final isOnline = await _connectivityMonitor.isConnected();
     if (!isOnline) {
-      return getHistory(statusFilter: statusFilter, roleFilter: roleFilter);
+      return getHistory(
+        userId: userId,
+        statusFilter: statusFilter,
+        roleFilter: roleFilter,
+      );
     }
 
     try {
@@ -310,7 +320,11 @@ class EscrowRepository {
       return payments;
     } on ApiException {
       // Fall back to cache on refresh failure
-      return getHistory(statusFilter: statusFilter, roleFilter: roleFilter);
+      return getHistory(
+        userId: userId,
+        statusFilter: statusFilter,
+        roleFilter: roleFilter,
+      );
     }
   }
 

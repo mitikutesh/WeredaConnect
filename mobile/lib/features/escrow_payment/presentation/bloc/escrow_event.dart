@@ -49,13 +49,18 @@ class LoadEscrowByDelivery extends EscrowEvent {
 
 /// Load user's payment history.
 class LoadPaymentHistory extends EscrowEvent {
+  final String userId;
   final String? statusFilter;
   final String? roleFilter;
 
-  const LoadPaymentHistory({this.statusFilter, this.roleFilter});
+  const LoadPaymentHistory({
+    required this.userId,
+    this.statusFilter,
+    this.roleFilter,
+  });
 
   @override
-  List<Object?> get props => [statusFilter, roleFilter];
+  List<Object?> get props => [userId, statusFilter, roleFilter];
 }
 
 /// Refresh single escrow from server.
@@ -70,13 +75,18 @@ class RefreshEscrow extends EscrowEvent {
 
 /// Refresh payment history from server (pull-to-refresh).
 class RefreshPaymentHistory extends EscrowEvent {
+  final String userId;
   final String? statusFilter;
   final String? roleFilter;
 
-  const RefreshPaymentHistory({this.statusFilter, this.roleFilter});
+  const RefreshPaymentHistory({
+    required this.userId,
+    this.statusFilter,
+    this.roleFilter,
+  });
 
   @override
-  List<Object?> get props => [statusFilter, roleFilter];
+  List<Object?> get props => [userId, statusFilter, roleFilter];
 }
 
 /// Buyer or farmer raises a dispute on an escrowed payment.
@@ -112,13 +122,18 @@ class CancelPaymentIntent extends EscrowEvent {
 
 /// Filter payment history by status/role.
 class FilterPaymentHistory extends EscrowEvent {
+  final String userId;
   final String? statusFilter;
   final String? roleFilter;
 
-  const FilterPaymentHistory({this.statusFilter, this.roleFilter});
+  const FilterPaymentHistory({
+    required this.userId,
+    this.statusFilter,
+    this.roleFilter,
+  });
 
   @override
-  List<Object?> get props => [statusFilter, roleFilter];
+  List<Object?> get props => [userId, statusFilter, roleFilter];
 }
 
 /// Load pending (queued) payment intents.

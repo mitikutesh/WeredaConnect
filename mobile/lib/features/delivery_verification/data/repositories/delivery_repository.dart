@@ -505,27 +505,64 @@ class DeliveryRepository {
     );
   }
 
-  /// Get all deliveries for a specific trip.
-  Future<List<Delivery>> getDeliveriesByTrip(String tripId) async {
+  /// Get all deliveries for a specific trip, scoped to a user.
+  Future<List<Delivery>> getDeliveriesByTrip(
+    String tripId, {
+    required String userId,
+  }) async {
     return _isar.deliverys
         .filter()
         .tripIdEqualTo(tripId)
+        .group(
+          (q) => q
+              .farmerIdEqualTo(userId)
+              .or()
+              .truckerIdEqualTo(userId)
+              .or()
+              .buyerIdEqualTo(userId),
+        )
         .sortByCreatedAtDesc()
         .findAll();
   }
 
-  /// Get deliveries filtered by status.
-  Future<List<Delivery>> getDeliveriesByStatus(DeliveryStatus status) async {
+  /// Get deliveries filtered by status, scoped to a user.
+  Future<List<Delivery>> getDeliveriesByStatus(
+    DeliveryStatus status, {
+    required String userId,
+  }) async {
     return _isar.deliverys
         .filter()
         .statusEqualTo(status)
+        .group(
+          (q) => q
+              .farmerIdEqualTo(userId)
+              .or()
+              .truckerIdEqualTo(userId)
+              .or()
+              .buyerIdEqualTo(userId),
+        )
         .sortByCreatedAtDesc()
         .findAll();
   }
 
-  /// Get a single delivery by its ID.
-  Future<Delivery?> getDeliveryById(String deliveryId) async {
-    return _isar.deliverys.filter().deliveryIdEqualTo(deliveryId).findFirst();
+  /// Get a single delivery by its ID, verifying user is a participant.
+  ///
+  /// Returns null if the delivery doesn't exist or user is not a participant.
+  Future<Delivery?> getDeliveryById(
+    String deliveryId, {
+    required String userId,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+    if (delivery == null) return null;
+    if (delivery.farmerId != userId &&
+        delivery.truckerId != userId &&
+        delivery.buyerId != userId) {
+      return null;
+    }
+    return delivery;
   }
 
   /// Get all deliveries where the user is a participant.
