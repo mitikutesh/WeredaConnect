@@ -456,7 +456,8 @@ class EscrowRepository {
       ..farmerId = response.farmerId
       ..amount = response.amount
       ..commission = response.commission
-      ..commissionRate = 0.025 // Server doesn't return rate in initiate
+      ..commissionRate =
+          response.amount > 0 ? response.commission / response.amount : 0.025
       ..farmerPayout = response.farmerPayout
       ..telebirrRef = response.telebirrRef
       ..status = PaymentStatus.values.byName(response.status)
@@ -508,7 +509,8 @@ class EscrowRepository {
       ..farmerId = '' // Not available in summary
       ..amount = summary.amount
       ..commission = summary.commission
-      ..commissionRate = 0.025
+      ..commissionRate =
+          summary.amount > 0 ? summary.commission / summary.amount : 0.025
       ..farmerPayout = summary.amount - summary.commission
       ..status = PaymentStatus.values.byName(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)

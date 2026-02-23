@@ -217,6 +217,14 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "status",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "cropType",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -234,6 +242,47 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             ],
             "Projection": {
               "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "FarmerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "NonKeyAttributes": [
+                "cropType",
+                "pricePerKg",
+                "deletedAt",
+              ],
+              "ProjectionType": "INCLUDE",
+            },
+          },
+          {
+            "IndexName": "CropTypeCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "cropType",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "NonKeyAttributes": [
+                "pricePerKg",
+                "deletedAt",
+              ],
+              "ProjectionType": "INCLUDE",
             },
           },
         ],

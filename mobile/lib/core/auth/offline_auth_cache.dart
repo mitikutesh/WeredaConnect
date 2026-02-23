@@ -42,10 +42,8 @@ class OfflineAuthCache {
   static const _maxFailedAttempts = 5;
   static const _lockoutDuration = Duration(minutes: 15);
 
-  // In-memory tracking of failed attempts
-  // NOTE: This is intentionally in-memory to reset on app restart
-  // For persistent tracking across restarts, store in Isar User schema
-  final Map<String, List<DateTime>> _failedAttempts = {};
+  // Rate limit storage key prefix
+  static const _rateLimitKeyPrefix = 'rate_limit_';
 
   /// Cache user credentials for offline authentication.
   ///
@@ -121,8 +119,8 @@ class OfflineAuthCache {
   Future<bool> verifyPassword(String phoneNumber, String password) async {
     try {
       // SECURITY: Check rate limit BEFORE password verification
-      if (_isRateLimited(phoneNumber)) {
-        final lockoutRemaining = _getLockoutRemainingTime(phoneNumber);
+      if (await _isRateLimited(phoneNumber)) {
+        final lockoutRemaining = await _getLockoutRemainingTime(phoneNumber);
         throw RateLimitException(
           'Too many failed login attempts. Try again in ${lockoutRemaining.inMinutes} minutes.',
           lockoutRemaining,
@@ -149,10 +147,10 @@ class OfflineAuthCache {
 
       // Track failed attempts
       if (!isValid) {
-        _recordFailedAttempt(phoneNumber);
+        await _recordFailedAttempt(phoneNumber);
       } else {
         // Clear failed attempts on successful login
-        _clearFailedAttempts(phoneNumber);
+        await _clearFailedAttempts(phoneNumber);
       }
 
       return isValid;
@@ -325,34 +323,74 @@ class OfflineAuthCache {
     return result == 0;
   }
 
+  /// Read persisted failed attempt timestamps from secure storage.
+  Future<List<DateTime>> _readAttempts(String phoneNumber) async {
+    final key = '$_rateLimitKeyPrefix$phoneNumber';
+    final raw = await _secureStorage.read(key: key);
+    if (raw == null || raw.isEmpty) return [];
+
+    try {
+      final list = (jsonDecode(raw) as List<dynamic>).cast<String>();
+      return list.map(DateTime.parse).toList();
+    } on FormatException {
+      // Corrupt data — clear and return empty
+      await _secureStorage.delete(key: key);
+      return [];
+    }
+  }
+
+  /// Write failed attempt timestamps to secure storage.
+  Future<void> _writeAttempts(
+    String phoneNumber,
+    List<DateTime> attempts,
+  ) async {
+    final key = '$_rateLimitKeyPrefix$phoneNumber';
+    if (attempts.isEmpty) {
+      await _secureStorage.delete(key: key);
+      return;
+    }
+    final encoded =
+        jsonEncode(attempts.map((t) => t.toIso8601String()).toList());
+    await _secureStorage.write(key: key, value: encoded);
+  }
+
   /// Check if user is rate limited due to too many failed attempts.
-  bool _isRateLimited(String phoneNumber) {
-    final attempts = _failedAttempts[phoneNumber] ?? [];
+  ///
+  /// Persisted to secure storage so rate limits survive app restarts.
+  Future<bool> _isRateLimited(String phoneNumber) async {
+    final attempts = await _readAttempts(phoneNumber);
     final recentAttempts = attempts
         .where(
           (time) => DateTime.now().difference(time) < _lockoutDuration,
         )
         .toList();
 
-    // Update the list to only include recent attempts
+    // Prune expired attempts
     if (recentAttempts.length < attempts.length) {
-      _failedAttempts[phoneNumber] = recentAttempts;
+      await _writeAttempts(phoneNumber, recentAttempts);
     }
 
     return recentAttempts.length >= _maxFailedAttempts;
   }
 
   /// Get remaining lockout duration for rate-limited user.
-  Duration _getLockoutRemainingTime(String phoneNumber) {
-    final attempts = _failedAttempts[phoneNumber] ?? [];
+  Future<Duration> _getLockoutRemainingTime(String phoneNumber) async {
+    final attempts = await _readAttempts(phoneNumber);
     if (attempts.isEmpty) {
       return Duration.zero;
     }
 
     // Find the oldest attempt within lockout window
-    final oldestAttempt = attempts
-        .where((time) => DateTime.now().difference(time) < _lockoutDuration)
-        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final recentAttempts = attempts
+        .where((time) => DateTime.now().difference(time) < _lockoutDuration);
+
+    if (recentAttempts.isEmpty) {
+      return Duration.zero;
+    }
+
+    final oldestAttempt = recentAttempts.reduce(
+      (a, b) => a.isBefore(b) ? a : b,
+    );
 
     final lockoutEnd = oldestAttempt.add(_lockoutDuration);
     final remaining = lockoutEnd.difference(DateTime.now());
@@ -361,21 +399,18 @@ class OfflineAuthCache {
   }
 
   /// Record a failed login attempt for rate limiting.
-  void _recordFailedAttempt(String phoneNumber) {
-    final attempts = _failedAttempts[phoneNumber] ?? [];
-    attempts.add(DateTime.now());
-    _failedAttempts[phoneNumber] = attempts;
-
-    // Log for security monitoring
-    // TODO: Send to analytics/monitoring service in production
-    // ignore: avoid_print
-    print('[SECURITY] Failed login attempt for $phoneNumber. '
-        'Total recent attempts: ${attempts.length}');
+  ///
+  /// Persisted to secure storage so brute-force protection
+  /// survives app restarts on shared devices.
+  Future<void> _recordFailedAttempt(String phoneNumber) async {
+    final attempts = await _readAttempts(phoneNumber);
+    attempts.add(DateTime.now().toUtc());
+    await _writeAttempts(phoneNumber, attempts);
   }
 
   /// Clear failed login attempts after successful authentication.
-  void _clearFailedAttempts(String phoneNumber) {
-    _failedAttempts.remove(phoneNumber);
+  Future<void> _clearFailedAttempts(String phoneNumber) async {
+    await _secureStorage.delete(key: '$_rateLimitKeyPrefix$phoneNumber');
   }
 
   // Secure storage key helpers

@@ -221,7 +221,9 @@ class EscrowSyncService {
           ..farmerId = response.farmerId
           ..amount = response.amount
           ..commission = response.commission
-          ..commissionRate = 0.025
+          ..commissionRate = response.amount > 0
+              ? response.commission / response.amount
+              : 0.025
           ..farmerPayout = response.farmerPayout
           ..telebirrRef = response.telebirrRef
           ..status = PaymentStatus.values.byName(response.status)
