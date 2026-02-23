@@ -1164,4 +1164,25 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryCreatedSuccess => 'ማድረስ በተሳካ ሁኔታ ተፈጥሯል';
+
+  @override
+  String get farmerContactInfo => 'የገበሬ መረጃ';
+
+  @override
+  String get copiedToClipboard => 'ተቀድቷል';
+
+  @override
+  String get forgotPasswordContactSupport =>
+      'የይለፍ ቃልዎን ለማስቀየር እባክዎ በ +251-111-234567 ድጋፍን ያግኙ።';
+
+  @override
+  String resendOtpIn(int seconds) {
+    return 'በ$seconds ሰከንድ ውስጥ እንደገና ላክ';
+  }
+
+  @override
+  String get otpResent => 'ኦቲፒ በተሳካ ሁኔታ ተልኳል';
+
+  @override
+  String get ok => 'እሺ';
 }

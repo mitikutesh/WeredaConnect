@@ -163,6 +163,7 @@ class CropListingRepository {
         .findFirst();
 
     if (listing == null) return;
+    if (listing.farmerId != farmerId) return;
 
     final now = DateTime.now().toUtc();
 

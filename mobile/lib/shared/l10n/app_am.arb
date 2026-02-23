@@ -1554,5 +1554,34 @@
   "tripSelectionRequired": "እባክዎ ጉዞ ይምረጡ",
   "chooseTripHint": "ጉዞ ይምረጡ",
   "noOpenTrips": "ክፍት ጉዞ የለም። መጀመሪያ ጉዞ ይፍጠሩ።",
-  "deliveryCreatedSuccess": "ማድረስ በተሳካ ሁኔታ ተፈጥሯል"
+  "deliveryCreatedSuccess": "ማድረስ በተሳካ ሁኔታ ተፈጥሯል",
+  "farmerContactInfo": "የገበሬ መረጃ",
+  "@farmerContactInfo": {
+    "description": "Title for farmer contact info bottom sheet"
+  },
+  "copiedToClipboard": "ተቀድቷል",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying text to clipboard"
+  },
+  "forgotPasswordContactSupport": "የይለፍ ቃልዎን ለማስቀየር እባክዎ በ +251-111-234567 ድጋፍን ያግኙ።",
+  "@forgotPasswordContactSupport": {
+    "description": "Message shown in forgot password dialog with support contact info"
+  },
+  "resendOtpIn": "በ{seconds} ሰከንድ ውስጥ እንደገና ላክ",
+  "@resendOtpIn": {
+    "description": "Countdown text for OTP resend button",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpResent": "ኦቲፒ በተሳካ ሁኔታ ተልኳል",
+  "@otpResent": {
+    "description": "Snackbar message after OTP is resent"
+  },
+  "ok": "እሺ",
+  "@ok": {
+    "description": "Generic OK button label"
+  }
 }

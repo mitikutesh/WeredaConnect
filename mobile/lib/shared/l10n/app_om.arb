@@ -1554,5 +1554,34 @@
   "tripSelectionRequired": "Maaloo imala filadhaa",
   "chooseTripHint": "Imala filadhaa",
   "noOpenTrips": "Imalii banaa hin jiru. Dursa imala uumaa.",
-  "deliveryCreatedSuccess": "Ergaan milkaa'inaan uumame"
+  "deliveryCreatedSuccess": "Ergaan milkaa'inaan uumame",
+  "farmerContactInfo": "Odeeffannoo Qonnaan Bulaa",
+  "@farmerContactInfo": {
+    "description": "Title for farmer contact info bottom sheet"
+  },
+  "copiedToClipboard": "Garagalchamee",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying text to clipboard"
+  },
+  "forgotPasswordContactSupport": "Jecha darbii keessan haaromsuuf gargaarsa +251-111-234567 irratti quunnamaa.",
+  "@forgotPasswordContactSupport": {
+    "description": "Message shown in forgot password dialog with support contact info"
+  },
+  "resendOtpIn": "Sekondii {seconds} keessatti irra deebi'ii ergi",
+  "@resendOtpIn": {
+    "description": "Countdown text for OTP resend button",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpResent": "OTP milkaa'inaan ergameera",
+  "@otpResent": {
+    "description": "Snackbar message after OTP is resent"
+  },
+  "ok": "Tole",
+  "@ok": {
+    "description": "Generic OK button label"
+  }
 }

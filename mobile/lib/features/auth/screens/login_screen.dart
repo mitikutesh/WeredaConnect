@@ -217,9 +217,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            // TODO: Implement forgot password
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(l10n.comingSoon)),
+                            showDialog<void>(
+                              context: context,
+                              builder: (context) {
+                                final l10n = AppLocalizations.of(context)!;
+                                return AlertDialog(
+                                  title: Text(l10n.forgotPassword),
+                                  content: Text(
+                                    l10n.forgotPasswordContactSupport,
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: Text(l10n.ok),
+                                    ),
+                                  ],
+                                );
+                              },
                             );
                           },
                           child: Text(l10n.forgotPassword),

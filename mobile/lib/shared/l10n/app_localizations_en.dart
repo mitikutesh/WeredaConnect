@@ -1184,4 +1184,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryCreatedSuccess => 'Delivery created successfully';
+
+  @override
+  String get farmerContactInfo => 'Farmer Contact';
+
+  @override
+  String get copiedToClipboard => 'Copied to clipboard';
+
+  @override
+  String get forgotPasswordContactSupport =>
+      'Please contact support at +251-111-234567 to reset your password.';
+
+  @override
+  String resendOtpIn(int seconds) {
+    return 'Resend in ${seconds}s';
+  }
+
+  @override
+  String get otpResent => 'OTP resent successfully';
+
+  @override
+  String get ok => 'OK';
 }

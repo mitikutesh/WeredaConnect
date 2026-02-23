@@ -1193,4 +1193,25 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryCreatedSuccess => 'Ergaan milkaa\'inaan uumame';
+
+  @override
+  String get farmerContactInfo => 'Odeeffannoo Qonnaan Bulaa';
+
+  @override
+  String get copiedToClipboard => 'Garagalchamee';
+
+  @override
+  String get forgotPasswordContactSupport =>
+      'Jecha darbii keessan haaromsuuf gargaarsa +251-111-234567 irratti quunnamaa.';
+
+  @override
+  String resendOtpIn(int seconds) {
+    return 'Sekondii $seconds keessatti irra deebi\'ii ergi';
+  }
+
+  @override
+  String get otpResent => 'OTP milkaa\'inaan ergameera';
+
+  @override
+  String get ok => 'Tole';
 }

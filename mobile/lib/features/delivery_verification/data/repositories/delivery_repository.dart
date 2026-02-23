@@ -254,6 +254,13 @@ class DeliveryRepository {
 
     if (delivery == null) return;
 
+    // Only delivery participants can persist QR nonce
+    if (delivery.farmerId != userId &&
+        delivery.truckerId != userId &&
+        delivery.buyerId != userId) {
+      return;
+    }
+
     await _isar.writeTxn(() async {
       delivery.qrNonce = qrNonce;
       delivery.updatedAt = DateTime.now().toUtc();

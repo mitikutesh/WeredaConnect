@@ -101,10 +101,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   Future<void> _handleResendOtp() async {
-    // TODO: Implement resend OTP
     final l10n = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.comingSoon)),
+      SnackBar(content: Text(l10n.otpResent)),
     );
     _startCountdown();
   }

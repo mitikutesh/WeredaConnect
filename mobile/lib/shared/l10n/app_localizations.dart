@@ -2337,6 +2337,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delivery created successfully'**
   String get deliveryCreatedSuccess;
+
+  /// Title for farmer contact info bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Contact'**
+  String get farmerContactInfo;
+
+  /// Snackbar message after copying text to clipboard
+  ///
+  /// In en, this message translates to:
+  /// **'Copied to clipboard'**
+  String get copiedToClipboard;
+
+  /// Message shown in forgot password dialog with support contact info
+  ///
+  /// In en, this message translates to:
+  /// **'Please contact support at +251-111-234567 to reset your password.'**
+  String get forgotPasswordContactSupport;
+
+  /// Countdown text for OTP resend button
+  ///
+  /// In en, this message translates to:
+  /// **'Resend in {seconds}s'**
+  String resendOtpIn(int seconds);
+
+  /// Snackbar message after OTP is resent
+  ///
+  /// In en, this message translates to:
+  /// **'OTP resent successfully'**
+  String get otpResent;
+
+  /// Generic OK button label
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get ok;
 }
 
 class _AppLocalizationsDelegate

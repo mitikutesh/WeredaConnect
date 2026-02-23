@@ -1617,5 +1617,34 @@
   "deliveryCreatedSuccess": "Delivery created successfully",
   "@deliveryCreatedSuccess": {
     "description": "Success message after creating a delivery"
+  },
+  "farmerContactInfo": "Farmer Contact",
+  "@farmerContactInfo": {
+    "description": "Title for farmer contact info bottom sheet"
+  },
+  "copiedToClipboard": "Copied to clipboard",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying text to clipboard"
+  },
+  "forgotPasswordContactSupport": "Please contact support at +251-111-234567 to reset your password.",
+  "@forgotPasswordContactSupport": {
+    "description": "Message shown in forgot password dialog with support contact info"
+  },
+  "resendOtpIn": "Resend in {seconds}s",
+  "@resendOtpIn": {
+    "description": "Countdown text for OTP resend button",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpResent": "OTP resent successfully",
+  "@otpResent": {
+    "description": "Snackbar message after OTP is resent"
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Generic OK button label"
   }
 }
