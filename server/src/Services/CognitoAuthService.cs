@@ -63,7 +63,17 @@ public sealed class CognitoAuthService : ICognitoAuthService
             return AuthResult<string>.Failure(400, "AUTH_002",
                 "Password must be at least 8 characters with a lowercase letter and a number.", "password");
         }
+        catch (InvalidParameterException)
+        {
+            return AuthResult<string>.Failure(400, "AUTH_002",
+                "Password must be at least 8 characters with a lowercase letter and a number.", "password");
+        }
         catch (TooManyRequestsException)
+        {
+            return AuthResult<string>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
         {
             return AuthResult<string>.Failure(429, "AUTH_006",
                 "Too many requests. Please try again later.");
@@ -110,6 +120,11 @@ public sealed class CognitoAuthService : ICognitoAuthService
                 "User not found.", "userId");
         }
         catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
         {
             return AuthResult<bool>.Failure(429, "AUTH_006",
                 "Too many requests. Please try again later.");
@@ -173,6 +188,11 @@ public sealed class CognitoAuthService : ICognitoAuthService
             return AuthResult<CognitoAuthTokens>.Failure(429, "AUTH_006",
                 "Too many requests. Please try again later.");
         }
+        catch (LimitExceededException)
+        {
+            return AuthResult<CognitoAuthTokens>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
         catch (InternalErrorException)
         {
             return AuthResult<CognitoAuthTokens>.Failure(503, "AUTH_008",
@@ -220,6 +240,11 @@ public sealed class CognitoAuthService : ICognitoAuthService
             return AuthResult<CognitoAuthTokens>.Failure(429, "AUTH_006",
                 "Too many requests. Please try again later.");
         }
+        catch (LimitExceededException)
+        {
+            return AuthResult<CognitoAuthTokens>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
         catch (InternalErrorException)
         {
             return AuthResult<CognitoAuthTokens>.Failure(503, "AUTH_008",
@@ -251,6 +276,11 @@ public sealed class CognitoAuthService : ICognitoAuthService
             return AuthResult<bool>.Success(true);
         }
         catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
         {
             return AuthResult<bool>.Failure(429, "AUTH_006",
                 "Too many requests. Please try again later.");
