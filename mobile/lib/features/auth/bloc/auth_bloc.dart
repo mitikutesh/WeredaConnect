@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -416,6 +417,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
 
       if (event.clearCache && _isar != null) {
+        // SECURITY: Cancel pending payment intents for this user before logout
+        // to prevent the next user's session from processing them.
+        await _cancelUserPendingIntents(_isar, userId);
         await _clearUserBusinessData(_isar, userId);
       }
 
@@ -423,6 +427,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       emit(const AuthUnauthenticated());
     }
+  }
+
+  /// Cancel pending payment intents belonging to [userId].
+  ///
+  /// Only cancels intents where [buyerId] matches the logging-out user,
+  /// preserving other users' queued payments on shared devices.
+  Future<void> _cancelUserPendingIntents(Isar isar, String userId) async {
+    await isar.writeTxn(() async {
+      final pending = await isar.paymentIntents
+          .filter()
+          .statusEqualTo(IntentStatus.pendingSync)
+          .buyerIdEqualTo(userId)
+          .findAll();
+
+      for (final intent in pending) {
+        intent.status = IntentStatus.cancelled;
+        await isar.paymentIntents.put(intent);
+      }
+    });
   }
 
   /// Delete business data belonging to [userId] from the local cache.

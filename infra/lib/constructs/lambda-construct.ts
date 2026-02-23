@@ -12,6 +12,8 @@ export interface WeredaLambdaProps {
   readonly environment?: Record<string, string>;
   readonly memorySize?: number;
   readonly timeout?: cdk.Duration;
+  /** Maximum concurrent executions. Defaults to 10 to prevent runaway costs. */
+  readonly reservedConcurrentExecutions?: number;
 }
 
 /**
@@ -77,6 +79,7 @@ export class WeredaLambda extends Construct {
       architecture: lambda.Architecture.ARM_64,
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
+      reservedConcurrentExecutions: props.reservedConcurrentExecutions ?? 10,
       description: props.description,
       environment: {
         DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1',

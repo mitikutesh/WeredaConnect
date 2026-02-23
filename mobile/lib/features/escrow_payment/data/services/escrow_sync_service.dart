@@ -129,10 +129,31 @@ class EscrowSyncService {
     });
   }
 
-  /// MH8: Cancel and delete all pending intents on user logout.
+  /// MH8: Cancel pending intents for a specific user on logout.
   ///
+  /// SECURITY: Only cancels intents where [buyerId] matches [userId],
+  /// preserving other users' queued payments on shared devices.
   /// Called from the auth/logout flow to prevent the outgoing user's
   /// queued intents from being sent under the next user's session.
+  Future<void> cancelPendingIntentsForUser(String userId) async {
+    await _isar.writeTxn(() async {
+      final pending = await _isar.paymentIntents
+          .filter()
+          .statusEqualTo(IntentStatus.pendingSync)
+          .buyerIdEqualTo(userId)
+          .findAll();
+
+      for (final intent in pending) {
+        intent.status = IntentStatus.cancelled;
+        await _isar.paymentIntents.put(intent);
+      }
+    });
+  }
+
+  /// Cancel ALL pending intents (used for full database reset scenarios).
+  @Deprecated(
+    'Use cancelPendingIntentsForUser(userId) for user-scoped cancellation',
+  )
   Future<void> cancelAllPendingIntents() async {
     await _isar.writeTxn(() async {
       final pending = await _isar.paymentIntents

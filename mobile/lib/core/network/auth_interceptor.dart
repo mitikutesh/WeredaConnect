@@ -130,7 +130,11 @@ class AuthInterceptor extends QueuedInterceptor {
     }
   }
 
-  /// Retry a request with new access token
+  /// Retry a request with new access token.
+  ///
+  /// SECURITY: Reconstructs the full URI from the original request options
+  /// (baseUrl + path) instead of creating a bare Dio() instance. This
+  /// preserves timeouts and avoids bypassing security configuration.
   Future<Response<dynamic>> _retry(
     RequestOptions requestOptions,
     String newAccessToken,
@@ -141,9 +145,16 @@ class AuthInterceptor extends QueuedInterceptor {
         ...requestOptions.headers,
         'Authorization': 'Bearer $newAccessToken',
       },
+      sendTimeout: requestOptions.sendTimeout,
+      receiveTimeout: requestOptions.receiveTimeout,
     );
 
-    final dio = Dio();
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: requestOptions.baseUrl,
+        connectTimeout: requestOptions.connectTimeout,
+      ),
+    );
     return dio.request(
       requestOptions.path,
       data: requestOptions.data,
