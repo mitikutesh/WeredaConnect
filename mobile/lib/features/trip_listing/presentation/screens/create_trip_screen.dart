@@ -36,6 +36,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   final _formKey = GlobalKey<FormState>();
   final _truckerNameController = TextEditingController();
   final _truckerPhoneController = TextEditingController();
+  final _vehiclePlateController = TextEditingController();
+  final _vehicleDescriptionController = TextEditingController();
   final _fromWoredaController = TextEditingController();
   final _toWoredaController = TextEditingController();
   final _capacityController = TextEditingController();
@@ -59,6 +61,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   void dispose() {
     _truckerNameController.dispose();
     _truckerPhoneController.dispose();
+    _vehiclePlateController.dispose();
+    _vehicleDescriptionController.dispose();
     _fromWoredaController.dispose();
     _toWoredaController.dispose();
     _capacityController.dispose();
@@ -101,11 +105,17 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
       return;
     }
 
+    final vehiclePlate = _vehiclePlateController.text.trim();
+    final vehicleDescription = _vehicleDescriptionController.text.trim();
+
     context.read<TripListingBloc>().add(
           CreateTrip(
             truckerId: authState.userId,
             truckerName: _truckerNameController.text.trim(),
             truckerPhone: _truckerPhoneController.text.trim(),
+            vehiclePlate: vehiclePlate.isNotEmpty ? vehiclePlate : null,
+            vehicleDescription:
+                vehicleDescription.isNotEmpty ? vehicleDescription : null,
             fromWoreda: _fromWoredaController.text.trim(),
             toWoreda: _toWoredaController.text.trim(),
             departureDate: _selectedDepartureDate!,
@@ -203,6 +213,43 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 }
                                 return null;
                               },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Vehicle plate input
+                            TextFormField(
+                              controller: _vehiclePlateController,
+                              decoration: InputDecoration(
+                                labelText: l10n.vehiclePlate,
+                                prefixIcon:
+                                    const Icon(Icons.confirmation_number),
+                                hintText: '3-AA-12345',
+                                border: const OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 20,
+                                ),
+                              ),
+                              keyboardType: TextInputType.text,
+                              textCapitalization: TextCapitalization.characters,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Vehicle description input
+                            TextFormField(
+                              controller: _vehicleDescriptionController,
+                              decoration: InputDecoration(
+                                labelText: l10n.vehicleDescription,
+                                prefixIcon: const Icon(Icons.directions_car),
+                                hintText: 'Isuzu FTR 10-ton',
+                                border: const OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 20,
+                                ),
+                              ),
+                              keyboardType: TextInputType.text,
+                              textCapitalization: TextCapitalization.words,
                             ),
                             const SizedBox(height: 16),
 

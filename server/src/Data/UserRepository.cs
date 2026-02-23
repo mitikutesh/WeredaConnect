@@ -207,7 +207,7 @@ public sealed class UserRepository : IUserRepository
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,
-            Version = int.Parse(item["version"].N)
+            Version = item.TryGetValue("version", out var ver) && ver.N != null ? int.Parse(ver.N) : 1
         };
     }
 }

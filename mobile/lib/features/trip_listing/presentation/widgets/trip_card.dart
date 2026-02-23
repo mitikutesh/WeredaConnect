@@ -63,6 +63,22 @@ class TripCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
+                    if (trip.vehiclePlate != null &&
+                        trip.vehiclePlate!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          [
+                            trip.vehiclePlate,
+                            if (trip.vehicleDescription != null &&
+                                trip.vehicleDescription!.isNotEmpty)
+                              trip.vehicleDescription,
+                          ].join(' · '),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     Text(
                       '${dateFormat.format(trip.departureDate)} · ${trip.capacity} ${l10n.quintals}',
                       style: theme.textTheme.bodyMedium,

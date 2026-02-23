@@ -131,6 +131,8 @@ class TripListingRepository {
     required String truckerId,
     required String truckerName,
     required String truckerPhone,
+    String? vehiclePlate,
+    String? vehicleDescription,
     required String fromWoreda,
     required String toWoreda,
     required DateTime departureDate,
@@ -155,6 +157,8 @@ class TripListingRepository {
       ..truckerId = truckerId
       ..truckerName = truckerName
       ..truckerPhone = truckerPhone
+      ..vehiclePlate = vehiclePlate
+      ..vehicleDescription = vehicleDescription
       ..fromWoreda = fromWoreda
       ..toWoreda = toWoreda
       ..departureDate = departureDate
@@ -171,7 +175,7 @@ class TripListingRepository {
     });
 
     // Enqueue sync operation
-    final data = jsonEncode({
+    final syncData = <String, dynamic>{
       'tripId': tripId,
       'truckerId': truckerId,
       'truckerName': truckerName,
@@ -185,7 +189,14 @@ class TripListingRepository {
       'matchedListings': <String>[],
       'createdAt': now.toIso8601String(),
       'version': 1,
-    });
+    };
+    if (vehiclePlate != null && vehiclePlate.isNotEmpty) {
+      syncData['vehiclePlate'] = vehiclePlate;
+    }
+    if (vehicleDescription != null && vehicleDescription.isNotEmpty) {
+      syncData['vehicleDescription'] = vehicleDescription;
+    }
+    final data = jsonEncode(syncData);
 
     await _syncQueue.enqueue(
       userId: truckerId,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -45,6 +46,42 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String _formatDuration(int seconds) {
+    final l10n = AppLocalizations.of(context)!;
+    if (seconds >= 3600) {
+      return l10n.durationHours((seconds / 3600).ceil());
+    } else if (seconds >= 60) {
+      return l10n.durationMinutes((seconds / 60).ceil());
+    } else {
+      return l10n.durationSeconds(seconds);
+    }
+  }
+
+  String _localizeAuthError(
+    String errorCode,
+    String fallback, {
+    int? retryAfterSeconds,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    if (errorCode == 'AUTH_015' && retryAfterSeconds != null) {
+      return l10n.authAccountLocked(_formatDuration(retryAfterSeconds));
+    }
+    return switch (errorCode) {
+      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
+      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
+      AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
+      // Server sends AUTH_014 for invalid login credentials (NotAuthorizedException)
+      AuthErrorCode.userNotFound => l10n.invalidCredentials,
+      // Server sends AUTH_016 for unverified phone number
+      'AUTH_016' => l10n.phoneNotVerified,
+      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
+      AuthErrorCode.internalServerError => l10n.authServerError,
+      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+      AuthErrorCode.networkError => l10n.authNetworkError,
+      _ => fallback,
+    };
+  }
+
   void _handleLogin() {
     // Clear previous errors
     setState(() {
@@ -81,7 +118,11 @@ class _LoginScreenState extends State<LoginScreen> {
       listener: (context, state) {
         if (state is AuthError) {
           setState(() {
-            _errorMessage = state.errorMessage;
+            _errorMessage = _localizeAuthError(
+              state.errorCode,
+              state.errorMessage,
+              retryAfterSeconds: state.retryAfterSeconds,
+            );
           });
         }
       },
@@ -204,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           if (value == null || value.isEmpty) {
                             return l10n.password;
                           }
-                          if (value.length < 6) {
+                          if (value.length < 8) {
                             return l10n.passwordRequirements;
                           }
                           return null;

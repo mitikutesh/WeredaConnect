@@ -242,7 +242,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get passwordRequirements =>
-      'Jecha icciitiin yoo xiqqaate qubeelee 6 ta\'uu qaba';
+      'Jecha icciitiin yoo xiqqaate qubeelee 8, qubee xixiqqaa fi lakkoofsa of keessatti qabaachuu qaba';
 
   @override
   String get invalidPhoneFormat =>
@@ -261,6 +261,46 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get otpExpired => 'Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu';
+
+  @override
+  String get authRateLimitExceeded =>
+      'Yaalii baay\'ee. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authServerError =>
+      'Dogoggora sarvaraa. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authServiceUnavailable =>
+      'Tajaajilli mirkaneessuu yeroo ammaa hin argamu. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authNetworkError =>
+      'Interneetiin hin jiru. Maaloo walqunnamtii keessan mirkaneessaa.';
+
+  @override
+  String authAccountLocked(String duration) {
+    return 'Yaalii baay\'ee waan kufteef herregni keessan cufameera. Erga $duration booda irra deebi\'ii yaali.';
+  }
+
+  @override
+  String durationSeconds(int count) {
+    return 'sekoondii $count';
+  }
+
+  @override
+  String durationMinutes(int count) {
+    return 'daqiiqaa $count';
+  }
+
+  @override
+  String durationHours(int count) {
+    return 'sa\'aatii $count';
+  }
+
+  @override
+  String get phoneNotVerified =>
+      'Lakkoofsi bilbilaa hin mirkanaa\'iin. Maaloo mirkaneessa OTP xumuraa.';
 
   @override
   String get registrationSuccess =>
@@ -535,6 +575,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'Maqaan konkolaachisaa barbaachisaadha';
+
+  @override
+  String get vehiclePlate => 'Lakkoofsa Gabatee Konkolaataa';
+
+  @override
+  String get vehicleDescription => 'Ibsa Konkolaataa';
 
   @override
   String get deliveries => 'Geejjibaalee';

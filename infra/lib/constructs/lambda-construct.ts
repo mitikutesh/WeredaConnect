@@ -79,7 +79,9 @@ export class WeredaLambda extends Construct {
       architecture: lambda.Architecture.ARM_64,
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
-      reservedConcurrentExecutions: props.reservedConcurrentExecutions ?? 10,
+      ...(props.reservedConcurrentExecutions != null
+        ? { reservedConcurrentExecutions: props.reservedConcurrentExecutions }
+        : {}),
       description: props.description,
       environment: {
         DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1',

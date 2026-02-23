@@ -58,10 +58,10 @@ public sealed class CognitoAuthService : ICognitoAuthService
             return AuthResult<string>.Failure(409, "AUTH_005",
                 "A user with this phone number already exists.", "phoneNumber");
         }
-        catch (InvalidPasswordException ex)
+        catch (InvalidPasswordException)
         {
             return AuthResult<string>.Failure(400, "AUTH_002",
-                ex.Message, "password");
+                "Password must be at least 8 characters with a lowercase letter and a number.", "password");
         }
         catch (TooManyRequestsException)
         {

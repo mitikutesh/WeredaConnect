@@ -21,6 +21,8 @@ class AuthErrorCode {
   static const otpAttemptsExceeded = 'AUTH_013';
   static const userNotFound = 'AUTH_014';
 
+  static const accountLocked = 'AUTH_015';
+
   // Login errors (AUTH_021 - AUTH_030)
   static const invalidCredentials = 'AUTH_021';
   static const userNotConfirmed = 'AUTH_022';

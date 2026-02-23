@@ -304,7 +304,7 @@
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
-  "passwordRequirements": "Password must be at least 6 characters",
+  "passwordRequirements": "Password must be at least 8 characters with a lowercase letter and a number",
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
@@ -327,6 +327,57 @@
   "otpExpired": "Verification code expired. Request a new one",
   "@otpExpired": {
     "description": "Error message for expired OTP"
+  },
+  "authRateLimitExceeded": "Too many attempts. Please try again later.",
+  "@authRateLimitExceeded": {
+    "description": "Error message when rate limit exceeded during auth"
+  },
+  "authServerError": "Server error. Please try again later.",
+  "@authServerError": {
+    "description": "Error message for generic server error during auth"
+  },
+  "authServiceUnavailable": "Authentication service temporarily unavailable. Please try again later.",
+  "@authServiceUnavailable": {
+    "description": "Error message when auth service is unavailable"
+  },
+  "authNetworkError": "No internet connection. Please check your connection.",
+  "@authNetworkError": {
+    "description": "Error message when network is unavailable during auth"
+  },
+  "authAccountLocked": "Account locked due to too many failed attempts. Try again in {duration}.",
+  "@authAccountLocked": {
+    "description": "Error message when account is locked due to too many failed login attempts",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "15 minutes"
+      }
+    }
+  },
+  "durationSeconds": "{count} seconds",
+  "@durationSeconds": {
+    "description": "Duration in seconds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationMinutes": "{count} minutes",
+  "@durationMinutes": {
+    "description": "Duration in minutes",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationHours": "{count} hours",
+  "@durationHours": {
+    "description": "Duration in hours",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "phoneNotVerified": "Phone number not verified. Please complete OTP verification.",
+  "@phoneNotVerified": {
+    "description": "Error message when user tries to login but phone is not verified"
   },
   "registrationSuccess": "Registration successful! Please verify your phone",
   "@registrationSuccess": {
@@ -693,6 +744,14 @@
   "truckerNameRequired": "Trucker name is required",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "vehiclePlate": "Vehicle Plate",
+  "@vehiclePlate": {
+    "description": "Label for vehicle license plate number field"
+  },
+  "vehicleDescription": "Vehicle Description",
+  "@vehicleDescription": {
+    "description": "Label for vehicle description field"
   },
   "deliveries": "Deliveries",
   "@deliveries": {

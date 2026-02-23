@@ -237,7 +237,8 @@ class AppLocalizationsAm extends AppLocalizations {
   String get offlineModeIndicator => 'ከመስመር ውጭ ነዎት';
 
   @override
-  String get passwordRequirements => 'የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት';
+  String get passwordRequirements =>
+      'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት';
 
   @override
   String get invalidPhoneFormat => 'ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ';
@@ -253,6 +254,42 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get otpExpired => 'የማረጋገጫ ኮድ ጊዜው አልፏል። አዲስ ይጠይቁ';
+
+  @override
+  String get authRateLimitExceeded => 'ብዙ ጊዜ ሞክረዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get authServerError => 'የሰርቨር ስህተት። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get authServiceUnavailable =>
+      'የማረጋገጫ አገልግሎት ጊዜያዊ አይገኝም። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get authNetworkError => 'የበይነመረብ ግንኙነት የለም። እባክዎ ግንኙነትዎን ያረጋግጡ።';
+
+  @override
+  String authAccountLocked(String duration) {
+    return 'ብዙ ጊዜ ያልተሳካ ሙከራ ስለነበር መለያዎ ተቆልፏል። ከ$duration በኋላ እንደገና ይሞክሩ።';
+  }
+
+  @override
+  String durationSeconds(int count) {
+    return '$count ሰከንዶች';
+  }
+
+  @override
+  String durationMinutes(int count) {
+    return '$count ደቂቃ';
+  }
+
+  @override
+  String durationHours(int count) {
+    return '$count ሰዓት';
+  }
+
+  @override
+  String get phoneNotVerified => 'ስልክ ቁጥር አልተረጋገጠም። እባክዎ የOTP ማረጋገጫን ያጠናቅቁ።';
 
   @override
   String get registrationSuccess => 'ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ';
@@ -523,6 +560,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'የጭነት ሹፌር ስም ያስፈልጋል';
+
+  @override
+  String get vehiclePlate => 'የመኪና ሰሌዳ';
+
+  @override
+  String get vehicleDescription => 'የመኪና መግለጫ';
 
   @override
   String get deliveries => 'ማድረሻዎች';

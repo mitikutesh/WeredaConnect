@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -141,6 +143,102 @@ void main() {
       expect(find.text('GPS unavailable'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsOneWidget);
+    });
+  });
+
+  group('Fraud error handling', () {
+    Widget buildFraudTestWidget(
+      StreamController<CropListingState> controller,
+    ) {
+      // Override stream mock to use the given controller
+      when(() => cropListingBloc.stream).thenAnswer((_) => controller.stream);
+
+      return MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CreateCropListingScreen(
+            gpsCaptureService: mockGpsService,
+          ),
+        ),
+      );
+    }
+
+    testWidgets(
+        'shows duplicate listing snackbar on FRAUD_DUPLICATE_LISTING error',
+        (tester) async {
+      final controller = StreamController<CropListingState>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(buildFraudTestWidget(controller));
+      await tester.pumpAndSettle();
+
+      // Emit fraud duplicate listing error from BLoC
+      controller.add(
+        const CropListingError(
+          message: 'FRAUD_DUPLICATE_LISTING: A similar listing already exists.',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Verify the localized fraud message is shown in a snackbar
+      expect(
+        find.text(
+          'A similar listing already exists. '
+          'Please update your existing listing instead.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+        'shows velocity exceeded snackbar on FRAUD_VELOCITY_EXCEEDED error',
+        (tester) async {
+      final controller = StreamController<CropListingState>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(buildFraudTestWidget(controller));
+      await tester.pumpAndSettle();
+
+      // Emit fraud velocity exceeded error from BLoC
+      controller.add(
+        const CropListingError(
+          message: 'FRAUD_VELOCITY_EXCEEDED: Too many listings.',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Verify the localized fraud message is shown in a snackbar
+      expect(
+        find.text(
+          'Too many requests. Please wait a moment and try again.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows generic error for non-fraud errors', (tester) async {
+      final controller = StreamController<CropListingState>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(buildFraudTestWidget(controller));
+      await tester.pumpAndSettle();
+
+      // Emit a generic error from BLoC
+      controller.add(
+        const CropListingError(message: 'Something went wrong'),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Verify the raw error message is shown (not a fraud-specific message)
+      expect(find.text('Something went wrong'), findsOneWidget);
     });
   });
 }

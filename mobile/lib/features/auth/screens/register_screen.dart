@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -56,6 +57,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  String _localizeAuthError(String errorCode, String fallback) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (errorCode) {
+      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
+      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
+      AuthErrorCode.phoneAlreadyRegistered => l10n.phoneAlreadyRegistered,
+      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
+      AuthErrorCode.internalServerError => l10n.authServerError,
+      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+      AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.invalidOtp => l10n.invalidOtp,
+      AuthErrorCode.otpExpired => l10n.otpExpired,
+      AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
+      // Server sends AUTH_014 for invalid credentials
+      AuthErrorCode.userNotFound => l10n.invalidCredentials,
+      // Server sends AUTH_016 for unverified phone number
+      'AUTH_016' => l10n.phoneNotVerified,
+      _ => fallback,
+    };
+  }
+
   void _handleRegister() {
     // Clear previous errors
     setState(() {
@@ -102,7 +124,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       listener: (context, state) {
         if (state is AuthError) {
           setState(() {
-            _errorMessage = state.errorMessage;
+            _errorMessage =
+                _localizeAuthError(state.errorCode, state.errorMessage);
           });
         }
         if (state is AuthOtpVerificationRequired) {
@@ -350,7 +373,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.isEmpty) {
                             return l10n.password;
                           }
-                          if (value.length < 6) {
+                          if (value.length < 8 ||
+                              !RegExp(r'[a-z]').hasMatch(value) ||
+                              !RegExp(r'[0-9]').hasMatch(value)) {
                             return l10n.passwordRequirements;
                           }
                           return null;

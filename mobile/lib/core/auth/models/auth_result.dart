@@ -34,6 +34,9 @@ class AuthResult {
   /// Human-readable error message (only present on failure)
   final String? errorMessage;
 
+  /// Seconds until account lockout expires (only for AUTH_015)
+  final int? retryAfterSeconds;
+
   /// Whether this was an offline authentication
   /// (used to show "offline mode" indicator in UI)
   final bool isOfflineAuth;
@@ -44,6 +47,7 @@ class AuthResult {
     this.userId,
     this.errorCode,
     this.errorMessage,
+    this.retryAfterSeconds,
     this.isOfflineAuth = false,
   });
 
@@ -64,12 +68,14 @@ class AuthResult {
   /// Create a failed authentication result
   factory AuthResult.failure(
     String errorCode,
-    String errorMessage,
-  ) {
+    String errorMessage, {
+    int? retryAfterSeconds,
+  }) {
     return AuthResult._(
       isSuccess: false,
       errorCode: errorCode,
       errorMessage: errorMessage,
+      retryAfterSeconds: retryAfterSeconds,
     );
   }
 

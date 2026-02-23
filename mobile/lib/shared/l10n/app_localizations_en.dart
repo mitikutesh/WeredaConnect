@@ -239,7 +239,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlineModeIndicator => 'You are in offline mode';
 
   @override
-  String get passwordRequirements => 'Password must be at least 6 characters';
+  String get passwordRequirements =>
+      'Password must be at least 8 characters with a lowercase letter and a number';
 
   @override
   String get invalidPhoneFormat =>
@@ -257,6 +258,45 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get otpExpired => 'Verification code expired. Request a new one';
+
+  @override
+  String get authRateLimitExceeded =>
+      'Too many attempts. Please try again later.';
+
+  @override
+  String get authServerError => 'Server error. Please try again later.';
+
+  @override
+  String get authServiceUnavailable =>
+      'Authentication service temporarily unavailable. Please try again later.';
+
+  @override
+  String get authNetworkError =>
+      'No internet connection. Please check your connection.';
+
+  @override
+  String authAccountLocked(String duration) {
+    return 'Account locked due to too many failed attempts. Try again in $duration.';
+  }
+
+  @override
+  String durationSeconds(int count) {
+    return '$count seconds';
+  }
+
+  @override
+  String durationMinutes(int count) {
+    return '$count minutes';
+  }
+
+  @override
+  String durationHours(int count) {
+    return '$count hours';
+  }
+
+  @override
+  String get phoneNotVerified =>
+      'Phone number not verified. Please complete OTP verification.';
 
   @override
   String get registrationSuccess =>
@@ -531,6 +571,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get truckerNameRequired => 'Trucker name is required';
+
+  @override
+  String get vehiclePlate => 'Vehicle Plate';
+
+  @override
+  String get vehicleDescription => 'Vehicle Description';
 
   @override
   String get deliveries => 'Deliveries';

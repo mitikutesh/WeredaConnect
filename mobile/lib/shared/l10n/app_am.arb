@@ -304,7 +304,7 @@
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
-  "passwordRequirements": "የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት",
+  "passwordRequirements": "የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት",
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
@@ -327,6 +327,57 @@
   "otpExpired": "የማረጋገጫ ኮድ ጊዜው አልፏል። አዲስ ይጠይቁ",
   "@otpExpired": {
     "description": "Error message for expired OTP"
+  },
+  "authRateLimitExceeded": "ብዙ ጊዜ ሞክረዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authRateLimitExceeded": {
+    "description": "Error message when rate limit exceeded during auth"
+  },
+  "authServerError": "የሰርቨር ስህተት። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authServerError": {
+    "description": "Error message for generic server error during auth"
+  },
+  "authServiceUnavailable": "የማረጋገጫ አገልግሎት ጊዜያዊ አይገኝም። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authServiceUnavailable": {
+    "description": "Error message when auth service is unavailable"
+  },
+  "authNetworkError": "የበይነመረብ ግንኙነት የለም። እባክዎ ግንኙነትዎን ያረጋግጡ።",
+  "@authNetworkError": {
+    "description": "Error message when network is unavailable during auth"
+  },
+  "authAccountLocked": "ብዙ ጊዜ ያልተሳካ ሙከራ ስለነበር መለያዎ ተቆልፏል። ከ{duration} በኋላ እንደገና ይሞክሩ።",
+  "@authAccountLocked": {
+    "description": "Error message when account is locked due to too many failed login attempts",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "15 ደቂቃ"
+      }
+    }
+  },
+  "durationSeconds": "{count} ሰከንዶች",
+  "@durationSeconds": {
+    "description": "Duration in seconds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationMinutes": "{count} ደቂቃ",
+  "@durationMinutes": {
+    "description": "Duration in minutes",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationHours": "{count} ሰዓት",
+  "@durationHours": {
+    "description": "Duration in hours",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "phoneNotVerified": "ስልክ ቁጥር አልተረጋገጠም። እባክዎ የOTP ማረጋገጫን ያጠናቅቁ።",
+  "@phoneNotVerified": {
+    "description": "Error message when user tries to login but phone is not verified"
   },
   "registrationSuccess": "ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ",
   "@registrationSuccess": {
@@ -693,6 +744,14 @@
   "truckerNameRequired": "የጭነት ሹፌር ስም ያስፈልጋል",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "vehiclePlate": "የመኪና ሰሌዳ",
+  "@vehiclePlate": {
+    "description": "Label for vehicle license plate number field"
+  },
+  "vehicleDescription": "የመኪና መግለጫ",
+  "@vehicleDescription": {
+    "description": "Label for vehicle description field"
   },
   "deliveries": "ማድረሻዎች",
   "@deliveries": {

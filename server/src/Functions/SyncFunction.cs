@@ -38,6 +38,7 @@ public partial class SyncFunction
     private readonly string _tripsTable;
     private readonly string _deliveriesTable;
     private readonly IRateLimitService? _rateLimitService;
+    private readonly IFraudDetectionService? _fraudService;
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
@@ -47,8 +48,8 @@ public partial class SyncFunction
 
     private static readonly HashSet<string> AllowedTripFields = new()
     {
-        "truckerId", "truckerName", "truckerPhone", "fromWoreda", "toWoreda",
-        "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
+        "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
+        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
     };
 
     private static readonly HashSet<string> AllowedDeliveryFields = new()
@@ -100,6 +101,10 @@ public partial class SyncFunction
         _syncMetadataRepo = new SyncMetadataRepository(_dynamoDb, syncMetadataTable);
         _cropRepo = new CropRepository(_dynamoDb, cropsTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(_dynamoDb, rateLimitTable));
+        _fraudService = new FraudDetectionService(
+            _dynamoDb,
+            cropsTable,
+            new RateLimitRepository(_dynamoDb, rateLimitTable));
     }
 
     /// <summary>
@@ -107,7 +112,8 @@ public partial class SyncFunction
     /// </summary>
     public SyncFunction(ISyncMetadataRepository syncMetadataRepo, ICropRepository cropRepo,
         IAmazonDynamoDB dynamoDb, string tripsTable, string deliveriesTable,
-        IRateLimitService? rateLimitService = null)
+        IRateLimitService? rateLimitService = null,
+        IFraudDetectionService? fraudService = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -115,6 +121,7 @@ public partial class SyncFunction
         _tripsTable = tripsTable ?? throw new ArgumentNullException(nameof(tripsTable));
         _deliveriesTable = deliveriesTable ?? throw new ArgumentNullException(nameof(deliveriesTable));
         _rateLimitService = rateLimitService;
+        _fraudService = fraudService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -338,10 +345,48 @@ public partial class SyncFunction
                         };
                     }
 
+                    // ── Fraud detection (F-14) ──
+                    if (_fraudService != null)
+                    {
+                        var cropType = operation.Data.GetValueOrDefault("cropType")?.ToString() ?? "";
+                        var pricePerKg = 0m;
+                        if (operation.Data.TryGetValue("pricePerKg", out var ppkObj))
+                        {
+                            _ = decimal.TryParse(ppkObj?.ToString(), out pricePerKg);
+                        }
+
+                        var fraudCheck = await _fraudService.CheckListingCreationAsync(
+                            authenticatedUserId!, cropType, pricePerKg);
+
+                        if (!fraudCheck.IsAllowed)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = $"{fraudCheck.ErrorCode}: {fraudCheck.Message}"
+                            };
+                        }
+
+                        if (fraudCheck.IsFlagged)
+                        {
+                            operation.Data["isFlagged"] = true;
+                            operation.Data["flagReason"] = fraudCheck.FlagReason ?? "UNKNOWN";
+                            context.Logger.LogWarning(
+                                $"Fraud flag on listing {operation.EntityId}: {fraudCheck.FlagReason} — {fraudCheck.Message}");
+                        }
+                    }
+
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 
                     if (createResult.IsSuccess)
                     {
+                        // Record for velocity tracking (F-14)
+                        if (_fraudService != null)
+                        {
+                            await _fraudService.RecordListingCreatedAsync(authenticatedUserId!);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -1822,6 +1867,64 @@ public partial class SyncFunction
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // ── GPS fraud detection (F-14) ──
+                    if (_fraudService != null && resolvedNewStatus == "delivered" && operation.Data != null)
+                    {
+                        double? fraudPickupLat = null, fraudPickupLng = null, fraudDropoffLat = null, fraudDropoffLng = null;
+                        string fraudFromWoreda = "", fraudToWoreda = "";
+
+                        // Extract pickup GPS from existing delivery (recorded at pickedUp transition)
+                        if (existing.TryGetValue("gpsPickup", out var gpAttr) && gpAttr.M != null)
+                        {
+                            if (gpAttr.M.TryGetValue("latitude", out var lat) && double.TryParse(lat.N, out var pLat))
+                            {
+                                fraudPickupLat = pLat;
+                            }
+
+                            if (gpAttr.M.TryGetValue("longitude", out var lng) && double.TryParse(lng.N, out var pLng))
+                            {
+                                fraudPickupLng = pLng;
+                            }
+                        }
+
+                        // Extract dropoff GPS from incoming data
+                        if (operation.Data.TryGetValue("gpsDropoff", out var fraudGdObj) && fraudGdObj is System.Text.Json.JsonElement fraudGdJe
+                            && fraudGdJe.ValueKind == System.Text.Json.JsonValueKind.Object)
+                        {
+                            if (fraudGdJe.TryGetProperty("latitude", out var lat))
+                            {
+                                fraudDropoffLat = lat.GetDouble();
+                            }
+
+                            if (fraudGdJe.TryGetProperty("longitude", out var lng))
+                            {
+                                fraudDropoffLng = lng.GetDouble();
+                            }
+                        }
+
+                        // Get woredas from the associated trip
+                        var fraudTripId = existing.TryGetValue("tripId", out var ftAttr) ? ftAttr.S : null;
+                        if (fraudTripId != null)
+                        {
+                            var fraudTrip = await GetTripItemAsync(fraudTripId);
+                            if (fraudTrip != null)
+                            {
+                                fraudFromWoreda = fraudTrip.TryGetValue("fromWoreda", out var fw) ? fw.S ?? "" : "";
+                                fraudToWoreda = fraudTrip.TryGetValue("toWoreda", out var tw) ? tw.S ?? "" : "";
+                            }
+                        }
+
+                        var gpsCheck = _fraudService.CheckGpsConsistency(
+                            fraudPickupLat, fraudPickupLng, fraudDropoffLat, fraudDropoffLng, fraudFromWoreda, fraudToWoreda);
+
+                        if (gpsCheck.IsFlagged)
+                        {
+                            operation.Data["gpsAnomalyFlag"] = true;
+                            context.Logger.LogWarning(
+                                $"GPS anomaly on delivery {operation.EntityId}: {gpsCheck.Message}");
                         }
                     }
 

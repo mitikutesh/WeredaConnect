@@ -126,4 +126,5 @@ public sealed record AuthError
     public required string Code { get; init; }
     public required string Message { get; init; }
     public string? Field { get; init; }
+    public int? RetryAfterSeconds { get; init; }
 }

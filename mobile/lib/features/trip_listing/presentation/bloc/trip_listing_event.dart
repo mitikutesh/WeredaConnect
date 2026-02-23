@@ -23,6 +23,8 @@ class CreateTrip extends TripListingEvent {
   final String truckerId;
   final String truckerName;
   final String truckerPhone;
+  final String? vehiclePlate;
+  final String? vehicleDescription;
   final String fromWoreda;
   final String toWoreda;
   final DateTime departureDate;
@@ -33,6 +35,8 @@ class CreateTrip extends TripListingEvent {
     required this.truckerId,
     required this.truckerName,
     required this.truckerPhone,
+    this.vehiclePlate,
+    this.vehicleDescription,
     required this.fromWoreda,
     required this.toWoreda,
     required this.departureDate,
@@ -45,6 +49,8 @@ class CreateTrip extends TripListingEvent {
         truckerId,
         truckerName,
         truckerPhone,
+        vehiclePlate,
+        vehicleDescription,
         fromWoreda,
         toWoreda,
         departureDate,

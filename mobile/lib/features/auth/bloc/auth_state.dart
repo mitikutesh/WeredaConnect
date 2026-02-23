@@ -63,13 +63,15 @@ class AuthError extends AuthState {
   final String errorCode;
   final String errorMessage;
   final bool canRetry;
+  final int? retryAfterSeconds;
 
   const AuthError({
     required this.errorCode,
     required this.errorMessage,
     this.canRetry = true,
+    this.retryAfterSeconds,
   });
 
   @override
-  List<Object?> get props => [errorCode, errorMessage, canRetry];
+  List<Object?> get props => [errorCode, errorMessage, canRetry, retryAfterSeconds];
 }

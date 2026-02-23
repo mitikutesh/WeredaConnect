@@ -73,6 +73,8 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         truckerId: event.truckerId,
         truckerName: event.truckerName,
         truckerPhone: event.truckerPhone,
+        vehiclePlate: event.vehiclePlate,
+        vehicleDescription: event.vehicleDescription,
         fromWoreda: event.fromWoreda,
         toWoreda: event.toWoreda,
         departureDate: event.departureDate,

@@ -51,12 +51,16 @@ class _AuthGateState extends State<AuthGate> {
           return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
-        // If still loading auth state, show splash
-        if (authState is AuthInitial || authState is AuthLoading) {
+        // If initial auth check still in progress, show splash
+        // Note: AuthLoading during login/register is handled by the
+        // login/register screens themselves (inline loading indicators),
+        // so we only show splash for the initial session check.
+        if (authState is AuthInitial) {
           return const _SplashScreen();
         }
 
-        // AuthUnauthenticated or AuthError - check onboarding state
+        // AuthUnauthenticated, AuthError, or AuthLoading (during login) -
+        // check onboarding state and show login/welcome screen
         return BlocBuilder<OnboardingBloc, OnboardingState>(
           builder: (context, onboardingState) {
             // If first launch, show welcome screen

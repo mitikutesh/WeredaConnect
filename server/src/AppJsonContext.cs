@@ -76,6 +76,8 @@ namespace WeredaConnect.Server;
 // Escrow error DTOs
 [JsonSerializable(typeof(EscrowErrorResponse))]
 [JsonSerializable(typeof(EscrowError))]
+// Fraud detection DTOs (F-14)
+[JsonSerializable(typeof(FraudCheckResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

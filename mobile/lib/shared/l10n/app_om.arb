@@ -304,7 +304,7 @@
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
-  "passwordRequirements": "Jecha icciitiin yoo xiqqaate qubeelee 6 ta'uu qaba",
+  "passwordRequirements": "Jecha icciitiin yoo xiqqaate qubeelee 8, qubee xixiqqaa fi lakkoofsa of keessatti qabaachuu qaba",
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
@@ -327,6 +327,57 @@
   "otpExpired": "Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu",
   "@otpExpired": {
     "description": "Error message for expired OTP"
+  },
+  "authRateLimitExceeded": "Yaalii baay'ee. Maaloo booda irra deebi'ii yaali.",
+  "@authRateLimitExceeded": {
+    "description": "Error message when rate limit exceeded during auth"
+  },
+  "authServerError": "Dogoggora sarvaraa. Maaloo booda irra deebi'ii yaali.",
+  "@authServerError": {
+    "description": "Error message for generic server error during auth"
+  },
+  "authServiceUnavailable": "Tajaajilli mirkaneessuu yeroo ammaa hin argamu. Maaloo booda irra deebi'ii yaali.",
+  "@authServiceUnavailable": {
+    "description": "Error message when auth service is unavailable"
+  },
+  "authNetworkError": "Interneetiin hin jiru. Maaloo walqunnamtii keessan mirkaneessaa.",
+  "@authNetworkError": {
+    "description": "Error message when network is unavailable during auth"
+  },
+  "authAccountLocked": "Yaalii baay'ee waan kufteef herregni keessan cufameera. Erga {duration} booda irra deebi'ii yaali.",
+  "@authAccountLocked": {
+    "description": "Error message when account is locked due to too many failed login attempts",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "daqiiqaa 15"
+      }
+    }
+  },
+  "durationSeconds": "sekoondii {count}",
+  "@durationSeconds": {
+    "description": "Duration in seconds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationMinutes": "daqiiqaa {count}",
+  "@durationMinutes": {
+    "description": "Duration in minutes",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationHours": "sa'aatii {count}",
+  "@durationHours": {
+    "description": "Duration in hours",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "phoneNotVerified": "Lakkoofsi bilbilaa hin mirkanaa'iin. Maaloo mirkaneessa OTP xumuraa.",
+  "@phoneNotVerified": {
+    "description": "Error message when user tries to login but phone is not verified"
   },
   "registrationSuccess": "Galmaa'uun milkaa'eera! Maaloo bilbila keessan mirkaneessaa",
   "@registrationSuccess": {
@@ -693,6 +744,14 @@
   "truckerNameRequired": "Maqaan konkolaachisaa barbaachisaadha",
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
+  },
+  "vehiclePlate": "Lakkoofsa Gabatee Konkolaataa",
+  "@vehiclePlate": {
+    "description": "Label for vehicle license plate number field"
+  },
+  "vehicleDescription": "Ibsa Konkolaataa",
+  "@vehicleDescription": {
+    "description": "Label for vehicle description field"
   },
   "deliveries": "Geejjibaalee",
   "@deliveries": {

@@ -48,6 +48,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   GpsCaptureResult? _gpsResult;
   bool _gpsCapturing = false;
 
+  /// Guards against accidental double-tap submission.
+  bool _isSubmitting = false;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +78,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   }
 
   void _handleSave() {
+    // Prevent accidental double-tap submission
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
 
     final l10n = AppLocalizations.of(context)!;
@@ -93,6 +98,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       );
       return;
     }
+
+    _isSubmitting = true;
 
     context.read<CropListingBloc>().add(
           CreateCropListing(
@@ -122,6 +129,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           );
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
+          _isSubmitting = false;
           if (state.message.contains('FRAUD_DUPLICATE_LISTING')) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

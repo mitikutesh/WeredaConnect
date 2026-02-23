@@ -72,6 +72,10 @@ class SyncBatchResult {
   final SyncBatchStatus status;
   final String? errorMessage;
 
+  /// Per-operation error messages from server fraud checks or other rejections.
+  /// Maps operationId → error message string (e.g. "FRAUD_DUPLICATE_LISTING: ...").
+  final Map<String, String> operationErrors;
+
   const SyncBatchResult({
     this.total = 0,
     this.succeeded = 0,
@@ -79,6 +83,7 @@ class SyncBatchResult {
     this.failed = 0,
     this.status = SyncBatchStatus.success,
     this.errorMessage,
+    this.operationErrors = const {},
   });
 
   const SyncBatchResult.empty()
@@ -87,7 +92,8 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         status = SyncBatchStatus.empty,
-        errorMessage = null;
+        errorMessage = null,
+        operationErrors = const {};
 
   const SyncBatchResult.skipped()
       : total = 0,
@@ -95,7 +101,8 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         status = SyncBatchStatus.skipped,
-        errorMessage = null;
+        errorMessage = null,
+        operationErrors = const {};
 
   const SyncBatchResult.noInternet()
       : total = 0,
@@ -103,7 +110,8 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         status = SyncBatchStatus.noInternet,
-        errorMessage = null;
+        errorMessage = null,
+        operationErrors = const {};
 
   /// Whether any operations in the batch failed or the batch itself errored.
   bool get hasErrors =>
@@ -137,6 +145,7 @@ class SyncBatchResult {
       failed: newFailed,
       status: newFailed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
       errorMessage: other.errorMessage ?? errorMessage,
+      operationErrors: {...operationErrors, ...other.operationErrors},
     );
   }
 
@@ -431,6 +440,7 @@ class SyncExecutor {
     var succeeded = 0;
     var conflicted = 0;
     var failed = 0;
+    final operationErrors = <String, String>{};
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -447,6 +457,7 @@ class SyncExecutor {
       if (operation == null) continue;
 
       final status = result['status'] as String?;
+      final message = result['message'] as String?;
       final serverData = result['serverData'] as Map<String, dynamic>?;
       final serverVersion = result['serverVersion'] as int?;
 
@@ -499,7 +510,12 @@ class SyncExecutor {
           succeeded++;
 
         default:
-          // 'error' or unknown status
+          // 'error' or unknown status — capture per-operation error message
+          // for fraud detection codes (FRAUD_DUPLICATE_LISTING,
+          // FRAUD_VELOCITY_EXCEEDED) and other server rejections.
+          if (message != null) {
+            operationErrors[operationId] = message;
+          }
           await _syncQueue.markAsFailed(operationId);
           failed++;
       }
@@ -513,12 +529,23 @@ class SyncExecutor {
       }
     }
 
+    // Use the first fraud-related error as the batch error message for UI
+    final fraudError = operationErrors.values.cast<String?>().firstWhere(
+          (msg) =>
+              msg != null &&
+              (msg.contains('FRAUD_DUPLICATE_LISTING') ||
+                  msg.contains('FRAUD_VELOCITY_EXCEEDED')),
+          orElse: () => null,
+        );
+
     return SyncBatchResult(
       total: operations.length,
       succeeded: succeeded,
       conflicted: conflicted,
       failed: failed,
       status: failed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
+      errorMessage: fraudError,
+      operationErrors: operationErrors,
     );
   }
 

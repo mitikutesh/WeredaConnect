@@ -54,6 +54,6 @@ echo ""
 
 # Step 4: Deploy with CDK
 echo "[4/4] Deploying to AWS ($ENV)..."
-npx cdk deploy --all --context env="$ENV" --require-approval broadening
+npx cdk deploy --all --context environment="$ENV" --require-approval broadening
 echo ""
 echo "=== Deployment complete: $ENV ==="

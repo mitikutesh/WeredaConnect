@@ -491,13 +491,44 @@ class AuthService {
   /// Handle DioException and map to AuthResult with error codes.
   AuthResult _handleDioError(DioException e) {
     if (e.response != null) {
+      final statusCode = e.response!.statusCode;
       final data = e.response!.data;
 
-      if (data is Map<String, dynamic> && data.containsKey('error')) {
-        final error = data['error'] as Map<String, dynamic>;
+      if (data is Map<String, dynamic>) {
+        // Handle structured error response: {"error": {"code": ..., "message": ..., "retryAfterSeconds": ...}}
+        if (data.containsKey('error') &&
+            data['error'] is Map<String, dynamic>) {
+          final error = data['error'] as Map<String, dynamic>;
+          final retryAfter = error['retryAfterSeconds'];
+          return AuthResult.failure(
+            error['code'] as String? ?? AuthErrorCode.internalServerError,
+            error['message'] as String? ?? 'Server error',
+            retryAfterSeconds: retryAfter is int ? retryAfter : null,
+          );
+        }
+
+        // Handle simple error response: {"message": "..."}
+        if (data.containsKey('message')) {
+          final message = data['message'] as String?;
+          // Don't expose raw "Internal Server Error" — use friendly message
+          if (statusCode != null && statusCode >= 500) {
+            return AuthResult.failure(
+              AuthErrorCode.internalServerError,
+              'Server is temporarily unavailable. Please try again.',
+            );
+          }
+          return AuthResult.failure(
+            AuthErrorCode.internalServerError,
+            message ?? 'Server error',
+          );
+        }
+      }
+
+      // Generic server error for 5xx without parseable body
+      if (statusCode != null && statusCode >= 500) {
         return AuthResult.failure(
-          error['code'] as String? ?? AuthErrorCode.internalServerError,
-          error['message'] as String? ?? 'Server error',
+          AuthErrorCode.internalServerError,
+          'Server is temporarily unavailable. Please try again.',
         );
       }
     }
@@ -508,20 +539,21 @@ class AuthService {
         e.type == DioExceptionType.sendTimeout) {
       return AuthResult.failure(
         AuthErrorCode.networkError,
-        'Network timeout. Please check your connection',
+        'Network timeout. Please check your connection.',
       );
     }
 
-    if (e.type == DioExceptionType.unknown) {
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.unknown) {
       return AuthResult.failure(
         AuthErrorCode.networkError,
-        'No internet connection',
+        'No internet connection.',
       );
     }
 
     return AuthResult.failure(
       AuthErrorCode.internalServerError,
-      e.message ?? 'Unknown error',
+      'Something went wrong. Please try again.',
     );
   }
 }

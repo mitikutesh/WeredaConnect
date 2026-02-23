@@ -559,7 +559,7 @@ abstract class AppLocalizations {
   /// Password requirements message
   ///
   /// In en, this message translates to:
-  /// **'Password must be at least 6 characters'**
+  /// **'Password must be at least 8 characters with a lowercase letter and a number'**
   String get passwordRequirements;
 
   /// Error message for invalid phone format
@@ -591,6 +591,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Verification code expired. Request a new one'**
   String get otpExpired;
+
+  /// Error message when rate limit exceeded during auth
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Please try again later.'**
+  String get authRateLimitExceeded;
+
+  /// Error message for generic server error during auth
+  ///
+  /// In en, this message translates to:
+  /// **'Server error. Please try again later.'**
+  String get authServerError;
+
+  /// Error message when auth service is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication service temporarily unavailable. Please try again later.'**
+  String get authServiceUnavailable;
+
+  /// Error message when network is unavailable during auth
+  ///
+  /// In en, this message translates to:
+  /// **'No internet connection. Please check your connection.'**
+  String get authNetworkError;
+
+  /// Error message when account is locked due to too many failed login attempts
+  ///
+  /// In en, this message translates to:
+  /// **'Account locked due to too many failed attempts. Try again in {duration}.'**
+  String authAccountLocked(String duration);
+
+  /// Duration in seconds
+  ///
+  /// In en, this message translates to:
+  /// **'{count} seconds'**
+  String durationSeconds(int count);
+
+  /// Duration in minutes
+  ///
+  /// In en, this message translates to:
+  /// **'{count} minutes'**
+  String durationMinutes(int count);
+
+  /// Duration in hours
+  ///
+  /// In en, this message translates to:
+  /// **'{count} hours'**
+  String durationHours(int count);
+
+  /// Error message when user tries to login but phone is not verified
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number not verified. Please complete OTP verification.'**
+  String get phoneNotVerified;
 
   /// Success message after registration
   ///
@@ -1125,6 +1179,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Trucker name is required'**
   String get truckerNameRequired;
+
+  /// Label for vehicle license plate number field
+  ///
+  /// In en, this message translates to:
+  /// **'Vehicle Plate'**
+  String get vehiclePlate;
+
+  /// Label for vehicle description field
+  ///
+  /// In en, this message translates to:
+  /// **'Vehicle Description'**
+  String get vehicleDescription;
 
   /// Deliveries navigation tab label
   ///

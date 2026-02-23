@@ -9,6 +9,7 @@ public sealed record AuthResultError
     public required string Code { get; init; }
     public required string Message { get; init; }
     public string? Field { get; init; }
+    public int? RetryAfterSeconds { get; init; }
 }
 
 /// <summary>
@@ -35,13 +36,14 @@ public sealed class AuthResult<T>
 
     public static AuthResult<T> Success(T value) => new(value);
 
-    public static AuthResult<T> Failure(int httpStatus, string code, string message, string? field = null) =>
+    public static AuthResult<T> Failure(int httpStatus, string code, string message, string? field = null, int? retryAfterSeconds = null) =>
         new(new AuthResultError
         {
             HttpStatus = httpStatus,
             Code = code,
             Message = message,
-            Field = field
+            Field = field,
+            RetryAfterSeconds = retryAfterSeconds
         });
 
     public static AuthResult<T> Failure(AuthResultError error) => new(error);

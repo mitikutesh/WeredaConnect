@@ -46,7 +46,7 @@ public sealed class RateLimitService : IRateLimitService
         {
             var retryAfterSeconds = (int)Math.Ceiling((lockedUntil - DateTime.UtcNow).TotalSeconds);
             return AuthResult<bool>.Failure(403, "AUTH_015",
-                $"Account locked due to too many failed attempts. Try again in {retryAfterSeconds} seconds.");
+                "Account locked due to too many failed attempts.", retryAfterSeconds: retryAfterSeconds);
         }
 
         return AuthResult<bool>.Success(true);

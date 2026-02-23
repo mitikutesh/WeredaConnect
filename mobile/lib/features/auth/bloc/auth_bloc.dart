@@ -282,6 +282,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
           errorMessage: result.errorMessage ?? 'Login failed',
           canRetry: result.errorCode?.isRecoverable ?? true,
+          retryAfterSeconds: result.retryAfterSeconds,
         ),
       );
     }
