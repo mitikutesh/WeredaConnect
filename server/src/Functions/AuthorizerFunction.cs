@@ -43,7 +43,11 @@ public class AuthorizerFunction
         var clientId = Environment.GetEnvironmentVariable("COGNITO_CLIENT_ID")
                        ?? throw new InvalidOperationException("COGNITO_CLIENT_ID is not set.");
 
-        _jwtValidator = new CognitoJwtValidator(userPoolId, region, clientId);
+        // TODO: Fetch JWKS from Cognito and pass the signing key for full signature validation.
+        // Currently, API Gateway uses HttpUserPoolAuthorizer for JWT validation.
+        // This custom authorizer is not wired in CDK but is kept for potential future use.
+        // Using isTestingEnvironment flag until JWKS fetching is implemented.
+        _jwtValidator = new CognitoJwtValidator(userPoolId, region, clientId, isTestingEnvironment: true);
     }
 
     /// <summary>

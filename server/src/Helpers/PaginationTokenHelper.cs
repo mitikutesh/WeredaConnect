@@ -13,13 +13,17 @@ namespace WeredaConnect.Server.Helpers;
 /// </summary>
 public static class PaginationTokenHelper
 {
-    // TODO: Move to SSM Parameter Store for production. MVP uses a derived constant.
     private static readonly byte[] SigningKey = GetSigningKey();
 
     private static byte[] GetSigningKey()
     {
-        var secret = Environment.GetEnvironmentVariable("PAGINATION_SECRET")
-            ?? "WeredaConnect-Pagination-Default-Key-v1";
+        var secret = Environment.GetEnvironmentVariable("PAGINATION_SECRET");
+        if (string.IsNullOrEmpty(secret))
+        {
+            throw new InvalidOperationException(
+                "PAGINATION_SECRET environment variable is required. " +
+                "Set a cryptographically random string (32+ characters) via SSM Parameter Store or Secrets Manager.");
+        }
         return SHA256.HashData(Encoding.UTF8.GetBytes(secret));
     }
 

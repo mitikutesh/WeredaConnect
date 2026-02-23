@@ -2,6 +2,7 @@ using Amazon.DynamoDBv2;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -23,6 +24,7 @@ namespace WeredaConnect.Server.Functions;
 public class EscrowFunction
 {
     private readonly EscrowService _escrowService;
+    private readonly IFraudDetectionService? _fraudService;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -52,14 +54,25 @@ public class EscrowFunction
         }
 
         _escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo);
+
+        // Fraud detection (F-14)
+        var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
+        var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE") ?? "";
+        if (!string.IsNullOrEmpty(rateLimitTable))
+        {
+            _fraudService = new FraudDetectionService(
+                dynamoDb, cropsTable,
+                new RateLimitRepository(dynamoDb, rateLimitTable));
+        }
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public EscrowFunction(EscrowService escrowService)
+    public EscrowFunction(EscrowService escrowService, IFraudDetectionService? fraudService = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
+        _fraudService = fraudService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -118,9 +131,26 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
+        // ── Fraud velocity check (F-14) ──
+        if (_fraudService != null)
+        {
+            var fraudCheck = await _fraudService.CheckPaymentVelocityAsync(userId);
+            if (!fraudCheck.IsAllowed)
+            {
+                return LambdaResponse.Error(429, fraudCheck.ErrorCode!, fraudCheck.Message!);
+            }
+        }
+
         try
         {
             var result = await _escrowService.InitiateAsync(body, userId);
+
+            // Record for velocity tracking (F-14)
+            if (_fraudService != null && result.IsSuccess)
+            {
+                await _fraudService.RecordPaymentInitiatedAsync(userId);
+            }
+
             return MapResult(result,
                 value => value.IsDuplicate
                     ? LambdaResponse.Ok(value, AppJsonContext.Default.InitiateEscrowResponse)
@@ -396,23 +426,13 @@ public class EscrowFunction
     // ──────────────────────────────────────────────
 
     /// <summary>
-    /// Check if the request is authenticated by looking for an Authorization header
-    /// or JWT authorizer claims in the request context.
+    /// Check if the request is authenticated by verifying JWT authorizer claims
+    /// in the request context (set by API Gateway after JWT validation).
+    /// SECURITY: Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
     {
-        if (request.Headers != null)
-        {
-            foreach (var header in request.Headers)
-            {
-                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(header.Value))
-                {
-                    return true;
-                }
-            }
-        }
-
+        // Only trust JWT authorizer claims set by API Gateway after validation
         if (request.RequestContext?.Authorizer != null
             && request.RequestContext.Authorizer.Count > 0)
         {

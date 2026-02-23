@@ -943,8 +943,10 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetDeliveryById_AuthWithAuthorizationHeader_NonParticipant_Returns403()
+    public async Task HandleGetDeliveryById_AuthWithOnlyAuthorizationHeader_Returns401()
     {
+        // SECURITY: Raw Authorization headers are NOT trusted — only JWT authorizer claims are.
+        // A request with only an Authorization header (no authorizer claims) must be rejected.
         var delivery = CreateDeliveryItem("del-001");
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
 
@@ -953,8 +955,8 @@ public class DeliveryFunctionTests
         var request = MakeGetRequest("/deliveries/del-001", pathParams: pathParams, headers: headers);
         var response = await _function.FunctionHandler(request, _context);
 
-        // Non-participant should be rejected with 403
-        Assert.Equal(403, response.StatusCode);
+        // Without authorizer claims, request is unauthenticated — returns 401
+        Assert.Equal(401, response.StatusCode);
         Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
     }
 

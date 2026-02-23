@@ -243,25 +243,13 @@ public class DeliveryFunction
     }
 
     /// <summary>
-    /// Check if the request is authenticated by looking for an Authorization header
-    /// or JWT authorizer claims in the request context.
+    /// Check if the request is authenticated by verifying JWT authorizer claims
+    /// in the request context (set by API Gateway after JWT validation).
+    /// SECURITY: Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
     {
-        // Check for Authorization header (case-insensitive lookup)
-        if (request.Headers != null)
-        {
-            foreach (var header in request.Headers)
-            {
-                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(header.Value))
-                {
-                    return true;
-                }
-            }
-        }
-
-        // Check for JWT authorizer claims in request context
+        // Only trust JWT authorizer claims set by API Gateway after validation
         if (request.RequestContext?.Authorizer != null
             && request.RequestContext.Authorizer.Count > 0)
         {
