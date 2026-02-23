@@ -213,7 +213,7 @@ void main() {
         final result =
             await ApiClient().get<Map<String, dynamic>>('/escrow/history');
 
-        expect(result['payments'], isA<List>());
+        expect(result['payments'], isA<List<dynamic>>());
       });
 
       test('escrow dispute responds 200', () async {

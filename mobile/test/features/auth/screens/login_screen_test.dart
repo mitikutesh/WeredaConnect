@@ -5,8 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:wereda_connect/core/auth/models/auth_error.dart';
-import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -21,15 +19,6 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
 class FakeAuthState extends Fake implements AuthState {}
-
-// ---------------------------------------------------------------------------
-// Test data
-// ---------------------------------------------------------------------------
-const _testTokens = AuthTokens(
-  accessToken: 'fake-access-token',
-  refreshToken: 'fake-refresh-token',
-  idToken: 'fake-id-token',
-);
 
 void main() {
   late MockAuthBloc authBloc;
@@ -278,7 +267,9 @@ void main() {
       when(() => authBloc.state).thenReturn(const AuthLoading());
 
       await tester.pumpWidget(buildTestWidget());
-      await tester.pumpAndSettle();
+      // Use pump() instead of pumpAndSettle() because
+      // CircularProgressIndicator animates infinitely.
+      await tester.pump();
 
       // Login button should show CircularProgressIndicator
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
