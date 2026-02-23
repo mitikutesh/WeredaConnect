@@ -37,6 +37,11 @@ class CropListing {
   /// Geographic location of the crop (farm location)
   late LatLng location;
 
+  /// Human-readable location name (woreda/kebele)
+  /// Entered by the farmer, used for browse filtering
+  @Index()
+  late String locationName;
+
   /// Text description of the crop condition/quality
   /// Supports Amharic, Afan Oromo, and English
   late String description;
@@ -82,6 +87,9 @@ enum ListingStatus {
 
   /// Published and available for matching
   active,
+
+  /// Matched with a trip, pending pickup
+  reserved,
 
   /// Successfully sold and delivered
   sold,

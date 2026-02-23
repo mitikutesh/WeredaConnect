@@ -856,11 +856,29 @@ abstract class AppLocalizations {
   /// **'Sold'**
   String get listingStatusSold;
 
+  /// Status label for reserved crop listing (matched with trip, pending pickup)
+  ///
+  /// In en, this message translates to:
+  /// **'Reserved'**
+  String get listingStatusReserved;
+
   /// Status label for expired crop listing
   ///
   /// In en, this message translates to:
   /// **'Expired'**
   String get listingStatusExpired;
+
+  /// Filter label to show all listing statuses
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get listingFilterAll;
+
+  /// Debug button text to create test crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Seed Test Listings'**
+  String get listingSeedTestButton;
 
   /// Button to navigate back to welcome/landing screen
   ///
@@ -1222,6 +1240,12 @@ abstract class AppLocalizations {
   /// **'Take Photo'**
   String get deliveryTakePhoto;
 
+  /// Label for time data row in pickup/delivery sections
+  ///
+  /// In en, this message translates to:
+  /// **'Time'**
+  String get deliveryTimeLabel;
+
   /// Button to regenerate QR code
   ///
   /// In en, this message translates to:
@@ -1245,6 +1269,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Buyer'**
   String get deliveryBuyer;
+
+  /// GPS accuracy display with distance in meters
+  ///
+  /// In en, this message translates to:
+  /// **'Accuracy: {meters}m'**
+  String deliveryGpsAccuracy(String meters);
 
   /// GPS location successfully captured
   ///
@@ -1275,6 +1305,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Capturing GPS...'**
   String get deliveryGpsCapturing;
+
+  /// Label for GPS location data row
+  ///
+  /// In en, this message translates to:
+  /// **'GPS'**
+  String get deliveryGpsLabel;
+
+  /// Placeholder when GPS location was not captured
+  ///
+  /// In en, this message translates to:
+  /// **'Not captured'**
+  String get deliveryGpsNotCaptured;
 
   /// Location permission was denied by user
   ///
@@ -2193,6 +2235,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You\'ll see your alerts here'**
   String get noNotificationsDescription;
+
+  /// Button label and screen title for creating a new delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Create Delivery'**
+  String get createDelivery;
+
+  /// Button to contact the farmer about a listing
+  ///
+  /// In en, this message translates to:
+  /// **'Contact Farmer'**
+  String get contactFarmer;
+
+  /// Label for quantity row in listing detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity'**
+  String get detailQuantity;
+
+  /// Label for price row in listing detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Price'**
+  String get detailPrice;
+
+  /// Label for creation date row in detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get detailCreated;
+
+  /// Hint text for minimum price filter input
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get filterMin;
+
+  /// Hint text for maximum price filter input
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get filterMax;
+
+  /// Section header for trip selection in create delivery screen
+  ///
+  /// In en, this message translates to:
+  /// **'Select Trip'**
+  String get selectTrip;
+
+  /// Section header for buyer info in create delivery screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Information'**
+  String get buyerInformation;
+
+  /// Input label for buyer name field
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Name'**
+  String get buyerNameLabel;
+
+  /// Input label for buyer phone or ID field
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Phone / ID'**
+  String get buyerPhoneIdLabel;
+
+  /// Validation error when buyer name is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer name is required'**
+  String get buyerNameRequired;
+
+  /// Validation error when buyer phone/ID is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer phone or ID is required'**
+  String get buyerIdRequired;
+
+  /// Validation error when no trip is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a trip'**
+  String get tripSelectionRequired;
+
+  /// Dropdown hint for trip selection
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a trip'**
+  String get chooseTripHint;
+
+  /// Warning when trucker has no open trips for delivery creation
+  ///
+  /// In en, this message translates to:
+  /// **'No open trips available. Create a trip first.'**
+  String get noOpenTrips;
+
+  /// Success message after creating a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery created successfully'**
+  String get deliveryCreatedSuccess;
 }
 
 class _AppLocalizationsDelegate

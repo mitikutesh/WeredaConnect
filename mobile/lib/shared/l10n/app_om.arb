@@ -510,9 +510,21 @@
   "@listingStatusSold": {
     "description": "Status label for sold crop listing"
   },
+  "listingStatusReserved": "Qabamee",
+  "@listingStatusReserved": {
+    "description": "Status label for reserved crop listing (matched with trip, pending pickup)"
+  },
   "listingStatusExpired": "Darbe",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "listingFilterAll": "Hunda",
+  "@listingFilterAll": {
+    "description": "Filter label to show all listing statuses"
+  },
+  "listingSeedTestButton": "Tarree Qormaataa Uumi",
+  "@listingSeedTestButton": {
+    "description": "Debug button text to create test crop listings"
   },
   "backToHome": "Gara Manatti Deebi'i",
   "@backToHome": {
@@ -758,6 +770,10 @@
   "@deliveryTakePhoto": {
     "description": "Button to capture photo evidence"
   },
+  "deliveryTimeLabel": "Yeroo",
+  "@deliveryTimeLabel": {
+    "description": "Label for time data row in pickup/delivery sections"
+  },
   "deliveryRegenerateQr": "QR Haaromsi",
   "@deliveryRegenerateQr": {
     "description": "Button to regenerate QR code"
@@ -773,6 +789,16 @@
   "deliveryBuyer": "Bitaa",
   "@deliveryBuyer": {
     "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsAccuracy": "Sirrii: {meters}m",
+  "@deliveryGpsAccuracy": {
+    "description": "GPS accuracy display with distance in meters",
+    "placeholders": {
+      "meters": {
+        "type": "String",
+        "example": "5"
+      }
+    }
   },
   "deliveryGpsCaptured": "GPS Qabame",
   "@deliveryGpsCaptured": {
@@ -793,6 +819,14 @@
   "deliveryGpsCapturing": "GPS Qabamaa...",
   "@deliveryGpsCapturing": {
     "description": "GPS capture in progress"
+  },
+  "deliveryGpsLabel": "GPS",
+  "@deliveryGpsLabel": {
+    "description": "Label for GPS location data row"
+  },
+  "deliveryGpsNotCaptured": "Hin qabamne",
+  "@deliveryGpsNotCaptured": {
+    "description": "Placeholder when GPS location was not captured"
   },
   "deliveryGpsPermissionDenied": "Hayyama Iddoo Didame",
   "@deliveryGpsPermissionDenied": {
@@ -1503,5 +1537,22 @@
   "noNotificationsDescription": "Akeekkachiisni keessan asitti mul'ata",
   "@noNotificationsDescription": {
     "description": "Empty state subtitle on notifications screen"
-  }
+  },
+  "createDelivery": "Ergaa Uumi",
+  "contactFarmer": "Qonnaan Bulaa Quunnamuu",
+  "detailQuantity": "Hamma",
+  "detailPrice": "Gatii",
+  "detailCreated": "Kan Uumame",
+  "filterMin": "Xiqqaa",
+  "filterMax": "Guddaa",
+  "selectTrip": "Imala Filadhu",
+  "buyerInformation": "Odeeffannoo Bitaa",
+  "buyerNameLabel": "Maqaa Bitaa",
+  "buyerPhoneIdLabel": "Bilbila / Eenyummaa Bitaa",
+  "buyerNameRequired": "Maqaan bitaa barbaachisaadha",
+  "buyerIdRequired": "Bilbilli ykn eenyummaan bitaa barbaachisaadha",
+  "tripSelectionRequired": "Maaloo imala filadhaa",
+  "chooseTripHint": "Imala filadhaa",
+  "noOpenTrips": "Imalii banaa hin jiru. Dursa imala uumaa.",
+  "deliveryCreatedSuccess": "Ergaan milkaa'inaan uumame"
 }

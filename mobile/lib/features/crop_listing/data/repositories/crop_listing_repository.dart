@@ -32,6 +32,7 @@ class CropListingRepository {
     required double pricePerKg,
     required double latitude,
     required double longitude,
+    required String locationName,
     required String description,
     String? audioNoteRef,
   }) async {
@@ -49,6 +50,7 @@ class CropListingRepository {
       ..quantity = quantity
       ..pricePerKg = pricePerKg
       ..location = location
+      ..locationName = locationName
       ..description = description
       ..audioNoteRef = audioNoteRef
       ..status = ListingStatus.active
@@ -69,6 +71,7 @@ class CropListingRepository {
       'pricePerKg': pricePerKg,
       'latitude': latitude,
       'longitude': longitude,
+      'locationName': locationName,
       'description': description,
       'audioNoteRef': audioNoteRef,
       'status': listing.status.name,
@@ -97,12 +100,53 @@ class CropListingRepository {
         .findAll();
   }
 
-  /// Get all active listings, optionally filtered by crop type.
-  Future<List<CropListing>> getActiveListings({String? cropTypeFilter}) async {
+  /// Get listings for a farmer, optionally filtered by status and crop type.
+  Future<List<CropListing>> getListingsByFarmerFiltered({
+    required String farmerId,
+    String? statusFilter,
+    String? cropTypeFilter,
+  }) async {
+    var query = _isar.cropListings.filter().farmerIdEqualTo(farmerId);
+
+    if (statusFilter != null) {
+      final status = ListingStatus.values.byName(statusFilter);
+      query = query.statusEqualTo(status);
+    }
+
+    if (cropTypeFilter != null) {
+      query = query.cropTypeEqualTo(cropTypeFilter);
+    }
+
+    return query.sortByCreatedAtDesc().findAll();
+  }
+
+  /// Get all active listings with optional filters.
+  ///
+  /// [cropTypeFilter] — exact match on crop type key.
+  /// [weredaFilter] — case-insensitive substring match on locationName.
+  /// [priceMin] / [priceMax] — price per kg range in ETB.
+  Future<List<CropListing>> getActiveListings({
+    String? cropTypeFilter,
+    String? weredaFilter,
+    double? priceMin,
+    double? priceMax,
+  }) async {
     var query = _isar.cropListings.filter().statusEqualTo(ListingStatus.active);
 
     if (cropTypeFilter != null) {
       query = query.cropTypeEqualTo(cropTypeFilter);
+    }
+
+    if (weredaFilter != null && weredaFilter.isNotEmpty) {
+      query = query.locationNameContains(weredaFilter, caseSensitive: false);
+    }
+
+    if (priceMin != null) {
+      query = query.pricePerKgGreaterThan(priceMin, include: true);
+    }
+
+    if (priceMax != null) {
+      query = query.pricePerKgLessThan(priceMax, include: true);
     }
 
     return query.sortByCreatedAtDesc().findAll();

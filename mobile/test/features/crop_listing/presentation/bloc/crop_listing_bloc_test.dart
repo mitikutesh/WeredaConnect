@@ -88,6 +88,7 @@ void main() {
           pricePerKg: 45.0,
           latitude: 9.0192,
           longitude: 38.7525,
+          locationName: 'Ada',
           description: 'High quality teff',
         ),
       );
@@ -111,6 +112,7 @@ void main() {
         pricePerKg: 45.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Ada',
         description: 'Teff',
       );
       await repository.createListing(
@@ -120,6 +122,7 @@ void main() {
         pricePerKg: 35.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Arsi',
         description: 'Wheat',
       );
 
@@ -156,6 +159,7 @@ void main() {
         pricePerKg: 45.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Ada',
         description: 'Teff',
       );
 

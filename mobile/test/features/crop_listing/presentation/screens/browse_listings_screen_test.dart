@@ -104,10 +104,15 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Should show "All" chip and crop type chips
-      expect(find.text('All'), findsOneWidget);
+      // Farmer mode: status filter "All" + crop type filter "All" = 2
+      expect(find.text('All'), findsNWidgets(2));
       expect(find.text('Teff'), findsOneWidget);
       expect(find.text('Wheat'), findsOneWidget);
+
+      // Status filter chips should be visible for farmer
+      expect(find.text('Draft'), findsOneWidget);
+      expect(find.text('Active'), findsOneWidget);
+      expect(find.text('Reserved'), findsOneWidget);
     });
   });
 }

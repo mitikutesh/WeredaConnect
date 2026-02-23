@@ -11,6 +11,10 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
   final TripListingRepository _repository;
 
+  /// Exposed for screens that need to query trips directly
+  /// (e.g., CreateDeliveryScreen loading trucker's open trips).
+  TripListingRepository get repository => _repository;
+
   TripListingBloc({required TripListingRepository repository})
       : _repository = repository,
         super(const TripListingInitial()) {

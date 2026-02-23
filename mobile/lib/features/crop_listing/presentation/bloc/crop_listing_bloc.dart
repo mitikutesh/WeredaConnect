@@ -44,6 +44,9 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     try {
       final listings = await _repository.getActiveListings(
         cropTypeFilter: event.cropTypeFilter,
+        weredaFilter: event.weredaFilter,
+        priceMin: event.priceMin,
+        priceMax: event.priceMax,
       );
       emit(
         CropListingsLoaded(
@@ -70,6 +73,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         pricePerKg: event.pricePerKg,
         latitude: event.latitude,
         longitude: event.longitude,
+        locationName: event.locationName,
         description: event.description,
         audioNoteRef: event.audioNoteRef,
       );
@@ -105,11 +109,11 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     emit(const CropListingLoading());
 
     try {
-      final listings = event.cropType != null
-          ? await _repository.getActiveListings(
-              cropTypeFilter: event.cropType,
-            )
-          : await _repository.getListingsByFarmer(event.farmerId);
+      final listings = await _repository.getListingsByFarmerFiltered(
+        farmerId: event.farmerId,
+        statusFilter: event.statusFilter,
+        cropTypeFilter: event.cropType,
+      );
       emit(
         CropListingsLoaded(
           listings: listings,

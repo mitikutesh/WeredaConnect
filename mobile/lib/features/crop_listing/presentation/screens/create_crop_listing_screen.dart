@@ -102,6 +102,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             pricePerKg: double.parse(_priceController.text),
             latitude: _gpsResult?.latitude ?? 0.0,
             longitude: _gpsResult?.longitude ?? 0.0,
+            locationName: _locationController.text.trim(),
             description: _descriptionController.text.trim(),
             audioNoteRef: _audioNoteRef,
           ),

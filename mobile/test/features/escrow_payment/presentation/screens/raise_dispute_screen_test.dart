@@ -231,7 +231,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsOneWidget);
-      expect(find.text('Submit'), findsOneWidget);
+      // Both the main button and dialog button show 'Submit Dispute'
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Submit Dispute'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('confirming dialog dispatches RaisePaymentDispute event',
@@ -256,8 +263,13 @@ void main() {
       await tester.tap(findSubmitButton());
       await tester.pumpAndSettle();
 
-      // Confirm in dialog
-      await tester.tap(find.text('Submit'));
+      // Confirm in dialog – tap the button inside the AlertDialog
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Submit Dispute'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       verify(() => escrowBloc.add(any(that: isA<RaisePaymentDispute>())))

@@ -125,6 +125,7 @@ class _StatusChip extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
       ListingStatus.active => (Colors.green, l10n.listingStatusActive),
+      ListingStatus.reserved => (Colors.orange, l10n.listingStatusReserved),
       ListingStatus.draft => (Colors.grey, l10n.listingStatusDraft),
       ListingStatus.sold => (Colors.blue, l10n.listingStatusSold),
       ListingStatus.expired => (Colors.red, l10n.listingStatusExpired),

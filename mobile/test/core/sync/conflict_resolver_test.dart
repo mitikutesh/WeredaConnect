@@ -58,6 +58,7 @@ void main() {
             ..latitude = 9.0
             ..longitude = 38.7)
           ..description = 'Old description'
+          ..locationName = 'Bishoftu'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-10T10:00:00Z')
@@ -148,6 +149,7 @@ void main() {
             ..latitude = 10.0
             ..longitude = 39.0)
           ..description = 'Local edits not synced'
+          ..locationName = 'Adama'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-12T08:00:00Z')
@@ -216,6 +218,7 @@ void main() {
             ..latitude = 8.5
             ..longitude = 38.0)
           ..description = 'No audio'
+          ..locationName = 'Hawassa'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-13T10:00:00Z')
@@ -284,6 +287,7 @@ void main() {
             ..latitude = 9.5
             ..longitude = 39.5)
           ..description = 'Active listing'
+          ..locationName = 'Debre Zeit'
           ..audioNoteRef = null
           ..status = ListingStatus.active
           ..createdAt = DateTime.parse('2026-02-10T10:00:00Z')
@@ -387,6 +391,7 @@ void main() {
             ..latitude = 9.0
             ..longitude = 38.0)
           ..description = 'Test'
+          ..locationName = 'Jimma'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-14T10:00:00Z')
@@ -438,6 +443,7 @@ void main() {
             ..latitude = 9.0
             ..longitude = 38.0)
           ..description = 'Test'
+          ..locationName = 'Bahir Dar'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = originalCreatedAt
@@ -813,6 +819,7 @@ void main() {
             ..latitude = 9.0
             ..longitude = 38.0)
           ..description = 'Test'
+          ..locationName = 'Gondar'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-14T10:00:00Z')

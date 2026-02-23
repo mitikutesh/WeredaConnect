@@ -369,7 +369,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   style: theme.textTheme.bodyMedium,
                 ),
                 Text(
-                  'Accuracy: ${_gpsResult!.accuracy!.toStringAsFixed(0)}m',
+                  AppLocalizations.of(context)!.deliveryGpsAccuracy(
+                    _gpsResult!.accuracy!.toStringAsFixed(0),
+                  ),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   ),

@@ -173,22 +173,22 @@ class DeliveryDetailScreen extends StatelessWidget {
         if (delivery.pickedUpAt != null) ...[
           _InfoRow(
             icon: Icons.access_time,
-            label: 'Time',
+            label: l10n.deliveryTimeLabel,
             value: dateFormat.format(delivery.pickedUpAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsPickup != null)
             _InfoRow(
               icon: Icons.location_on,
-              label: 'GPS',
+              label: l10n.deliveryGpsLabel,
               value:
                   '${delivery.gpsPickup!.latitude.toStringAsFixed(4)}, ${delivery.gpsPickup!.longitude.toStringAsFixed(4)}',
             )
           else
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.location_off,
-              label: 'GPS',
-              value: 'Not captured',
+              label: l10n.deliveryGpsLabel,
+              value: l10n.deliveryGpsNotCaptured,
             ),
           const SizedBox(height: 8),
           PhotoEvidenceWidget(
@@ -226,22 +226,22 @@ class DeliveryDetailScreen extends StatelessWidget {
         if (delivery.confirmedAt != null) ...[
           _InfoRow(
             icon: Icons.access_time,
-            label: 'Time',
+            label: l10n.deliveryTimeLabel,
             value: dateFormat.format(delivery.confirmedAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsDropoff != null)
             _InfoRow(
               icon: Icons.location_on,
-              label: 'GPS',
+              label: l10n.deliveryGpsLabel,
               value:
                   '${delivery.gpsDropoff!.latitude.toStringAsFixed(4)}, ${delivery.gpsDropoff!.longitude.toStringAsFixed(4)}',
             )
           else
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.location_off,
-              label: 'GPS',
-              value: 'Not captured',
+              label: l10n.deliveryGpsLabel,
+              value: l10n.deliveryGpsNotCaptured,
             ),
           const SizedBox(height: 8),
           PhotoEvidenceWidget(

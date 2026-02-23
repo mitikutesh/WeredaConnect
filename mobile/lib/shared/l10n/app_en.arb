@@ -510,9 +510,21 @@
   "@listingStatusSold": {
     "description": "Status label for sold crop listing"
   },
+  "listingStatusReserved": "Reserved",
+  "@listingStatusReserved": {
+    "description": "Status label for reserved crop listing (matched with trip, pending pickup)"
+  },
   "listingStatusExpired": "Expired",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "listingFilterAll": "All",
+  "@listingFilterAll": {
+    "description": "Filter label to show all listing statuses"
+  },
+  "listingSeedTestButton": "Seed Test Listings",
+  "@listingSeedTestButton": {
+    "description": "Debug button text to create test crop listings"
   },
   "backToHome": "Back to Home",
   "@backToHome": {
@@ -758,6 +770,10 @@
   "@deliveryTakePhoto": {
     "description": "Button to capture photo evidence"
   },
+  "deliveryTimeLabel": "Time",
+  "@deliveryTimeLabel": {
+    "description": "Label for time data row in pickup/delivery sections"
+  },
   "deliveryRegenerateQr": "Regenerate QR",
   "@deliveryRegenerateQr": {
     "description": "Button to regenerate QR code"
@@ -773,6 +789,16 @@
   "deliveryBuyer": "Buyer",
   "@deliveryBuyer": {
     "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsAccuracy": "Accuracy: {meters}m",
+  "@deliveryGpsAccuracy": {
+    "description": "GPS accuracy display with distance in meters",
+    "placeholders": {
+      "meters": {
+        "type": "String",
+        "example": "5"
+      }
+    }
   },
   "deliveryGpsCaptured": "GPS Captured",
   "@deliveryGpsCaptured": {
@@ -793,6 +819,14 @@
   "deliveryGpsCapturing": "Capturing GPS...",
   "@deliveryGpsCapturing": {
     "description": "GPS capture in progress"
+  },
+  "deliveryGpsLabel": "GPS",
+  "@deliveryGpsLabel": {
+    "description": "Label for GPS location data row"
+  },
+  "deliveryGpsNotCaptured": "Not captured",
+  "@deliveryGpsNotCaptured": {
+    "description": "Placeholder when GPS location was not captured"
   },
   "deliveryGpsPermissionDenied": "Location permission denied",
   "@deliveryGpsPermissionDenied": {
@@ -1512,5 +1546,76 @@
   "noNotificationsDescription": "You'll see your alerts here",
   "@noNotificationsDescription": {
     "description": "Empty state subtitle on notifications screen"
+  },
+
+  "@@matchingFlowSection": "=== Matching / Delivery Creation ===",
+
+  "createDelivery": "Create Delivery",
+  "@createDelivery": {
+    "description": "Button label and screen title for creating a new delivery"
+  },
+  "contactFarmer": "Contact Farmer",
+  "@contactFarmer": {
+    "description": "Button to contact the farmer about a listing"
+  },
+  "detailQuantity": "Quantity",
+  "@detailQuantity": {
+    "description": "Label for quantity row in listing detail view"
+  },
+  "detailPrice": "Price",
+  "@detailPrice": {
+    "description": "Label for price row in listing detail view"
+  },
+  "detailCreated": "Created",
+  "@detailCreated": {
+    "description": "Label for creation date row in detail view"
+  },
+  "filterMin": "Min",
+  "@filterMin": {
+    "description": "Hint text for minimum price filter input"
+  },
+  "filterMax": "Max",
+  "@filterMax": {
+    "description": "Hint text for maximum price filter input"
+  },
+  "selectTrip": "Select Trip",
+  "@selectTrip": {
+    "description": "Section header for trip selection in create delivery screen"
+  },
+  "buyerInformation": "Buyer Information",
+  "@buyerInformation": {
+    "description": "Section header for buyer info in create delivery screen"
+  },
+  "buyerNameLabel": "Buyer Name",
+  "@buyerNameLabel": {
+    "description": "Input label for buyer name field"
+  },
+  "buyerPhoneIdLabel": "Buyer Phone / ID",
+  "@buyerPhoneIdLabel": {
+    "description": "Input label for buyer phone or ID field"
+  },
+  "buyerNameRequired": "Buyer name is required",
+  "@buyerNameRequired": {
+    "description": "Validation error when buyer name is empty"
+  },
+  "buyerIdRequired": "Buyer phone or ID is required",
+  "@buyerIdRequired": {
+    "description": "Validation error when buyer phone/ID is empty"
+  },
+  "tripSelectionRequired": "Please select a trip",
+  "@tripSelectionRequired": {
+    "description": "Validation error when no trip is selected"
+  },
+  "chooseTripHint": "Choose a trip",
+  "@chooseTripHint": {
+    "description": "Dropdown hint for trip selection"
+  },
+  "noOpenTrips": "No open trips available. Create a trip first.",
+  "@noOpenTrips": {
+    "description": "Warning when trucker has no open trips for delivery creation"
+  },
+  "deliveryCreatedSuccess": "Delivery created successfully",
+  "@deliveryCreatedSuccess": {
+    "description": "Success message after creating a delivery"
   }
 }

@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 
 /// Offline-first repository for delivery CRUD operations.
 ///
@@ -154,6 +155,26 @@ class DeliveryRepository {
     }
   }
 
+  /// Check GPS proximity and return true if distance exceeds threshold.
+  ///
+  /// This is a WARNING-ONLY check. It never blocks the operation because
+  /// GPS accuracy is unreliable in rural Ethiopian areas with poor
+  /// satellite coverage. The flag is included in sync data so the server
+  /// can flag the transaction for review.
+  ///
+  /// Returns `true` if a warning should be added (distance > 5 km), or
+  /// `false` if coordinates are missing or within the threshold.
+  bool _shouldWarnGpsDistance(LatLng? capturedGps, LatLng? referenceGps) {
+    if (capturedGps == null || referenceGps == null) return false;
+    final distanceMeters = GpsDistanceService.haversineDistance(
+      capturedGps.latitude,
+      capturedGps.longitude,
+      referenceGps.latitude,
+      referenceGps.longitude,
+    );
+    return distanceMeters > DeliveryConstants.gpsProximityThresholdKm * 1000;
+  }
+
   /// Create a new delivery.
   Future<Delivery> createDelivery({
     required String tripId,
@@ -272,6 +293,19 @@ class DeliveryRepository {
     _validateDeliveryOperation(delivery, 'confirmPickup', truckerId);
     _validateGpsCoordinates(gpsPickup?.latitude, gpsPickup?.longitude);
 
+    // GPS proximity warning: compare pickup GPS against listing location.
+    // Non-blocking -- only flags the sync payload for server review.
+    LatLng? listingLocation;
+    if (gpsPickup != null) {
+      final listing = await _isar.cropListings
+          .filter()
+          .listingIdEqualTo(delivery.listingId)
+          .findFirst();
+      listingLocation = listing?.location;
+    }
+    final gpsDistanceWarning =
+        _shouldWarnGpsDistance(gpsPickup, listingLocation);
+
     final now = DateTime.now().toUtc();
 
     await _isar.writeTxn(() async {
@@ -307,6 +341,10 @@ class DeliveryRepository {
       syncData['scannedQrNonce'] = scannedQrNonce;
     }
 
+    if (gpsDistanceWarning) {
+      syncData['gpsDistanceWarning'] = true;
+    }
+
     await _syncQueue.enqueue(
       userId: truckerId,
       entityType: 'delivery',
@@ -334,6 +372,22 @@ class DeliveryRepository {
 
     _validateDeliveryOperation(delivery, 'confirmDelivery', buyerId);
     _validateGpsCoordinates(gpsDropoff?.latitude, gpsDropoff?.longitude);
+
+    // GPS proximity warning: compare dropoff GPS against listing location.
+    // NOTE: The listing location is the farm (origin), not the buyer's
+    // destination. When a destination GPS field is added to Trip or
+    // Delivery, update this to use that instead. For now the server
+    // performs the authoritative check; this flags obvious outliers.
+    LatLng? destinationRef;
+    if (gpsDropoff != null) {
+      final listing = await _isar.cropListings
+          .filter()
+          .listingIdEqualTo(delivery.listingId)
+          .findFirst();
+      destinationRef = listing?.location;
+    }
+    final gpsDistanceWarning =
+        _shouldWarnGpsDistance(gpsDropoff, destinationRef);
 
     final now = DateTime.now().toUtc();
 
@@ -368,6 +422,10 @@ class DeliveryRepository {
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
+    }
+
+    if (gpsDistanceWarning) {
+      syncData['gpsDistanceWarning'] = true;
     }
 
     await _syncQueue.enqueue(

@@ -93,6 +93,7 @@ void main() {
           ..latitude = 8.7519
           ..longitude = 38.9811)
         ..description = 'High quality white teff from Bishoftu region'
+        ..locationName = 'Bishoftu'
         ..audioNoteRef = null
         ..status = ListingStatus.active
         ..createdAt = DateTime.now().toUtc()

@@ -395,7 +395,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listingStatusSold => 'Sold';
 
   @override
+  String get listingStatusReserved => 'Reserved';
+
+  @override
   String get listingStatusExpired => 'Expired';
+
+  @override
+  String get listingFilterAll => 'All';
+
+  @override
+  String get listingSeedTestButton => 'Seed Test Listings';
 
   @override
   String get backToHome => 'Back to Home';
@@ -581,6 +590,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryTakePhoto => 'Take Photo';
 
   @override
+  String get deliveryTimeLabel => 'Time';
+
+  @override
   String get deliveryRegenerateQr => 'Regenerate QR';
 
   @override
@@ -591,6 +603,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryBuyer => 'Buyer';
+
+  @override
+  String deliveryGpsAccuracy(String meters) {
+    return 'Accuracy: ${meters}m';
+  }
 
   @override
   String get deliveryGpsCaptured => 'GPS Captured';
@@ -606,6 +623,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryGpsCapturing => 'Capturing GPS...';
+
+  @override
+  String get deliveryGpsLabel => 'GPS';
+
+  @override
+  String get deliveryGpsNotCaptured => 'Not captured';
 
   @override
   String get deliveryGpsPermissionDenied => 'Location permission denied';
@@ -1110,4 +1133,55 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noNotificationsDescription => 'You\'ll see your alerts here';
+
+  @override
+  String get createDelivery => 'Create Delivery';
+
+  @override
+  String get contactFarmer => 'Contact Farmer';
+
+  @override
+  String get detailQuantity => 'Quantity';
+
+  @override
+  String get detailPrice => 'Price';
+
+  @override
+  String get detailCreated => 'Created';
+
+  @override
+  String get filterMin => 'Min';
+
+  @override
+  String get filterMax => 'Max';
+
+  @override
+  String get selectTrip => 'Select Trip';
+
+  @override
+  String get buyerInformation => 'Buyer Information';
+
+  @override
+  String get buyerNameLabel => 'Buyer Name';
+
+  @override
+  String get buyerPhoneIdLabel => 'Buyer Phone / ID';
+
+  @override
+  String get buyerNameRequired => 'Buyer name is required';
+
+  @override
+  String get buyerIdRequired => 'Buyer phone or ID is required';
+
+  @override
+  String get tripSelectionRequired => 'Please select a trip';
+
+  @override
+  String get chooseTripHint => 'Choose a trip';
+
+  @override
+  String get noOpenTrips => 'No open trips available. Create a trip first.';
+
+  @override
+  String get deliveryCreatedSuccess => 'Delivery created successfully';
 }

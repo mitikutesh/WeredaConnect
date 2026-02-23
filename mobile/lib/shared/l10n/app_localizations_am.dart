@@ -389,7 +389,16 @@ class AppLocalizationsAm extends AppLocalizations {
   String get listingStatusSold => 'ተሽጧል';
 
   @override
+  String get listingStatusReserved => 'ተይዟል';
+
+  @override
   String get listingStatusExpired => 'ጊዜው አልፏል';
+
+  @override
+  String get listingFilterAll => 'ሁሉም';
+
+  @override
+  String get listingSeedTestButton => 'የሙከራ ዝርዝሮች ፍጠር';
 
   @override
   String get backToHome => 'ወደ መነሻ ይመለሱ';
@@ -573,6 +582,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryTakePhoto => 'ፎቶ አንሳ';
 
   @override
+  String get deliveryTimeLabel => 'ሰዓት';
+
+  @override
   String get deliveryRegenerateQr => 'ኪዩአር እንደገና ፍጠር';
 
   @override
@@ -583,6 +595,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryBuyer => 'ገዥ';
+
+  @override
+  String deliveryGpsAccuracy(String meters) {
+    return 'ትክክለኛነት: $metersሜ';
+  }
 
   @override
   String get deliveryGpsCaptured => 'ጂፒኤስ ተቀርጿል';
@@ -598,6 +615,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryGpsCapturing => 'ጂፒኤስ በመቀረጽ...';
+
+  @override
+  String get deliveryGpsLabel => 'ጂፒኤስ';
+
+  @override
+  String get deliveryGpsNotCaptured => 'አልተቀረጸም';
 
   @override
   String get deliveryGpsPermissionDenied => 'የአካባቢ ፈቃድ ተከልክሏል';
@@ -1090,4 +1113,55 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get noNotificationsDescription => 'ማስጠንቀቂያዎችዎ እዚህ ይታያሉ';
+
+  @override
+  String get createDelivery => 'ማድረስ ፍጠር';
+
+  @override
+  String get contactFarmer => 'ገበሬውን አግኝ';
+
+  @override
+  String get detailQuantity => 'መጠን';
+
+  @override
+  String get detailPrice => 'ዋጋ';
+
+  @override
+  String get detailCreated => 'የተፈጠረ';
+
+  @override
+  String get filterMin => 'ዝቅተኛ';
+
+  @override
+  String get filterMax => 'ከፍተኛ';
+
+  @override
+  String get selectTrip => 'ጉዞ ይምረጡ';
+
+  @override
+  String get buyerInformation => 'የገዢ መረጃ';
+
+  @override
+  String get buyerNameLabel => 'የገዢ ስም';
+
+  @override
+  String get buyerPhoneIdLabel => 'የገዢ ስልክ / መታወቂያ';
+
+  @override
+  String get buyerNameRequired => 'የገዢ ስም ያስፈልጋል';
+
+  @override
+  String get buyerIdRequired => 'የገዢ ስልክ ወይም መታወቂያ ያስፈልጋል';
+
+  @override
+  String get tripSelectionRequired => 'እባክዎ ጉዞ ይምረጡ';
+
+  @override
+  String get chooseTripHint => 'ጉዞ ይምረጡ';
+
+  @override
+  String get noOpenTrips => 'ክፍት ጉዞ የለም። መጀመሪያ ጉዞ ይፍጠሩ።';
+
+  @override
+  String get deliveryCreatedSuccess => 'ማድረስ በተሳካ ሁኔታ ተፈጥሯል';
 }

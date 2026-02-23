@@ -399,7 +399,16 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingStatusSold => 'Gurguramee Jira';
 
   @override
+  String get listingStatusReserved => 'Qabamee';
+
+  @override
   String get listingStatusExpired => 'Darbe';
+
+  @override
+  String get listingFilterAll => 'Hunda';
+
+  @override
+  String get listingSeedTestButton => 'Tarree Qormaataa Uumi';
 
   @override
   String get backToHome => 'Gara Manatti Deebi\'i';
@@ -585,6 +594,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryTakePhoto => 'Suuraa Kaasi';
 
   @override
+  String get deliveryTimeLabel => 'Yeroo';
+
+  @override
   String get deliveryRegenerateQr => 'QR Haaromsi';
 
   @override
@@ -595,6 +607,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryBuyer => 'Bitaa';
+
+  @override
+  String deliveryGpsAccuracy(String meters) {
+    return 'Sirrii: ${meters}m';
+  }
 
   @override
   String get deliveryGpsCaptured => 'GPS Qabame';
@@ -610,6 +627,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryGpsCapturing => 'GPS Qabamaa...';
+
+  @override
+  String get deliveryGpsLabel => 'GPS';
+
+  @override
+  String get deliveryGpsNotCaptured => 'Hin qabamne';
 
   @override
   String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
@@ -1119,4 +1142,55 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get noNotificationsDescription =>
       'Akeekkachiisni keessan asitti mul\'ata';
+
+  @override
+  String get createDelivery => 'Ergaa Uumi';
+
+  @override
+  String get contactFarmer => 'Qonnaan Bulaa Quunnamuu';
+
+  @override
+  String get detailQuantity => 'Hamma';
+
+  @override
+  String get detailPrice => 'Gatii';
+
+  @override
+  String get detailCreated => 'Kan Uumame';
+
+  @override
+  String get filterMin => 'Xiqqaa';
+
+  @override
+  String get filterMax => 'Guddaa';
+
+  @override
+  String get selectTrip => 'Imala Filadhu';
+
+  @override
+  String get buyerInformation => 'Odeeffannoo Bitaa';
+
+  @override
+  String get buyerNameLabel => 'Maqaa Bitaa';
+
+  @override
+  String get buyerPhoneIdLabel => 'Bilbila / Eenyummaa Bitaa';
+
+  @override
+  String get buyerNameRequired => 'Maqaan bitaa barbaachisaadha';
+
+  @override
+  String get buyerIdRequired => 'Bilbilli ykn eenyummaan bitaa barbaachisaadha';
+
+  @override
+  String get tripSelectionRequired => 'Maaloo imala filadhaa';
+
+  @override
+  String get chooseTripHint => 'Imala filadhaa';
+
+  @override
+  String get noOpenTrips => 'Imalii banaa hin jiru. Dursa imala uumaa.';
+
+  @override
+  String get deliveryCreatedSuccess => 'Ergaan milkaa\'inaan uumame';
 }
