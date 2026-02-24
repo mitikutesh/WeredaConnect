@@ -36,9 +36,14 @@ dotnet test --verbosity minimal --no-restore 2>/dev/null || dotnet test --verbos
 echo "Tests passed."
 echo ""
 
-# Step 2: Build .NET AOT for Linux ARM64
-echo "[2/4] Building .NET AOT (linux-arm64)..."
-dotnet publish -c Release -r linux-arm64 --self-contained true
+# Step 2: Build .NET AOT for Linux ARM64 via Docker
+echo "[2/4] Building .NET AOT (linux-arm64) via Docker..."
+docker run --rm \
+  --platform linux/arm64 \
+  -v "$SERVER_DIR":/src \
+  -w /src \
+  mcr.microsoft.com/dotnet/sdk:10.0 \
+  bash -c "apt-get update -qq && apt-get install -y -qq clang zlib1g-dev >/dev/null 2>&1 && dotnet publish -c Release -r linux-arm64 --self-contained true -p:CI=true"
 echo "Build complete: $SERVER_DIR/bin/Release/net10.0/linux-arm64/publish/"
 echo ""
 
