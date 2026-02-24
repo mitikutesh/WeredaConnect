@@ -335,6 +335,12 @@ class AuthService {
         userId: user.userId,
         isOfflineAuth: true,
       );
+    } on RateLimitException catch (e) {
+      return AuthResult.failure(
+        AuthErrorCode.accountLocked,
+        e.message,
+        retryAfterSeconds: e.lockoutRemaining.inSeconds,
+      );
     } on Exception catch (e) {
       return AuthResult.failure(
         AuthErrorCode.databaseError,

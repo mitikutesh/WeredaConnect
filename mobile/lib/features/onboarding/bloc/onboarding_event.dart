@@ -17,3 +17,8 @@ class CheckFirstLaunch extends OnboardingEvent {
 class MarkWelcomeSeen extends OnboardingEvent {
   const MarkWelcomeSeen();
 }
+
+/// Event to navigate back to the welcome screen (without clearing persisted state).
+class ShowWelcomeScreen extends OnboardingEvent {
+  const ShowWelcomeScreen();
+}

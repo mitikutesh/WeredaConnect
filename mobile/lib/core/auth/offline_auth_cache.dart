@@ -42,6 +42,9 @@ class OfflineAuthCache {
   static const _maxFailedAttempts = 5;
   static const _lockoutDuration = Duration(minutes: 15);
 
+  // Offline session TTL (invalidate cache after 7 days without online login)
+  static const _offlineSessionTtl = Duration(days: 7);
+
   // Rate limit storage key prefix
   static const _rateLimitKeyPrefix = 'rate_limit_';
 
@@ -86,6 +89,12 @@ class OfflineAuthCache {
         value: jsonEncode(tokens.toJson()),
       );
 
+      // Store offline session timestamp for TTL enforcement
+      await _secureStorage.write(
+        key: _sessionTimestampKey(phoneNumber),
+        value: DateTime.now().toUtc().toIso8601String(),
+      );
+
       // Store user profile in encrypted Isar database
       final isar = IsarService.instance.db;
       await isar.writeTxn(() async {
@@ -118,6 +127,13 @@ class OfflineAuthCache {
   /// Throws [RateLimitException] if too many failed attempts.
   Future<bool> verifyPassword(String phoneNumber, String password) async {
     try {
+      // Check offline session TTL (7-day expiry)
+      if (await _isSessionExpired(phoneNumber)) {
+        // Clear expired credentials
+        await clearCredentials(phoneNumber);
+        return false;
+      }
+
       // SECURITY: Check rate limit BEFORE password verification
       if (await _isRateLimited(phoneNumber)) {
         final lockoutRemaining = await _getLockoutRemainingTime(phoneNumber);
@@ -184,6 +200,11 @@ class OfflineAuthCache {
   /// Returns null if tokens are not cached.
   Future<AuthTokens?> getCachedTokens(String phoneNumber) async {
     try {
+      // Check offline session TTL (7-day expiry)
+      if (await _isSessionExpired(phoneNumber)) {
+        return null;
+      }
+
       final tokensJson = await _secureStorage.read(
         key: _tokensKey(phoneNumber),
       );
@@ -232,6 +253,9 @@ class OfflineAuthCache {
 
       // Delete tokens
       await _secureStorage.delete(key: _tokensKey(phoneNumber));
+
+      // Delete session timestamp
+      await _secureStorage.delete(key: _sessionTimestampKey(phoneNumber));
 
       // Delete user from Isar
       final isar = IsarService.instance.db;
@@ -413,10 +437,36 @@ class OfflineAuthCache {
     await _secureStorage.delete(key: '$_rateLimitKeyPrefix$phoneNumber');
   }
 
+  /// Check if offline session has expired (7-day TTL).
+  Future<bool> _isSessionExpired(String phoneNumber) async {
+    final timestampStr = await _secureStorage.read(
+      key: _sessionTimestampKey(phoneNumber),
+    );
+
+    if (timestampStr == null) {
+      // No timestamp means legacy cache — allow but write timestamp now
+      // so TTL starts from this point
+      await _secureStorage.write(
+        key: _sessionTimestampKey(phoneNumber),
+        value: DateTime.now().toUtc().toIso8601String(),
+      );
+      return false;
+    }
+
+    try {
+      final timestamp = DateTime.parse(timestampStr);
+      return DateTime.now().toUtc().difference(timestamp) > _offlineSessionTtl;
+    } on FormatException {
+      return true;
+    }
+  }
+
   // Secure storage key helpers
   String _passwordHashKey(String phoneNumber) => 'password_hash_$phoneNumber';
   String _saltKey(String phoneNumber) => 'salt_$phoneNumber';
   String _tokensKey(String phoneNumber) => 'tokens_$phoneNumber';
+  String _sessionTimestampKey(String phoneNumber) =>
+      'session_timestamp_$phoneNumber';
 }
 
 /// Exception thrown when rate limit is exceeded for offline login attempts.

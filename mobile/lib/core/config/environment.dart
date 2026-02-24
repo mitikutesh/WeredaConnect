@@ -1,6 +1,8 @@
 /// Environment configuration for API endpoints and feature flags
 library;
 
+import 'package:flutter/foundation.dart';
+
 /// Environment types
 enum AppEnvironment {
   development,
@@ -115,9 +117,9 @@ class Environment {
   bool get isProduction => environment == AppEnvironment.production;
 
   /// Enable mock auth for local development (bypasses real API).
-  /// SECURITY: Defaults to false. Set --dart-define=USE_MOCK_AUTH=true explicitly for local dev.
-  static const bool useMockAuth = bool.fromEnvironment(
-    'USE_MOCK_AUTH',
-    defaultValue: false,
-  );
+  /// Defaults to true in debug builds, false in release/profile builds.
+  /// Override with --dart-define=USE_MOCK_AUTH=true/false.
+  static const bool useMockAuth = bool.hasEnvironment('USE_MOCK_AUTH')
+      ? bool.fromEnvironment('USE_MOCK_AUTH')
+      : kDebugMode;
 }

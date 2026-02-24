@@ -6,9 +6,10 @@ import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
-import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
@@ -116,7 +117,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthError) {
+        if (state is AuthAuthenticated) {
+          // Pop self if pushed on top of AuthGate (e.g. from WelcomeScreen).
+          // AuthGate will then show MainNavigation.
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        } else if (state is AuthError) {
           setState(() {
             _errorMessage = _localizeAuthError(
               state.errorCode,
@@ -131,11 +138,13 @@ class _LoginScreenState extends State<LoginScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WelcomeScreen(),
-                ),
-              );
+              if (Navigator.of(context).canPop()) {
+                // Pushed as a route (e.g. from WelcomeScreen) — pop back
+                Navigator.of(context).pop();
+              } else {
+                // Rendered inline by AuthGate — tell AuthGate to show WelcomeScreen
+                context.read<OnboardingBloc>().add(const ShowWelcomeScreen());
+              }
             },
             tooltip: l10n.backToHome,
           ),
@@ -241,6 +250,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         obscureText: _obscurePassword,
+                        maxLength: 128,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return l10n.password;

@@ -9,7 +9,6 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
@@ -96,6 +95,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    // Get current language code (am, om, en)
+    final languageCode = Localizations.localeOf(context).languageCode;
+
     // Dispatch register event via BLoC
     context.read<AuthBloc>().add(
           AuthRegisterRequested(
@@ -104,6 +106,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             name: _nameController.text.trim(),
             role: _selectedRole!,
             woreda: _woredaController.text.trim(),
+            preferredLanguage: languageCode,
           ),
         );
   }
@@ -141,11 +144,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WelcomeScreen(),
-                ),
-              );
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
             },
             tooltip: l10n.backToHome,
           ),
@@ -256,6 +257,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         keyboardType: TextInputType.name,
                         textCapitalization: TextCapitalization.words,
+                        maxLength: 100,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.fullName;
@@ -279,6 +281,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         keyboardType: TextInputType.text,
                         textCapitalization: TextCapitalization.words,
+                        maxLength: 100,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.wereda;
@@ -369,6 +372,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         obscureText: _obscurePassword,
+                        maxLength: 128,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return l10n.password;

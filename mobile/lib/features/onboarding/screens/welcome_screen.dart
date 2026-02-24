@@ -62,23 +62,12 @@ class WelcomeScreen extends StatelessWidget {
               const SizedBox(height: 24),
 
               // Tagline
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+              Text(
+                l10n.aboutTagline,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  height: 1.4,
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  l10n.aboutTagline,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    height: 1.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
 

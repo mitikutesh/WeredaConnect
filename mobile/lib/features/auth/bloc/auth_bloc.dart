@@ -62,6 +62,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthCheckRequested>(_onAuthCheckRequested);
     on<AuthRegisterRequested>(_onAuthRegisterRequested);
     on<AuthVerifyOtpRequested>(_onAuthVerifyOtpRequested);
+    on<AuthResendOtpRequested>(_onAuthResendOtpRequested);
     on<AuthLoginRequested>(_onAuthLoginRequested);
     on<AuthLoginOnlineRequested>(_onAuthLoginOnlineRequested);
     on<AuthLoginOfflineRequested>(_onAuthLoginOfflineRequested);
@@ -158,6 +159,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       name: event.name,
       role: event.role,
       woreda: event.woreda,
+      preferredLanguage: event.preferredLanguage,
     );
 
     if (result.isSuccess) {
@@ -246,6 +248,47 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
           errorMessage: result.errorMessage ?? 'OTP verification failed',
+        ),
+      );
+    }
+  }
+
+  /// Handle OTP resend request.
+  ///
+  /// Re-calls the register endpoint to trigger a new SMS OTP.
+  /// Uses the pending registration data stored from the original registration.
+  Future<void> _onAuthResendOtpRequested(
+    AuthResendOtpRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    // Only resend if we have pending registration data
+    if (_pendingPassword == null ||
+        _pendingRole == null ||
+        _pendingWoreda == null) {
+      return;
+    }
+
+    final result = await _authService.register(
+      phoneNumber: event.phoneNumber,
+      password: _pendingPassword!,
+      name: _pendingName ?? '',
+      role: _pendingRole!,
+      woreda: _pendingWoreda!,
+    );
+
+    if (!result.isSuccess) {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ?? 'Failed to resend OTP',
+          canRetry: true,
+        ),
+      );
+      // Re-emit OTP state so OTP screen stays visible
+      emit(
+        AuthOtpVerificationRequired(
+          phoneNumber: event.phoneNumber,
+          userId: result.userId ?? '',
         ),
       );
     }

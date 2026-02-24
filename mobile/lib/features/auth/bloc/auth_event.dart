@@ -22,6 +22,7 @@ class AuthRegisterRequested extends AuthEvent {
   final String name;
   final UserRole role;
   final String woreda;
+  final String preferredLanguage;
 
   const AuthRegisterRequested({
     required this.phoneNumber,
@@ -29,10 +30,12 @@ class AuthRegisterRequested extends AuthEvent {
     required this.name,
     required this.role,
     required this.woreda,
+    this.preferredLanguage = 'am',
   });
 
   @override
-  List<Object?> get props => [phoneNumber, password, name, role, woreda];
+  List<Object?> get props =>
+      [phoneNumber, password, name, role, woreda, preferredLanguage];
 }
 
 /// Event to verify OTP after registration.
@@ -47,6 +50,18 @@ class AuthVerifyOtpRequested extends AuthEvent {
 
   @override
   List<Object?> get props => [phoneNumber, otp];
+}
+
+/// Event to resend OTP code to the user's phone.
+class AuthResendOtpRequested extends AuthEvent {
+  final String phoneNumber;
+
+  const AuthResendOtpRequested({
+    required this.phoneNumber,
+  });
+
+  @override
+  List<Object?> get props => [phoneNumber];
 }
 
 /// Event to login (auto-detects online/offline).

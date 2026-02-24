@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -100,8 +101,27 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         );
   }
 
+  String _localizeAuthError(String errorCode, String fallback) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (errorCode) {
+      AuthErrorCode.invalidOtp => l10n.invalidOtp,
+      AuthErrorCode.otpExpired => l10n.otpExpired,
+      AuthErrorCode.otpAttemptsExceeded => l10n.authRateLimitExceeded,
+      AuthErrorCode.userNotFound => l10n.authServerError,
+      AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.internalServerError => l10n.authServerError,
+      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
+      _ => fallback,
+    };
+  }
+
   Future<void> _handleResendOtp() async {
     final l10n = AppLocalizations.of(context)!;
+    // Dispatch resend event via BLoC
+    context.read<AuthBloc>().add(
+          AuthResendOtpRequested(phoneNumber: widget.phoneNumber),
+        );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(l10n.otpResent)),
     );
@@ -117,7 +137,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       listener: (context, state) {
         if (state is AuthError) {
           setState(() {
-            _errorMessage = state.errorMessage;
+            _errorMessage =
+                _localizeAuthError(state.errorCode, state.errorMessage);
           });
         }
       },
