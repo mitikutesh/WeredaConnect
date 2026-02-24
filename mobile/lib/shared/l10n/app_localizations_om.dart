@@ -303,6 +303,26 @@ class AppLocalizationsOm extends AppLocalizations {
       'Lakkoofsi bilbilaa hin mirkanaa\'iin. Maaloo mirkaneessa OTP xumuraa.';
 
   @override
+  String get authApiNotConfigured =>
+      'Qophiin appii hin xumuramne. Maaloo gargaarsa quunnamaa.';
+
+  @override
+  String get authOfflineNotAvailable =>
+      'Haalata offline dandeessisuuf dursa online seenaa.';
+
+  @override
+  String get authAccountDisabled =>
+      'Herregni keessan cufameera. Gargaarsa quunnamaa.';
+
+  @override
+  String get authPasswordResetRequired =>
+      'Jecha icciitii haareffachuun barbaachisa. Maaloo jecha icciitii keessan haareffadhaa.';
+
+  @override
+  String get authOtpAttemptsExceeded =>
+      'Yaalii baay\'ee kufee. Koodii haaraa gaafadhu.';
+
+  @override
   String get registrationSuccess =>
       'Galmaa\'uun milkaa\'eera! Maaloo bilbila keessan mirkaneessaa';
 
@@ -1260,4 +1280,8 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get ok => 'Tole';
+
+  @override
+  String get tutorialComingSoon =>
+      'Karuuzeliin barnoota dhiyootti ni dhufa. Herrega uumuudhaan appicha sakatta\'uu dandeessu!';
 }

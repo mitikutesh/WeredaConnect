@@ -84,6 +84,10 @@ class AuthService {
       );
     }
 
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
+    }
+
     try {
       // Check connectivity
       final connectivityResults = await _connectivity.checkConnectivity();
@@ -148,6 +152,10 @@ class AuthService {
         phoneNumber: phoneNumber,
         otp: otp,
       );
+    }
+
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
     }
 
     try {
@@ -215,6 +223,10 @@ class AuthService {
         phoneNumber: phoneNumber,
         password: password,
       );
+    }
+
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
     }
 
     try {
@@ -377,6 +389,18 @@ class AuthService {
         connectivityResults.any((result) => result != ConnectivityResult.none);
 
     if (isOnline) {
+      // Online login requires API config
+      if (!Environment.isApiConfigured) {
+        // Fall back to offline login if cached credentials exist
+        final offlineResult = await loginOffline(
+          phoneNumber: phoneNumber,
+          password: password,
+        );
+        if (offlineResult.isSuccess) return offlineResult;
+
+        return _notConfiguredResult();
+      }
+
       // Try online login
       final result = await loginOnline(
         phoneNumber: phoneNumber,
@@ -413,6 +437,10 @@ class AuthService {
     // Use mock auth service in development mode
     if (Environment.useMockAuth) {
       return await _mockAuthService.refreshToken(refreshToken);
+    }
+
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
     }
 
     try {
@@ -509,6 +537,14 @@ class AuthService {
   // ============================================================================
   // Private methods
   // ============================================================================
+
+  /// Return an error when API credentials are missing.
+  static AuthResult _notConfiguredResult() => AuthResult.failure(
+        AuthErrorCode.apiNotConfigured,
+        'Server not configured. Run with --dart-define=USE_MOCK_AUTH=true '
+        'or provide API_BASE_URL, COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, '
+        'and COGNITO_REGION via --dart-define.',
+      );
 
   /// Handle DioException and map to AuthResult with error codes.
   AuthResult _handleDioError(DioException e) {

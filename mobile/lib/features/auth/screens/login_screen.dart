@@ -79,6 +79,10 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthErrorCode.internalServerError => l10n.authServerError,
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
+      AuthErrorCode.accountDisabled => l10n.authAccountDisabled,
+      AuthErrorCode.passwordResetRequired => l10n.authPasswordResetRequired,
       _ => fallback,
     };
   }

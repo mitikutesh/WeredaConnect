@@ -292,6 +292,23 @@ class AppLocalizationsAm extends AppLocalizations {
   String get phoneNotVerified => 'ስልክ ቁጥር አልተረጋገጠም። እባክዎ የOTP ማረጋገጫን ያጠናቅቁ።';
 
   @override
+  String get authApiNotConfigured => 'የመተግበሪያ ማዋቀር አልተጠናቀቀም። እባክዎ ድጋፍን ያግኙ።';
+
+  @override
+  String get authOfflineNotAvailable =>
+      'ከመስመር ውጭ ሁነታን ለማንቃት እባክዎ በመጀመሪያ በመስመር ላይ ይግቡ።';
+
+  @override
+  String get authAccountDisabled => 'መለያዎ ተሰናክሏል። ድጋፍን ያግኙ።';
+
+  @override
+  String get authPasswordResetRequired =>
+      'የይለፍ ቃል ዳግም ማዘጋጀት ያስፈልጋል። እባክዎ የይለፍ ቃልዎን ያስተካክሉ።';
+
+  @override
+  String get authOtpAttemptsExceeded => 'ብዙ ያልተሳኩ ሙከራዎች። አዲስ ኮድ ይጠይቁ።';
+
+  @override
   String get registrationSuccess => 'ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ';
 
   @override
@@ -1228,4 +1245,8 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get ok => 'እሺ';
+
+  @override
+  String get tutorialComingSoon =>
+      'የመማሪያ ካሩሴል በቅርቡ ይመጣል። መለያ በመፍጠር መተግበሪያውን ማሰስ ይችላሉ!';
 }

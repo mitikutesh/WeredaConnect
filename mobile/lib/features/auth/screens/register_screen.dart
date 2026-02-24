@@ -66,8 +66,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       AuthErrorCode.internalServerError => l10n.authServerError,
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
       AuthErrorCode.invalidOtp => l10n.invalidOtp,
       AuthErrorCode.otpExpired => l10n.otpExpired,
+      AuthErrorCode.otpAttemptsExceeded => l10n.authOtpAttemptsExceeded,
       AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
       // Server sends AUTH_014 for invalid credentials
       AuthErrorCode.userNotFound => l10n.invalidCredentials,

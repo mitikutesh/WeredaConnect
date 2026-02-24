@@ -35,6 +35,7 @@ class AuthErrorCode {
   static const refreshTokenExpired = 'AUTH_033';
 
   // Mobile-specific errors (not from server)
+  static const apiNotConfigured = 'API_NOT_CONFIGURED';
   static const networkError = 'NETWORK_ERROR';
   static const offlineNotAvailable = 'OFFLINE_NOT_AVAILABLE';
   static const secureStorageError = 'SECURE_STORAGE_ERROR';
@@ -93,6 +94,8 @@ extension AuthErrorCodeExtension on String {
         return 'Session expired. Please log in again';
 
       // Mobile-specific errors
+      case AuthErrorCode.apiNotConfigured:
+        return 'Server not configured. Use mock auth or provide API credentials via --dart-define.';
       case AuthErrorCode.networkError:
         return 'No internet connection. Please try offline mode';
       case AuthErrorCode.offlineNotAvailable:
@@ -122,6 +125,7 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.rateLimitExceeded:
         return true;
 
+      case AuthErrorCode.apiNotConfigured:
       case AuthErrorCode.accountDisabled:
       case AuthErrorCode.phoneAlreadyRegistered:
         return false;

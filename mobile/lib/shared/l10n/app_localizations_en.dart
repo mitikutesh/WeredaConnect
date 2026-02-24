@@ -299,6 +299,26 @@ class AppLocalizationsEn extends AppLocalizations {
       'Phone number not verified. Please complete OTP verification.';
 
   @override
+  String get authApiNotConfigured =>
+      'App setup incomplete. Please contact support.';
+
+  @override
+  String get authOfflineNotAvailable =>
+      'Please log in online first to enable offline mode.';
+
+  @override
+  String get authAccountDisabled =>
+      'Your account has been disabled. Contact support.';
+
+  @override
+  String get authPasswordResetRequired =>
+      'Password reset required. Please reset your password.';
+
+  @override
+  String get authOtpAttemptsExceeded =>
+      'Too many failed attempts. Request a new code.';
+
+  @override
   String get registrationSuccess =>
       'Registration successful! Please verify your phone';
 
@@ -1251,4 +1271,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ok => 'OK';
+
+  @override
+  String get tutorialComingSoon =>
+      'Tutorial carousel coming soon. You can explore the app by creating an account!';
 }

@@ -379,6 +379,26 @@
   "@phoneNotVerified": {
     "description": "Error message when user tries to login but phone is not verified"
   },
+  "authApiNotConfigured": "Qophiin appii hin xumuramne. Maaloo gargaarsa quunnamaa.",
+  "@authApiNotConfigured": {
+    "description": "Error message when API credentials are not configured at build time"
+  },
+  "authOfflineNotAvailable": "Haalata offline dandeessisuuf dursa online seenaa.",
+  "@authOfflineNotAvailable": {
+    "description": "Error message when user tries offline login without prior online login"
+  },
+  "authAccountDisabled": "Herregni keessan cufameera. Gargaarsa quunnamaa.",
+  "@authAccountDisabled": {
+    "description": "Error message when user account is disabled"
+  },
+  "authPasswordResetRequired": "Jecha icciitii haareffachuun barbaachisa. Maaloo jecha icciitii keessan haareffadhaa.",
+  "@authPasswordResetRequired": {
+    "description": "Error message when password reset is required before login"
+  },
+  "authOtpAttemptsExceeded": "Yaalii baay'ee kufee. Koodii haaraa gaafadhu.",
+  "@authOtpAttemptsExceeded": {
+    "description": "Error message when OTP verification attempts are exhausted"
+  },
   "registrationSuccess": "Galmaa'uun milkaa'eera! Maaloo bilbila keessan mirkaneessaa",
   "@registrationSuccess": {
     "description": "Success message after registration"
@@ -1642,5 +1662,9 @@
   "ok": "Tole",
   "@ok": {
     "description": "Generic OK button label"
+  },
+  "tutorialComingSoon": "Karuuzeliin barnoota dhiyootti ni dhufa. Herrega uumuudhaan appicha sakatta'uu dandeessu!",
+  "@tutorialComingSoon": {
+    "description": "Snackbar message shown when user taps How it works chip on welcome screen"
   }
 }

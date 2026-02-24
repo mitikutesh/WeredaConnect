@@ -646,6 +646,36 @@ abstract class AppLocalizations {
   /// **'Phone number not verified. Please complete OTP verification.'**
   String get phoneNotVerified;
 
+  /// Error message when API credentials are not configured at build time
+  ///
+  /// In en, this message translates to:
+  /// **'App setup incomplete. Please contact support.'**
+  String get authApiNotConfigured;
+
+  /// Error message when user tries offline login without prior online login
+  ///
+  /// In en, this message translates to:
+  /// **'Please log in online first to enable offline mode.'**
+  String get authOfflineNotAvailable;
+
+  /// Error message when user account is disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Your account has been disabled. Contact support.'**
+  String get authAccountDisabled;
+
+  /// Error message when password reset is required before login
+  ///
+  /// In en, this message translates to:
+  /// **'Password reset required. Please reset your password.'**
+  String get authPasswordResetRequired;
+
+  /// Error message when OTP verification attempts are exhausted
+  ///
+  /// In en, this message translates to:
+  /// **'Too many failed attempts. Request a new code.'**
+  String get authOtpAttemptsExceeded;
+
   /// Success message after registration
   ///
   /// In en, this message translates to:
@@ -2439,6 +2469,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'OK'**
   String get ok;
+
+  /// Snackbar message shown when user taps How it works chip on welcome screen
+  ///
+  /// In en, this message translates to:
+  /// **'Tutorial carousel coming soon. You can explore the app by creating an account!'**
+  String get tutorialComingSoon;
 }
 
 class _AppLocalizationsDelegate

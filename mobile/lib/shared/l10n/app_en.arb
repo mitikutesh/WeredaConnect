@@ -379,6 +379,26 @@
   "@phoneNotVerified": {
     "description": "Error message when user tries to login but phone is not verified"
   },
+  "authApiNotConfigured": "App setup incomplete. Please contact support.",
+  "@authApiNotConfigured": {
+    "description": "Error message when API credentials are not configured at build time"
+  },
+  "authOfflineNotAvailable": "Please log in online first to enable offline mode.",
+  "@authOfflineNotAvailable": {
+    "description": "Error message when user tries offline login without prior online login"
+  },
+  "authAccountDisabled": "Your account has been disabled. Contact support.",
+  "@authAccountDisabled": {
+    "description": "Error message when user account is disabled"
+  },
+  "authPasswordResetRequired": "Password reset required. Please reset your password.",
+  "@authPasswordResetRequired": {
+    "description": "Error message when password reset is required before login"
+  },
+  "authOtpAttemptsExceeded": "Too many failed attempts. Request a new code.",
+  "@authOtpAttemptsExceeded": {
+    "description": "Error message when OTP verification attempts are exhausted"
+  },
   "registrationSuccess": "Registration successful! Please verify your phone",
   "@registrationSuccess": {
     "description": "Success message after registration"
@@ -1705,5 +1725,9 @@
   "ok": "OK",
   "@ok": {
     "description": "Generic OK button label"
+  },
+  "tutorialComingSoon": "Tutorial carousel coming soon. You can explore the app by creating an account!",
+  "@tutorialComingSoon": {
+    "description": "Snackbar message shown when user taps How it works chip on welcome screen"
   }
 }

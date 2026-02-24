@@ -1,8 +1,6 @@
 /// Environment configuration for API endpoints and feature flags
 library;
 
-import 'package:flutter/foundation.dart';
-
 /// Environment types
 enum AppEnvironment {
   development,
@@ -116,10 +114,14 @@ class Environment {
   /// Is production environment
   bool get isProduction => environment == AppEnvironment.production;
 
+  /// Whether the required API credentials have been provided via --dart-define.
+  static bool get isApiConfigured =>
+      config.apiBaseUrl.isNotEmpty &&
+      config.cognitoUserPoolId.isNotEmpty &&
+      config.cognitoClientId.isNotEmpty &&
+      config.cognitoRegion.isNotEmpty;
+
   /// Enable mock auth for local development (bypasses real API).
-  /// Defaults to true in debug builds, false in release/profile builds.
-  /// Override with --dart-define=USE_MOCK_AUTH=true/false.
-  static const bool useMockAuth = bool.hasEnvironment('USE_MOCK_AUTH')
-      ? bool.fromEnvironment('USE_MOCK_AUTH')
-      : kDebugMode;
+  /// Defaults to false. Override with --dart-define=USE_MOCK_AUTH=true.
+  static const bool useMockAuth = bool.fromEnvironment('USE_MOCK_AUTH');
 }

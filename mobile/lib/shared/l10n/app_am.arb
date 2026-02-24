@@ -379,6 +379,26 @@
   "@phoneNotVerified": {
     "description": "Error message when user tries to login but phone is not verified"
   },
+  "authApiNotConfigured": "የመተግበሪያ ማዋቀር አልተጠናቀቀም። እባክዎ ድጋፍን ያግኙ።",
+  "@authApiNotConfigured": {
+    "description": "Error message when API credentials are not configured at build time"
+  },
+  "authOfflineNotAvailable": "ከመስመር ውጭ ሁነታን ለማንቃት እባክዎ በመጀመሪያ በመስመር ላይ ይግቡ።",
+  "@authOfflineNotAvailable": {
+    "description": "Error message when user tries offline login without prior online login"
+  },
+  "authAccountDisabled": "መለያዎ ተሰናክሏል። ድጋፍን ያግኙ።",
+  "@authAccountDisabled": {
+    "description": "Error message when user account is disabled"
+  },
+  "authPasswordResetRequired": "የይለፍ ቃል ዳግም ማዘጋጀት ያስፈልጋል። እባክዎ የይለፍ ቃልዎን ያስተካክሉ።",
+  "@authPasswordResetRequired": {
+    "description": "Error message when password reset is required before login"
+  },
+  "authOtpAttemptsExceeded": "ብዙ ያልተሳኩ ሙከራዎች። አዲስ ኮድ ይጠይቁ።",
+  "@authOtpAttemptsExceeded": {
+    "description": "Error message when OTP verification attempts are exhausted"
+  },
   "registrationSuccess": "ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ",
   "@registrationSuccess": {
     "description": "Success message after registration"
@@ -1642,5 +1662,9 @@
   "ok": "እሺ",
   "@ok": {
     "description": "Generic OK button label"
+  },
+  "tutorialComingSoon": "የመማሪያ ካሩሴል በቅርቡ ይመጣል። መለያ በመፍጠር መተግበሪያውን ማሰስ ይችላሉ!",
+  "@tutorialComingSoon": {
+    "description": "Snackbar message shown when user taps How it works chip on welcome screen"
   }
 }
