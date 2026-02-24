@@ -291,6 +291,14 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.login(
+        phoneNumber: phoneNumber,
+        password: password,
+      );
+    }
+
     try {
       // Check if credentials are cached
       final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
@@ -349,6 +357,14 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
+    // Use mock auth service in development mode
+    if (Environment.useMockAuth) {
+      return await _mockAuthService.login(
+        phoneNumber: phoneNumber,
+        password: password,
+      );
+    }
+
     // Check connectivity
     final connectivityResults = await _connectivity.checkConnectivity();
     final isOnline =
