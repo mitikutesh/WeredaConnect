@@ -26,7 +26,6 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
-import 'package:wereda_connect/screens/data_usage_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -416,19 +415,6 @@ class _MainNavigationState extends State<MainNavigation> {
                 context,
                 MaterialPageRoute<void>(
                   builder: (context) => const SettingsScreen(),
-                ),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.data_usage),
-            title: Text(l10n.dataUsage),
-            onTap: () {
-              Navigator.pop(context); // Close drawer
-              Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (context) => const DataUsageScreen(),
                 ),
               );
             },
