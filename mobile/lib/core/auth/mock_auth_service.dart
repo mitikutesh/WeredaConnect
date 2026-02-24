@@ -1,3 +1,4 @@
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
@@ -32,6 +33,15 @@ class MockAuthService {
   }) async {
     // Simulate network delay
     await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    // Check if phone number is already registered
+    final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
+    if (hasCached) {
+      return AuthResult.failure(
+        AuthErrorCode.phoneAlreadyRegistered,
+        'Phone number already registered',
+      );
+    }
 
     // Generate a mock user ID
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
@@ -75,7 +85,7 @@ class MockAuthService {
     return AuthResult.success(tokens, userId: userId);
   }
 
-  /// Mock login - accepts any password
+  /// Mock login - verifies cached credentials or creates first-time session
   Future<AuthResult> login({
     required String phoneNumber,
     required String password,
@@ -87,27 +97,41 @@ class MockAuthService {
     final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
 
     if (hasCached) {
-      // Try offline auth first
-      final isValid = await _offlineCache.verifyPassword(
-        phoneNumber,
-        password,
-      );
+      // Verify password against cached hash (may throw RateLimitException)
+      try {
+        final isValid = await _offlineCache.verifyPassword(
+          phoneNumber,
+          password,
+        );
 
-      if (isValid) {
-        final user = await _offlineCache.getCachedUser(phoneNumber);
-        final tokens = await _offlineCache.getCachedTokens(phoneNumber);
+        if (isValid) {
+          final user = await _offlineCache.getCachedUser(phoneNumber);
+          final tokens = await _offlineCache.getCachedTokens(phoneNumber);
 
-        if (user != null && tokens != null) {
-          return AuthResult.success(
-            tokens,
-            userId: user.userId,
-            isOfflineAuth: true,
-          );
+          if (user != null && tokens != null) {
+            return AuthResult.success(
+              tokens,
+              userId: user.userId,
+              isOfflineAuth: true,
+            );
+          }
         }
+
+        // Password mismatch — return failure (don't create new session)
+        return AuthResult.failure(
+          AuthErrorCode.invalidCredentials,
+          'Invalid phone number or password',
+        );
+      } on RateLimitException catch (e) {
+        return AuthResult.failure(
+          AuthErrorCode.accountLocked,
+          e.message,
+          retryAfterSeconds: e.lockoutRemaining.inSeconds,
+        );
       }
     }
 
-    // If no cached credentials or password mismatch, create new mock session
+    // No cached credentials — first-time mock login, create session
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
     final now = DateTime.now();
     final tokens = AuthTokens(

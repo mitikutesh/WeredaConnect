@@ -14,7 +14,8 @@ import 'package:wereda_connect/screens/main_navigation.dart';
 /// Root routing widget that declaratively switches screens based on auth state.
 ///
 /// Uses BlocBuilder to react to AuthBloc state changes:
-/// - AuthInitial / AuthLoading → splash screen
+/// - AuthInitial → splash screen
+/// - AuthLoading → ignored (current screen stays, shows its own spinner)
 /// - AuthAuthenticated → MainNavigation
 /// - AuthOtpVerificationRequired → OtpVerificationScreen
 /// - AuthUnauthenticated / AuthError → Check onboarding state
@@ -38,6 +39,11 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
+      // Don't rebuild on AuthLoading — let the current screen handle it
+      // with its own inline loading indicator. Without this, emitting
+      // AuthLoading during OTP verification would swap the OTP screen for
+      // WelcomeScreen/LoginScreen, then flash back on AuthAuthenticated.
+      buildWhen: (previous, current) => current is! AuthLoading,
       builder: (context, authState) {
         // If authenticated, mark welcome as seen and go to main app
         if (authState is AuthAuthenticated) {
@@ -52,15 +58,11 @@ class _AuthGateState extends State<AuthGate> {
         }
 
         // If initial auth check still in progress, show splash
-        // Note: AuthLoading during login/register is handled by the
-        // login/register screens themselves (inline loading indicators),
-        // so we only show splash for the initial session check.
         if (authState is AuthInitial) {
           return const _SplashScreen();
         }
 
-        // AuthUnauthenticated, AuthError, or AuthLoading (during login) -
-        // check onboarding state and show login/welcome screen
+        // AuthUnauthenticated or AuthError — check onboarding state
         return BlocBuilder<OnboardingBloc, OnboardingState>(
           builder: (context, onboardingState) {
             // If first launch, show welcome screen
