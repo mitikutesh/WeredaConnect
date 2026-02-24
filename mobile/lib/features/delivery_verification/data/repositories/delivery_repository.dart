@@ -175,6 +175,46 @@ class DeliveryRepository {
     return distanceMeters > DeliveryConstants.gpsProximityThresholdKm * 1000;
   }
 
+  /// Update the status of a crop listing and enqueue a sync operation.
+  ///
+  /// Called as a side-effect of delivery lifecycle transitions so the
+  /// listing status stays in sync with its delivery state.
+  Future<void> _updateListingStatus(
+    String listingId,
+    ListingStatus newStatus,
+    String userId,
+  ) async {
+    final listing = await _isar.cropListings
+        .filter()
+        .listingIdEqualTo(listingId)
+        .findFirst();
+
+    if (listing == null) return;
+
+    final now = DateTime.now().toUtc();
+
+    await _isar.writeTxn(() async {
+      listing.status = newStatus;
+      listing.updatedAt = now;
+      listing.version += 1;
+      await _isar.cropListings.put(listing);
+    });
+
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: 'cropListing',
+      entityId: listingId,
+      action: 'update',
+      data: jsonEncode({
+        'listingId': listingId,
+        'status': newStatus.name,
+        'updatedAt': now.toIso8601String(),
+        'version': listing.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
   /// Create a new delivery.
   Future<Delivery> createDelivery({
     required String tripId,
@@ -234,6 +274,8 @@ class DeliveryRepository {
       data: data,
       operationId: _uuid.v4(),
     );
+
+    await _updateListingStatus(listingId, ListingStatus.reserved, truckerId);
 
     return delivery;
   }
@@ -443,6 +485,8 @@ class DeliveryRepository {
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
     );
+
+    await _updateListingStatus(delivery.listingId, ListingStatus.sold, buyerId);
   }
 
   /// Mark delivery as in transit by trucker. Status → inTransit.
@@ -568,6 +612,9 @@ class DeliveryRepository {
       }),
       operationId: _uuid.v4(),
     );
+
+    await _updateListingStatus(
+        delivery.listingId, ListingStatus.active, userId);
   }
 
   /// Get all deliveries for a specific trip, scoped to a user.
