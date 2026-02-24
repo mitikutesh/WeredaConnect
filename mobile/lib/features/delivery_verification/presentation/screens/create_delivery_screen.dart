@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -106,6 +107,13 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
     final trip = _selectedTrip!;
     final qrToken = const Uuid().v4();
 
+    // In mock auth mode, convert phone-format buyer ID to mock userId format
+    // so delivery queries match the buyer's authenticated userId.
+    var buyerId = _buyerIdController.text.trim();
+    if (Environment.useMockAuth && buyerId.startsWith('+')) {
+      buyerId = 'mock_${buyerId.replaceAll('+', '')}';
+    }
+
     context.read<DeliveryBloc>().add(
           CreateDelivery(
             tripId: trip.tripId,
@@ -114,7 +122,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
             farmerName: widget.listing.farmerId, // farmerId used as fallback
             truckerId: authState.userId,
             truckerName: trip.truckerName,
-            buyerId: _buyerIdController.text.trim(),
+            buyerId: buyerId,
             buyerName: _buyerNameController.text.trim(),
             qrToken: qrToken,
           ),
@@ -212,6 +220,9 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
                           labelText: l10n.buyerPhoneIdLabel,
                           prefixIcon: const Icon(Icons.badge),
                           hintText: '+251...',
+                          helperText: Environment.useMockAuth
+                              ? "Enter buyer's phone (e.g. +251912345678)"
+                              : null,
                           border: const OutlineInputBorder(),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,

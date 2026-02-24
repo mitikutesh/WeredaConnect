@@ -1,9 +1,16 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -19,6 +26,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
+import 'package:wereda_connect/screens/data_usage_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -101,6 +109,61 @@ class _MainNavigationState extends State<MainNavigation> {
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: Text(l10n.logout),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showResetTestDataConfirmation(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Test Data?'),
+          content: const Text(
+            'This will delete all listings, trips, deliveries, and payments. '
+            'Your registered accounts will be preserved.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final isar = IsarService.instance.db;
+                  await isar.writeTxn(() async {
+                    await isar.cropListings.clear();
+                    await isar.trips.clear();
+                    await isar.deliverys.clear();
+                    await isar.payments.clear();
+                    await isar.paymentIntents.clear();
+                  });
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('Test data cleared successfully'),
+                      ),
+                    );
+                  }
+                } on Exception catch (e) {
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Reset failed: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              child: const Text('Reset'),
             ),
           ],
         );
@@ -358,6 +421,19 @@ class _MainNavigationState extends State<MainNavigation> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.data_usage),
+            title: Text(l10n.dataUsage),
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (context) => const DataUsageScreen(),
+                ),
+              );
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.info_outline),
             title: Text(l10n.about),
             onTap: () {
@@ -375,6 +451,22 @@ class _MainNavigationState extends State<MainNavigation> {
               );
             },
           ),
+          if (kDebugMode) ...[
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep, color: Colors.orange),
+              title: const Text(
+                'Reset Test Data',
+                style: TextStyle(color: Colors.orange),
+              ),
+              subtitle:
+                  const Text('Clear listings, trips, deliveries, payments'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                _showResetTestDataConfirmation(context);
+              },
+            ),
+          ],
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),

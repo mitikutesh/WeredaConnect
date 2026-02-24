@@ -1,15 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/crop_listing/data/mock/farmer_mock_listings.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
@@ -115,38 +112,6 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
               priceMax: _priceMax,
             ),
           );
-    }
-  }
-
-  Future<void> _seedDebugListings() async {
-    final userId = _getFarmerId();
-    if (userId == null) return;
-
-    try {
-      await seedFarmerMockListings(
-        IsarService.instance.db,
-        userId,
-        statusFilter: _selectedStatus,
-      );
-
-      if (mounted) {
-        final filterLabel = _selectedStatus ?? 'all statuses';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Debug listings seeded ($filterLabel)'),
-          ),
-        );
-        _applyFilters();
-      }
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Seed failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 
@@ -321,14 +286,6 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   ),
                           textAlign: TextAlign.center,
                         ),
-                        if (kDebugMode && _isOwnerMode) ...[
-                          const SizedBox(height: 24),
-                          FilledButton.icon(
-                            onPressed: _seedDebugListings,
-                            icon: const Icon(Icons.bug_report),
-                            label: Text(l10n.listingSeedTestButton),
-                          ),
-                        ],
                       ],
                     ),
                   );
@@ -388,14 +345,6 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                       l10n.noCropListings,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    if (kDebugMode && _isOwnerMode) ...[
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: _seedDebugListings,
-                        icon: const Icon(Icons.bug_report),
-                        label: Text(l10n.listingSeedTestButton),
-                      ),
-                    ],
                   ],
                 ),
               );

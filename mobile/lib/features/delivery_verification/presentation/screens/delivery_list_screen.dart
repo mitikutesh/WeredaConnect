@@ -1,10 +1,8 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/delivery_verification/data/mock/delivery_mock_seeder.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -68,49 +66,6 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
             statusFilter: _selectedStatus,
           ),
         );
-  }
-
-  /// Debug-only: seed 4 deliveries at each lifecycle stage
-  /// (pending, pickedUp, inTransit, delivered) for the current role.
-  Future<void> _seedDebugDeliveries() async {
-    final userId = _getUserId();
-    if (userId == null) return;
-
-    final authState = context.read<AuthBloc>().state;
-    final role =
-        authState is AuthAuthenticated ? authState.role.name : 'farmer';
-
-    final repo = context.read<DeliveryBloc>().repository;
-
-    try {
-      await seedMockDeliveries(
-        repo: repo,
-        userId: userId,
-        role: role,
-        statusFilter: _selectedStatus,
-      );
-
-      if (mounted) {
-        final filterLabel = _selectedStatus ?? 'all statuses';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Debug deliveries seeded ($filterLabel, you = $role)',
-            ),
-          ),
-        );
-        _applyFilters();
-      }
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Seed failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   @override
@@ -214,17 +169,6 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                             ),
                             textAlign: TextAlign.center,
                           ),
-                          if (kDebugMode) ...[
-                            const SizedBox(height: 24),
-                            FilledButton.icon(
-                              onPressed: _seedDebugDeliveries,
-                              icon: const Icon(Icons.bug_report),
-                              label: Text(
-                                AppLocalizations.of(context)!
-                                    .deliverySeedTestButton,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     );
@@ -274,17 +218,6 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                         l10n.deliveryNoDeliveries,
                         style: theme.textTheme.titleLarge,
                       ),
-                      if (kDebugMode) ...[
-                        const SizedBox(height: 24),
-                        FilledButton.icon(
-                          onPressed: _seedDebugDeliveries,
-                          icon: const Icon(Icons.bug_report),
-                          label: Text(
-                            AppLocalizations.of(context)!
-                                .deliverySeedTestButton,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 );

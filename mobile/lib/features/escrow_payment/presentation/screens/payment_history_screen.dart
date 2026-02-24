@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/escrow_payment/data/mock/payment_mock_seeder.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -48,48 +46,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       return authState.userId;
     }
     return null;
-  }
-
-  /// Debug-only: seed mock payments matching the current status filter.
-  Future<void> _seedDebugPayments() async {
-    final userId = _getUserId();
-    if (userId == null) return;
-
-    final authState = context.read<AuthBloc>().state;
-    final role =
-        authState is AuthAuthenticated ? authState.role.name : 'farmer';
-
-    final isar = context.read<EscrowBloc>().repository.isar;
-
-    try {
-      await seedMockPayments(
-        isar: isar,
-        userId: userId,
-        role: role,
-        statusFilter: _statusFilter,
-      );
-
-      if (mounted) {
-        final filterLabel = _statusFilter ?? 'all statuses';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Debug payments seeded ($filterLabel, you = $role)',
-            ),
-          ),
-        );
-        _dispatchFilter();
-      }
-    } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Seed failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   @override
@@ -194,7 +150,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                     return _EmptyState(
                       hasFilter: _statusFilter != null,
                       theme: theme,
-                      onSeedDebug: kDebugMode ? _seedDebugPayments : null,
                     );
                   }
 
@@ -343,12 +298,10 @@ class _HistoryContent extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   final bool hasFilter;
   final ThemeData theme;
-  final VoidCallback? onSeedDebug;
 
   const _EmptyState({
     required this.hasFilter,
     required this.theme,
-    this.onSeedDebug,
   });
 
   @override
@@ -372,14 +325,6 @@ class _EmptyState extends StatelessWidget {
               color: theme.colorScheme.outline,
             ),
           ),
-          if (onSeedDebug != null) ...[
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: onSeedDebug,
-              icon: const Icon(Icons.bug_report),
-              label: const Text('Seed Test Payments'),
-            ),
-          ],
         ],
       ),
     );
