@@ -41,9 +41,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   UserRole? _pendingRole;
   String? _pendingWoreda;
   String? _pendingPassword;
-  // SECURITY: Password never stored in BLoC state to prevent memory exposure
-  // On shared devices (common in Ethiopia), password in memory is a critical security risk
-  // Password only exists in event parameters, never persisted in BLoC fields
+  // SECURITY: _pendingPassword is held temporarily during registration->OTP flow only.
+  // It is cleared as soon as OTP verification completes (success or failure),
+  // on logout, and when the app is paused (via AppLifecycleObserver).
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -182,6 +182,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
+  /// Clear sensitive in-memory data. Called when app goes to background.
+  /// This is a direct method call (not an event) because it must be synchronous
+  /// and must not trigger state changes.
+  void clearSensitiveData() {
+    _clearPendingRegistrationData();
+  }
+
   /// Clear pending registration data after OTP verification or on error.
   void _clearPendingRegistrationData() {
     _pendingName = null;
@@ -281,7 +288,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
           errorMessage: result.errorMessage ?? 'Failed to resend OTP',
-          canRetry: true,
         ),
       );
       // Re-emit OTP state so OTP screen stays visible
@@ -448,6 +454,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final currentState = state;
+    _clearPendingRegistrationData();
 
     if (currentState is AuthAuthenticated) {
       emit(const AuthLoading());

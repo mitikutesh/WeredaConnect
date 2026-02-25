@@ -14,7 +14,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockConflictBloc extends Mock implements ConflictBloc {}
 
-class FakeConflictBlocEvent extends Fake implements bloc_event.ConflictBlocEvent {}
+class FakeConflictBlocEvent extends Fake
+    implements bloc_event.ConflictBlocEvent {}
 
 class FakeConflictState extends Fake implements ConflictState {}
 
@@ -86,7 +87,6 @@ void main() {
     testWidgets('renders correctly with a crop_listing conflict',
         (WidgetTester tester) async {
       final conflict = _makeConflict(
-        entityType: 'crop_listing',
         serverData: {
           'cropType': 'Teff',
           'quantity': 50.0,
@@ -201,8 +201,7 @@ void main() {
                       MaterialPageRoute<void>(
                         builder: (_) => BlocProvider<ConflictBloc>.value(
                           value: conflictBloc,
-                          child:
-                              ConflictResolutionScreen(conflict: conflict),
+                          child: ConflictResolutionScreen(conflict: conflict),
                         ),
                       ),
                     );
@@ -248,8 +247,7 @@ void main() {
                       MaterialPageRoute<void>(
                         builder: (_) => BlocProvider<ConflictBloc>.value(
                           value: conflictBloc,
-                          child:
-                              ConflictResolutionScreen(conflict: conflict),
+                          child: ConflictResolutionScreen(conflict: conflict),
                         ),
                       ),
                     );
@@ -297,7 +295,6 @@ void main() {
     testWidgets('field diff rows display server values correctly',
         (WidgetTester tester) async {
       final conflict = _makeConflict(
-        entityType: 'crop_listing',
         serverData: {
           'cropType': 'Wheat',
           'quantity': 100.0,
@@ -331,7 +328,8 @@ void main() {
 
       expect(
         find.textContaining(
-            'Another device or the server updated this record'),
+          'Another device or the server updated this record',
+        ),
         findsOneWidget,
       );
     });
@@ -350,7 +348,6 @@ void main() {
     testWidgets('handles null server data values with dashes',
         (WidgetTester tester) async {
       final conflict = _makeConflict(
-        entityType: 'crop_listing',
         serverData: {
           // All null — should display as '-'
         },
@@ -360,7 +357,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Each missing field renders as '-'
-      expect(find.text('-'), findsNWidgets(4)); // cropType, quantity, pricePerKg, status
+      expect(find.text('-'),
+          findsNWidgets(4)); // cropType, quantity, pricePerKg, status
     });
   });
 }

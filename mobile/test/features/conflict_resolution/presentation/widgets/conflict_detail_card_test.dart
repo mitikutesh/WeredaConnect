@@ -54,7 +54,6 @@ void main() {
         'renders crop_listing conflict with correct icon, label, and fields',
         (WidgetTester tester) async {
       final conflict = _makeConflict(
-        entityType: 'crop_listing',
         serverData: {
           'cropType': 'Teff',
           'quantity': 50.0,
@@ -216,7 +215,6 @@ void main() {
     testWidgets('null server data values display as dash',
         (WidgetTester tester) async {
       final conflict = _makeConflict(
-        entityType: 'crop_listing',
         serverData: {},
       );
 

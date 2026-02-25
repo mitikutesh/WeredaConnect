@@ -131,6 +131,7 @@ void main() {
         pricePerKg: 50.0, // 50 ETB per kg
         latitude: 9.0320, // Addis Ababa
         longitude: 38.7469,
+        locationName: 'Debre Zeit',
         description: 'High quality white teff from Debre Zeit',
       );
 
@@ -193,6 +194,7 @@ void main() {
         pricePerKg: 40.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Test Wereda',
         description: 'Premium wheat',
       );
 
@@ -228,6 +230,7 @@ void main() {
           pricePerKg: 40.0 + (i * 5.0),
           latitude: 9.0 + (i * 0.01),
           longitude: 38.0 + (i * 0.01),
+          locationName: 'Test Wereda',
           description: 'Crop listing #${i + 1}',
         );
         createdListings.add(listing);
@@ -283,6 +286,7 @@ void main() {
           pricePerKg: 50.0,
           latitude: 9.0,
           longitude: 38.0,
+          locationName: 'Test Wereda',
           description: 'Test listing $i',
         );
       }
@@ -319,6 +323,7 @@ void main() {
         pricePerKg: 50.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Test Wereda',
         description: 'Original description',
       );
 
@@ -446,6 +451,7 @@ void main() {
         pricePerKg: 50.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Test Wereda',
         description: 'Performance test listing',
       );
 
@@ -482,6 +488,7 @@ void main() {
           pricePerKg: 50.0,
           latitude: 9.0,
           longitude: 38.0,
+          locationName: 'Test Wereda',
           description: 'Batch test listing $i',
         );
       }
@@ -540,6 +547,7 @@ void main() {
           pricePerKg: 50.0,
           latitude: 9.0,
           longitude: 38.0,
+          locationName: 'Test Wereda',
           description: 'Concurrent test $i',
         );
       }

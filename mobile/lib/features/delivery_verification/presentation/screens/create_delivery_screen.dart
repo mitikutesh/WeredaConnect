@@ -220,9 +220,6 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
                           labelText: l10n.buyerPhoneIdLabel,
                           prefixIcon: const Icon(Icons.badge),
                           hintText: '+251...',
-                          helperText: Environment.useMockAuth
-                              ? "Enter buyer's phone (e.g. +251912345678)"
-                              : null,
                           border: const OutlineInputBorder(),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,

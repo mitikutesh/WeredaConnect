@@ -614,7 +614,10 @@ class DeliveryRepository {
     );
 
     await _updateListingStatus(
-        delivery.listingId, ListingStatus.active, userId);
+      delivery.listingId,
+      ListingStatus.active,
+      userId,
+    );
   }
 
   /// Get all deliveries for a specific trip, scoped to a user.

@@ -197,9 +197,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pump();
 
-      verify(() =>
-              escrowBloc.add(const LoadPaymentHistory(userId: 'farmer-001')))
-          .called(1);
+      verify(
+        () => escrowBloc.add(const LoadPaymentHistory(userId: 'farmer-001')),
+      ).called(1);
     });
 
     testWidgets('tapping status filter chip dispatches FilterPaymentHistory',

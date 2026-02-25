@@ -125,8 +125,11 @@ class ConflictResolutionScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(_entityTypeIcon(),
-              size: 20, color: theme.colorScheme.onSecondaryContainer),
+          Icon(
+            _entityTypeIcon(),
+            size: 20,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
           const SizedBox(width: 8),
           Text(
             '$label #$shortId',
@@ -220,8 +223,7 @@ class ConflictResolutionScreen extends StatelessWidget {
         };
       case 'trip':
         return {
-          'Route':
-              '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
+          'Route': '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
           'Status': data['status']?.toString() ?? '-',
           'Capacity': data['capacity']?.toString() ?? '-',
         };

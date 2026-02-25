@@ -28,8 +28,8 @@ ConflictEvent _makeConflict({
 
   return ConflictEvent(
     operation: op,
-    serverData:
-        serverData ?? {'cropType': 'Teff', 'quantity': 50.0, 'pricePerKg': 45.0},
+    serverData: serverData ??
+        {'cropType': 'Teff', 'quantity': 50.0, 'pricePerKg': 45.0},
     serverVersion: serverVersion,
     entityType: entityType,
     entityId: entityId,
@@ -132,7 +132,7 @@ void main() {
       final states = <ConflictState>[];
       final subscription = bloc.stream.listen(states.add);
 
-      final conflict1 = _makeConflict(entityId: 'crop-001', serverVersion: 2);
+      final conflict1 = _makeConflict();
       final conflict2 = _makeConflict(entityId: 'crop-002', serverVersion: 3);
 
       bloc.add(bloc_event.ConflictDetected(conflict1));
@@ -152,8 +152,7 @@ void main() {
       await bloc.close();
     });
 
-    test(
-        'notification service stream triggers ConflictDetected automatically',
+    test('notification service stream triggers ConflictDetected automatically',
         () async {
       final bloc = ConflictBloc(notificationService: notificationService);
       final states = <ConflictState>[];

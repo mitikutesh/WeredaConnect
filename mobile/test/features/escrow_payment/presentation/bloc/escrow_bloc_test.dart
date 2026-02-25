@@ -338,8 +338,12 @@ void main() {
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
 
-        bloc.add(const LoadPaymentHistory(
-            userId: 'farmer-001', statusFilter: 'escrowed'));
+        bloc.add(
+          const LoadPaymentHistory(
+            userId: 'farmer-001',
+            statusFilter: 'escrowed',
+          ),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 200));
 
         expect(states.length, 2);
@@ -469,8 +473,12 @@ void main() {
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);
 
-        bloc.add(const FilterPaymentHistory(
-            userId: 'farmer-001', statusFilter: 'completed'));
+        bloc.add(
+          const FilterPaymentHistory(
+            userId: 'farmer-001',
+            statusFilter: 'completed',
+          ),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 200));
 
         expect(states.length, 2);

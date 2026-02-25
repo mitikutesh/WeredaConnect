@@ -78,7 +78,7 @@ Trip _makeTrip({
     ..truckerPhone = '+251912345678'
     ..fromWoreda = 'Bishoftu'
     ..toWoreda = 'Addis Ababa'
-    ..departureDate = DateTime(2026, 3, 1)
+    ..departureDate = DateTime(2026, 3)
     ..capacity = 100.0
     ..pricePerQuintal = 200.0
     ..status = status

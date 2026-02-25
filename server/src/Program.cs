@@ -11,7 +11,7 @@ namespace WeredaConnect.Server;
 ///
 /// Each Lambda is deployed with its own FUNCTION_HANDLER value:
 ///   RegisterFunction, VerifyOtpFunction, LoginFunction,
-///   RefreshFunction, LogoutFunction, AuthorizerFunction, HealthCheckFunction
+///   RefreshFunction, LogoutFunction, HealthCheckFunction
 /// </summary>
 public static class Program
 {
@@ -51,11 +51,6 @@ public static class Program
             var h when h.Contains("LogoutFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new LogoutFunction().FunctionHandler, serializer),
-
-            var h when h.Contains("AuthorizerFunction") =>
-                HandlerWrapper.GetHandlerWrapper(
-                    (Func<APIGatewayCustomAuthorizerRequest, ILambdaContext, APIGatewayCustomAuthorizerResponse>)
-                        new AuthorizerFunction().FunctionHandler, serializer),
 
             var h when h.Contains("SyncFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(

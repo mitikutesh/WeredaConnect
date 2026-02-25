@@ -131,13 +131,13 @@ class TripListingRepository {
     required String truckerId,
     required String truckerName,
     required String truckerPhone,
-    String? vehiclePlate,
-    String? vehicleDescription,
     required String fromWoreda,
     required String toWoreda,
     required DateTime departureDate,
     required double capacity,
     required double pricePerQuintal,
+    String? vehiclePlate,
+    String? vehicleDescription,
   }) async {
     _validateTripData(
       truckerName: truckerName,

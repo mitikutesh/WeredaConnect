@@ -24,6 +24,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
+  public readonly fraudSignalsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -300,6 +301,23 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
+    // F-14: Fraud signals table for risk scoring (Rule 5)
+    const fraudSignals = new WeredaDynamoTable(this, "FraudSignalsTable", {
+      tableName: `${prefix}-fraud-signals`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "signalKey", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.fraudSignalsTable = fraudSignals.table;
+
+    // Enable TTL for 30-day auto-cleanup of fraud signals
+    (
+      this.fraudSignalsTable.node.defaultChild as dynamodb.CfnTable
+    ).addPropertyOverride("TimeToLiveSpecification", {
+      AttributeName: "expiresAt",
+      Enabled: true,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${prefix}-access-logs-${this.account}`,
@@ -407,6 +425,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "EscrowIdempotencyTableName", {
       value: this.escrowIdempotencyTable.tableName,
       description: "DynamoDB Escrow Idempotency Table",
+    });
+
+    new cdk.CfnOutput(this, "FraudSignalsTableName", {
+      value: this.fraudSignalsTable.tableName,
+      description: "DynamoDB Fraud Signals Table (F-14)",
     });
   }
 }

@@ -5,7 +5,6 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -74,7 +73,6 @@ void main() {
       const AuthAuthenticated(
         userId: 'farmer-001',
         tokens: _testTokens,
-        role: UserRole.farmer,
       ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
@@ -132,13 +130,15 @@ void main() {
       expect(find.text('No deliveries yet'), findsOneWidget);
       expect(find.text('Your deliveries will appear here'), findsOneWidget);
       expect(
-          find.byIcon(Icons.local_shipping_outlined), findsAtLeastNWidgets(1));
+        find.byIcon(Icons.local_shipping_outlined),
+        findsAtLeastNWidgets(1),
+      );
     });
 
     testWidgets('shows delivery cards when deliveries are loaded',
         (tester) async {
       final deliveries = [
-        _makeDelivery(deliveryId: 'delivery-001'),
+        _makeDelivery(),
         _makeDelivery(
           deliveryId: 'delivery-002',
           status: DeliveryStatus.inTransit,
@@ -197,7 +197,7 @@ void main() {
       ).called(1);
     });
 
-    testWidgets('debug seed button visible in debug mode for empty list',
+    testWidgets('empty list shows icon and hint text in debug mode',
         (tester) async {
       when(() => deliveryBloc.state).thenReturn(
         const DeliveriesLoaded(deliveries: []),
@@ -206,9 +206,13 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // In debug mode (tests run in debug), the seed button should be visible
-      expect(find.byIcon(Icons.bug_report), findsOneWidget);
-      expect(find.text('Seed Test Delivery'), findsOneWidget);
+      // Empty state shows shipping icon and hint text
+      expect(
+        find.byIcon(Icons.local_shipping_outlined),
+        findsAtLeastNWidgets(1),
+      );
+      expect(find.text('No deliveries yet'), findsOneWidget);
+      expect(find.text('Your deliveries will appear here'), findsOneWidget);
     });
 
     testWidgets('dispatches LoadUserDeliveries on init', (tester) async {

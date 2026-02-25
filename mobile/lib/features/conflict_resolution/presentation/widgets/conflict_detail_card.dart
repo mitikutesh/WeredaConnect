@@ -74,8 +74,11 @@ class ConflictDetailCard extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.check_circle,
-                      size: 16, color: Colors.green.shade700),
+                  Icon(
+                    Icons.check_circle,
+                    size: 16,
+                    color: Colors.green.shade700,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     l10n.conflictServerApplied,
@@ -114,8 +117,7 @@ class ConflictDetailCard extends StatelessWidget {
         };
       case 'trip':
         return {
-          'Route':
-              '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
+          'Route': '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
           'Status': data['status']?.toString() ?? '-',
           'Capacity': data['capacity']?.toString() ?? '-',
         };
@@ -152,8 +154,18 @@ class ConflictDetailCard extends StatelessWidget {
 
   String _formatTimestamp(DateTime dt) {
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }

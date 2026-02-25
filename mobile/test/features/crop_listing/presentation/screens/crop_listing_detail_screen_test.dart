@@ -53,7 +53,7 @@ Widget _buildScreen({
 void main() {
   group('CropListingDetailScreen', () {
     testWidgets('renders crop type name and icon in header', (tester) async {
-      final listing = _makeListing(cropType: 'teff');
+      final listing = _makeListing();
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
@@ -64,7 +64,7 @@ void main() {
     });
 
     testWidgets('renders Active status chip', (tester) async {
-      final listing = _makeListing(status: ListingStatus.active);
+      final listing = _makeListing();
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
@@ -82,7 +82,7 @@ void main() {
     });
 
     testWidgets('renders quantity with quintals', (tester) async {
-      final listing = _makeListing(quantity: 50.0);
+      final listing = _makeListing();
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
@@ -92,7 +92,7 @@ void main() {
     });
 
     testWidgets('renders price with ETB/kg', (tester) async {
-      final listing = _makeListing(pricePerKg: 85.0);
+      final listing = _makeListing();
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
@@ -102,7 +102,7 @@ void main() {
     });
 
     testWidgets('renders location', (tester) async {
-      final listing = _makeListing(locationName: 'Bishoftu');
+      final listing = _makeListing();
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
@@ -148,10 +148,12 @@ void main() {
     testWidgets('trucker role shows Create Delivery button', (tester) async {
       final listing = _makeListing();
 
-      await tester.pumpWidget(_buildScreen(
-        listing: listing,
-        currentUserRole: UserRole.trucker,
-      ));
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: listing,
+          currentUserRole: UserRole.trucker,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // ElevatedButton.icon renders the label and icon
@@ -162,10 +164,12 @@ void main() {
     testWidgets('buyer role shows Contact Farmer button', (tester) async {
       final listing = _makeListing();
 
-      await tester.pumpWidget(_buildScreen(
-        listing: listing,
-        currentUserRole: UserRole.buyer,
-      ));
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: listing,
+          currentUserRole: UserRole.buyer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // OutlinedButton.icon renders the label and icon
@@ -176,10 +180,11 @@ void main() {
     testWidgets('farmer role shows no action buttons', (tester) async {
       final listing = _makeListing();
 
-      await tester.pumpWidget(_buildScreen(
-        listing: listing,
-        currentUserRole: UserRole.farmer,
-      ));
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: listing,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Create Delivery'), findsNothing);

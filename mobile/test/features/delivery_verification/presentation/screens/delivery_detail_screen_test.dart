@@ -151,10 +151,10 @@ void main() {
 
     testWidgets('shows Show QR Code button for farmer with pending delivery',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(
-        buildTestWidget(delivery: delivery, currentUserId: 'farmer-001'),
+        buildTestWidget(delivery: delivery),
       );
       await tester.pumpAndSettle();
 
@@ -164,7 +164,7 @@ void main() {
 
     testWidgets('shows Confirm Pickup button for trucker with pending delivery',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(
         buildTestWidget(delivery: delivery, currentUserId: 'trucker-001'),
@@ -206,10 +206,10 @@ void main() {
 
     testWidgets('shows Cancel Delivery button for participant with pending',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(
-        buildTestWidget(delivery: delivery, currentUserId: 'farmer-001'),
+        buildTestWidget(delivery: delivery),
       );
       await tester.pumpAndSettle();
 
@@ -226,7 +226,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        buildTestWidget(delivery: delivery, currentUserId: 'farmer-001'),
+        buildTestWidget(delivery: delivery),
       );
       await tester.pumpAndSettle();
 
@@ -255,7 +255,7 @@ void main() {
 
     testWidgets('shows "Not yet picked up" when pickedUpAt is null',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();
@@ -265,7 +265,7 @@ void main() {
 
     testWidgets('shows "Not yet delivered" when confirmedAt is null',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();

@@ -73,5 +73,6 @@ class AuthError extends AuthState {
   });
 
   @override
-  List<Object?> get props => [errorCode, errorMessage, canRetry, retryAfterSeconds];
+  List<Object?> get props =>
+      [errorCode, errorMessage, canRetry, retryAfterSeconds];
 }

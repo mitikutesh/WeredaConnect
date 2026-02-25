@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
@@ -66,10 +64,9 @@ void main() {
       await subscription.cancel();
     });
 
-    test(
-        'events fired before subscription are replayed on first subscription',
+    test('events fired before subscription are replayed on first subscription',
         () async {
-      final conflict1 = _makeConflict(entityId: 'crop-001');
+      final conflict1 = _makeConflict();
       final conflict2 = _makeConflict(entityId: 'crop-002');
 
       // Notify BEFORE subscribing — events go to replay buffer

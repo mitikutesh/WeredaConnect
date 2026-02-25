@@ -320,7 +320,6 @@ void main() {
         // Valid phone, but past date triggers departure error
         expectValidationError(
           'departureDate',
-          truckerPhone: '+251911234567',
           departureDate:
               DateTime.now().toUtc().subtract(const Duration(days: 1)),
         );
@@ -349,7 +348,6 @@ void main() {
       test('same woreda is invalid', () {
         expectValidationError(
           'toWoreda',
-          fromWoreda: 'Jimma',
           toWoreda: 'Jimma',
         );
       });

@@ -58,7 +58,7 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "pickedUpAt", "confirmedAt", "disputeReason",
-        "qrNonce", "scannedQrNonce"
+        "qrNonce", "scannedQrNonce", "qrToken"
     };
 
     private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
@@ -1930,7 +1930,7 @@ public partial class SyncFunction
 
                     // Extract client version from data
                     var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
+                    if (operation.Data?.TryGetValue("version", out var vObj) == true && vObj is not null)
                     {
                         _ = int.TryParse(vObj.ToString(), out clientVersion);
                     }
@@ -1954,9 +1954,9 @@ public partial class SyncFunction
                 };
 
                     var i = 0;
-                    foreach (var kvp in operation.Data)
+                    foreach (var kvp in operation.Data ?? new Dictionary<string, object>())
                     {
-                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt")
+                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt" or "qrToken")
                         {
                             continue;
                         }

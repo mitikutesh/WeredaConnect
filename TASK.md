@@ -2,13 +2,34 @@
 
 ## Current Status
 
-**Phase R4: IN PROGRESS** (started Feb 17, 2026)
-**Branch:** `telebirr-mock`
-**Current:** F-13 COMPLETE (server + mobile + integration tests)
-**Next:** Security cleanup (F-01, F-05) → F-14 fraud detection → F-15 conflict UI → code quality fixes → GA prep
+**Phase R4: NEAR COMPLETE** (started Feb 17, 2026)
+**Branch:** `telebirr-mock` (45 commits ahead of `main`, NOT MERGED)
+**Last PO Audit:** 2026-02-24
+**MVP Completion:** ~92%
+**Launch Target:** Pending merge + deploy + GA blockers
 
-**Last Audit:** 2026-02-21 (4-agent team audit — impl, PO, architecture, mobile UI)
-**MVP Completion:** ~84% | **Launch Target:** ~Mar 3-5, 2026
+---
+
+## PO Audit Summary (2026-02-24)
+
+### What Changed Since Last Audit (Feb 21)
+
+24 additional commits landed on `telebirr-mock` since the Feb 21 checkpoint, including:
+- **F-14 Fraud Detection server (2d3740d)** — full rules engine implemented
+- **6 critical P0 security fixes (1395264)** — auth, escrow, data integrity
+- **P1 security fixes (e942edf)** — escrow logout, auth retry, Lambda limits
+- **Offline rate limiting + commission (b601ef4)**
+- **Auth UX overhaul (68d325f)** — offline session TTL, navigation guards
+- **Profile screen wiring (8410183)** — all stubs replaced
+- **Crop listing detail + delivery creation (ae2a4c1)**
+- **Voice note recording/playback (0a472fd, cf3ec9a)** — bonus feature
+- **Data isolation enforcement (6489007)**
+- **Auth guards + widget tests (405c53a)**
+- **Role-based navigation (6303a58)**
+- **Multi-user E2E testing (096643c)**
+- **Containerized .NET AOT build (f25d777)**
+
+**STATE.md and ROADMAP.md were NOT updated** — they still reflect Feb 21 state.
 
 ---
 
@@ -19,303 +40,303 @@
 | R1: Security Foundation | ✅ 100% | Feb 2026 |
 | R2: Auth + Data Models | ✅ 100% | Feb 14, 2026 |
 | R3: Sync + First Feature | ✅ 100% (20/20 tasks) | Feb 15, 2026 |
-| R4: Trips + Delivery + Escrow | ⚙️ ~75% impl | Target: Apr 30, 2026 |
+| R4: Trips + Delivery + Escrow + Fraud | ⚙️ ~92% | See below |
 
-**R3 Achievements:** Offline-first sync engine, crop listing (create + browse), 228 server tests + 12 integration tests, all deployed to AWS (me-south-1), zero data loss validated.
+### R4 Feature Status (Verified Feb 24)
 
-**R4 Progress (Feb 21 audit):**
-- ✅ F-11 Trip Listings — COMPLETE (server + mobile + UI + tests, merged via PR #5 + PR #6)
-- ✅ F-12 Delivery Verification — COMPLETE (server + mobile + QR + GPS + photo + 5 screens + tests)
-- ✅ F-13 Telebirr Escrow — COMPLETE (server + mobile + 20 integration tests, 589 total pass)
-  - Mobile: 4 screens, 4 widgets, BLoC, repository, sync service, Payments nav tab, Pay button in delivery detail
-- ❌ F-14 Fraud Detection — Not started (LAUNCH BLOCKER)
-- ✅ F-15 Conflict Resolution UI — COMPLETE (resolver + service + BLoC + screen + 4 widgets + banner wiring + 49 tests)
-- ✅ F-18 S3 Access Logging + Versioning — COMPLETE (deployed via CDK)
+| Feature | Server | Mobile | Infra | Tests | Overall |
+|---------|--------|--------|-------|-------|---------|
+| F-11 Trip Listings | ✅ | ✅ | ✅ | ✅ | ✅ 100% |
+| F-12 Delivery Verification | ✅ Read API | ✅ 5 screens + QR/GPS/photo | ✅ | ⚠️ 2 unit test failures | ~95% |
+| F-13 Telebirr Escrow | ✅ Mock gateway + cron | ✅ 4 screens + BLoC | ✅ | ✅ | ✅ 100% |
+| F-14 Fraud Detection | ✅ Rules engine + DB | ⚠️ Error handling only | ✅ GSIs + FraudSignals table | ✅ | ~85% |
+| F-15 Conflict Resolution | ✅ | ✅ | — | ✅ 49 tests | ✅ 100% |
+| F-18 S3 Logging | ✅ | — | ✅ | — | ✅ 100% |
 
-**Deferred security items (runbooks ready):** F-01 (git history purge), F-05 (cert pinning activation).
-**GA blockers (not yet started):** Real Cognito auth, real Telebirr gateway integration.
+### Build Health (Verified Feb 24)
 
-Completed task details: `docs/archive/completed-tasks.md`
-
----
-
-## Phase R4: Trip Listings + Delivery Verification + Telebirr Escrow
-
-**Target:** Apr 1 - Apr 30, 2026 (4 weeks)
-**Prerequisites:** R3 merged to main ✅
-
-### R4 Feature Progress
-
-| Feature | Server | Mobile Data | Mobile UI | Infra | Overall |
-|---------|--------|-------------|-----------|-------|---------|
-| F-11 Trip Listings | ✅ Read API + Sync | ✅ Schema + BLoC + Repo | ✅ 3 screens | ✅ Table + Lambda + Routes | ✅ 100% |
-| F-12 Delivery Verification | ✅ Read API + Sync + 4 sec fixes | ✅ Schema + BLoC + Repo + 3 services | ✅ 5 screens + 3 widgets + l10n | ✅ Table + Lambda + Routes | ~95% |
-| F-13 Telebirr Escrow | ✅ Mock gateway + service + cron | ✅ Repo + models + sync service | ✅ 4 screens + 4 widgets + BLoC + nav | ✅ DynamoDB + Lambda + SSM + EventBridge | ✅ 100% |
-| F-14 Fraud Detection | ❌ | ❌ | ❌ | ❌ | 0% |
-| F-15 Conflict Resolution UI | ✅ ConflictResolver | ✅ BLoC + Service + Repo | ✅ Screen + 4 widgets + banner | — | ✅ 100% |
-
-### R4 Exit Criteria
-
-- [x] Transport provider can create trip listing (route, capacity, departure date)
-- [x] Farmer can browse trips and request delivery
-- [x] Driver can verify delivery with QR + GPS + photo
-- [x] Telebirr escrow holds funds until delivery confirmed by farmer (server + mobile done)
-- [x] Trip listings sync offline-first
-- [x] Deliveries sync offline-first
-- [x] Payments sync offline-first (PaymentIntent queued for offline, syncs on connectivity)
-- [x] Integration tests validate escrow flow end-to-end
-
-### Required Contracts
-
-| Contract | Status |
-|----------|--------|
-| `specs/contracts/trip-listing-api.md` | ✅ v1.0.0 (Draft) |
-| `specs/contracts/delivery-verification-api.md` | ✅ v1.0.0 — QR HMAC-SHA256, GPS 5km threshold, state machine |
-| `specs/contracts/escrow-protocol.md` | ✅ v1.0.0 — Telebirr abstraction, 7-state lifecycle, idempotent ops |
-
-### Implementation Progress
-
-1. ~~Merge R3 to main (PR for `sync-first-feat`)~~ ✅ Done (PR #4, Feb 16)
-2. ~~Write R4 contracts~~ ✅ Done (all 3 contracts written, Feb 17)
-3. ~~Plan deferred items F-01 and F-05~~ ✅ Runbooks at `docs/runbooks/`
-4. ~~F-11 Trip Listings~~ ✅ Done (PR #5 + PR #6, Feb 19)
-5. ~~F-12 Delivery Verification~~ ✅ Done (server + mobile + UI + tests)
-6. ~~F-18 S3 Access Logging + Versioning~~ ✅ Done (CDK deployed)
-7. ~~F-13 Escrow infra scaffolding~~ ✅ Done (DynamoDB + Lambda CDK + SSM + EventBridge)
-8. ~~F-13 Escrow server logic~~ ✅ Done (mock Telebirr gateway + escrow service + cron)
-9. ~~F-13 Escrow mobile~~ ✅ Done (4 screens + 4 widgets + BLoC + repo + Payments nav tab + Pay button, Feb 20)
-10. ~~F-13 Escrow integration tests~~ ✅ Done (20 flow tests, 589 total pass)
-11. F-14 Fraud Detection — **LAUNCH BLOCKER, not started**
-12. ~~F-15 Conflict Resolution UI~~ ✅ Done (resolver + service + BLoC + screen + 4 widgets + banner + 49 tests, Feb 21)
-13. Execute F-01 git history purge — **requires human maintenance window**
-14. Activate F-05 cert pinning — real hashes extracted, code changes needed
+| Component | Build | Tests | Issues |
+|-----------|-------|-------|--------|
+| Server (.NET) | ✅ 0 errors, 1 warning | ✅ 598 pass, 0 fail | CS8602 warning in SyncFunction.cs:1933 |
+| Mobile (Flutter) | ✅ 0 errors in `lib/` | ⚠️ ~345 pass, 2 fail | 2 debug seed test failures |
+| Mobile integration tests | ❌ 12 errors | — | Missing `locationName` in GpsCaptureResult |
+| Mobile lint | ⚠️ 119 infos | — | All `require_trailing_commas` in test files |
+| Infra (CDK) | ✅ | ✅ | — |
 
 ---
 
-## Remaining Work — Audit-Derived Backlog (2026-02-21)
+## MVP Readiness Checklist
 
-Items are ordered by priority. All are required or strongly recommended before production launch.
-
----
-
-### 🔴 CRITICAL — Production Launch Blockers
-
-#### T-14: F-14 Fraud Detection
-**Scope:** `@server` `@mobile`
-**Effort:** ~16-20h
-**Why:** Platform can be abused without it. Bad actors can spam listings and attempt payment fraud.
-**Server tasks:**
-- Duplicate listing detection (same farmer + crop + price within 1h)
-- Price anomaly flagging (flag if price > 3 std devs from recent avg for that crop)
-- Velocity limits: max 5 listings/hour per user, max 10 transactions/day per user
-- GPS consistency checks on delivery verification (cross-check with trip route)
-- Add `FraudDetectionService.cs` called from `CropFunction`, `TripFunction`, `EscrowFunction`
-- Register `FraudDetectionService` in AOT JSON context if it uses serialization
-
-**Mobile tasks:**
-- Surface fraud flags to user (e.g., "suspicious activity detected" warning)
-- Prevent duplicate listing submission in `CreateCropListingScreen`
-
-**Tests:** Unit tests for each fraud rule + integration test for velocity limit
+Tasks are grouped by priority tier. Items within each tier are ordered by dependency/effort.
 
 ---
 
-#### ~~T-15: F-15 Conflict Resolution UI~~ ✅ COMPLETE (Feb 21, 2026)
-**Scope:** `@mobile`
-**Completed:**
-- ✅ ConflictResolver (330 lines) — server-wins resolution with Isar writes
-- ✅ ConflictNotificationService — broadcast stream with replay buffer (microtask fix)
-- ✅ ConflictBloc — events: ConflictDetected, AcceptServerVersion, DismissConflict
-- ✅ ConflictResolutionScreen — modal bottom sheet with entity badge, field diffs, buttons
-- ✅ 4 widgets: ConflictNotificationBanner, ConflictDetailCard, ConflictFieldDiff, ConflictEmptyState
-- ✅ Banner wired into MainNavigation via MaterialBanner (8s auto-dismiss, "View Changes" navigates)
-- ✅ L10n: 16 keys × 3 languages (EN, AM, OM)
-- ✅ Security review: 7 findings verified (2 required fixes applied, 5 advisory confirmed)
-- ✅ Tests: 49 passing (resolver + service + bloc + screen + 4 widget test files)
+### TIER 1 — SHIP BLOCKERS (Must fix before any merge/deploy)
 
----
+These prevent the branch from being mergeable and deployable.
 
-#### T-SEC-01: Execute F-01 Git History Purge
-**Scope:** `@infra` `@human`
-**Effort:** ~1h
-**Why:** Exposed private key in git history — security risk before any public/team access.
-**Tasks:**
-- Follow runbook at `docs/runbooks/f01-git-history-purge.md`
-- Requires human execution (git filter-repo + force push)
-- **Must be done before sharing repo or adding collaborators**
-
----
-
-#### T-SEC-02: Activate F-05 Certificate Pinning
-**Scope:** `@mobile`
-**Effort:** ~2h
-**Why:** Without cert pinning, MITM attacks are possible on 3G/WiFi networks (critical for Ethiopian rural context).
-**Tasks:**
-- Follow runbook at `docs/runbooks/f05-cert-pinning-activation.md`
-- Real cert hashes already extracted
-- Update `mobile/lib/core/network/` to enable pinning with extracted hashes
-- Test on device: confirm app rejects invalid cert, accepts valid cert
-
----
-
-### 🟠 HIGH — Required Before GA (Real Users/Money)
-
-#### T-AUTH-01: Implement Real Cognito Auth
-**Scope:** `@server`
-**Effort:** ~1-2 weeks
-**Why:** All endpoints currently use mock auth. Cannot go live with real users without proper authentication.
-**Tasks:**
-- Replace `MockAuthService` with `CognitoAuthService` in `server/src/Services/`
-- Implement AWS Cognito token validation using `AWSSDK.CognitoIdentityProvider` (AOT-safe)
-- Add token refresh endpoint
-- Add logout/revoke endpoint
-- Update `RegisterFunction`, `LoginFunction` to use real Cognito user pool
-- Ensure AOT compliance: use source generators, no reflection
-- Update SSM parameters for Cognito user pool ID + client ID
-- Integration tests for auth flow end-to-end
-
----
-
-#### T-PAY-01: Replace Mock Telebirr Gateway with Real API
-**Scope:** `@server`
-**Effort:** TBD (depends on Telebirr API access)
-**Why:** Payments are currently simulated. Real money requires real gateway integration.
-**Tasks:**
-- Replace `MockTelebirrGateway.cs` with `TelebirrGateway.cs` implementing real Telebirr API
-- Obtain Telebirr merchant credentials and sandbox access
-- Implement: `InitiatePayment`, `CheckStatus`, `Release`, `Refund` against live endpoints
-- Handle Telebirr-specific error codes and retry logic
-- Add webhook handler for Telebirr payment callbacks
-- AOT-safe HTTP client (use `System.Net.Http.HttpClient`, not HttpClientFactory with reflection)
-- End-to-end integration tests against Telebirr sandbox
-
----
-
-### 🟡 MEDIUM — Pre-Production Polish
-
-#### T-F12-01: F-12 Delivery Integration Tests
-**Scope:** `@server`
-**Effort:** ~2-3h
-**Why:** F-12 is marked 95% complete — missing E2E tests to reach 100%.
-**Tasks:**
-- Add integration test: full delivery verification flow (create → QR generate → QR scan → GPS verify → photo → status transition)
-- Add test: QR tampering rejection
-- Add test: GPS outside 5km threshold rejection
-- Add test: photo upload endpoint (T12 — currently missing endpoint)
-
----
-
-#### T-NET-01: Fix Auth Interceptor Retry — Reuse Dio Instance
-**Scope:** `@mobile`
-**Effort:** ~2-4h
-**Why:** After 401 + token refresh, retry creates a new `Dio()` instance that bypasses logging and data usage interceptors. Creates audit/tracking blind spots.
-**File:** `mobile/lib/core/network/auth_interceptor.dart:146`
-**Tasks:**
-- Inject parent `Dio` instance reference into `AuthInterceptor` constructor
-- Replace `final dio = Dio(); return dio.request(...)` with the injected instance
-- Verify retry requests appear in `LoggingInterceptor` and `DataUsageInterceptor`
-- Add unit test: confirm interceptors fire on retried request
-
----
-
-#### T-SEC-03: Add Client-Side GPS Validation in Delivery Repository
-**Scope:** `@mobile`
-**Effort:** ~3-4h
-**Why:** Server validates GPS bounds but client doesn't. Defense-in-depth; prevents bad data from being queued to sync.
-**File:** `mobile/lib/features/delivery_verification/data/repositories/delivery_repository.dart`
-**Tasks:**
-- Add `_validateGpsCoordinates(double lat, double lng)` — check lat ∈ [-90, 90], lng ∈ [-180, 180]
-- Add accuracy threshold check (flag if GPS accuracy > 100m)
-- Throw `ValidationException` with l10n-friendly message before enqueueing sync
-- Add unit tests for boundary conditions
-
----
-
-#### T-SERVER-01: Consolidate Duplicate DynamoDB Helper Functions
-**Scope:** `@server`
-**Effort:** ~2h
-**Why:** `GetString()`, `GetInt()`, `GetDecimal()` are duplicated across `CropFunction`, `DeliveryFunction`, `TripFunction` (~50 lines of duplication).
-**Tasks:**
-- Move shared helpers to `server/src/Data/DynamoDbMapper.cs` (or extend existing `DynamoDbHelper`)
-- Update `CropFunction`, `DeliveryFunction`, `TripFunction` to use shared helpers
-- Verify build passes: `cd server && dotnet build --no-restore`
-
----
-
-### 🔵 LOW — Nice to Have / Future Sprint
-
-#### T-MOB-01: Wire Profile Screen Navigation Stubs
-**Scope:** `@mobile`
-**Effort:** ~2-3h
-**Why:** 4 buttons in `profile_screen.dart` are stubs. Low impact (settings screen exists separately) but creates inconsistent UX.
-**Tasks:**
-- Identify the 4 stub buttons in `profile_screen.dart`
-- Wire to existing screens where applicable (settings → `SettingsScreen`, etc.)
-- For features not yet built, keep "Coming Soon" snackbar but ensure l10n is used
-
----
-
-#### T-MOB-02: Fix Hardcoded Snackbar String in Welcome Screen
+#### T-MVP-01: Fix 2 Failing Mobile Unit Tests
 **Scope:** `@mobile`
 **Effort:** ~30min
-**File:** `mobile/lib/features/onboarding/screens/welcome_screen.dart:127`
-**Tasks:**
-- Move snackbar text to `app_en.arb` (key: `tutorialComingSoon`)
-- Add Amharic translation to `app_am.arb`
-- Add Afan Oromo translation to `app_om.arb`
-- Update `welcome_screen.dart` to use `l10n.tutorialComingSoon`
-- Run `flutter gen-l10n`
+**Files:** `mobile/test/features/delivery_verification/presentation/screens/delivery_list_screen_test.dart`
+**Issue:** "debug seed button visible in debug mode for empty list" — 2 test failures
+**Action:** Fix test expectations or underlying widget logic
 
 ---
 
-#### T-MOB-03: Implement OTP Resend
-**Scope:** `@server` `@mobile`
-**Effort:** ~3-4h
-**File:** `mobile/lib/features/auth/screens/otp_verification_screen.dart:104`
-**Tasks:**
-- Add `POST /auth/resend-otp` endpoint in `server/src/Functions/`
-- Rate-limit: max 3 resends per phone per 10min (prevent SMS abuse)
-- Mobile: replace `_handleResendOtp()` stub with real API call
-- Show countdown timer between resend attempts
+#### T-MVP-02: Fix 12 Integration Test Errors (locationName)
+**Scope:** `@mobile`
+**Effort:** ~1h
+**Files:** `mobile/integration_test/manual_stress_test.dart`, `offline_online_cycle_test.dart`, `sync_crop_listing_test.dart`
+**Issue:** `GpsCaptureResult` constructor now requires `locationName` parameter but integration tests don't pass it
+**Action:** Add `locationName` parameter to all 12 `GpsCaptureResult()` call sites in integration tests
 
 ---
 
-#### T-MOB-04: Implement Forgot Password Flow
-**Scope:** `@server` `@mobile`
-**Effort:** ~4-6h
-**File:** `mobile/lib/features/auth/screens/login_screen.dart:220`
-**Tasks:**
-- Add `POST /auth/forgot-password` and `POST /auth/reset-password` endpoints
-- Mobile: create `ForgotPasswordScreen` and `ResetPasswordScreen`
-- Wire from `LoginScreen` forgot password button
-- SMS OTP flow for password reset (reuse OTP verification screen)
+#### T-MVP-03: Fix Trailing Comma Lint Issues in Test Files
+**Scope:** `@mobile`
+**Effort:** ~30min
+**Files:** `mobile/test/shared/widgets/voice_note_widget_test.dart` (and others)
+**Issue:** 119 `require_trailing_commas` lint infos — all in test files
+**Action:** Run `dart fix --apply` or manually add trailing commas
 
 ---
 
-#### T-SERVER-02: Refactor Large SyncFunction (Future Sprint)
+#### T-MVP-04: Resolve SyncFunction Null Reference Warning
 **Scope:** `@server`
-**Effort:** ~4-6h (design + implementation)
-**Why:** `SyncFunction.cs` is 107KB handling crop, trip, and delivery sync — hard to maintain.
-**Tasks (non-blocking, future sprint):**
-- Extract `SyncCropHandler`, `SyncTripHandler`, `SyncDeliveryHandler` classes
-- `SyncFunction` becomes a thin router delegating to per-entity handlers
-- Reduces cognitive load and simplifies per-entity test coverage
+**Effort:** ~15min
+**File:** `server/src/Functions/SyncFunction.cs:1933`
+**Issue:** CS8602 — dereference of possibly null reference
+**Action:** Add null check or null-forgiving operator
 
 ---
 
-## Audit Summary (2026-02-21)
+### TIER 2 — MVP QUALITY (Required for a credible MVP demo/beta)
 
-| Category | Finding |
-|---|---|
-| MVP completion | ~84% |
-| Launch blockers | F-14 (fraud), Cognito auth, Telebirr live API |
-| Security (urgent) | F-01 git purge, F-05 cert pinning (runbooks ready) |
-| Architecture | SOUND — no rewrites needed |
-| Mobile UI | 18 screens, all reachable, l10n 100% (642 keys × 3 languages) |
-| Tests | 589+ passing |
-| Dead code | None significant |
-| Projected launch | ~Mar 3-5, 2026 with focused effort |
+These are functional gaps in the core transaction flow.
+
+#### T-MVP-05: Add Photo Upload Endpoint (F-12 completion)
+**Scope:** `@server` `@infra`
+**Effort:** ~4-6h
+**Why:** Mobile captures delivery photos but has no server endpoint to upload them to. Core trust mechanism gap.
+**Tasks:**
+- Create `POST /deliveries/{id}/photos` handler (or repurpose existing stub)
+- S3 pre-signed URL generation for upload
+- Link photo key to delivery record in DynamoDB
+- Integration test: upload → verify S3 object + delivery record updated
+- Add API Gateway route + Lambda permissions
 
 ---
 
-**Last Updated:** 2026-02-21 (F-15 Conflict Resolution UI completed)
+#### T-MVP-06: Fix Auth Interceptor Retry — Reuse Dio Instance
+**Scope:** `@mobile`
+**Effort:** ~2h
+**File:** `mobile/lib/core/network/auth_interceptor.dart` (around line 138)
+**Why:** After 401 + token refresh, retry creates a bare `Dio()` that bypasses logging and data-usage interceptors. Creates audit blind spot.
+**Tasks:**
+- Inject parent Dio instance into `AuthInterceptor`
+- Replace `final dio = Dio(...)` in `_retry()` with injected instance
+- Verify logging + data usage interceptors fire on retried requests
+- Unit test
+
+---
+
+#### T-MVP-07: Localize Last Hardcoded String
+**Scope:** `@mobile`
+**Effort:** ~15min
+**File:** `mobile/lib/features/onboarding/screens/welcome_screen.dart:116`
+**Issue:** `'Tutorial carousel coming soon...'` is hardcoded English
+**Action:** Add `tutorialComingSoon` key to EN/AM/OM `.arb` files, use `l10n.tutorialComingSoon`
+
+---
+
+### TIER 3 — MERGE & DEPLOY
+
+#### T-MVP-08: Update Stale Documentation
+**Scope:** `@architect`
+**Effort:** ~1h
+**Why:** STATE.md, ROADMAP.md, TASK.md are all stale (Feb 21). Must reflect current state before merge.
+**Files:**
+- `STATE.md` — update checkpoint to Feb 24, mark F-14 done, list all new commits
+- `specs/features/ROADMAP.md` — update R4 to ~92%, mark F-14 complete
+- `specs/features/BACKLOG.md` — mark F-14 complete
+**Note:** This TASK.md replaces the stale version as of Feb 24.
+
+---
+
+#### T-MVP-09: Merge `telebirr-mock` to `main`
+**Scope:** `@infra`
+**Effort:** ~1h
+**Why:** 45 commits including F-14 fraud detection, security fixes, auth improvements, and voice notes are sitting unmerged.
+**Tasks:**
+- Create PR from `telebirr-mock` → `main`
+- Verify CI passes (all tests green)
+- Review diff (268 files changed, ~56K lines added)
+- Merge (squash or merge commit — user decision)
+
+---
+
+#### T-MVP-10: Deploy Updated Server to AWS
+**Scope:** `@infra`
+**Effort:** ~1h
+**Why:** F-14 fraud detection, security fixes, and new endpoints need deployment.
+**Tasks:**
+- Run `scripts/deploy.sh` (containerized AOT build)
+- Verify: `FraudSignalsTable` created in DynamoDB
+- Verify: New GSIs on `CropsTable` provisioned
+- Verify: `/health` endpoint returns 200
+- Smoke test: create crop listing, verify fraud rules trigger
+
+---
+
+### TIER 4 — GA BLOCKERS (Required before real users/money)
+
+These are pre-production requirements. MVP can demo without them, but cannot handle real transactions.
+
+#### T-GA-01: Replace Mock Auth with Real Cognito
+**Scope:** `@server` `@mobile`
+**Effort:** ~1-2 weeks
+**Why:** All endpoints currently use `MockAuthService`. Cannot go live with real users.
+**Tasks:**
+- Server: Wire `CognitoAuthService` (code exists, gated by `Environment.useMockAuth`)
+- Server: Configure real Cognito user pool ID + client ID via SSM
+- Mobile: Flip `Environment.useMockAuth` to `false` for production builds
+- Test: SMS OTP delivery to Ethiopian phone numbers (+251)
+- Test: Token refresh cycle with real JWT
+- Risk: Ethio Telecom SMS delivery reliability — have voice OTP fallback ready
+
+---
+
+#### T-GA-02: Replace Mock Telebirr with Real API
+**Scope:** `@server`
+**Effort:** TBD (depends on Telebirr API availability)
+**Why:** Payments are simulated. Real money requires real gateway.
+**Tasks:**
+- Obtain Telebirr merchant credentials and sandbox access
+- Replace `MockTelebirrGateway.cs` with real API integration
+- Implement: `InitiatePayment`, `CheckStatus`, `Release`, `Refund`
+- Handle Telebirr-specific error codes and retry logic
+- AOT-safe HTTP client (System.Net.Http, no reflection)
+- E2E test against Telebirr sandbox
+
+---
+
+#### T-GA-03: Activate Certificate Pinning (F-05)
+**Scope:** `@mobile`
+**Effort:** ~2h
+**Why:** Without cert pinning, MITM attacks possible on 3G/WiFi networks.
+**Tasks:**
+- Follow runbook at `docs/runbooks/f05-cert-pinning-activation.md`
+- Update `api_client.dart` with real SHA-256 cert hashes
+- Test: app rejects invalid cert, accepts valid cert
+
+---
+
+#### T-GA-04: Execute Git History Purge (F-01)
+**Scope:** `@human`
+**Effort:** ~1h
+**Why:** Exposed private key in git history.
+**Tasks:**
+- Follow runbook at `docs/runbooks/f01-git-history-purge.md`
+- Requires: `git filter-repo` + force push
+- **Must complete before sharing repo or adding collaborators**
+
+---
+
+### TIER 5 — POLISH (Nice-to-have for MVP, can defer)
+
+#### T-POLISH-01: Add OTP Resend Server Endpoint
+**Scope:** `@server` `@mobile`
+**Effort:** ~3h
+**Why:** UI button exists but no backend. Users stuck if OTP doesn't arrive.
+**Tasks:** Add `POST /auth/resend-otp` with rate limit (3 per 10min per phone)
+
+---
+
+#### T-POLISH-02: Implement Forgot Password Flow
+**Scope:** `@server` `@mobile`
+**Effort:** ~5h
+**Why:** No way to recover account if password forgotten.
+**Tasks:** `POST /auth/forgot-password`, `POST /auth/reset-password`, 2 new screens
+
+---
+
+#### T-POLISH-03: Consolidate DynamoDB Helpers
+**Scope:** `@server`
+**Effort:** ~2h
+**Why:** `GetString()`, `GetInt()`, `GetDecimal()` duplicated across CropFunction, DeliveryFunction, TripFunction
+**Action:** Move to shared `DynamoDbHelper.cs`, update callers
+
+---
+
+#### T-POLISH-04: Refactor SyncFunction (Future)
+**Scope:** `@server`
+**Effort:** ~5h
+**Why:** SyncFunction.cs is 107KB. Extract per-entity handlers.
+**Action:** Non-blocking, future sprint
+
+---
+
+## Completed Features (All Phases)
+
+### R1: Security Foundation ✅
+F-01 (runbook), F-02 (gitleaks), F-16 (Lambda deploy), F-19 (CI security)
+
+### R2: Auth + Data Models ✅
+F-03 (Cognito + mock), F-04 (Isar encryption), F-06 (rate limiting), F-07 (6 Isar schemas), F-09 (input validation)
+
+### R3: Sync + First Feature ✅
+F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
+
+### R4: Transaction Flow (in progress)
+- ✅ F-11 Trip Listings (PR #5 + PR #6, merged to main Feb 19)
+- ✅ F-12 Delivery Verification — 95% (missing photo upload endpoint)
+- ✅ F-13 Telebirr Escrow (server + mobile + 20 integration tests)
+- ✅ F-14 Fraud Detection — server 100% (5 rules + DB + tests), mobile basic (error handling)
+- ✅ F-15 Conflict Resolution UI (resolver + service + BLoC + 4 widgets + 49 tests)
+- ✅ F-18 S3 Access Logging + Versioning (CDK deployed)
+
+### Bonus (added beyond original MVP scope)
+- ✅ Voice note recording/playback for crop listings
+- ✅ Role-based navigation (farmer vs trucker vs buyer)
+- ✅ Data isolation enforcement
+- ✅ Crop listing detail screen with delivery creation
+- ✅ Multi-user E2E testing support
+- ✅ Containerized .NET AOT deployment script
+
+---
+
+## Test Health
+
+| Layer | Pass | Fail | Total |
+|-------|------|------|-------|
+| Server (.NET) | 598 | 0 | 598 |
+| Mobile unit tests | ~345 | 2 | ~347 |
+| Mobile integration tests | — | 12 errors | ~12 broken |
+| **Combined** | **~943** | **~14** | **~957** |
+
+---
+
+## Key Decision Log
+
+| Decision | Rationale | Date |
+|----------|-----------|------|
+| Server-wins conflict resolution | Simplest for solo farmers (rare conflicts) | Feb 21 |
+| HMAC-SHA256 over JWT for QR | Smaller payload, better on cheap cameras | Feb 18 |
+| 5km GPS threshold | GPS inaccuracy + farm-to-road distance | Feb 18 |
+| Mock auth/Telebirr for MVP | Enables E2E testing without vendor dependency | Feb 17 |
+| Voice notes (bonus) | Low-literacy users benefit; minimal overhead | Feb 23 |
+
+---
+
+## Deployment
+
+- **API:** `https://s0om0hib4i.execute-api.me-south-1.amazonaws.com`
+- **Region:** me-south-1 (Bahrain)
+- **Lambda:** 10+ functions, ARM64 Native AOT
+- **DynamoDB:** 9+ tables (on-demand billing)
+- **Note:** Server code on `telebirr-mock` is NOT YET DEPLOYED (F-14, security fixes pending)
+
+---
+
+**Last Updated:** 2026-02-24 (PO audit — comprehensive review)

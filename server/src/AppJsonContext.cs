@@ -48,6 +48,8 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetDeliveriesResponse))]
 [JsonSerializable(typeof(GetDeliveryResponse))]
 [JsonSerializable(typeof(LatLngDto))]
+[JsonSerializable(typeof(UploadPhotoRequest))]
+[JsonSerializable(typeof(UploadPhotoResponse))]
 // Escrow endpoint DTOs
 [JsonSerializable(typeof(InitiateEscrowRequest))]
 [JsonSerializable(typeof(InitiateEscrowResponse))]

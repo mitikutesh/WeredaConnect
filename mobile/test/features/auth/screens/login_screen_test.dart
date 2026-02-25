@@ -45,10 +45,10 @@ void main() {
 
     return BlocProvider<AuthBloc>.value(
       value: authBloc,
-      child: MaterialApp(
+      child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: const LoginScreen(),
+        home: LoginScreen(),
       ),
     );
   }

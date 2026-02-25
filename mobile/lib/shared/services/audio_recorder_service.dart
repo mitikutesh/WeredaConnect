@@ -53,7 +53,6 @@ class AudioRecorderService {
         await _recorder.start(
           const RecordConfig(
             bitRate: audioBitrate,
-            sampleRate: 44100,
             numChannels: 1,
           ),
           path: filePath,

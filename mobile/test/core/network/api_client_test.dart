@@ -368,7 +368,9 @@ void main() {
 
         // Assert
         expect(testClient.isInitialized, isTrue);
-        expect(testClient.dio.options.baseUrl, isNotEmpty);
+        // SEC-06: baseUrl is now provided via --dart-define only (no hardcoded default),
+        // so in test environment it will be empty unless explicitly configured.
+        expect(testClient.dio.options.baseUrl, isA<String>());
         expect(
           testClient.dio.options.connectTimeout,
           equals(const Duration(seconds: 30)),

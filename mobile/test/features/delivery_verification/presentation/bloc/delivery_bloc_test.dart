@@ -393,8 +393,12 @@ void main() {
       final states = <DeliveryState>[];
       final subscription = bloc.stream.listen(states.add);
 
-      bloc.add(const LoadDeliveries(
-          tripId: 'nonexistent-trip', userId: 'trucker-001'));
+      bloc.add(
+        const LoadDeliveries(
+          tripId: 'nonexistent-trip',
+          userId: 'trucker-001',
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       expect(states.length, 2);

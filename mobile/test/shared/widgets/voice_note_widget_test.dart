@@ -183,10 +183,12 @@ void main() {
   // -------------------------------------------------------------------------
   group('Empty state', () {
     testWidgets('shows record button with mic icon', (tester) async {
-      await tester.pumpWidget(buildTestWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildTestWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.mic), findsOneWidget);
@@ -201,19 +203,25 @@ void main() {
     testWidgets(
         'shows stop button, timer, and animated red dot after startRecording',
         (tester) async {
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
-      await tester.pumpWidget(buildTestWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildTestWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Tap the record button.
@@ -230,19 +238,25 @@ void main() {
 
     testWidgets('timer increments each second during recording',
         (tester) async {
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
-      await tester.pumpWidget(buildTestWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildTestWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Record Audio Note'));
@@ -269,14 +283,18 @@ void main() {
         (tester) async {
       String? recordedPath;
 
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -286,11 +304,13 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-        onRecorded: (path) => recordedPath = path,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+          onRecorded: (path) => recordedPath = path,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Start recording.
@@ -325,14 +345,18 @@ void main() {
   group('Playing state', () {
     testWidgets('shows pause button, progress indicator, and re-record button',
         (tester) async {
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -344,10 +368,12 @@ void main() {
 
       when(() => mockPlayer.play(_testAudioPath)).thenAnswer((_) async {});
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Record then stop.
@@ -370,14 +396,18 @@ void main() {
 
     testWidgets('returns to recorded state when playback completes',
         (tester) async {
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -389,10 +419,12 @@ void main() {
 
       when(() => mockPlayer.play(_testAudioPath)).thenAnswer((_) async {});
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Record then stop.
@@ -425,14 +457,18 @@ void main() {
         (tester) async {
       var deletedCalled = false;
 
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -445,11 +481,13 @@ void main() {
       when(() => mockRecorder.deleteLocalAudio(_testAudioPath))
           .thenAnswer((_) async {});
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-        onDeleted: () => deletedCalled = true,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+          onDeleted: () => deletedCalled = true,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Record then stop.
@@ -482,10 +520,12 @@ void main() {
       expect(deletedCalled, isTrue);
 
       // Verify startRecording was called a second time for re-record.
-      verify(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).called(2); // Once initially, once for re-record.
+      verify(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).called(2); // Once initially, once for re-record.
     });
   });
 
@@ -495,14 +535,18 @@ void main() {
   group('Max duration snackbar', () {
     testWidgets('shows audioTooLong snackbar when recording reaches 30s',
         (tester) async {
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -512,10 +556,12 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(buildTestWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-      ));
+      await tester.pumpWidget(
+        buildTestWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Start recording.
@@ -546,14 +592,18 @@ void main() {
         (tester) async {
       var deletedCalled = false;
 
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -566,11 +616,13 @@ void main() {
       when(() => mockRecorder.deleteLocalAudio(_testAudioPath))
           .thenAnswer((_) async {});
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-        onDeleted: () => deletedCalled = true,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+          onDeleted: () => deletedCalled = true,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Record then stop.
@@ -609,14 +661,18 @@ void main() {
         (tester) async {
       var deletedCalled = false;
 
-      when(() => mockRecorder.startRecording(
-            userId: _testUserId,
-            entityId: _testEntityId,
-          )).thenAnswer((_) async => AudioResult.success(
-            localPath: _testAudioPath,
-            durationMs: 0,
-            fileSizeBytes: 100,
-          ));
+      when(
+        () => mockRecorder.startRecording(
+          userId: _testUserId,
+          entityId: _testEntityId,
+        ),
+      ).thenAnswer(
+        (_) async => AudioResult.success(
+          localPath: _testAudioPath,
+          durationMs: 0,
+          fileSizeBytes: 100,
+        ),
+      );
 
       when(() => mockRecorder.stopRecording()).thenAnswer(
         (_) async => AudioResult.success(
@@ -626,11 +682,13 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(buildHarnessWidget(
-        recorderService: mockRecorder,
-        playerService: mockPlayer,
-        onDeleted: () => deletedCalled = true,
-      ));
+      await tester.pumpWidget(
+        buildHarnessWidget(
+          recorderService: mockRecorder,
+          playerService: mockPlayer,
+          onDeleted: () => deletedCalled = true,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Record then stop.

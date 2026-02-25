@@ -75,6 +75,7 @@ void main() {
         pricePerKg: 45.0,
         latitude: 9.0192,
         longitude: 38.7525,
+        locationName: 'Adama',
         description: 'High quality teff from Adama',
       );
 
@@ -218,6 +219,7 @@ void main() {
         pricePerKg: 45.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Test Wereda',
         description: 'Test',
       );
 
@@ -351,6 +353,7 @@ void main() {
         pricePerKg: 45.0,
         latitude: 9.0,
         longitude: 38.0,
+        locationName: 'Test Wereda',
         description: 'To be deleted',
       );
 

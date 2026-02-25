@@ -24,6 +24,7 @@ public class CropFunctionTests
 
     public CropFunctionTests()
     {
+        Environment.SetEnvironmentVariable("PAGINATION_SECRET", "test-pagination-secret-for-unit-tests");
         _mockCropRepo = Substitute.For<ICropRepository>();
         _function = new CropFunction(_mockCropRepo);
         _context = new TestLambdaContext();
@@ -54,7 +55,7 @@ public class CropFunctionTests
             { "farmerId", "user-001" },
             { "cropType", cropType },
             { "woreda", "Adama" },
-            { "quantityKg", "100" },
+            { "quantity", "100" },
             { "pricePerKg", "45.5" },
             { "status", status },
             { "createdAt", "2026-01-01T00:00:00Z" },
@@ -314,7 +315,7 @@ public class CropFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("CROP_VALIDATION", response.Body);
-        Assert.Contains("Invalid nextToken", response.Body);
+        Assert.Contains("Invalid or tampered nextToken", response.Body);
     }
 
     [Fact]
@@ -484,7 +485,7 @@ public class CropFunctionTests
             { "farmerId", "user-001" },
             { "cropType", "teff" },
             { "woreda", "Adama" },
-            { "quantityKg", "150" },
+            { "quantity", "150" },
             { "pricePerKg", "50.75" },
             { "status", "available" },
             { "createdAt", "2026-01-01T00:00:00Z" },
@@ -515,7 +516,7 @@ public class CropFunctionTests
             { "farmerId", "user-001" },
             { "cropType", "teff" },
             { "woreda", "Adama" },
-            { "quantityKg", "100" },
+            { "quantity", "100" },
             { "pricePerKg", "45.5" },
             { "status", "available" },
             { "createdAt", "2026-01-01T00:00:00Z" },

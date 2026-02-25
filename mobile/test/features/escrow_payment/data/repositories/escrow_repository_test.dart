@@ -501,7 +501,9 @@ void main() {
         );
 
         final payments = await repository.getHistory(
-            userId: 'farmer-001', statusFilter: 'escrowed');
+          userId: 'farmer-001',
+          statusFilter: 'escrowed',
+        );
         expect(payments.length, 1);
         expect(payments.first.paymentId, 'esc-001');
       });

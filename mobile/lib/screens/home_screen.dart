@@ -18,9 +18,8 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final authState = context.watch<AuthBloc>().state;
-    final role = authState is AuthAuthenticated
-        ? authState.role
-        : UserRole.farmer;
+    final role =
+        authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
     return Center(
       child: Column(

@@ -26,6 +26,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly escrowsTable: dynamodb.Table;
   readonly escrowAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
+  readonly fraudSignalsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -186,6 +187,7 @@ export class ApiStack extends cdk.Stack {
         TRIPS_TABLE: props.tripsTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
     });
@@ -196,6 +198,7 @@ export class ApiStack extends cdk.Stack {
     props.tripsTable.grantReadWriteData(syncFn.function);
     props.deliveriesTable.grantReadWriteData(syncFn.function);
     props.rateLimitsTable.grantReadWriteData(syncFn.function);
+    props.fraudSignalsTable.grantReadWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
@@ -311,6 +314,7 @@ export class ApiStack extends cdk.Stack {
         USERS_TABLE: props.usersTable.tableName,
         CROPS_TABLE: props.cropsTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -327,6 +331,7 @@ export class ApiStack extends cdk.Stack {
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
+    props.fraudSignalsTable.grantReadWriteData(escrowFn.function);
     commissionRateParam.grantRead(escrowFn.function);
     disputeWindowParam.grantRead(escrowFn.function);
     escrowTimeoutParam.grantRead(escrowFn.function);
@@ -393,14 +398,6 @@ export class ApiStack extends cdk.Stack {
     const httpApi = new apigateway.HttpApi(this, "HttpApi", {
       apiName: `${prefix}-api`,
       description: "WeredaConnect HTTP API — optimized for Ethiopian context",
-      corsPreflight: {
-        allowOrigins: ["*"],
-        allowMethods: [
-          apigateway.CorsHttpMethod.POST,
-          apigateway.CorsHttpMethod.GET,
-        ],
-        allowHeaders: ["Content-Type", "Authorization"],
-      },
     });
 
     this.httpApiUrl = httpApi.apiEndpoint;
@@ -487,6 +484,7 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/crops",
       methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "CropsListInt",
         cropFn.function,
@@ -499,6 +497,7 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/crops/{id}",
       methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "CropsGetInt",
         cropFn.function,
@@ -511,6 +510,7 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/trips",
       methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "TripsListInt",
         tripFn.function,
@@ -523,6 +523,7 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/trips/{id}",
       methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "TripsGetInt",
         tripFn.function,

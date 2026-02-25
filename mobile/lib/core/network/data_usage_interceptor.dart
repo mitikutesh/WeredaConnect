@@ -22,7 +22,9 @@ class DataUsageInterceptor extends Interceptor {
 
   @override
   void onResponse(
-      Response<dynamic> response, ResponseInterceptorHandler handler) {
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
     _trackDownload(response);
     handler.next(response);
   }

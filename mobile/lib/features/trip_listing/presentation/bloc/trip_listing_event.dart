@@ -35,13 +35,13 @@ class CreateTrip extends TripListingEvent {
     required this.truckerId,
     required this.truckerName,
     required this.truckerPhone,
-    this.vehiclePlate,
-    this.vehicleDescription,
     required this.fromWoreda,
     required this.toWoreda,
     required this.departureDate,
     required this.capacity,
     required this.pricePerQuintal,
+    this.vehiclePlate,
+    this.vehicleDescription,
   });
 
   @override

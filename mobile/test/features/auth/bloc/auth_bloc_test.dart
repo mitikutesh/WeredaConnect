@@ -44,8 +44,8 @@ final _testUser = User()
   ..name = 'Abebe Kebede'
   ..role = UserRole.farmer
   ..woreda = 'Jimma'
-  ..createdAt = DateTime.utc(2026, 1, 1)
-  ..updatedAt = DateTime.utc(2026, 1, 1)
+  ..createdAt = DateTime.utc(2026)
+  ..updatedAt = DateTime.utc(2026)
   ..version = 1;
 
 /// In-memory store for FlutterSecureStorage method channel mock.
@@ -60,11 +60,13 @@ void main() {
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
     registerFallbackValue(FakeAuthState());
-    registerFallbackValue(const AuthTokens(
-      accessToken: '',
-      refreshToken: '',
-      idToken: '',
-    ));
+    registerFallbackValue(
+      const AuthTokens(
+        accessToken: '',
+        refreshToken: '',
+        idToken: '',
+      ),
+    );
     registerFallbackValue(UserRole.farmer);
 
     // Mock FlutterSecureStorage method channel
@@ -391,10 +393,12 @@ void main() {
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
 
-        bloc.add(const AuthLoginRequested(
-          phoneNumber: '+251911234567',
-          password: 'test1234',
-        ));
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 300));
 
         // Now refresh
@@ -439,10 +443,12 @@ void main() {
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
 
-        bloc.add(const AuthLoginRequested(
-          phoneNumber: '+251911234567',
-          password: 'test1234',
-        ));
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 300));
 
         // Refresh with expired token
@@ -486,10 +492,12 @@ void main() {
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
 
-        bloc.add(const AuthLoginRequested(
-          phoneNumber: '+251911234567',
-          password: 'test1234',
-        ));
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 300));
 
         // Now logout

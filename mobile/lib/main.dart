@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
@@ -32,6 +33,15 @@ import 'package:wereda_connect/shared/providers/settings_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // SECURITY: Fail fast if API credentials are missing (prevents silent fallback to empty URL)
+  if (!Environment.useMockAuth && !Environment.isApiConfigured) {
+    throw StateError(
+      'API_BASE_URL and Cognito credentials must be provided via --dart-define. '
+      'See README for build instructions. '
+      'For local development, use --dart-define=USE_MOCK_AUTH=true.',
+    );
+  }
 
   // Initialize data usage tracker before API client so the interceptor
   // can be attached immediately.
@@ -90,8 +100,14 @@ Future<void> main() async {
     }
   };
 
-  // Add lifecycle observer for resource cleanup
-  WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
+  // Create AuthBloc early so the lifecycle observer can clear sensitive data
+  final authBloc = AuthBloc(
+    isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
+  )..add(const AuthCheckRequested());
+
+  // Add lifecycle observer for resource cleanup and sensitive data clearing
+  WidgetsBinding.instance
+      .addObserver(_AppLifecycleObserver(authBloc: authBloc));
 
   runApp(
     MultiProvider(
@@ -101,6 +117,7 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: dataUsageTracker),
       ],
       child: WeredaConnectApp(
+        authBloc: authBloc,
         connectivityMonitor: connectivityMonitor,
         escrowSyncService: escrowSyncService,
         conflictNotificationService: conflictNotificationService,
@@ -110,7 +127,12 @@ Future<void> main() async {
 }
 
 /// Manages app lifecycle to optimize memory usage on low-end devices
+/// and clear sensitive in-memory data when the app is backgrounded.
 class _AppLifecycleObserver extends WidgetsBindingObserver {
+  _AppLifecycleObserver({required this.authBloc});
+
+  final AuthBloc authBloc;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
@@ -118,16 +140,23 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
       // This frees ~50MB on 2GB devices
       imageCache.clear();
       imageCache.clearLiveImages();
+
+      // SECURITY: Clear sensitive in-memory data when app goes to background.
+      // On shared devices (common in Ethiopia), this prevents password exposure
+      // via memory inspection tools when the app is backgrounded.
+      authBloc.clearSensitiveData();
     }
   }
 }
 
 class WeredaConnectApp extends StatelessWidget {
+  final AuthBloc authBloc;
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
   final ConflictNotificationService conflictNotificationService;
 
   const WeredaConnectApp({
+    required this.authBloc,
     required this.connectivityMonitor,
     required this.escrowSyncService,
     required this.conflictNotificationService,
@@ -153,12 +182,8 @@ class WeredaConnectApp extends StatelessWidget {
       ],
       child: MultiBlocProvider(
         providers: [
-          BlocProvider<AuthBloc>(
-            create: (_) => AuthBloc(
-              isar: IsarService.instance.isInitialized
-                  ? IsarService.instance.db
-                  : null,
-            )..add(const AuthCheckRequested()),
+          BlocProvider<AuthBloc>.value(
+            value: authBloc,
           ),
           BlocProvider<OnboardingBloc>(
             create: (_) => OnboardingBloc(),
@@ -219,7 +244,8 @@ class WeredaConnectApp extends StatelessWidget {
                 Locale('en'), // English
                 Locale('am'), // Amharic (app text + English Material widgets)
                 Locale(
-                    'om'), // Afan Oromo (app text + English Material widgets)
+                  'om',
+                ), // Afan Oromo (app text + English Material widgets)
               ],
 
               // Theme

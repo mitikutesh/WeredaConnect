@@ -73,18 +73,18 @@ class DataUsageTracker extends ChangeNotifier {
   }
 
   void _ensureTrackingStartDate() {
-    if (_trackingSince == null) {
-      _trackingSince = DateTime.now();
-    }
+    _trackingSince ??= DateTime.now();
   }
 
-  void _persist() async {
+  Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_downloadedKey, _bytesDownloaded);
     await prefs.setInt(_uploadedKey, _bytesUploaded);
     if (_trackingSince != null) {
       await prefs.setInt(
-          _sinceKey, _trackingSince!.millisecondsSinceEpoch);
+        _sinceKey,
+        _trackingSince!.millisecondsSinceEpoch,
+      );
     }
   }
 }
