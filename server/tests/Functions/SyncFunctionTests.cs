@@ -67,6 +67,7 @@ public class SyncFunctionTests
             { "quantity", 50 },
             { "pricePerKg", 45.5 },
             { "farmerId", farmerId },
+            { "woreda", "Jimma" },
             { "status", "active" }
         },
             Timestamp = "2026-03-15T10:00:00Z"

@@ -57,8 +57,17 @@ public partial class SyncFunction
         "tripId", "listingId", "farmerId", "farmerName", "farmerPhone",
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
-        "pickupPhotoRef", "dropoffPhotoRef", "pickedUpAt", "confirmedAt", "disputeReason",
-        "qrNonce", "scannedQrNonce", "qrToken"
+        "pickupPhotoRef", "dropoffPhotoRef", "disputeReason",
+        "qrToken"
+    };
+
+    // FIX-007: Identity fields are immutable after delivery creation
+    private static readonly HashSet<string> ImmutableDeliveryFields = new()
+    {
+        "farmerId", "farmerName", "farmerPhone",
+        "buyerId", "buyerName", "buyerPhone",
+        "truckerId", "truckerName", "truckerPhone",
+        "tripId", "listingId"
     };
 
     private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
@@ -76,8 +85,34 @@ public partial class SyncFunction
         { "delivered", new HashSet<string> { "disputed" } },
     };
 
+    private static readonly HashSet<string> AllowedCropTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "teff", "wheat", "barley", "maize", "chickpea", "lentils", "sorghum", "coffee", "sesame"
+    };
+
+    private static readonly Dictionary<string, HashSet<string>> CropTransitions = new()
+    {
+        { "available", new HashSet<string> { "reserved", "sold", "deleted" } },
+        { "reserved", new HashSet<string> { "available", "sold", "deleted" } },
+        // sold and deleted are terminal states
+    };
+
     [GeneratedRegex(@"^\+251\d{9}$")]
     private static partial Regex EthiopianPhoneRegex();
+
+    [GeneratedRegex(@"^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$")]
+    private static partial Regex PhotoRefRegex();
+
+    // FIX-011: Validate photo ref format and delivery ID ownership to prevent path traversal
+    private static bool IsValidPhotoRef(string photoRef, string deliveryId)
+    {
+        if (!PhotoRefRegex().IsMatch(photoRef))
+        {
+            return false;
+        }
+
+        return photoRef.StartsWith($"uploads/photos/{deliveryId}/", StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -296,6 +331,79 @@ public partial class SyncFunction
         }
     }
 
+    private static List<string> ValidateCropFields(Dictionary<string, object> data, bool isCreate)
+    {
+        var errors = new List<string>();
+
+        // Validate pricePerKg
+        if (data.TryGetValue("pricePerKg", out var ppkObj))
+        {
+            if (!decimal.TryParse(ppkObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var price)
+                || price < 0.01m || price > 1000)
+            {
+                errors.Add("pricePerKg must be between 0.01 and 1000.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("pricePerKg is required.");
+        }
+
+        // Validate quantity
+        if (data.TryGetValue("quantity", out var qObj))
+        {
+            if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
+                || qty < 0.01m || qty > 10000)
+            {
+                errors.Add("quantity must be between 0.01 and 10000.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("quantity is required.");
+        }
+
+        // Validate cropType against allowed enum
+        if (data.TryGetValue("cropType", out var ctObj))
+        {
+            var cropType = ctObj?.ToString() ?? "";
+            if (!AllowedCropTypes.Contains(cropType))
+            {
+                errors.Add("Invalid cropType.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("cropType is required.");
+        }
+
+        // Validate description length
+        if (data.TryGetValue("description", out var descObj))
+        {
+            var desc = descObj?.ToString() ?? "";
+            if (desc.Length > 500)
+            {
+                errors.Add("description must not exceed 500 characters.");
+            }
+        }
+
+        // Validate woreda
+        if (data.TryGetValue("woreda", out var wObj))
+        {
+            var woreda = wObj?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(woreda) || woreda.Length > 100)
+            {
+                errors.Add("woreda must be 1-100 characters.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("woreda is required.");
+        }
+
+        return errors;
+    }
+
     /// <summary>
     /// Process a crop_listing sync operation (create, update, delete).
     /// Uses version-based conflict detection per sync-protocol.md.
@@ -345,6 +453,18 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FIX-009: Validate crop field values
+                    var createValidationErrors = ValidateCropFields(operation.Data, isCreate: true);
+                    if (createValidationErrors.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {string.Join(" ", createValidationErrors)}"
+                        };
+                    }
+
                     // ── Fraud detection (F-14) ──
                     if (_fraudService != null)
                     {
@@ -376,6 +496,9 @@ public partial class SyncFunction
                                 $"Fraud flag on listing {operation.EntityId}: {fraudCheck.FlagReason} — {fraudCheck.Message}");
                         }
                     }
+
+                    // FIX-010: Force initial status to "available" on create
+                    operation.Data["status"] = "available";
 
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 
@@ -459,6 +582,38 @@ public partial class SyncFunction
                             Status = "error",
                             Message = $"CROP_VALIDATION: Unknown fields: {string.Join(", ", unknownUpdateFields)}"
                         };
+                    }
+
+                    // FIX-009: Validate crop field values
+                    var updateValidationErrors = ValidateCropFields(operation.Data, isCreate: false);
+                    if (updateValidationErrors.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {string.Join(" ", updateValidationErrors)}"
+                        };
+                    }
+
+                    // FIX-010: Validate crop status transitions
+                    if (operation.Data.TryGetValue("status", out var newCropStatusObj))
+                    {
+                        var newCropStatus = newCropStatusObj?.ToString();
+                        var currentCropStatus = existingForUpdate.TryGetValue("status", out var curStatusObj)
+                            ? curStatusObj?.ToString() ?? "available"
+                            : "available";
+
+                        if (!CropTransitions.TryGetValue(currentCropStatus, out var allowedCropStatuses)
+                            || newCropStatus == null || !allowedCropStatuses.Contains(newCropStatus))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = $"CROP_INVALID_TRANSITION: Cannot transition from '{currentCropStatus}' to '{newCropStatus}'."
+                            };
+                        }
                     }
 
                     // Extract client version from data
@@ -1458,6 +1613,24 @@ public partial class SyncFunction
                         };
                     }
 
+                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
+                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    {
+                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        {
+                            var photoRef = photoObj.ToString() ?? "";
+                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
+                                };
+                            }
+                        }
+                    }
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -1518,6 +1691,9 @@ public partial class SyncFunction
 
                     // Force status to "pending" for create
                     item["status"] = new AttributeValue { S = "pending" };
+
+                    // FIX-005: Generate qrNonce server-side (not client-writable)
+                    item["qrNonce"] = new AttributeValue { S = Guid.NewGuid().ToString("N") };
 
                     var request = new PutItemRequest
                     {
@@ -1770,8 +1946,9 @@ public partial class SyncFunction
                     }
 
                     // Field whitelist — reject unknown fields
+                    // FIX-005: scannedQrNonce is allowed in data for validation but not persisted
                     var unknownFields = operation.Data.Keys
-                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
+                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version" && k != "scannedQrNonce")
                         .ToList();
                     if (unknownFields.Count > 0)
                     {
@@ -1795,6 +1972,24 @@ public partial class SyncFunction
                                 Status = "error",
                                 Message = "DELIVERY_INVALID_FIELD: disputeReason must be 1-500 characters."
                             };
+                        }
+                    }
+
+                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
+                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    {
+                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        {
+                            var photoRef = photoObj.ToString() ?? "";
+                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
+                                };
+                            }
                         }
                     }
 
@@ -1966,6 +2161,12 @@ public partial class SyncFunction
                             continue;
                         }
 
+                        // FIX-007: Identity fields are immutable after creation
+                        if (ImmutableDeliveryFields.Contains(kvp.Key))
+                        {
+                            continue;
+                        }
+
                         // Handle GPS fields as nested DynamoDB Map attributes
                         if (kvp.Key is "gpsPickup" or "gpsDropoff")
                         {
@@ -2008,6 +2209,30 @@ public partial class SyncFunction
                         attrValues[va] = CropRepository.ToAttributeValue(kvp.Value);
                         updateParts.Add($"{na} = {va}");
                         i++;
+                    }
+
+                    // FIX-006: Server-side timestamps for status transitions
+                    if (operation.Data != null && operation.Data.TryGetValue("status", out var tsStatusObj))
+                    {
+                        var tsStatus = tsStatusObj?.ToString();
+                        if (tsStatus == "pickedUp")
+                        {
+                            var tsAlias = $"#f{i}";
+                            var tsValAlias = $":f{i}";
+                            attrNames[tsAlias] = "pickedUpAt";
+                            attrValues[tsValAlias] = new AttributeValue { S = now };
+                            updateParts.Add($"{tsAlias} = {tsValAlias}");
+                            i++;
+                        }
+                        else if (tsStatus == "delivered")
+                        {
+                            var tsAlias = $"#f{i}";
+                            var tsValAlias = $":f{i}";
+                            attrNames[tsAlias] = "confirmedAt";
+                            attrValues[tsValAlias] = new AttributeValue { S = now };
+                            updateParts.Add($"{tsAlias} = {tsValAlias}");
+                            i++;
+                        }
                     }
 
                     var updateRequest = new UpdateItemRequest

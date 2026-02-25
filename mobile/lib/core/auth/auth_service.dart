@@ -57,7 +57,7 @@ class AuthService {
   ///
   /// Params:
   /// - [phoneNumber]: Ethiopian phone number (+251XXXXXXXXX)
-  /// - [password]: User password (minimum 6 characters)
+  /// - [password]: User password (minimum 8 characters, lowercase + digit)
   /// - [name]: User's full name (supports Amharic/Oromo)
   /// - [role]: User role (farmer, trucker, buyer)
   /// - [woreda]: Ethiopian woreda (district)

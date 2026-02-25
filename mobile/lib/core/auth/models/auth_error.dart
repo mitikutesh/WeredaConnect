@@ -55,7 +55,7 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.invalidPhoneFormat:
         return 'Invalid phone number format. Use Ethiopian format: +251XXXXXXXXX';
       case AuthErrorCode.invalidPassword:
-        return 'Password must be at least 6 characters';
+        return 'Password must be at least 8 characters with a lowercase letter and a number';
       case AuthErrorCode.invalidRole:
         return 'Please select a role: farmer, trucker, or buyer';
       case AuthErrorCode.woredaRequired:

@@ -26,57 +26,57 @@ These bugs mean core features silently fail. Fix first.
 
 ### Authentication & Authorization
 
-- [ ] **FIX-003**: Verify CropFunction authentication at API Gateway level
+- [x] **FIX-003**: Verify CropFunction authentication at API Gateway level ✅ Verified 2026-02-26
   - **File:** `server/src/Functions/CropFunction.cs:50-64`
   - **Impact:** If API Gateway authorizer is missing, all crop listings (farmer IDs, pricing) are publicly readable
-  - **Fix:** Confirm `jwtAuthorizer` is attached to `/crops` and `/crops/{id}` routes in `infra/lib/stacks/api-stack.ts`. If not, add it. If intentionally public, hide `farmerId` from responses
+  - **Fix:** Confirmed `jwtAuthorizer` is already attached to `/crops` and `/crops/{id}` routes in `infra/lib/stacks/api-stack.ts` (lines 487, 500). No changes needed
 
-- [ ] **FIX-004**: Verify TripFunction authentication at API Gateway level
+- [x] **FIX-004**: Verify TripFunction authentication at API Gateway level ✅ Verified 2026-02-26
   - **File:** `server/src/Functions/TripFunction.cs:50-63`
   - **Impact:** Trucker phone numbers (PII) publicly exposed
-  - **Fix:** Same as FIX-003 — confirm authorizer on `/trips` routes. Hide `truckerPhone` from unauthenticated list views
+  - **Fix:** Confirmed `jwtAuthorizer` is already attached to `/trips` and `/trips/{id}` routes (lines 513, 526). No changes needed
 
-- [ ] **FIX-005**: Remove `qrNonce` and `scannedQrNonce` from client-writable `AllowedDeliveryFields`
+- [x] **FIX-005**: Remove `qrNonce` and `scannedQrNonce` from client-writable `AllowedDeliveryFields` ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:55-62`
   - **Impact:** Client can bypass QR verification by directly setting `scannedQrNonce` to match `qrNonce`
-  - **Fix:** Remove both from whitelist. Generate `qrNonce` server-side at delivery creation. Add a dedicated `POST /deliveries/{id}/verify-qr` endpoint or validate nonce match in the sync update handler
+  - **Fix:** Removed both from `AllowedDeliveryFields`. `qrNonce` now generated server-side via `Guid.NewGuid().ToString("N")` at delivery creation. `scannedQrNonce` still accepted for validation but never persisted
 
-- [ ] **FIX-006**: Remove `pickedUpAt` and `confirmedAt` from client-writable fields
+- [x] **FIX-006**: Remove `pickedUpAt` and `confirmedAt` from client-writable fields ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:55-62`
   - **Impact:** Client can backdate `confirmedAt` to manipulate 48-hour dispute window
-  - **Fix:** Remove from `AllowedDeliveryFields`. Set server-side when status transitions to `"pickedUp"` / `"delivered"`
+  - **Fix:** Removed from `AllowedDeliveryFields`. Server now sets `pickedUpAt` when status → `"pickedUp"` and `confirmedAt` when status → `"delivered"` (server-authoritative timestamps)
 
-- [ ] **FIX-007**: Restrict identity fields to immutable after delivery creation
+- [x] **FIX-007**: Restrict identity fields to immutable after delivery creation ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:1609-1730`
   - **Impact:** Trucker can change `farmerId`/`buyerId` on a delivery, potentially redirecting escrow payouts
-  - **Fix:** On delivery updates, skip `farmerId`, `buyerId`, `truckerId`, `farmerName`, `buyerName`, `truckerName`, `farmerPhone`, `buyerPhone`, `truckerPhone` — only allow these on create
+  - **Fix:** Added `ImmutableDeliveryFields` HashSet containing `farmerId`, `buyerId`, `truckerId` + names + phones + `tripId` + `listingId`. Update loop skips these fields
 
-- [ ] **FIX-008**: Remove `unsafeUnwrap()` — load pagination secret at runtime
+- [x] **FIX-008**: Remove `unsafeUnwrap()` — load pagination secret at runtime ✅ Fixed 2026-02-26
   - **File:** `infra/lib/stacks/api-stack.ts:228,245,291,321`
   - **Impact:** Pagination HMAC secret appears in plaintext in CloudFormation template, Lambda env vars, and CloudTrail
-  - **Fix:** Pass `PAGINATION_SECRET_ARN` as env var instead. Load secret from Secrets Manager at runtime (with caching). The `grantRead()` calls are already in place
+  - **Fix:** Replaced all 4 `unsafeUnwrap()` calls with `paginationSecret.secretArn`. Server now loads secret from Secrets Manager at runtime with in-memory caching (thread-safe, double-checked locking). Falls back to `PAGINATION_SECRET` env var for local dev. Added `AWSSDK.SecretsManager` NuGet package
 
 ### Input Validation
 
-- [ ] **FIX-009**: Add crop listing field validation in sync create/update
+- [x] **FIX-009**: Add crop listing field validation in sync create/update ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:303-413`
   - **Impact:** Negative prices, empty crop types, unbounded strings accepted — data quality + DoS risk
-  - **Fix:** Create `ValidateCropFields(data, isCreate)` method: `pricePerKg > 0`, `quantity > 0`, `cropType` non-empty and from allowed enum, `description` max 1000 chars, `woreda` non-empty
+  - **Fix:** Added `ValidateCropFields(data, isCreate)` method validating: `pricePerKg` (0.01-1000), `quantity` (0.01-10000), `cropType` against `AllowedCropTypes` enum (9 Ethiopian crops), `description` (max 1000 chars), `woreda` (1-100 chars). Called in both CREATE and UPDATE paths
 
-- [ ] **FIX-010**: Add crop listing status transition validation
+- [x] **FIX-010**: Add crop listing status transition validation ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:303-588`
   - **Impact:** Users can resurrect deleted listings, re-list sold crops
-  - **Fix:** Add `CropTransitions` dictionary (like `ValidTransitions` for trips at line 64) and enforce in `ProcessCropListingAsync`
+  - **Fix:** Added `CropTransitions` dictionary: `available` → {reserved, sold, deleted}, `reserved` → {available, sold, deleted}. `sold` and `deleted` are terminal states. Enforced in crop UPDATE handler
 
-- [ ] **FIX-011**: Validate `pickupPhotoRef`/`dropoffPhotoRef` format
+- [x] **FIX-011**: Validate `pickupPhotoRef`/`dropoffPhotoRef` format ✅ Fixed 2026-02-26
   - **File:** `server/src/Functions/SyncFunction.cs:55-62`
   - **Impact:** Client can set photo ref to another user's S3 object, fabricating delivery evidence
-  - **Fix:** Validate pattern matches `uploads/photos/{deliveryId}/(pickup|dropoff)-\d+\.webp`
+  - **Fix:** Added AOT-safe `[GeneratedRegex]` for `PhotoRefRegex()` pattern: `^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$`. Also validates delivery ID ownership via `IsValidPhotoRef()` helper. Applied in both CREATE and UPDATE paths
 
-- [ ] **FIX-012**: Align password policy across Cognito / server / mobile
+- [x] **FIX-012**: Align password policy across Cognito / server / mobile ✅ Fixed 2026-02-26
   - **File:** `infra/lib/stacks/api-stack.ts:65-71` (min 8), `server/src/Validation/RequestValidator.cs:100` (min 6), `mobile/lib/core/auth/offline_auth_cache.dart:30` (min 6)
   - **Impact:** Users cache 6-char passwords offline that are rejected by Cognito online
-  - **Fix:** Change `RequestValidator.ValidatePassword()` to require min 8 chars + lowercase + digit. Update mobile comments
+  - **Fix:** Updated `RequestValidator.ValidatePassword()`: min 8 chars + at least one lowercase + at least one digit (matches Cognito). Updated mobile comment. Added 2 new test cases (no-lowercase, no-digit). Updated 3 existing test data values
 
 ---
 
@@ -317,7 +317,7 @@ These bugs mean core features silently fail. Fix first.
 | Tier | Count | Theme | Status |
 |------|-------|-------|--------|
 | 0 — Data Integrity | 2 | Broken features | [x] ✅ |
-| 1 — Security | 10 | Exploitable vulnerabilities | [ ] |
+| 1 — Security | 10 | Exploitable vulnerabilities | [x] ✅ |
 | 2 — Localization | 11 | User-facing English strings | [ ] |
 | 3 — Infrastructure | 6 | Deploy blockers | [ ] |
 | 4 — Mobile UX | 12 | Touch targets, nav, errors | [ ] |

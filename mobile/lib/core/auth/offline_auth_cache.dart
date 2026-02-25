@@ -27,7 +27,7 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 /// Ethiopian context:
 /// - Enables login during poor connectivity (common in rural areas)
 /// - Shared devices: Each user has separate cached credentials + rate limits
-/// - Low-literacy users: Simple password requirements (minimum 6 chars)
+/// - Low-literacy users: Password requirements aligned with Cognito (minimum 8 chars + lowercase + digit)
 /// - Offline brute force protection critical on shared devices
 class OfflineAuthCache {
   static const _secureStorage = FlutterSecureStorage(

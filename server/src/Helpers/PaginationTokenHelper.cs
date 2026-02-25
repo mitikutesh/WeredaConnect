@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Amazon.DynamoDBv2.Model;
+using Amazon.SecretsManager;
+using Amazon.SecretsManager.Model;
 using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Helpers;
@@ -13,18 +15,46 @@ namespace WeredaConnect.Server.Helpers;
 /// </summary>
 public static class PaginationTokenHelper
 {
-    private static readonly byte[] SigningKey = GetSigningKey();
+    private static byte[]? _signingKey;
+    private static readonly object _lock = new();
 
     private static byte[] GetSigningKey()
     {
-        var secret = Environment.GetEnvironmentVariable("PAGINATION_SECRET");
-        if (string.IsNullOrEmpty(secret))
+        if (_signingKey != null)
         {
-            throw new InvalidOperationException(
-                "PAGINATION_SECRET environment variable is required. " +
-                "Set a cryptographically random string (32+ characters) via SSM Parameter Store or Secrets Manager.");
+            return _signingKey;
         }
-        return SHA256.HashData(Encoding.UTF8.GetBytes(secret));
+
+        lock (_lock)
+        {
+            if (_signingKey != null)
+            {
+                return _signingKey;
+            }
+
+            // Try direct env var first (local dev / testing backward compat)
+            var directSecret = Environment.GetEnvironmentVariable("PAGINATION_SECRET");
+            if (!string.IsNullOrEmpty(directSecret))
+            {
+                _signingKey = SHA256.HashData(Encoding.UTF8.GetBytes(directSecret));
+                return _signingKey;
+            }
+
+            // Load from Secrets Manager at runtime
+            var secretArn = Environment.GetEnvironmentVariable("PAGINATION_SECRET_ARN")
+                ?? throw new InvalidOperationException(
+                    "PAGINATION_SECRET_ARN environment variable is required. " +
+                    "Set via CDK infrastructure (Secrets Manager ARN).");
+
+            using var client = new AmazonSecretsManagerClient();
+            var response = client.GetSecretValueAsync(new GetSecretValueRequest
+            {
+                SecretId = secretArn,
+            }).GetAwaiter().GetResult();
+
+            _signingKey = SHA256.HashData(Encoding.UTF8.GetBytes(response.SecretString));
+            return _signingKey;
+        }
     }
 
     /// <summary>
@@ -105,7 +135,7 @@ public static class PaginationTokenHelper
 
     private static string ComputeHmac(string payload)
     {
-        using var hmac = new HMACSHA256(SigningKey);
+        using var hmac = new HMACSHA256(GetSigningKey());
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
         return Convert.ToBase64String(hash);
     }
