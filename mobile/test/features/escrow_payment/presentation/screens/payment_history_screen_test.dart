@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -79,6 +80,7 @@ void main() {
           refreshToken: 'test-refresh',
           idToken: 'test-id',
         ),
+        role: UserRole.farmer,
       ),
     );
     when(() => authBloc.stream)

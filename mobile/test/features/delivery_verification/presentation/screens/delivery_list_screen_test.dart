@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -73,6 +74,7 @@ void main() {
       const AuthAuthenticated(
         userId: 'farmer-001',
         tokens: _testTokens,
+        role: UserRole.farmer,
       ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());

@@ -241,13 +241,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (loginResult.isSuccess) {
         await _saveSession(event.phoneNumber);
         final user = await _offlineCache.getCachedUser(event.phoneNumber);
+        // Read _pendingRole BEFORE clearing — it's our fallback if cache
+        // hasn't written yet.
+        final role = user?.role ?? _pendingRole ?? UserRole.farmer;
         _clearPendingRegistrationData();
 
         emit(
           AuthAuthenticated(
             userId: loginResult.userId!,
             tokens: loginResult.tokens!,
-            role: user?.role ?? _pendingRole ?? UserRole.farmer,
+            role: role,
           ),
         );
         return;

@@ -4,6 +4,21 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 
+/// Temporary storage for registration data between register() and login().
+class _PendingRegistration {
+  final String name;
+  final UserRole role;
+  final String woreda;
+  final String password;
+
+  _PendingRegistration({
+    required this.name,
+    required this.role,
+    required this.woreda,
+    required this.password,
+  });
+}
+
 /// Mock authentication service for local development.
 ///
 /// This service simulates the real auth flow without requiring AWS Cognito.
@@ -15,6 +30,10 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 /// IMPORTANT: This should NEVER be used in production!
 class MockAuthService {
   final OfflineAuthCache _offlineCache;
+
+  /// Tracks users who registered but haven't completed login yet.
+  /// Keyed by phone number. Cleared after first successful login.
+  final Map<String, _PendingRegistration> _pendingRegistrations = {};
 
   MockAuthService({OfflineAuthCache? offlineCache})
       : _offlineCache = offlineCache ?? OfflineAuthCache();
@@ -42,6 +61,14 @@ class MockAuthService {
         'Phone number already registered',
       );
     }
+
+    // Store registration data for use during post-OTP login
+    _pendingRegistrations[phoneNumber] = _PendingRegistration(
+      name: name,
+      role: role,
+      woreda: woreda,
+      password: password,
+    );
 
     // Generate a mock user ID
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
@@ -125,7 +152,25 @@ class MockAuthService {
       }
     }
 
-    // No cached credentials — first-time mock login, create session
+    // No cached credentials — check if user completed registration
+    final pending = _pendingRegistrations[phoneNumber];
+    if (pending == null) {
+      // User never registered — reject login
+      return AuthResult.failure(
+        AuthErrorCode.invalidCredentials,
+        'Invalid phone number or password',
+      );
+    }
+
+    // Verify password matches what was used during registration
+    if (pending.password != password) {
+      return AuthResult.failure(
+        AuthErrorCode.invalidCredentials,
+        'Invalid phone number or password',
+      );
+    }
+
+    // Create session with registration data
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
     final now = DateTime.now();
     final tokens = AuthTokens(
@@ -135,16 +180,19 @@ class MockAuthService {
       expiresAt: now.add(const Duration(hours: 1)),
     );
 
-    // Cache credentials for offline use
+    // Cache credentials with the actual role from registration
     await _offlineCache.cacheCredentials(
       phoneNumber: phoneNumber,
       password: password,
       userId: userId,
-      role: UserRole.farmer, // Default to farmer in mock mode
-      name: 'Mock User',
-      woreda: 'Mock Woreda',
+      role: pending.role,
+      name: pending.name,
+      woreda: pending.woreda,
       tokens: tokens,
     );
+
+    // Clear pending data — credentials are now cached
+    _pendingRegistrations.remove(phoneNumber);
 
     return AuthResult.success(tokens, userId: userId);
   }

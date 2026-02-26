@@ -31,8 +31,8 @@ class AuthAuthenticated extends AuthState {
   const AuthAuthenticated({
     required this.userId,
     required this.tokens,
+    required this.role,
     this.isOfflineAuth = false,
-    this.role = UserRole.farmer,
   });
 
   @override
