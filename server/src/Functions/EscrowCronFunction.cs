@@ -110,14 +110,14 @@ public class EscrowCronFunction
                 "auto_release_and_refund" => await HandleAutoReleaseAndRefundAsync(context),
                 "reconciliation" => await HandleReconciliationAsync(context),
                 _ => LambdaResponse.Error(400, "ESCROW_CRON_VALIDATION",
-                    $"Unknown action '{action}'. Expected: auto_release_and_refund, reconciliation.")
+                    $"Unknown action '{safeAction}'. Expected: auto_release_and_refund, reconciliation.")
             };
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"EscrowCronFunction error for action '{action}': [{ex.GetType().Name}]");
+            context.Logger.LogError($"EscrowCronFunction error for action '{safeAction}': [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_CRON_ERROR",
-                $"Cron job '{action}' failed unexpectedly.");
+                $"Cron job '{safeAction}' failed unexpectedly.");
         }
     }
 
@@ -187,7 +187,8 @@ public class EscrowCronFunction
 
             var escrowId = GetString(escrow, "escrowId");
             var deliveryId = GetString(escrow, "deliveryId");
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // Use hourly bucket for stable idempotency (prevents duplicate EventBridge triggers)
+            var hourBucket = now.ToString("yyyyMMddHH");
 
             context.Logger.LogInformation($"Auto-releasing escrow {escrowId} (dispute window ended).");
 
@@ -197,7 +198,7 @@ public class EscrowCronFunction
                     EscrowId = escrowId,
                     Trigger = "delivery_confirmed",
                     DeliveryId = deliveryId,
-                    IdempotencyKey = $"system:{escrowId}:auto_release:{timestamp}"
+                    IdempotencyKey = $"system:{escrowId}:auto_release:{hourBucket}"
                 },
                 authenticatedUserId: "system");
 
@@ -237,7 +238,8 @@ public class EscrowCronFunction
             }
 
             var escrowId = GetString(escrow, "escrowId");
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // Use hourly bucket for stable idempotency (prevents duplicate EventBridge triggers)
+            var hourBucket = now.ToString("yyyyMMddHH");
 
             context.Logger.LogInformation($"Auto-refunding expired escrow {escrowId}.");
 
@@ -247,7 +249,7 @@ public class EscrowCronFunction
                     EscrowId = escrowId,
                     Trigger = "delivery_timeout",
                     Reason = "Escrow expired: delivery not completed within 7 days.",
-                    IdempotencyKey = $"system:{escrowId}:auto_refund:{timestamp}"
+                    IdempotencyKey = $"system:{escrowId}:auto_refund:{hourBucket}"
                 },
                 authenticatedUserId: "system");
 

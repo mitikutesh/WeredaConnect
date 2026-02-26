@@ -470,9 +470,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// Handle logout.
   ///
-  /// When [clearCache] is true, also clears user-specific business data
-  /// from the local Isar database (crop listings, deliveries, payments)
-  /// to prevent data leakage on shared devices.
+  /// Always clears user-specific business data (deliveries, payments, listings)
+  /// from the local Isar database to prevent data leakage on shared devices.
+  /// Preserves offline credentials (clearCache: false) so the user can re-login
+  /// offline — critical for Ethiopian rural connectivity.
   Future<void> _onAuthLogoutRequested(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
@@ -485,14 +486,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       final userId = currentState.userId;
 
+      // Preserve offline credentials (password hash, tokens) so user can
+      // re-login offline. Only server-side token invalidation is attempted.
       await _authService.logout(
         phoneNumber: _currentPhoneNumber ?? '',
         accessToken: currentState.tokens.accessToken,
         refreshToken: currentState.tokens.refreshToken,
-        clearCache: event.clearCache,
+        clearCache: false,
       );
 
-      if (event.clearCache && _isar != null) {
+      // Always clear business data to prevent data leakage on shared devices
+      if (_isar != null) {
         // SECURITY: Cancel pending payment intents for this user before logout
         // to prevent the next user's session from processing them.
         await _cancelUserPendingIntents(_isar, userId);

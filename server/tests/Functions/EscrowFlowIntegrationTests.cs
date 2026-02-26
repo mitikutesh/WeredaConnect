@@ -625,8 +625,8 @@ public class EscrowFlowIntegrationTests
         Assert.Equal(502, response.StatusCode);
         Assert.Contains("ESCROW_013", response.Body);
 
-        // Idempotency key must be marked "failed" so retries can attempt a fresh hold
-        await _mockIdempotencyRepo.Received(1).UpdateAsync(idempotencyKey, "failed");
+        // Idempotency key must be deleted so retries can attempt a fresh hold
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(idempotencyKey);
 
         // 2 audit entries: "initiate" (→ initiated) + "hold_failed" (initiated → initiated)
         await _mockAuditRepo.Received(2).AppendAsync(Arg.Any<Dictionary<string, object>>());

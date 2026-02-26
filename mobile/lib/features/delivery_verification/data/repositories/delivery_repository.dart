@@ -710,22 +710,30 @@ class DeliveryRepository {
           .sortByCreatedAtDesc()
           .findAll();
     } else {
-      // All roles: union of farmer + trucker + buyer queries
-      final asFarmer =
-          await _isar.deliverys.filter().farmerIdEqualTo(userId).findAll();
-      final asTrucker =
-          await _isar.deliverys.filter().truckerIdEqualTo(userId).findAll();
-      final asBuyer =
-          await _isar.deliverys.filter().buyerIdEqualTo(userId).findAll();
-      // Deduplicate by deliveryId
-      final seen = <String>{};
-      results = [...asFarmer, ...asTrucker, ...asBuyer]
-          .where((d) => seen.add(d.deliveryId))
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      // All roles: single query using group/or (avoids 3 queries + in-memory dedup)
+      var query = _isar.deliverys.filter().group(
+            (q) => q
+                .farmerIdEqualTo(userId)
+                .or()
+                .truckerIdEqualTo(userId)
+                .or()
+                .buyerIdEqualTo(userId),
+          );
+
+      // Push status filter into Isar query when provided
+      if (statusFilter != null) {
+        final targetStatus = DeliveryStatus.values.firstWhere(
+          (s) => s.name == statusFilter,
+          orElse: () => DeliveryStatus.pending,
+        );
+        query = query.statusEqualTo(targetStatus);
+      }
+
+      results = await query.sortByCreatedAtDesc().findAll();
+      return results;
     }
 
-    // Apply status filter if provided
+    // Apply status filter if provided (for role-specific queries)
     if (statusFilter != null) {
       final targetStatus = DeliveryStatus.values.firstWhere(
         (s) => s.name == statusFilter,

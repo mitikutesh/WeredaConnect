@@ -123,6 +123,22 @@ public sealed class EscrowService
                 "farmerId");
         }
 
+        // 6b. Check for existing active escrow on this delivery → ESCROW_025
+        var existingEscrowForDelivery = await _escrowRepo.GetByDeliveryIdAsync(request.DeliveryId);
+        if (existingEscrowForDelivery != null)
+        {
+            var existingStatus = existingEscrowForDelivery.TryGetValue("status", out var statusObj)
+                ? statusObj?.ToString() : null;
+            // Only block if escrow is in an active state (not refunded/completed/expired)
+            if (existingStatus is "initiated" or "escrowed" or "released" or "disputed")
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    409, "ESCROW_025",
+                    "An active escrow already exists for this delivery.",
+                    "deliveryId");
+            }
+        }
+
         // 7. Fayda ID verification for high-value transactions → ESCROW_007
         var buyerFaydaVerified = false;
         var farmerFaydaVerified = false;
@@ -241,10 +257,12 @@ public sealed class EscrowService
             });
         }
 
-        // Hold failed — audit and update idempotency
-        await AppendAuditAsync(escrowId, "hold_failed", "initiated", "initiated",
+        // Hold failed — cancel orphaned escrow, audit, and delete idempotency record
+        // to allow clean retry with the same key (critical for 3G/intermittent connectivity)
+        await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "cancelled", "initiated");
+        await AppendAuditAsync(escrowId, "hold_failed", "initiated", "cancelled",
             "system", metadata: holdResponse.ErrorCode);
-        await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "failed");
+        await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
 
         return EscrowResult<InitiateEscrowResponse>.Failure(
             502, "ESCROW_013",
@@ -669,7 +687,7 @@ public sealed class EscrowService
     /// Get a single escrow by ID. Only accessible by buyer, farmer, or admin.
     /// </summary>
     public async Task<EscrowResult<EscrowDto>> GetByIdAsync(
-        string escrowId, string authenticatedUserId)
+        string escrowId, string authenticatedUserId, string? role = null)
     {
         // 1. Get escrow → ESCROW_016
         var escrowItem = await _escrowRepo.GetByIdAsync(escrowId);
@@ -682,7 +700,8 @@ public sealed class EscrowService
         var buyerId = GetString(escrowItem, "buyerId");
         var farmerId = GetString(escrowItem, "farmerId");
         if (!string.Equals(authenticatedUserId, buyerId, StringComparison.Ordinal)
-            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal))
+            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal)
+            && !await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
             return EscrowResult<EscrowDto>.Failure(
                 403, "ESCROW_022", "You are not a party to this escrow.");

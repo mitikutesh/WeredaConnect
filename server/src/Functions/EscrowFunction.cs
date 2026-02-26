@@ -388,7 +388,8 @@ public class EscrowFunction
 
         try
         {
-            var result = await _escrowService.GetByIdAsync(escrowId, userId);
+            var role = GetAuthenticatedUserRole(request);
+            var result = await _escrowService.GetByIdAsync(escrowId, userId, role);
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.EscrowDto));
         }

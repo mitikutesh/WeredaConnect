@@ -116,4 +116,19 @@ public sealed class EscrowIdempotencyRepository : IEscrowIdempotencyRepository
 
         await _dynamoDb.UpdateItemAsync(request);
     }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(string idempotencyKey)
+    {
+        var request = new DeleteItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "idempotencyKey", new AttributeValue { S = idempotencyKey } }
+            }
+        };
+
+        await _dynamoDb.DeleteItemAsync(request);
+    }
 }

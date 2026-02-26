@@ -21,4 +21,9 @@ public interface IEscrowIdempotencyRepository
     /// Update an existing idempotency record's status and optionally its cached result.
     /// </summary>
     Task UpdateAsync(string idempotencyKey, string status, string? result = null);
+
+    /// <summary>
+    /// Delete an idempotency record. Used to allow clean retries after transient failures.
+    /// </summary>
+    Task DeleteAsync(string idempotencyKey);
 }

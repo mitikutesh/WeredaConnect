@@ -100,10 +100,10 @@ class _MainNavigationState extends State<MainNavigation> {
             TextButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                // clearCache: false preserves offline credentials
-                // (important for Ethiopian rural users who share devices)
+                // Default clearCache: true clears user-specific business data
+                // (deliveries, payments) to prevent data leakage on shared devices
                 context.read<AuthBloc>().add(
-                      const AuthLogoutRequested(clearCache: false),
+                      const AuthLogoutRequested(),
                     );
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),

@@ -59,7 +59,14 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "disputeReason",
-        "qrToken"
+        "qrToken", "gpsAnomalyFlag"
+    };
+
+    // Server-controlled fields that must not be set by clients.
+    // Stripped from client data early in processing; server injects them after fraud checks.
+    private static readonly HashSet<string> ServerOnlyFields = new()
+    {
+        "isFlagged", "flagReason", "gpsAnomalyFlag"
     };
 
     // FIX-007: Identity fields are immutable after delivery creation
@@ -218,6 +225,7 @@ public partial class SyncFunction
         }
 
         // Per-user rate limiting (F-11 Finding 3)
+        // Record unconditionally to prevent request flooding via invalid operations
         if (_rateLimitService != null)
         {
             var rateLimitCheck = await _rateLimitService.CheckSyncAllowedAsync(authenticatedUserId);
@@ -279,6 +287,15 @@ public partial class SyncFunction
                 Status = "error",
                 Message = $"Invalid action: '{operation.Action}'. Must be create, update, or delete."
             };
+        }
+
+        // Strip server-controlled fields from client data to prevent spoofing
+        if (operation.Data != null)
+        {
+            foreach (var field in ServerOnlyFields)
+            {
+                operation.Data.Remove(field);
+            }
         }
 
         try
