@@ -6,6 +6,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
@@ -133,7 +134,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
                       children: [
                         const Icon(Icons.error_outline, size: 48),
                         const SizedBox(height: 16),
-                        Text(state.message),
+                        Text(localizeDeliveryError(l10n, state.code)),
                         const SizedBox(height: 16),
                         FilledButton(
                           onPressed: _loadDeliveries,

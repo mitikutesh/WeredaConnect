@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_field_diff.dart';
@@ -17,7 +18,7 @@ class ConflictDetailCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final fields = _extractDisplayFields();
+    final fields = _extractDisplayFields(l10n);
 
     return Card(
       elevation: 1,
@@ -96,20 +97,20 @@ class ConflictDetailCard extends StatelessWidget {
     );
   }
 
-  Map<String, String> _extractDisplayFields() {
+  Map<String, String> _extractDisplayFields(AppLocalizations l10n) {
     final data = conflict.serverData;
     switch (conflict.entityType) {
       case 'crop_listing':
         return {
-          'Crop Type': data['cropType']?.toString() ?? '-',
-          'Quantity': data['quantity']?.toString() ?? '-',
-          'Price/kg': data['pricePerKg']?.toString() ?? '-',
-          'Status': data['status']?.toString() ?? '-',
+          l10n.conflictFieldCropType: data['cropType']?.toString() ?? '-',
+          l10n.conflictFieldQuantity: data['quantity']?.toString() ?? '-',
+          l10n.conflictFieldPricePerKg: data['pricePerKg']?.toString() ?? '-',
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
         };
       case 'delivery':
         return {
-          'Status': data['status']?.toString() ?? '-',
-          'Trip': () {
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldTrip: () {
             final id = data['tripId']?.toString();
             if (id == null) return '-';
             return id.length > 8 ? id.substring(0, 8) : id;
@@ -117,9 +118,10 @@ class ConflictDetailCard extends StatelessWidget {
         };
       case 'trip':
         return {
-          'Route': '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
-          'Status': data['status']?.toString() ?? '-',
-          'Capacity': data['capacity']?.toString() ?? '-',
+          l10n.conflictFieldRoute:
+              '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldCapacity: data['capacity']?.toString() ?? '-',
         };
       default:
         return {};
@@ -153,20 +155,6 @@ class ConflictDetailCard extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+    return DateFormat.yMMMd().format(dt);
   }
 }

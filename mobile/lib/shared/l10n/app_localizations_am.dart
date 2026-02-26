@@ -1012,6 +1012,18 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowErrorGeneric => 'ያልተጠበቀ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።';
 
   @override
+  String get escrowErrorAuthRequired => 'እባክዎ ለመቀጠል ይግቡ።';
+
+  @override
+  String get escrowErrorConflict => 'ይህ ጥያቄ ቀድሞ በሂደት ላይ ነው።';
+
+  @override
+  String get escrowErrorRateLimit => 'ብዙ ጥያቄዎች ተልከዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get escrowErrorOffline => 'ለዚህ ድርጊት የኢንተርኔት ግንኙነት ያስፈልጋል።';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ብር $amount';
   }
@@ -1249,4 +1261,158 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get tutorialComingSoon =>
       'የመማሪያ ካሩሴል በቅርቡ ይመጣል። መለያ በመፍጠር መተግበሪያውን ማሰስ ይችላሉ!';
+
+  @override
+  String get escrowDescInitiated => 'የቴሌብር ማረጋገጫ በመጠበቅ ላይ';
+
+  @override
+  String get escrowDescEscrowed => 'ገንዘቡ እስከ ማድረስ ድረስ በጥበቃ ላይ ነው';
+
+  @override
+  String get escrowDescReleased => 'ገንዘቡ ለገበሬው ተልኳል';
+
+  @override
+  String get escrowDescCompleted => 'ግብይቱ ተጠናቋል';
+
+  @override
+  String get escrowDescCancelled => 'ክፍያው ተሰርዟል';
+
+  @override
+  String get escrowDescDisputed => 'በመድረኩ ግምገማ ላይ';
+
+  @override
+  String get escrowDescRefunded => 'ገንዘቡ ለገዢው ተመልሷል';
+
+  @override
+  String get conflictFieldCropType => 'የሰብል ዓይነት';
+
+  @override
+  String get conflictFieldQuantity => 'መጠን';
+
+  @override
+  String get conflictFieldPricePerKg => 'ዋጋ/ኪግ';
+
+  @override
+  String get conflictFieldStatus => 'ሁኔታ';
+
+  @override
+  String get conflictFieldRoute => 'መንገድ';
+
+  @override
+  String get conflictFieldCapacity => 'አቅም';
+
+  @override
+  String get conflictFieldTrip => 'ጉዞ';
+
+  @override
+  String get escrowPayButton => 'ክፈል';
+
+  @override
+  String escrowDisputeReasonPrefix(String reason) {
+    return 'ምክንያት: $reason';
+  }
+
+  @override
+  String escrowDeliveryNumber(String id) {
+    return 'ማድረስ #$id';
+  }
+
+  @override
+  String escrowPaymentTo(String name) {
+    return 'ለ: $name';
+  }
+
+  @override
+  String escrowPaymentAmount(String amount) {
+    return 'ክፍያ: ETB $amount';
+  }
+
+  @override
+  String escrowDeliveryShort(String id) {
+    return 'ማድ. #$id';
+  }
+
+  @override
+  String get escrowQueuedStatus => 'ተራ ላይ';
+
+  @override
+  String get genericError => 'ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get authErrorRegistrationFailed => 'ምዝገባ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get authErrorOtpFailed => 'የኦቲፒ ማረጋገጫ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get authErrorResendOtpFailed =>
+      'ኦቲፒ እንደገና መላክ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get authErrorLoginFailed => 'መግባት ያልተሳካ። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get authErrorOfflineLoginFailed =>
+      'ከመስመር ውጭ መግባት ያልተሳካ። እባክዎ መጀመሪያ በመስመር ይግቡ።';
+
+  @override
+  String get authErrorSecureStorage =>
+      'ደህንነታዊ ማከማቻ ላይ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።';
+
+  @override
+  String get authErrorDatabase => 'የዳታቤዝ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።';
+
+  @override
+  String get authErrorUserNotConfirmed => 'እባክዎ መጀመሪያ ስልክ ቁጥርዎን ያረጋግጡ።';
+
+  @override
+  String get authErrorTokenExpired => 'ክፍለ ጊዜ አልፏል። እባክዎ እንደገና ይግቡ።';
+
+  @override
+  String get deliveryErrorInvalidId => 'ልክ ያልሆነ የማድረስ መታወቂያ';
+
+  @override
+  String get deliveryErrorStatusInvalid => 'ለዚህ ድርጊት ልክ ያልሆነ የማድረስ ሁኔታ';
+
+  @override
+  String get deliveryErrorUnauthorized => 'ለዚህ ድርጊት ስልጣን የሎትም';
+
+  @override
+  String get deliveryErrorDisputeExpired => 'የክርክር ጊዜ አልፏል';
+
+  @override
+  String get deliveryErrorDisputeReasonRequired => 'እባክዎ ምክንያት ያቅርቡ';
+
+  @override
+  String get deliveryErrorGpsInvalid => 'ልክ ያልሆነ GPS ቅንጅት';
+
+  @override
+  String get deliveryErrorGeneric => 'የማድረስ ስራ ያልተሳካ';
+
+  @override
+  String get deliveryErrorNotFound => 'ማድረስ አልተገኘም';
+
+  @override
+  String get deliveryQrTooLarge => 'QR ኮድ በጣም ትልቅ ነው';
+
+  @override
+  String get deliveryQrIncomplete => 'ያልተሟላ QR ዳታ';
+
+  @override
+  String get deliveryQrInvalidData => 'ልክ ያልሆነ QR ዳታ';
+
+  @override
+  String get deliveryQrWrongDelivery => 'QR ኮድ ለዚህ ማድረስ አይገጥምም';
+
+  @override
+  String get deliveryQrInvalidFormat => 'ልክ ያልሆነ QR ኮድ ቅርጸት';
+
+  @override
+  String get deliveryQrProcessFailed => 'QR ኮድ ማስተናገድ አልተቻለም';
+
+  @override
+  String get escrowPaymentNotFound => 'ክፍያ አልተገኘም';
+
+  @override
+  String get escrowPaymentNotFoundForDelivery => 'ለዚህ ማድረስ ክፍያ አልተገኘም';
 }

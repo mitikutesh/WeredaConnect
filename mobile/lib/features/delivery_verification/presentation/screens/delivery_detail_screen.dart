@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/delivery_verification/data/verification_
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/dispute_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
@@ -73,7 +74,12 @@ class DeliveryDetailScreen extends StatelessWidget {
         } else if (state is DeliveryError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeDeliveryError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );

@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -147,7 +148,12 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
         } else if (state is DeliveryError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeDeliveryError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );

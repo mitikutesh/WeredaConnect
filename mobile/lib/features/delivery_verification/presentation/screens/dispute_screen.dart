@@ -7,6 +7,7 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Raise a dispute within 48 hours of delivery confirmation.
@@ -112,7 +113,12 @@ class _DisputeScreenState extends State<DisputeScreen> {
           setState(() => _isSubmitting = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeDeliveryError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );

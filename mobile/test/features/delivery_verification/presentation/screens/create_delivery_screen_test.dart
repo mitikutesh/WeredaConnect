@@ -272,7 +272,8 @@ void main() {
       deliveryStreamController.add(errorState);
       await tester.pumpAndSettle();
 
-      expect(find.text('Failed to create delivery'), findsOneWidget);
+      // Error is localized via localizeDeliveryError; null code maps to generic
+      expect(find.text('Delivery operation failed'), findsOneWidget);
     });
   });
 }

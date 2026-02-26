@@ -1379,6 +1379,22 @@
   "@escrowErrorGeneric": {
     "description": "Generic fallback error message for escrow operations"
   },
+  "escrowErrorAuthRequired": "እባክዎ ለመቀጠል ይግቡ።",
+  "@escrowErrorAuthRequired": {
+    "description": "Error when authentication is required for escrow operation"
+  },
+  "escrowErrorConflict": "ይህ ጥያቄ ቀድሞ በሂደት ላይ ነው።",
+  "@escrowErrorConflict": {
+    "description": "Error when a duplicate/conflicting escrow request is detected"
+  },
+  "escrowErrorRateLimit": "ብዙ ጥያቄዎች ተልከዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@escrowErrorRateLimit": {
+    "description": "Error when escrow rate limit is exceeded"
+  },
+  "escrowErrorOffline": "ለዚህ ድርጊት የኢንተርኔት ግንኙነት ያስፈልጋል።",
+  "@escrowErrorOffline": {
+    "description": "Error when escrow action requires internet but device is offline"
+  },
 
   "escrowEtbAmount": "ብር {amount}",
   "@escrowEtbAmount": {
@@ -1666,5 +1682,233 @@
   "tutorialComingSoon": "የመማሪያ ካሩሴል በቅርቡ ይመጣል። መለያ በመፍጠር መተግበሪያውን ማሰስ ይችላሉ!",
   "@tutorialComingSoon": {
     "description": "Snackbar message shown when user taps How it works chip on welcome screen"
+  },
+
+  "@@p0LocalizationFixes": "=== P0 Localization Fixes (FIX-013 to FIX-018) ===",
+
+  "escrowDescInitiated": "የቴሌብር ማረጋገጫ በመጠበቅ ላይ",
+  "@escrowDescInitiated": {
+    "description": "Status description for initiated escrow payment"
+  },
+  "escrowDescEscrowed": "ገንዘቡ እስከ ማድረስ ድረስ በጥበቃ ላይ ነው",
+  "@escrowDescEscrowed": {
+    "description": "Status description for escrowed payment"
+  },
+  "escrowDescReleased": "ገንዘቡ ለገበሬው ተልኳል",
+  "@escrowDescReleased": {
+    "description": "Status description for released payment"
+  },
+  "escrowDescCompleted": "ግብይቱ ተጠናቋል",
+  "@escrowDescCompleted": {
+    "description": "Status description for completed escrow"
+  },
+  "escrowDescCancelled": "ክፍያው ተሰርዟል",
+  "@escrowDescCancelled": {
+    "description": "Status description for cancelled escrow"
+  },
+  "escrowDescDisputed": "በመድረኩ ግምገማ ላይ",
+  "@escrowDescDisputed": {
+    "description": "Status description for disputed escrow"
+  },
+  "escrowDescRefunded": "ገንዘቡ ለገዢው ተመልሷል",
+  "@escrowDescRefunded": {
+    "description": "Status description for refunded escrow"
+  },
+
+  "conflictFieldCropType": "የሰብል ዓይነት",
+  "@conflictFieldCropType": {
+    "description": "Field label for crop type in conflict resolution"
+  },
+  "conflictFieldQuantity": "መጠን",
+  "@conflictFieldQuantity": {
+    "description": "Field label for quantity in conflict resolution"
+  },
+  "conflictFieldPricePerKg": "ዋጋ/ኪግ",
+  "@conflictFieldPricePerKg": {
+    "description": "Field label for price per kg in conflict resolution"
+  },
+  "conflictFieldStatus": "ሁኔታ",
+  "@conflictFieldStatus": {
+    "description": "Field label for status in conflict resolution"
+  },
+  "conflictFieldRoute": "መንገድ",
+  "@conflictFieldRoute": {
+    "description": "Field label for route in conflict resolution"
+  },
+  "conflictFieldCapacity": "አቅም",
+  "@conflictFieldCapacity": {
+    "description": "Field label for capacity in conflict resolution"
+  },
+  "conflictFieldTrip": "ጉዞ",
+  "@conflictFieldTrip": {
+    "description": "Field label for trip in conflict resolution"
+  },
+
+  "escrowPayButton": "ክፈል",
+  "@escrowPayButton": {
+    "description": "Button label for payment confirmation dialog"
+  },
+
+  "escrowDisputeReasonPrefix": "ምክንያት: {reason}",
+  "@escrowDisputeReasonPrefix": {
+    "description": "Prefix label for dispute reason display",
+    "placeholders": {
+      "reason": {
+        "type": "String",
+        "example": "የተበላሸ ዕቃ"
+      }
+    }
+  },
+
+  "escrowDeliveryNumber": "ማድረስ #{id}",
+  "@escrowDeliveryNumber": {
+    "description": "Delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowPaymentTo": "ለ: {name}",
+  "@escrowPaymentTo": {
+    "description": "Payment recipient label",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowPaymentAmount": "ክፍያ: ETB {amount}",
+  "@escrowPaymentAmount": {
+    "description": "Payment amount display",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+  "escrowDeliveryShort": "ማድ. #{id}",
+  "@escrowDeliveryShort": {
+    "description": "Short delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowQueuedStatus": "ተራ ላይ",
+  "@escrowQueuedStatus": {
+    "description": "Status label for queued payment intent"
+  },
+
+  "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
+
+  "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
+  "@genericError": {
+    "description": "Generic error message shown when an unexpected error occurs"
+  },
+  "authErrorRegistrationFailed": "ምዝገባ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorRegistrationFailed": {
+    "description": "Fallback error for failed registration"
+  },
+  "authErrorOtpFailed": "የኦቲፒ ማረጋገጫ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorOtpFailed": {
+    "description": "Fallback error for failed OTP verification"
+  },
+  "authErrorResendOtpFailed": "ኦቲፒ እንደገና መላክ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorResendOtpFailed": {
+    "description": "Fallback error for failed OTP resend"
+  },
+  "authErrorLoginFailed": "መግባት ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorLoginFailed": {
+    "description": "Fallback error for failed login"
+  },
+  "authErrorOfflineLoginFailed": "ከመስመር ውጭ መግባት ያልተሳካ። እባክዎ መጀመሪያ በመስመር ይግቡ።",
+  "@authErrorOfflineLoginFailed": {
+    "description": "Fallback error for failed offline login"
+  },
+  "authErrorSecureStorage": "ደህንነታዊ ማከማቻ ላይ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።",
+  "@authErrorSecureStorage": {
+    "description": "Error accessing secure storage"
+  },
+  "authErrorDatabase": "የዳታቤዝ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።",
+  "@authErrorDatabase": {
+    "description": "Error accessing database"
+  },
+  "authErrorUserNotConfirmed": "እባክዎ መጀመሪያ ስልክ ቁጥርዎን ያረጋግጡ።",
+  "@authErrorUserNotConfirmed": {
+    "description": "Error when user has not confirmed phone number"
+  },
+  "authErrorTokenExpired": "ክፍለ ጊዜ አልፏል። እባክዎ እንደገና ይግቡ።",
+  "@authErrorTokenExpired": {
+    "description": "Error when authentication token has expired"
+  },
+  "deliveryErrorInvalidId": "ልክ ያልሆነ የማድረስ መታወቂያ",
+  "@deliveryErrorInvalidId": {
+    "description": "Error when delivery ID format is invalid"
+  },
+  "deliveryErrorStatusInvalid": "ለዚህ ድርጊት ልክ ያልሆነ የማድረስ ሁኔታ",
+  "@deliveryErrorStatusInvalid": {
+    "description": "Error when delivery status does not allow the requested action"
+  },
+  "deliveryErrorUnauthorized": "ለዚህ ድርጊት ስልጣን የሎትም",
+  "@deliveryErrorUnauthorized": {
+    "description": "Error when user is not authorized for a delivery action"
+  },
+  "deliveryErrorDisputeExpired": "የክርክር ጊዜ አልፏል",
+  "@deliveryErrorDisputeExpired": {
+    "description": "Error when dispute window (48 hours) has passed"
+  },
+  "deliveryErrorDisputeReasonRequired": "እባክዎ ምክንያት ያቅርቡ",
+  "@deliveryErrorDisputeReasonRequired": {
+    "description": "Error when dispute reason is missing or invalid"
+  },
+  "deliveryErrorGpsInvalid": "ልክ ያልሆነ GPS ቅንጅት",
+  "@deliveryErrorGpsInvalid": {
+    "description": "Error when GPS coordinates are invalid"
+  },
+  "deliveryErrorGeneric": "የማድረስ ስራ ያልተሳካ",
+  "@deliveryErrorGeneric": {
+    "description": "Generic delivery error message"
+  },
+  "deliveryErrorNotFound": "ማድረስ አልተገኘም",
+  "@deliveryErrorNotFound": {
+    "description": "Error when delivery cannot be found"
+  },
+  "deliveryQrTooLarge": "QR ኮድ በጣም ትልቅ ነው",
+  "@deliveryQrTooLarge": {
+    "description": "Error when scanned QR code exceeds size limit"
+  },
+  "deliveryQrIncomplete": "ያልተሟላ QR ዳታ",
+  "@deliveryQrIncomplete": {
+    "description": "Error when QR code has missing fields"
+  },
+  "deliveryQrInvalidData": "ልክ ያልሆነ QR ዳታ",
+  "@deliveryQrInvalidData": {
+    "description": "Error when QR code fields exceed length limits"
+  },
+  "deliveryQrWrongDelivery": "QR ኮድ ለዚህ ማድረስ አይገጥምም",
+  "@deliveryQrWrongDelivery": {
+    "description": "Error when QR code deliveryId does not match expected delivery"
+  },
+  "deliveryQrInvalidFormat": "ልክ ያልሆነ QR ኮድ ቅርጸት",
+  "@deliveryQrInvalidFormat": {
+    "description": "Error when QR code cannot be decoded"
+  },
+  "deliveryQrProcessFailed": "QR ኮድ ማስተናገድ አልተቻለም",
+  "@deliveryQrProcessFailed": {
+    "description": "Error when QR code processing fails unexpectedly"
+  },
+  "escrowPaymentNotFound": "ክፍያ አልተገኘም",
+  "@escrowPaymentNotFound": {
+    "description": "Error when escrow payment cannot be found"
+  },
+  "escrowPaymentNotFoundForDelivery": "ለዚህ ማድረስ ክፍያ አልተገኘም",
+  "@escrowPaymentNotFoundForDelivery": {
+    "description": "Error when escrow payment for a specific delivery cannot be found"
   }
 }

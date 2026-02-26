@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
@@ -133,7 +134,13 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                             color: Colors.red,
                           ),
                           const SizedBox(height: 12),
-                          Text(state.message),
+                          Text(
+                            localizeEscrowError(
+                              AppLocalizations.of(context)!,
+                              state.code,
+                              state.message,
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -381,7 +388,7 @@ class _PaymentCard extends StatelessWidget {
                     AmountDisplay(amount: payment.amount),
                     const SizedBox(height: 4),
                     Text(
-                      'Del. #${payment.deliveryId.length > 8 ? payment.deliveryId.substring(0, 8) : payment.deliveryId}'
+                      '${AppLocalizations.of(context)!.escrowDeliveryShort(payment.deliveryId.length > 8 ? payment.deliveryId.substring(0, 8) : payment.deliveryId)}'
                       ' · ${_dateFormat.format(payment.createdAt)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:

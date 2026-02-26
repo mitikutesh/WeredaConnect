@@ -89,7 +89,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       } else {
         emit(
           const EscrowError(
-            code: 'ESCROW_016',
+            code: 'ESCROW_016_DELIVERY',
             message: 'Payment not found for this delivery.',
           ),
         );

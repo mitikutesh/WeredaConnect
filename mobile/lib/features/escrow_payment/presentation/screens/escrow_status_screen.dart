@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/raise_dispute_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
@@ -90,7 +91,14 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
                       color: Colors.red,
                     ),
                     const SizedBox(height: 16),
-                    Text(state.message, textAlign: TextAlign.center),
+                    Text(
+                      localizeEscrowError(
+                        AppLocalizations.of(context)!,
+                        state.code,
+                        state.message,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 16),
                     FilledButton(
                       onPressed: _loadEscrow,
@@ -322,7 +330,10 @@ class _DisputeInfoCard extends StatelessWidget {
           ),
           if (payment.disputeReason != null) ...[
             const SizedBox(height: 8),
-            Text('Reason: ${payment.disputeReason}'),
+            Text(
+              AppLocalizations.of(context)!
+                  .escrowDisputeReasonPrefix(payment.disputeReason!),
+            ),
           ],
           if (payment.disputeDescription != null) ...[
             const SizedBox(height: 4),

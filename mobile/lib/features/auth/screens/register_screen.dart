@@ -75,7 +75,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       AuthErrorCode.userNotFound => l10n.invalidCredentials,
       // Server sends AUTH_016 for unverified phone number
       'AUTH_016' => l10n.phoneNotVerified,
-      _ => fallback,
+      AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
+      AuthErrorCode.databaseError => l10n.authErrorDatabase,
+      _ => l10n.genericError,
     };
   }
 

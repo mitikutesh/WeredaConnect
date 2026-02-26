@@ -75,6 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthErrorCode.userNotFound => l10n.invalidCredentials,
       // Server sends AUTH_016 for unverified phone number
       'AUTH_016' => l10n.phoneNotVerified,
+      AuthErrorCode.userNotConfirmed => l10n.authErrorUserNotConfirmed,
       AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
       AuthErrorCode.internalServerError => l10n.authServerError,
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
@@ -83,7 +84,12 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
       AuthErrorCode.accountDisabled => l10n.authAccountDisabled,
       AuthErrorCode.passwordResetRequired => l10n.authPasswordResetRequired,
-      _ => fallback,
+      AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
+      AuthErrorCode.databaseError => l10n.authErrorDatabase,
+      AuthErrorCode.tokenExpired => l10n.authErrorTokenExpired,
+      AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
+      AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
+      _ => l10n.genericError,
     };
   }
 

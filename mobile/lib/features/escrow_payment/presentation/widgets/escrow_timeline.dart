@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -209,22 +210,6 @@ class _TimelineStep extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final hour = dt.hour.toString().padLeft(2, '0');
-    final minute = dt.minute.toString().padLeft(2, '0');
-    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} $hour:$minute';
+    return DateFormat.yMMMd().add_jm().format(dt);
   }
 }

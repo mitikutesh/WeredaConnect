@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/delivery_verification/data/verification_
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -43,7 +44,7 @@ enum _ScanPhase { scanning, verified, invalid }
 class _QrScanScreenState extends State<QrScanScreen> {
   _ScanPhase _phase = _ScanPhase.scanning;
   MobileScannerController? _scannerController;
-  String? _errorMessage;
+  String? _errorCode;
 
   // Verified phase data
   GpsCaptureResult? _gpsResult;
@@ -85,7 +86,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
     } else {
       setState(() {
         _phase = _ScanPhase.invalid;
-        _errorMessage = result.errorMessage ?? 'Verification failed';
+        _errorCode = result.errorCode;
       });
     }
   }
@@ -154,7 +155,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   void _resetScanner() {
     setState(() {
       _phase = _ScanPhase.scanning;
-      _errorMessage = null;
+      _errorCode = null;
       _gpsResult = null;
       _photoRef = null;
       _scannedNonce = null;
@@ -178,7 +179,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
           setState(() => _isConfirming = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeDeliveryError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -409,6 +415,18 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
+  String _localizeQrError(AppLocalizations l10n) {
+    return switch (_errorCode) {
+      QrErrorCode.tooLarge => l10n.deliveryQrTooLarge,
+      QrErrorCode.incomplete => l10n.deliveryQrIncomplete,
+      QrErrorCode.invalidData => l10n.deliveryQrInvalidData,
+      QrErrorCode.wrongDelivery => l10n.deliveryQrWrongDelivery,
+      QrErrorCode.invalidFormat => l10n.deliveryQrInvalidFormat,
+      QrErrorCode.processFailed => l10n.deliveryQrProcessFailed,
+      _ => l10n.deliveryQrFailed,
+    };
+  }
+
   Widget _buildInvalidPhase() {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
@@ -434,7 +452,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _errorMessage ?? 'Unknown error',
+              _localizeQrError(l10n),
               style: theme.textTheme.bodyLarge,
               textAlign: TextAlign.center,
             ),

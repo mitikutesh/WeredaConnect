@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -32,6 +33,20 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     on<FilterUserDeliveries>(_onFilterUserDeliveries);
   }
 
+  /// Emit a [DeliveryError] from an exception.
+  ///
+  /// Extracts the error code from [DeliveryValidationException] for
+  /// l10n mapping in the presentation layer.
+  DeliveryError _errorFromException(Exception e) {
+    if (e is DeliveryValidationException) {
+      return DeliveryError(message: e.message, code: e.code);
+    }
+    return DeliveryError(
+      message: e.toString(),
+      code: DeliveryErrorCode.generic,
+    );
+  }
+
   Future<void> _onLoadDeliveries(
     LoadDeliveries event,
     Emitter<DeliveryState> emit,
@@ -45,7 +60,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -69,7 +84,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveryCreated(delivery: delivery));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -89,7 +104,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(const PickupConfirmed());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -106,7 +121,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(const MarkedInTransit());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -126,7 +141,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(const DeliveryConfirmed());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -149,7 +164,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -171,7 +186,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -205,7 +220,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         ),
       );
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -221,7 +236,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -238,10 +253,15 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       if (delivery != null) {
         emit(DeliveryDetailLoaded(delivery: delivery));
       } else {
-        emit(const DeliveryError(message: 'Delivery not found'));
+        emit(
+          const DeliveryError(
+            message: 'Delivery not found',
+            code: DeliveryErrorCode.notFound,
+          ),
+        );
       }
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -263,7 +283,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         ),
       );
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 }

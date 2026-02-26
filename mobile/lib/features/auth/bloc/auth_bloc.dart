@@ -175,7 +175,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'Registration failed',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Registration failed',
           canRetry: result.errorCode?.isRecoverable ?? true,
         ),
       );
@@ -254,7 +256,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'OTP verification failed',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'OTP verification failed',
         ),
       );
     }
@@ -287,7 +291,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'Failed to resend OTP',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Failed to resend OTP',
         ),
       );
       // Re-emit OTP state so OTP screen stays visible
@@ -329,7 +335,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'Login failed',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Login failed',
           canRetry: result.errorCode?.isRecoverable ?? true,
           retryAfterSeconds: result.retryAfterSeconds,
         ),
@@ -365,7 +373,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'Login failed',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Login failed',
           canRetry: result.errorCode?.isRecoverable ?? true,
         ),
       );
@@ -401,7 +411,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ?? 'Offline login failed',
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Offline login failed',
           canRetry: result.errorCode?.isRecoverable ?? true,
         ),
       );

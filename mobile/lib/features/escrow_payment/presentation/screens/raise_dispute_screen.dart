@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for raising a dispute on an escrowed payment.
@@ -116,7 +117,13 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeEscrowError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                  state.message,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -132,11 +139,15 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
               children: [
                 // Payment reference
                 Text(
-                  'Payment: ETB ${_formatter.format(widget.amount)}',
+                  l10n.escrowPaymentAmount(_formatter.format(widget.amount)),
                   style: theme.textTheme.titleMedium,
                 ),
                 Text(
-                  'Delivery: #${widget.deliveryId.length > 8 ? widget.deliveryId.substring(0, 8) : widget.deliveryId}',
+                  l10n.escrowDeliveryNumber(
+                    widget.deliveryId.length > 8
+                        ? widget.deliveryId.substring(0, 8)
+                        : widget.deliveryId,
+                  ),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                   ),

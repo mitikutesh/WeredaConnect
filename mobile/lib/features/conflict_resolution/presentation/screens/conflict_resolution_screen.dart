@@ -144,7 +144,7 @@ class ConflictResolutionScreen extends StatelessWidget {
 
   Widget _buildFieldSummary(BuildContext context, AppLocalizations l10n) {
     final theme = Theme.of(context);
-    final fields = _extractDisplayFields();
+    final fields = _extractDisplayFields(l10n);
 
     if (fields.isEmpty) {
       return Text(
@@ -201,21 +201,21 @@ class ConflictResolutionScreen extends StatelessWidget {
 
   /// Extract human-readable field names and values from serverData
   /// based on entity type.
-  Map<String, String> _extractDisplayFields() {
+  Map<String, String> _extractDisplayFields(AppLocalizations l10n) {
     final data = conflict.serverData;
     switch (conflict.entityType) {
       case 'crop_listing':
         return {
-          'Crop Type': data['cropType']?.toString() ?? '-',
-          'Quantity': data['quantity']?.toString() ?? '-',
-          'Price/kg': data['pricePerKg']?.toString() ?? '-',
-          'Status': data['status']?.toString() ?? '-',
+          l10n.conflictFieldCropType: data['cropType']?.toString() ?? '-',
+          l10n.conflictFieldQuantity: data['quantity']?.toString() ?? '-',
+          l10n.conflictFieldPricePerKg: data['pricePerKg']?.toString() ?? '-',
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
         };
       case 'delivery':
         return {
-          'Status': data['status']?.toString() ?? '-',
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
           // Security fix #2: guard against short tripId
-          'Trip': () {
+          l10n.conflictFieldTrip: () {
             final id = data['tripId']?.toString();
             if (id == null) return '-';
             return id.length > 8 ? id.substring(0, 8) : id;
@@ -223,9 +223,10 @@ class ConflictResolutionScreen extends StatelessWidget {
         };
       case 'trip':
         return {
-          'Route': '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
-          'Status': data['status']?.toString() ?? '-',
-          'Capacity': data['capacity']?.toString() ?? '-',
+          l10n.conflictFieldRoute:
+              '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
+          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldCapacity: data['capacity']?.toString() ?? '-',
         };
       default:
         return {};

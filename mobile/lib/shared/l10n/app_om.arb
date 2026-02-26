@@ -1379,6 +1379,22 @@
   "@escrowErrorGeneric": {
     "description": "Generic fallback error message for escrow operations"
   },
+  "escrowErrorAuthRequired": "Maaloo itti fufuuf seeni.",
+  "@escrowErrorAuthRequired": {
+    "description": "Error when authentication is required for escrow operation"
+  },
+  "escrowErrorConflict": "Gaaffiin kun duraan adeemsifamaa jira.",
+  "@escrowErrorConflict": {
+    "description": "Error when a duplicate/conflicting escrow request is detected"
+  },
+  "escrowErrorRateLimit": "Gaaffiiwwan baay'ee ergamaniiru. Maaloo turtii booda yaali.",
+  "@escrowErrorRateLimit": {
+    "description": "Error when escrow rate limit is exceeded"
+  },
+  "escrowErrorOffline": "Hojii kanaaf interneetiin barbaachisaadha.",
+  "@escrowErrorOffline": {
+    "description": "Error when escrow action requires internet but device is offline"
+  },
 
   "escrowEtbAmount": "Birrii {amount}",
   "@escrowEtbAmount": {
@@ -1666,5 +1682,233 @@
   "tutorialComingSoon": "Karuuzeliin barnoota dhiyootti ni dhufa. Herrega uumuudhaan appicha sakatta'uu dandeessu!",
   "@tutorialComingSoon": {
     "description": "Snackbar message shown when user taps How it works chip on welcome screen"
+  },
+
+  "@@p0LocalizationFixes": "=== P0 Localization Fixes (FIX-013 to FIX-018) ===",
+
+  "escrowDescInitiated": "Mirkaneessa Telebirr eegaa jira",
+  "@escrowDescInitiated": {
+    "description": "Status description for initiated escrow payment"
+  },
+  "escrowDescEscrowed": "Maallaqni hanga geejjibsiifamutti nagaan qabameera",
+  "@escrowDescEscrowed": {
+    "description": "Status description for escrowed payment"
+  },
+  "escrowDescReleased": "Maallaqni qonnaan bultaatti ergameera",
+  "@escrowDescReleased": {
+    "description": "Status description for released payment"
+  },
+  "escrowDescCompleted": "Daldalli xumurameera",
+  "@escrowDescCompleted": {
+    "description": "Status description for completed escrow"
+  },
+  "escrowDescCancelled": "Kaffaltiin haqameera",
+  "@escrowDescCancelled": {
+    "description": "Status description for cancelled escrow"
+  },
+  "escrowDescDisputed": "Mana maree platformiin ilaalamaa jira",
+  "@escrowDescDisputed": {
+    "description": "Status description for disputed escrow"
+  },
+  "escrowDescRefunded": "Maallaqni bitaadhaaf deebi'eera",
+  "@escrowDescRefunded": {
+    "description": "Status description for refunded escrow"
+  },
+
+  "conflictFieldCropType": "Gosa Midhaan",
+  "@conflictFieldCropType": {
+    "description": "Field label for crop type in conflict resolution"
+  },
+  "conflictFieldQuantity": "Hamma",
+  "@conflictFieldQuantity": {
+    "description": "Field label for quantity in conflict resolution"
+  },
+  "conflictFieldPricePerKg": "Gatii/kg",
+  "@conflictFieldPricePerKg": {
+    "description": "Field label for price per kg in conflict resolution"
+  },
+  "conflictFieldStatus": "Haala",
+  "@conflictFieldStatus": {
+    "description": "Field label for status in conflict resolution"
+  },
+  "conflictFieldRoute": "Karaa",
+  "@conflictFieldRoute": {
+    "description": "Field label for route in conflict resolution"
+  },
+  "conflictFieldCapacity": "Dandeettii",
+  "@conflictFieldCapacity": {
+    "description": "Field label for capacity in conflict resolution"
+  },
+  "conflictFieldTrip": "Imala",
+  "@conflictFieldTrip": {
+    "description": "Field label for trip in conflict resolution"
+  },
+
+  "escrowPayButton": "Kaffalii",
+  "@escrowPayButton": {
+    "description": "Button label for payment confirmation dialog"
+  },
+
+  "escrowDisputeReasonPrefix": "Sababaa: {reason}",
+  "@escrowDisputeReasonPrefix": {
+    "description": "Prefix label for dispute reason display",
+    "placeholders": {
+      "reason": {
+        "type": "String",
+        "example": "Meeshaa miidhame"
+      }
+    }
+  },
+
+  "escrowDeliveryNumber": "Geejjibsiisa #{id}",
+  "@escrowDeliveryNumber": {
+    "description": "Delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowPaymentTo": "Gara: {name}",
+  "@escrowPaymentTo": {
+    "description": "Payment recipient label",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowPaymentAmount": "Kaffaltii: ETB {amount}",
+  "@escrowPaymentAmount": {
+    "description": "Payment amount display",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+  "escrowDeliveryShort": "Geej. #{id}",
+  "@escrowDeliveryShort": {
+    "description": "Short delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowQueuedStatus": "Tarree irra",
+  "@escrowQueuedStatus": {
+    "description": "Status label for queued payment intent"
+  },
+
+  "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
+
+  "genericError": "Rakkoon uumameera. Maaloo irra deebi'ii yaali.",
+  "@genericError": {
+    "description": "Generic error message shown when an unexpected error occurs"
+  },
+  "authErrorRegistrationFailed": "Galmeen hin milkoofne. Maaloo irra deebi'ii yaali.",
+  "@authErrorRegistrationFailed": {
+    "description": "Fallback error for failed registration"
+  },
+  "authErrorOtpFailed": "Mirkaneessuu OTP hin milkoofne. Maaloo irra deebi'ii yaali.",
+  "@authErrorOtpFailed": {
+    "description": "Fallback error for failed OTP verification"
+  },
+  "authErrorResendOtpFailed": "OTP irra deebi'ii erguu hin milkoofne. Maaloo irra deebi'ii yaali.",
+  "@authErrorResendOtpFailed": {
+    "description": "Fallback error for failed OTP resend"
+  },
+  "authErrorLoginFailed": "Seenuu hin milkoofne. Maaloo irra deebi'ii yaali.",
+  "@authErrorLoginFailed": {
+    "description": "Fallback error for failed login"
+  },
+  "authErrorOfflineLoginFailed": "Oflaayiniin seenuu hin milkoofne. Maaloo dursa onlaayiniin seeni.",
+  "@authErrorOfflineLoginFailed": {
+    "description": "Fallback error for failed offline login"
+  },
+  "authErrorSecureStorage": "Kuusaa nageenya qaqqabuu irratti dogoggora. Maaloo appii irra deebi'ii jalqabi.",
+  "@authErrorSecureStorage": {
+    "description": "Error accessing secure storage"
+  },
+  "authErrorDatabase": "Dogoggora kuusaa deetaa. Maaloo appii irra deebi'ii jalqabi.",
+  "@authErrorDatabase": {
+    "description": "Error accessing database"
+  },
+  "authErrorUserNotConfirmed": "Maaloo dursa lakkoofsa bilbilaa keessan mirkaneessaa.",
+  "@authErrorUserNotConfirmed": {
+    "description": "Error when user has not confirmed phone number"
+  },
+  "authErrorTokenExpired": "Yeroon sesshinii darbe. Maaloo irra deebi'ii seeni.",
+  "@authErrorTokenExpired": {
+    "description": "Error when authentication token has expired"
+  },
+  "deliveryErrorInvalidId": "Eenyummaa geejjibsiisa sirrii miti",
+  "@deliveryErrorInvalidId": {
+    "description": "Error when delivery ID format is invalid"
+  },
+  "deliveryErrorStatusInvalid": "Haalli geejjibsiisa gocha kanaaf sirrii miti",
+  "@deliveryErrorStatusInvalid": {
+    "description": "Error when delivery status does not allow the requested action"
+  },
+  "deliveryErrorUnauthorized": "Gocha kanaaf mirga hin qabdan",
+  "@deliveryErrorUnauthorized": {
+    "description": "Error when user is not authorized for a delivery action"
+  },
+  "deliveryErrorDisputeExpired": "Yeroon komii darbe",
+  "@deliveryErrorDisputeExpired": {
+    "description": "Error when dispute window (48 hours) has passed"
+  },
+  "deliveryErrorDisputeReasonRequired": "Maaloo sababaa ibsaa",
+  "@deliveryErrorDisputeReasonRequired": {
+    "description": "Error when dispute reason is missing or invalid"
+  },
+  "deliveryErrorGpsInvalid": "Qindeessaa GPS sirrii miti",
+  "@deliveryErrorGpsInvalid": {
+    "description": "Error when GPS coordinates are invalid"
+  },
+  "deliveryErrorGeneric": "Hojiin geejjibsiisa hin milkoofne",
+  "@deliveryErrorGeneric": {
+    "description": "Generic delivery error message"
+  },
+  "deliveryErrorNotFound": "Geejjibsiisni hin argamne",
+  "@deliveryErrorNotFound": {
+    "description": "Error when delivery cannot be found"
+  },
+  "deliveryQrTooLarge": "QR koodiin baay'ee guddaadha",
+  "@deliveryQrTooLarge": {
+    "description": "Error when scanned QR code exceeds size limit"
+  },
+  "deliveryQrIncomplete": "Daataan QR guutuu miti",
+  "@deliveryQrIncomplete": {
+    "description": "Error when QR code has missing fields"
+  },
+  "deliveryQrInvalidData": "Daataan QR sirrii miti",
+  "@deliveryQrInvalidData": {
+    "description": "Error when QR code fields exceed length limits"
+  },
+  "deliveryQrWrongDelivery": "QR koodiin geejjibsiisa kana waliin hin malu",
+  "@deliveryQrWrongDelivery": {
+    "description": "Error when QR code deliveryId does not match expected delivery"
+  },
+  "deliveryQrInvalidFormat": "Bifa QR koodii sirrii miti",
+  "@deliveryQrInvalidFormat": {
+    "description": "Error when QR code cannot be decoded"
+  },
+  "deliveryQrProcessFailed": "QR koodii adeemsisuu hin danda'amne",
+  "@deliveryQrProcessFailed": {
+    "description": "Error when QR code processing fails unexpectedly"
+  },
+  "escrowPaymentNotFound": "Kaffaltiin hin argamne",
+  "@escrowPaymentNotFound": {
+    "description": "Error when escrow payment cannot be found"
+  },
+  "escrowPaymentNotFoundForDelivery": "Geejjibsiisa kanaaf kaffaltiin hin argamne",
+  "@escrowPaymentNotFoundForDelivery": {
+    "description": "Error when escrow payment for a specific delivery cannot be found"
   }
 }

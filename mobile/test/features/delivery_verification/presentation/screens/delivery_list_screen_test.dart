@@ -114,7 +114,8 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('Network error'), findsOneWidget);
+      // Error is localized via localizeDeliveryError; null code maps to generic
+      expect(find.text('Delivery operation failed'), findsOneWidget);
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
       expect(find.text('Try Again'), findsOneWidget);
     });

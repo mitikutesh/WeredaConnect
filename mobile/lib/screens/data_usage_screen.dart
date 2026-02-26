@@ -46,7 +46,7 @@ class DataUsageScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               '${l10n.dataUsageTrackingSince} '
-              '${DateFormat('MMM d, yyyy').format(tracker.trackingSince!)}',
+              '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Colors.grey[600],
                   ),

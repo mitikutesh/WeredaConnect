@@ -48,7 +48,7 @@ class PendingIntentCard extends StatelessWidget {
                   AmountDisplay(amount: intent.amount),
                   const SizedBox(height: 2),
                   Text(
-                    'Del. #${intent.deliveryId.length > 8 ? intent.deliveryId.substring(0, 8) : intent.deliveryId} · Queued',
+                    '${AppLocalizations.of(context)!.escrowDeliveryShort(intent.deliveryId.length > 8 ? intent.deliveryId.substring(0, 8) : intent.deliveryId)} · ${AppLocalizations.of(context)!.escrowQueuedStatus}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),

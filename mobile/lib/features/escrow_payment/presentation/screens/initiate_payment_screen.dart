@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -65,7 +66,13 @@ class InitiatePaymentScreen extends StatelessWidget {
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeEscrowError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                  state.message,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -120,12 +127,16 @@ class InitiatePaymentScreen extends StatelessWidget {
 
                 // Delivery and farmer info
                 Text(
-                  'Delivery #${deliveryId.length > 8 ? deliveryId.substring(0, 8) : deliveryId}',
+                  l10n.escrowDeliveryNumber(
+                    deliveryId.length > 8
+                        ? deliveryId.substring(0, 8)
+                        : deliveryId,
+                  ),
                   style: theme.textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'To: $farmerName',
+                  l10n.escrowPaymentTo(farmerName),
                   style: theme.textTheme.bodyLarge?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
@@ -289,7 +300,7 @@ class InitiatePaymentScreen extends StatelessWidget {
                       ),
                     );
               },
-              child: const Text('Pay'),
+              child: Text(dl10n.escrowPayButton),
             ),
           ],
         );

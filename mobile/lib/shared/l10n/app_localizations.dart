@@ -2032,6 +2032,30 @@ abstract class AppLocalizations {
   /// **'Something went wrong. Please try again.'**
   String get escrowErrorGeneric;
 
+  /// Error when authentication is required for escrow operation
+  ///
+  /// In en, this message translates to:
+  /// **'Please log in to continue.'**
+  String get escrowErrorAuthRequired;
+
+  /// Error when a duplicate/conflicting escrow request is detected
+  ///
+  /// In en, this message translates to:
+  /// **'This request is already being processed.'**
+  String get escrowErrorConflict;
+
+  /// Error when escrow rate limit is exceeded
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please wait and try again.'**
+  String get escrowErrorRateLimit;
+
+  /// Error when escrow action requires internet but device is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Internet connection required for this action.'**
+  String get escrowErrorOffline;
+
   /// Formatted ETB currency amount
   ///
   /// In en, this message translates to:
@@ -2475,6 +2499,288 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tutorial carousel coming soon. You can explore the app by creating an account!'**
   String get tutorialComingSoon;
+
+  /// Status description for initiated escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for Telebirr confirmation'**
+  String get escrowDescInitiated;
+
+  /// Status description for escrowed payment
+  ///
+  /// In en, this message translates to:
+  /// **'Funds held safely until delivery'**
+  String get escrowDescEscrowed;
+
+  /// Status description for released payment
+  ///
+  /// In en, this message translates to:
+  /// **'Funds sent to farmer'**
+  String get escrowDescReleased;
+
+  /// Status description for completed escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction settled'**
+  String get escrowDescCompleted;
+
+  /// Status description for cancelled escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Payment was cancelled'**
+  String get escrowDescCancelled;
+
+  /// Status description for disputed escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Under review by platform'**
+  String get escrowDescDisputed;
+
+  /// Status description for refunded escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Funds returned to buyer'**
+  String get escrowDescRefunded;
+
+  /// Field label for crop type in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Type'**
+  String get conflictFieldCropType;
+
+  /// Field label for quantity in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity'**
+  String get conflictFieldQuantity;
+
+  /// Field label for price per kg in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Price/kg'**
+  String get conflictFieldPricePerKg;
+
+  /// Field label for status in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get conflictFieldStatus;
+
+  /// Field label for route in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Route'**
+  String get conflictFieldRoute;
+
+  /// Field label for capacity in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity'**
+  String get conflictFieldCapacity;
+
+  /// Field label for trip in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get conflictFieldTrip;
+
+  /// Button label for payment confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Pay'**
+  String get escrowPayButton;
+
+  /// Prefix label for dispute reason display
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String escrowDisputeReasonPrefix(String reason);
+
+  /// Delivery reference with ID
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery #{id}'**
+  String escrowDeliveryNumber(String id);
+
+  /// Payment recipient label
+  ///
+  /// In en, this message translates to:
+  /// **'To: {name}'**
+  String escrowPaymentTo(String name);
+
+  /// Payment amount display
+  ///
+  /// In en, this message translates to:
+  /// **'Payment: ETB {amount}'**
+  String escrowPaymentAmount(String amount);
+
+  /// Short delivery reference with ID
+  ///
+  /// In en, this message translates to:
+  /// **'Del. #{id}'**
+  String escrowDeliveryShort(String id);
+
+  /// Status label for queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get escrowQueuedStatus;
+
+  /// Generic error message shown when an unexpected error occurs
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get genericError;
+
+  /// Fallback error for failed registration
+  ///
+  /// In en, this message translates to:
+  /// **'Registration failed. Please try again.'**
+  String get authErrorRegistrationFailed;
+
+  /// Fallback error for failed OTP verification
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verification failed. Please try again.'**
+  String get authErrorOtpFailed;
+
+  /// Fallback error for failed OTP resend
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to resend OTP. Please try again.'**
+  String get authErrorResendOtpFailed;
+
+  /// Fallback error for failed login
+  ///
+  /// In en, this message translates to:
+  /// **'Login failed. Please try again.'**
+  String get authErrorLoginFailed;
+
+  /// Fallback error for failed offline login
+  ///
+  /// In en, this message translates to:
+  /// **'Offline login failed. Please log in online first.'**
+  String get authErrorOfflineLoginFailed;
+
+  /// Error accessing secure storage
+  ///
+  /// In en, this message translates to:
+  /// **'Error accessing secure storage. Please restart the app.'**
+  String get authErrorSecureStorage;
+
+  /// Error accessing database
+  ///
+  /// In en, this message translates to:
+  /// **'Database error. Please restart the app.'**
+  String get authErrorDatabase;
+
+  /// Error when user has not confirmed phone number
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your phone number first.'**
+  String get authErrorUserNotConfirmed;
+
+  /// Error when authentication token has expired
+  ///
+  /// In en, this message translates to:
+  /// **'Session expired. Please log in again.'**
+  String get authErrorTokenExpired;
+
+  /// Error when delivery ID format is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery ID'**
+  String get deliveryErrorInvalidId;
+
+  /// Error when delivery status does not allow the requested action
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery status for this action'**
+  String get deliveryErrorStatusInvalid;
+
+  /// Error when user is not authorized for a delivery action
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized for this action'**
+  String get deliveryErrorUnauthorized;
+
+  /// Error when dispute window (48 hours) has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute window has expired'**
+  String get deliveryErrorDisputeExpired;
+
+  /// Error when dispute reason is missing or invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Please provide a reason'**
+  String get deliveryErrorDisputeReasonRequired;
+
+  /// Error when GPS coordinates are invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid GPS coordinates'**
+  String get deliveryErrorGpsInvalid;
+
+  /// Generic delivery error message
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery operation failed'**
+  String get deliveryErrorGeneric;
+
+  /// Error when delivery cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not found'**
+  String get deliveryErrorNotFound;
+
+  /// Error when scanned QR code exceeds size limit
+  ///
+  /// In en, this message translates to:
+  /// **'QR code too large'**
+  String get deliveryQrTooLarge;
+
+  /// Error when QR code has missing fields
+  ///
+  /// In en, this message translates to:
+  /// **'Incomplete QR data'**
+  String get deliveryQrIncomplete;
+
+  /// Error when QR code fields exceed length limits
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid QR data'**
+  String get deliveryQrInvalidData;
+
+  /// Error when QR code deliveryId does not match expected delivery
+  ///
+  /// In en, this message translates to:
+  /// **'QR code does not match this delivery'**
+  String get deliveryQrWrongDelivery;
+
+  /// Error when QR code cannot be decoded
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid QR code format'**
+  String get deliveryQrInvalidFormat;
+
+  /// Error when QR code processing fails unexpectedly
+  ///
+  /// In en, this message translates to:
+  /// **'Could not process QR code'**
+  String get deliveryQrProcessFailed;
+
+  /// Error when escrow payment cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Payment not found'**
+  String get escrowPaymentNotFound;
+
+  /// Error when escrow payment for a specific delivery cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Payment not found for this delivery'**
+  String get escrowPaymentNotFoundForDelivery;
 }
 
 class _AppLocalizationsDelegate

@@ -1037,6 +1037,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get escrowErrorGeneric => 'Something went wrong. Please try again.';
 
   @override
+  String get escrowErrorAuthRequired => 'Please log in to continue.';
+
+  @override
+  String get escrowErrorConflict => 'This request is already being processed.';
+
+  @override
+  String get escrowErrorRateLimit =>
+      'Too many requests. Please wait and try again.';
+
+  @override
+  String get escrowErrorOffline =>
+      'Internet connection required for this action.';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }
@@ -1275,4 +1289,163 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get tutorialComingSoon =>
       'Tutorial carousel coming soon. You can explore the app by creating an account!';
+
+  @override
+  String get escrowDescInitiated => 'Waiting for Telebirr confirmation';
+
+  @override
+  String get escrowDescEscrowed => 'Funds held safely until delivery';
+
+  @override
+  String get escrowDescReleased => 'Funds sent to farmer';
+
+  @override
+  String get escrowDescCompleted => 'Transaction settled';
+
+  @override
+  String get escrowDescCancelled => 'Payment was cancelled';
+
+  @override
+  String get escrowDescDisputed => 'Under review by platform';
+
+  @override
+  String get escrowDescRefunded => 'Funds returned to buyer';
+
+  @override
+  String get conflictFieldCropType => 'Crop Type';
+
+  @override
+  String get conflictFieldQuantity => 'Quantity';
+
+  @override
+  String get conflictFieldPricePerKg => 'Price/kg';
+
+  @override
+  String get conflictFieldStatus => 'Status';
+
+  @override
+  String get conflictFieldRoute => 'Route';
+
+  @override
+  String get conflictFieldCapacity => 'Capacity';
+
+  @override
+  String get conflictFieldTrip => 'Trip';
+
+  @override
+  String get escrowPayButton => 'Pay';
+
+  @override
+  String escrowDisputeReasonPrefix(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String escrowDeliveryNumber(String id) {
+    return 'Delivery #$id';
+  }
+
+  @override
+  String escrowPaymentTo(String name) {
+    return 'To: $name';
+  }
+
+  @override
+  String escrowPaymentAmount(String amount) {
+    return 'Payment: ETB $amount';
+  }
+
+  @override
+  String escrowDeliveryShort(String id) {
+    return 'Del. #$id';
+  }
+
+  @override
+  String get escrowQueuedStatus => 'Queued';
+
+  @override
+  String get genericError => 'Something went wrong. Please try again.';
+
+  @override
+  String get authErrorRegistrationFailed =>
+      'Registration failed. Please try again.';
+
+  @override
+  String get authErrorOtpFailed => 'OTP verification failed. Please try again.';
+
+  @override
+  String get authErrorResendOtpFailed =>
+      'Failed to resend OTP. Please try again.';
+
+  @override
+  String get authErrorLoginFailed => 'Login failed. Please try again.';
+
+  @override
+  String get authErrorOfflineLoginFailed =>
+      'Offline login failed. Please log in online first.';
+
+  @override
+  String get authErrorSecureStorage =>
+      'Error accessing secure storage. Please restart the app.';
+
+  @override
+  String get authErrorDatabase => 'Database error. Please restart the app.';
+
+  @override
+  String get authErrorUserNotConfirmed =>
+      'Please verify your phone number first.';
+
+  @override
+  String get authErrorTokenExpired => 'Session expired. Please log in again.';
+
+  @override
+  String get deliveryErrorInvalidId => 'Invalid delivery ID';
+
+  @override
+  String get deliveryErrorStatusInvalid =>
+      'Invalid delivery status for this action';
+
+  @override
+  String get deliveryErrorUnauthorized =>
+      'You are not authorized for this action';
+
+  @override
+  String get deliveryErrorDisputeExpired => 'Dispute window has expired';
+
+  @override
+  String get deliveryErrorDisputeReasonRequired => 'Please provide a reason';
+
+  @override
+  String get deliveryErrorGpsInvalid => 'Invalid GPS coordinates';
+
+  @override
+  String get deliveryErrorGeneric => 'Delivery operation failed';
+
+  @override
+  String get deliveryErrorNotFound => 'Delivery not found';
+
+  @override
+  String get deliveryQrTooLarge => 'QR code too large';
+
+  @override
+  String get deliveryQrIncomplete => 'Incomplete QR data';
+
+  @override
+  String get deliveryQrInvalidData => 'Invalid QR data';
+
+  @override
+  String get deliveryQrWrongDelivery => 'QR code does not match this delivery';
+
+  @override
+  String get deliveryQrInvalidFormat => 'Invalid QR code format';
+
+  @override
+  String get deliveryQrProcessFailed => 'Could not process QR code';
+
+  @override
+  String get escrowPaymentNotFound => 'Payment not found';
+
+  @override
+  String get escrowPaymentNotFoundForDelivery =>
+      'Payment not found for this delivery';
 }

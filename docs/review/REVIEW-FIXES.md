@@ -84,51 +84,51 @@ These bugs mean core features silently fail. Fix first.
 
 ### P0 — Hardcoded Strings (Visible to All Users)
 
-- [ ] **FIX-013**: Localize 7 escrow status descriptions
+- [x] **FIX-013**: Localize 7 escrow status descriptions ✅ Fixed 2026-02-26
   - **File:** `mobile/lib/features/escrow_payment/presentation/widgets/escrow_status_badge.dart:116-123`
-  - **Fix:** Add 7 ARB keys (`escrowDescInitiated`, `escrowDescEscrowed`, `escrowDescReleased`, `escrowDescCompleted`, `escrowDescCancelled`, `escrowDescDisputed`, `escrowDescRefunded`). Use the `l10n` parameter that's already passed but unused
+  - **Fix:** Added 7 ARB keys (`escrowDescInitiated`, `escrowDescEscrowed`, `escrowDescReleased`, `escrowDescCompleted`, `escrowDescCancelled`, `escrowDescDisputed`, `escrowDescRefunded`) in all 3 languages. Wired `l10n` parameter in `_statusDescription()`
 
-- [ ] **FIX-014**: Localize conflict resolution field labels
-  - **Files:** `mobile/lib/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart:208-229`, `mobile/lib/features/conflict_resolution/presentation/widgets/conflict_detail_card.dart:103-127`
-  - **Fix:** Add ARB keys for 'Crop Type', 'Quantity', 'Price/kg', 'Status', 'Route', 'Capacity', 'Trip'. Pass `l10n` to `_extractDisplayFields`
+- [x] **FIX-014**: Localize conflict resolution field labels ✅ Fixed 2026-02-26
+  - **Files:** `conflict_resolution_screen.dart`, `conflict_detail_card.dart`
+  - **Fix:** Added ARB keys for 'Crop Type', 'Quantity', 'Price/kg', 'Status', 'Route', 'Capacity', 'Trip'. Passed `l10n` to `_extractDisplayFields`. Also replaced `_formatTimestamp` month array with `DateFormat.yMMMd()`
 
-- [ ] **FIX-015**: Localize "Pay" button in payment confirmation dialog
-  - **File:** `mobile/lib/features/escrow_payment/presentation/screens/initiate_payment_screen.dart:292`
-  - **Fix:** Replace `const Text('Pay')` with `Text(l10n.escrowConfirmPayment)` or add new key
+- [x] **FIX-015**: Localize "Pay" button in payment confirmation dialog ✅ Fixed 2026-02-26
+  - **File:** `initiate_payment_screen.dart`
+  - **Fix:** Replaced `const Text('Pay')` with `Text(l10n.escrowPayButton)` using new ARB key
 
-- [ ] **FIX-016**: Localize "Reason:" prefix in dispute details
-  - **File:** `mobile/lib/features/escrow_payment/presentation/screens/escrow_status_screen.dart:325`
-  - **Fix:** Use existing `l10n.escrowDisputeReasonLabel` key
+- [x] **FIX-016**: Localize "Reason:" prefix in dispute details ✅ Fixed 2026-02-26
+  - **File:** `escrow_status_screen.dart`
+  - **Fix:** Added `escrowDisputeReasonPrefix` ARB key with parameterized format
 
-- [ ] **FIX-017**: Replace hardcoded English month names with locale-aware DateFormat
-  - **Files:** `mobile/lib/features/conflict_resolution/presentation/widgets/conflict_detail_card.dart:156-170`, `mobile/lib/features/escrow_payment/presentation/widgets/escrow_timeline.dart:212-228`, `mobile/lib/screens/data_usage_screen.dart:49`
-  - **Fix:** Replace custom month arrays with `DateFormat.yMMMd()` from `intl` (already used correctly elsewhere)
+- [x] **FIX-017**: Replace hardcoded English month names with locale-aware DateFormat ✅ Fixed 2026-02-26
+  - **Files:** `conflict_detail_card.dart`, `escrow_timeline.dart`, `data_usage_screen.dart`
+  - **Fix:** Replaced custom month arrays with `DateFormat.yMMMd()` and `DateFormat.yMMMd().add_jm()` from `intl`
 
-- [ ] **FIX-018**: Localize remaining escrow screen hardcoded strings
-  - **Files:** `initiate_payment_screen.dart:123,128`, `raise_dispute_screen.dart:135,139`, `payment_history_screen.dart:384`, `pending_intent_card.dart:51`
-  - **Fix:** Replace 'Delivery #...', 'To: $farmerName', 'Payment: ETB ...', 'Del. #', 'Queued' with l10n keys
+- [x] **FIX-018**: Localize remaining escrow screen hardcoded strings ✅ Fixed 2026-02-26
+  - **Files:** `initiate_payment_screen.dart`, `raise_dispute_screen.dart`, `payment_history_screen.dart`, `pending_intent_card.dart`
+  - **Fix:** Added ARB keys for delivery number, payment-to, payment amount, delivery short, queued status
 
 ### P1 — Error Messages (Shown to Users on Failure)
 
-- [ ] **FIX-019**: Localize auth error fallback strings
-  - **Files:** `mobile/lib/core/auth/models/auth_error.dart:52-116`, `mobile/lib/features/auth/bloc/auth_bloc.dart:178,332,368,404`
-  - **Fix:** Ensure `_localizeAuthError` default case uses `l10n.authGenericError` instead of passing through English fallback
+- [x] **FIX-019**: Localize auth error fallback strings ✅ Fixed 2026-02-26
+  - **Files:** `auth_bloc.dart`, `login_screen.dart`, `register_screen.dart`, `otp_verification_screen.dart`
+  - **Fix:** BLoC uses error code `.userMessage` as fallback. Screens map error codes to l10n strings via `_localizeAuthError()`
 
-- [ ] **FIX-020**: Localize delivery error messages
-  - **Files:** `mobile/lib/features/delivery_verification/data/repositories/delivery_repository.dart:38-106`, `mobile/lib/features/delivery_verification/presentation/bloc/delivery_bloc.dart:241`
-  - **Fix:** Return error codes from repository, map to l10n strings in presentation layer
+- [x] **FIX-020**: Localize delivery error messages ✅ Fixed 2026-02-26
+  - **Files:** `delivery_validation_exception.dart`, `delivery_bloc.dart`
+  - **Fix:** Added `DeliveryErrorCode` class with 8 stable error codes. `_errorFromException()` extracts codes. Added `delivery_error_l10n.dart` helper and 8 ARB keys
 
-- [ ] **FIX-021**: Localize QR verification error messages
-  - **Files:** `mobile/lib/features/delivery_verification/data/services/qr_verification_service.dart:72-120`, `mobile/lib/features/delivery_verification/presentation/screens/qr_scan_screen.dart:88,437`
-  - **Fix:** Use error codes in `QrParseResult`, localize in screen. Replace `'Unknown error'` with `l10n.deliveryQrFailed`
+- [x] **FIX-021**: Localize QR verification error messages ✅ Fixed 2026-02-26
+  - **Files:** `qr_verification_service.dart`, `qr_scan_screen.dart`
+  - **Fix:** Added `QrErrorCode` class with 6 codes. `_localizeQrError()` maps codes to l10n strings. Added 6 ARB keys
 
-- [ ] **FIX-022**: Localize escrow error messages
-  - **File:** `mobile/lib/features/escrow_payment/presentation/bloc/escrow_bloc.dart:71,93`
-  - **Fix:** Add ARB keys for 'Payment not found' and 'Payment not found for this delivery'
+- [x] **FIX-022**: Localize escrow error messages ✅ Fixed 2026-02-26
+  - **Files:** `escrow_bloc.dart`, `escrow_error_l10n.dart`, all 4 escrow screens
+  - **Fix:** Added `localizeEscrowError()` helper mapping 7 error codes to l10n strings. Wired into `escrow_status_screen`, `payment_history_screen`, `initiate_payment_screen`, `raise_dispute_screen`
 
-- [ ] **FIX-023**: Map raw error messages to user-friendly l10n in all error states
-  - **Files:** `browse_listings_screen.dart:250`, `delivery_list_screen.dart:136`, `delivery_detail_screen.dart:76`
-  - **Fix:** Show `l10n.genericError` with retry button instead of `state.message`
+- [x] **FIX-023**: Map raw error messages to user-friendly l10n in all error states ✅ Fixed 2026-02-26
+  - **Files:** `browse_listings_screen.dart`, `delivery_list_screen.dart`, `delivery_detail_screen.dart`, `qr_scan_screen.dart`, `create_delivery_screen.dart`, `dispute_screen.dart`
+  - **Fix:** All error states now use `localizeDeliveryError()` or `l10n.genericError` instead of raw `state.message`
 
 ---
 

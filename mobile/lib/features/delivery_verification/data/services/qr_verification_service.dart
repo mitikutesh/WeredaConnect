@@ -69,7 +69,10 @@ class QrVerificationService {
   QrParseResult parseQrToken(String qrToken, Delivery delivery) {
     // F12-SEC-07: Hard size limit BEFORE any processing
     if (qrToken.length > DeliveryConstants.maxQrTokenChars) {
-      return const QrParseResult.invalid('QR code too large');
+      return const QrParseResult.invalid(
+        'QR code too large',
+        errorCode: QrErrorCode.tooLarge,
+      );
     }
 
     // F12-SEC-07: Wrap all parsing in try-catch
@@ -87,21 +90,31 @@ class QrVerificationService {
       final hmac = payload['hmac']?.toString() ?? '';
 
       if ([did, tid, lid, fid, nonce, hmac].any((s) => s.isEmpty)) {
-        return const QrParseResult.invalid('Incomplete QR data');
+        return const QrParseResult.invalid(
+          'Incomplete QR data',
+          errorCode: QrErrorCode.incomplete,
+        );
       }
       if ([did, tid, lid, fid]
           .any((s) => s.length > DeliveryConstants.maxQrFieldLength)) {
-        return const QrParseResult.invalid('Invalid QR data');
+        return const QrParseResult.invalid(
+          'Invalid QR data',
+          errorCode: QrErrorCode.invalidData,
+        );
       }
       if (nonce.length > DeliveryConstants.maxQrFieldLength ||
           hmac.length > DeliveryConstants.maxQrFieldLength) {
-        return const QrParseResult.invalid('Invalid QR data');
+        return const QrParseResult.invalid(
+          'Invalid QR data',
+          errorCode: QrErrorCode.invalidData,
+        );
       }
 
       // Cross-check deliveryId matches expected delivery
       if (did != delivery.deliveryId) {
         return const QrParseResult.invalid(
           'QR code does not match this delivery',
+          errorCode: QrErrorCode.wrongDelivery,
         );
       }
 
@@ -115,9 +128,15 @@ class QrVerificationService {
         nonce: nonce,
       );
     } on FormatException {
-      return const QrParseResult.invalid('Invalid QR code format');
+      return const QrParseResult.invalid(
+        'Invalid QR code format',
+        errorCode: QrErrorCode.invalidFormat,
+      );
     } on Exception catch (_) {
-      return const QrParseResult.invalid('Could not process QR code');
+      return const QrParseResult.invalid(
+        'Could not process QR code',
+        errorCode: QrErrorCode.processFailed,
+      );
     }
   }
 
@@ -146,6 +165,7 @@ class QrVerificationService {
 class QrParseResult {
   final bool isValid;
   final String? errorMessage;
+  final String? errorCode;
   final String? deliveryId;
   final String? tripId;
   final String? farmerId;
@@ -161,13 +181,26 @@ class QrParseResult {
     required this.timestamp,
     required this.nonce,
   })  : isValid = true,
-        errorMessage = null;
+        errorMessage = null,
+        errorCode = null;
 
-  const QrParseResult.invalid(this.errorMessage)
+  const QrParseResult.invalid(this.errorMessage, {this.errorCode})
       : isValid = false,
         deliveryId = null,
         tripId = null,
         farmerId = null,
         timestamp = null,
         nonce = null;
+}
+
+/// Error codes for QR parsing failures.
+///
+/// Used by the presentation layer to map to localized strings.
+class QrErrorCode {
+  static const tooLarge = 'QR_TOO_LARGE';
+  static const incomplete = 'QR_INCOMPLETE';
+  static const invalidData = 'QR_INVALID_DATA';
+  static const wrongDelivery = 'QR_WRONG_DELIVERY';
+  static const invalidFormat = 'QR_INVALID_FORMAT';
+  static const processFailed = 'QR_PROCESS_FAILED';
 }

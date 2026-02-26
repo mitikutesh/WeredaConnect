@@ -112,7 +112,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       AuthErrorCode.internalServerError => l10n.authServerError,
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
-      _ => fallback,
+      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      _ => l10n.genericError,
     };
   }
 

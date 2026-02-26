@@ -113,13 +113,13 @@ class EscrowStatusBadge extends StatelessWidget {
     AppLocalizations l10n,
   ) {
     return switch (status) {
-      PaymentStatus.initiated => 'Waiting for Telebirr confirmation',
-      PaymentStatus.escrowed => 'Funds held safely until delivery',
-      PaymentStatus.released => 'Funds sent to farmer',
-      PaymentStatus.completed => 'Transaction settled',
-      PaymentStatus.cancelled => 'Payment was cancelled',
-      PaymentStatus.disputed => 'Under review by platform',
-      PaymentStatus.refunded => 'Funds returned to buyer',
+      PaymentStatus.initiated => l10n.escrowDescInitiated,
+      PaymentStatus.escrowed => l10n.escrowDescEscrowed,
+      PaymentStatus.released => l10n.escrowDescReleased,
+      PaymentStatus.completed => l10n.escrowDescCompleted,
+      PaymentStatus.cancelled => l10n.escrowDescCancelled,
+      PaymentStatus.disputed => l10n.escrowDescDisputed,
+      PaymentStatus.refunded => l10n.escrowDescRefunded,
     };
   }
 }

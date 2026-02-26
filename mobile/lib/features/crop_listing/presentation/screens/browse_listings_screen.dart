@@ -247,7 +247,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                     children: [
                       const Icon(Icons.error_outline, size: 48),
                       const SizedBox(height: 16),
-                      Text(state.message),
+                      Text(l10n.genericError),
                       const SizedBox(height: 16),
                       FilledButton(
                         onPressed: _loadListings,
