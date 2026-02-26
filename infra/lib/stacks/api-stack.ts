@@ -148,6 +148,7 @@ export class ApiStack extends cdk.Stack {
     this.grantCognito(verifyOtpFn.function, [
       "cognito-idp:ConfirmSignUp",
       "cognito-idp:AdminConfirmSignUp",
+      "cognito-idp:AdminUpdateUserAttributes",
       "cognito-idp:ResendConfirmationCode",
     ]);
 
