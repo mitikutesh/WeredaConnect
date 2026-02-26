@@ -108,7 +108,18 @@ public sealed class CognitoAuthService : ICognitoAuthService
     {
         var devBypass = Environment.GetEnvironmentVariable("DEV_OTP_BYPASS");
         if (devBypass == "true" && otpCode == "123456")
+        {
+            // Admin-confirm the user in Cognito so login works
+            if (_userPoolId != null)
+            {
+                await _cognito.AdminConfirmSignUpAsync(new AdminConfirmSignUpRequest
+                {
+                    UserPoolId = _userPoolId,
+                    Username = phone
+                });
+            }
             return AuthResult<bool>.Success(true);
+        }
 
         var request = new ConfirmSignUpRequest
         {
