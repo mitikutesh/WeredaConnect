@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -108,12 +107,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
     final trip = _selectedTrip!;
     final qrToken = const Uuid().v4();
 
-    // In mock auth mode, convert phone-format buyer ID to mock userId format
-    // so delivery queries match the buyer's authenticated userId.
-    var buyerId = _buyerIdController.text.trim();
-    if (Environment.useMockAuth && buyerId.startsWith('+')) {
-      buyerId = 'mock_${buyerId.replaceAll('+', '')}';
-    }
+    final buyerId = _buyerIdController.text.trim();
 
     context.read<DeliveryBloc>().add(
           CreateDelivery(

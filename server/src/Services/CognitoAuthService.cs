@@ -106,6 +106,10 @@ public sealed class CognitoAuthService : ICognitoAuthService
 
     public async Task<AuthResult<bool>> ConfirmSignUpAsync(string phone, string otpCode)
     {
+        var devBypass = Environment.GetEnvironmentVariable("DEV_OTP_BYPASS");
+        if (devBypass == "true" && otpCode == "123456")
+            return AuthResult<bool>.Success(true);
+
         var request = new ConfirmSignUpRequest
         {
             ClientId = _clientId,

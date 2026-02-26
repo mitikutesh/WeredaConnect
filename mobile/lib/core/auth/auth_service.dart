@@ -1,8 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
-import 'package:wereda_connect/core/auth/mock_auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
@@ -35,7 +33,6 @@ class AuthService {
   final Dio _dio;
   final OfflineAuthCache _offlineCache;
   final Connectivity _connectivity;
-  late final MockAuthService _mockAuthService;
 
   AuthService({
     Dio? dio,
@@ -44,19 +41,10 @@ class AuthService {
   })  : _dio = dio ?? ApiClient().dio,
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _connectivity = connectivity ?? Connectivity() {
-    // SECURITY: Prevent mock auth from being enabled in release builds.
-    // This catches accidental --dart-define=USE_MOCK_AUTH=true in production.
-    if (kReleaseMode && Environment.useMockAuth) {
-      throw StateError(
-        'USE_MOCK_AUTH must not be enabled in release builds. '
-        'Remove --dart-define=USE_MOCK_AUTH=true from your build command.',
-      );
-    }
     // Initialize ApiClient with base URL (cert pinning disabled by default)
     if (dio == null) {
       ApiClient().initialize();
     }
-    _mockAuthService = MockAuthService(offlineCache: _offlineCache);
   }
 
   /// Register a new user with phone number and password.
@@ -81,18 +69,6 @@ class AuthService {
     required String woreda,
     String preferredLanguage = 'am',
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.register(
-        phoneNumber: phoneNumber,
-        password: password,
-        name: name,
-        role: role,
-        woreda: woreda,
-        preferredLanguage: preferredLanguage,
-      );
-    }
-
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
     }
@@ -158,14 +134,6 @@ class AuthService {
     required String otp,
     required String userId,
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.verifyOtp(
-        phoneNumber: phoneNumber,
-        otp: otp,
-      );
-    }
-
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
     }
@@ -219,14 +187,6 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.login(
-        phoneNumber: phoneNumber,
-        password: password,
-      );
-    }
-
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
     }
@@ -308,14 +268,6 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.login(
-        phoneNumber: phoneNumber,
-        password: password,
-      );
-    }
-
     try {
       // Check if credentials are cached
       final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
@@ -380,14 +332,6 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.login(
-        phoneNumber: phoneNumber,
-        password: password,
-      );
-    }
-
     // Check connectivity
     final connectivityResults = await _connectivity.checkConnectivity();
     final isOnline =
@@ -439,11 +383,6 @@ class AuthService {
   ///
   /// Returns [AuthResult] with new tokens on success.
   Future<AuthResult> refreshToken(String refreshToken) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      return await _mockAuthService.refreshToken(refreshToken);
-    }
-
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
     }
@@ -505,16 +444,6 @@ class AuthService {
     String? refreshToken,
     bool clearCache = true,
   }) async {
-    // Use mock auth service in development mode
-    if (Environment.useMockAuth) {
-      await _mockAuthService.logout(
-        phoneNumber: phoneNumber,
-        accessToken: accessToken,
-        clearCache: clearCache,
-      );
-      return;
-    }
-
     try {
       // Try to logout on server (invalidate tokens)
       if (accessToken != null && refreshToken != null) {
@@ -551,9 +480,8 @@ class AuthService {
   /// Return an error when API credentials are missing.
   static AuthResult _notConfiguredResult() => AuthResult.failure(
         AuthErrorCode.apiNotConfigured,
-        'Server not configured. Run with --dart-define=USE_MOCK_AUTH=true '
-        'or provide API_BASE_URL, COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, '
-        'and COGNITO_REGION via --dart-define.',
+        'Server not configured. Provide API_BASE_URL, COGNITO_USER_POOL_ID, '
+        'COGNITO_CLIENT_ID, and COGNITO_REGION via --dart-define.',
       );
 
   /// Handle DioException and map to AuthResult with error codes.

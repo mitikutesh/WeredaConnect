@@ -35,11 +35,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // SECURITY: Fail fast if API credentials are missing (prevents silent fallback to empty URL)
-  if (!Environment.useMockAuth && !Environment.isApiConfigured) {
+  if (!Environment.isApiConfigured) {
     throw StateError(
       'API_BASE_URL and Cognito credentials must be provided via --dart-define. '
-      'See README for build instructions. '
-      'For local development, use --dart-define=USE_MOCK_AUTH=true.',
+      'See README for build instructions.',
     );
   }
 

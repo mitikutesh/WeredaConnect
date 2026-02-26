@@ -137,7 +137,10 @@ export class ApiStack extends cdk.Stack {
       functionName: `${prefix}-auth-verify-otp`,
       description: "POST /auth/verify-otp — confirm phone number with OTP",
       handlerName: "VerifyOtpFunction",
-      environment: cognitoEnv,
+      environment: {
+        ...cognitoEnv,
+        ...(envConfig.isProd ? {} : { DEV_OTP_BYPASS: "true" }),
+      },
       reservedConcurrentExecutions: 20,
     });
     props.usersTable.grantReadWriteData(verifyOtpFn.function);

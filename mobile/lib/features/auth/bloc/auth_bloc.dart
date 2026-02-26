@@ -5,7 +5,6 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
@@ -531,16 +530,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
   }
 
-  /// Delete business data belonging to [userId] from the local cache.
+  /// Delete **private** business data belonging to [userId] from the local cache.
   ///
-  /// Clears: crop listings, deliveries, payments where user is a participant.
-  /// Keeps other users' data intact for multi-account devices.
+  /// Clears: deliveries, payments where user is a participant.
+  /// Preserves: crop listings and trip listings (public marketplace data that
+  /// other users on this device should still be able to browse).
   Future<void> _clearUserBusinessData(Isar isar, String userId) async {
     await isar.writeTxn(() async {
-      // Delete user's crop listings
-      final listings =
-          await isar.cropListings.filter().farmerIdEqualTo(userId).findAll();
-      await isar.cropListings.deleteAll(listings.map((l) => l.id).toList());
+      // NOTE: Crop listings and trip listings are intentionally NOT cleared.
+      // They are public marketplace data visible to all users. Clearing them
+      // would prevent other users on the same device from browsing listings
+      // (especially important in offline/mock mode where data is local-only).
 
       // Delete deliveries where user is a participant
       final asFarmer =
