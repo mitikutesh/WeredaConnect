@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,7 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
@@ -51,6 +53,54 @@ Future<void> main() async {
   ApiClient().initialize(
     interceptors: [DataUsageInterceptor(dataUsageTracker)],
   );
+
+  // Wire AuthInterceptor for automatic token injection and 401 refresh.
+  // Must be created after ApiClient.initialize() since it needs the Dio instance.
+  const secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  final authInterceptor = AuthInterceptor(
+    storage: secureStorage,
+    dio: ApiClient().dio,
+    refreshTokenCallback: (refreshToken) async {
+      try {
+        final response = await ApiClient().dio.post<Map<String, dynamic>>(
+          '/auth/refresh',
+          data: {'refreshToken': refreshToken},
+        );
+        final data = response.data as Map<String, dynamic>;
+        final tokenData = data['tokens'] as Map<String, dynamic>;
+        final newAccessToken = tokenData['accessToken'] as String;
+        final newRefreshToken =
+            tokenData['refreshToken'] as String? ?? refreshToken;
+
+        // Update refresh token in storage so next refresh uses the new one
+        await secureStorage.write(
+          key: 'refresh_token',
+          value: newRefreshToken,
+        );
+
+        // Also update per-phone token cache for offline auth
+        final phone = await secureStorage.read(key: 'current_user_phone');
+        if (phone != null) {
+          final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
+          final tokensJson = '{'
+              '"accessToken":"$newAccessToken",'
+              '"refreshToken":"$newRefreshToken",'
+              '"idToken":"${tokenData['idToken']}",'
+              '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
+              '}';
+          await secureStorage.write(key: 'tokens_$phone', value: tokensJson);
+        }
+
+        return newAccessToken;
+      } on Object {
+        return null;
+      }
+    },
+  );
+  // Insert at position 0 so auth headers are injected before other interceptors
+  ApiClient().dio.interceptors.insert(0, authInterceptor);
 
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
