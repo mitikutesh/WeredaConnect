@@ -11,10 +11,15 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
   final TripListingRepository _repository;
 
+  /// Exposed for screens that need to query trips directly
+  /// (e.g., CreateDeliveryScreen loading trucker's open trips).
+  TripListingRepository get repository => _repository;
+
   TripListingBloc({required TripListingRepository repository})
       : _repository = repository,
         super(const TripListingInitial()) {
     on<LoadTrips>(_onLoadTrips);
+    on<LoadOpenTrips>(_onLoadOpenTrips);
     on<CreateTrip>(_onCreateTrip);
     on<CancelTrip>(_onCancelTrip);
     on<FilterTrips>(_onFilterTrips);
@@ -34,6 +39,29 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     }
   }
 
+  Future<void> _onLoadOpenTrips(
+    LoadOpenTrips event,
+    Emitter<TripListingState> emit,
+  ) async {
+    emit(const TripListingLoading());
+
+    try {
+      final trips = await _repository.getOpenTrips(
+        fromWoreda: event.fromWoreda,
+        toWoreda: event.toWoreda,
+      );
+      emit(
+        TripsLoaded(
+          trips: trips,
+          fromWoredaFilter: event.fromWoreda,
+          toWoredaFilter: event.toWoreda,
+        ),
+      );
+    } on Exception catch (e) {
+      emit(TripListingError(message: e.toString()));
+    }
+  }
+
   Future<void> _onCreateTrip(
     CreateTrip event,
     Emitter<TripListingState> emit,
@@ -45,6 +73,8 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         truckerId: event.truckerId,
         truckerName: event.truckerName,
         truckerPhone: event.truckerPhone,
+        vehiclePlate: event.vehiclePlate,
+        vehicleDescription: event.vehicleDescription,
         fromWoreda: event.fromWoreda,
         toWoreda: event.toWoreda,
         departureDate: event.departureDate,

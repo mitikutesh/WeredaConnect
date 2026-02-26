@@ -24,3 +24,6 @@
 
 # Prevent R8 from stripping interface information
 -keep,allowobfuscation,allowoptimization class * extends com.google.gson.TypeAdapter
+
+# Suppress Play Core warnings (deferred components not used)
+-dontwarn com.google.android.play.core.**

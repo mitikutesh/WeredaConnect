@@ -11,7 +11,7 @@ namespace WeredaConnect.Server;
 ///
 /// Each Lambda is deployed with its own FUNCTION_HANDLER value:
 ///   RegisterFunction, VerifyOtpFunction, LoginFunction,
-///   RefreshFunction, LogoutFunction, AuthorizerFunction, HealthCheckFunction
+///   RefreshFunction, LogoutFunction, HealthCheckFunction
 /// </summary>
 public static class Program
 {
@@ -52,11 +52,6 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new LogoutFunction().FunctionHandler, serializer),
 
-            var h when h.Contains("AuthorizerFunction") =>
-                HandlerWrapper.GetHandlerWrapper(
-                    (Func<APIGatewayCustomAuthorizerRequest, ILambdaContext, APIGatewayCustomAuthorizerResponse>)
-                        new AuthorizerFunction().FunctionHandler, serializer),
-
             var h when h.Contains("SyncFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new SyncFunction().FunctionHandler, serializer),
@@ -64,6 +59,22 @@ public static class Program
             var h when h.Contains("CropFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new CropFunction().FunctionHandler, serializer),
+
+            var h when h.Contains("TripFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new TripFunction().FunctionHandler, serializer),
+
+            var h when h.Contains("DeliveryFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new DeliveryFunction().FunctionHandler, serializer),
+
+            var h when h.Contains("EscrowCronFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new EscrowCronFunction().FunctionHandler, serializer),
+
+            var h when h.Contains("EscrowFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new EscrowFunction().FunctionHandler, serializer),
 
             var h when h.Contains("HealthCheckFunction") =>
                 HandlerWrapper.GetHandlerWrapper(

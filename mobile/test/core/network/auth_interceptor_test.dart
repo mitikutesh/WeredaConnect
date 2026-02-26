@@ -109,6 +109,7 @@ void main() {
 
       authInterceptor = AuthInterceptor(
         storage: fakeStorage,
+        dio: dio,
         refreshTokenCallback: (refreshToken) async {
           capturedRefreshToken = refreshToken;
           // Simulate successful refresh
@@ -187,20 +188,18 @@ void main() {
           value: 'valid-refresh-token',
         );
 
-        // Request fails with 401
+        // Mock always returns 401 (simulating retry also failing)
         dioAdapter.onGet(
           '/protected',
           (server) => server.reply(401, {'message': 'Token expired'}),
         );
 
-        // The interceptor refreshes the token, but _retry creates a new Dio
-        // without the mock adapter, so the overall request fails.
-        expect(
-          () => dio.get<dynamic>('/protected'),
-          throwsA(isA<DioException>()),
-        );
-
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        try {
+          await dio.get<dynamic>('/protected');
+          fail('Should have thrown');
+        } on DioException {
+          // Expected: retry also gets 401 from static mock
+        }
 
         // Verify refresh callback was invoked with the correct refresh token
         expect(capturedRefreshToken, 'valid-refresh-token');
@@ -236,12 +235,13 @@ void main() {
         await testStorage.write(key: 'access_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'invalid-refresh');
 
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final failingInterceptor = AuthInterceptor(
           storage: testStorage,
+          dio: testDio,
           refreshTokenCallback: (_) async => null, // Refresh fails
         );
 
-        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final testAdapter = DioAdapter(dio: testDio);
         testDio.interceptors.add(failingInterceptor);
 
@@ -271,12 +271,13 @@ void main() {
         await testStorage.write(key: 'access_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final failingInterceptor = AuthInterceptor(
           storage: testStorage,
+          dio: testDio,
           refreshTokenCallback: (_) async => '', // Refresh returns empty
         );
 
-        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final testAdapter = DioAdapter(dio: testDio);
         testDio.interceptors.add(failingInterceptor);
 
@@ -305,14 +306,15 @@ void main() {
         await testStorage.write(key: 'access_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final throwingInterceptor = AuthInterceptor(
           storage: testStorage,
+          dio: testDio,
           refreshTokenCallback: (_) async {
             throw Exception('Network error during refresh');
           },
         );
 
-        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final testAdapter = DioAdapter(dio: testDio);
         testDio.interceptors.add(throwingInterceptor);
 
@@ -381,11 +383,7 @@ void main() {
     });
 
     group('concurrent request handling', () {
-      test('refresh callback is invoked on 401 with valid refresh token',
-          () async {
-        // This tests that the interceptor correctly initiates token refresh.
-        // Note: _retry creates a new Dio without mock adapter, so end-to-end
-        // retry cannot be tested via DioAdapter. We verify the refresh behavior.
+      test('invokes refresh callback on 401', () async {
         await fakeStorage.write(key: 'access_token', value: 'expired-token');
         await fakeStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
@@ -394,13 +392,12 @@ void main() {
           (server) => server.reply(401, {'message': 'Unauthorized'}),
         );
 
-        // Request fails with 401, interceptor attempts refresh
-        expect(
-          () => dio.get<dynamic>('/resource1'),
-          throwsA(isA<DioException>()),
-        );
-
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        try {
+          await dio.get<dynamic>('/resource1');
+          fail('Should have thrown');
+        } on DioException {
+          // Expected: retry also gets 401 from static mock
+        }
 
         // Verify refresh callback was invoked with correct token
         expect(capturedRefreshToken, 'valid-refresh');
@@ -412,14 +409,15 @@ void main() {
         final customStorage = FakeSecureStorage();
         await customStorage.write(key: 'custom_access', value: 'custom-token');
 
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final customInterceptor = AuthInterceptor(
           storage: customStorage,
+          dio: testDio,
           refreshTokenCallback: (_) async => 'new-token',
           tokenKey: 'custom_access',
           refreshTokenKey: 'custom_refresh',
         );
 
-        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
         final testAdapter = DioAdapter(dio: testDio);
         testDio.interceptors.add(customInterceptor);
 

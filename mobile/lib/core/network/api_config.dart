@@ -7,7 +7,7 @@
 ///
 /// Ethiopian context:
 /// - 30s timeouts account for slow rural connectivity
-/// - Base URL defaults to production (can override via --dart-define)
+/// - Base URL must be provided via --dart-define (no hardcoded default)
 class ApiConfig {
   /// API Gateway base URL.
   ///
@@ -16,11 +16,9 @@ class ApiConfig {
   /// flutter run --dart-define=API_BASE_URL=https://dev.weredaconnect.et
   /// ```
   ///
-  /// Default points to deployed AWS infrastructure (me-south-1 region).
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'https://s0om0hib4i.execute-api.me-south-1.amazonaws.com',
-  );
+  /// SECURITY: No default value — must be provided via --dart-define to prevent
+  /// hardcoded URLs from leaking into source control.
+  static const String baseUrl = String.fromEnvironment('API_BASE_URL');
 
   /// Connection timeout for initial TCP connection.
   ///
@@ -63,7 +61,19 @@ class ApiConfig {
   // static const String listTransportsEndpoint = '/transports';
   // static const String createTransportEndpoint = '/transports';
 
-  // Escrow payments
-  // static const String createEscrowEndpoint = '/escrow';
-  // static const String releaseEscrowEndpoint = '/escrow/release';
+  // ============================================================================
+  // Escrow payment endpoints (F-13)
+  // ============================================================================
+
+  /// POST /escrow/initiate - Buyer initiates escrow payment
+  static const String escrowInitiate = '/escrow/initiate';
+
+  /// POST /escrow/dispute - Raise dispute on escrowed payment
+  static const String escrowDispute = '/escrow/dispute';
+
+  /// GET /escrow/{id} - Get escrow status (append /{id})
+  static const String escrowStatus = '/escrow';
+
+  /// GET /escrow/history - Get payment history
+  static const String escrowHistory = '/escrow/history';
 }

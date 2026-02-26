@@ -304,7 +304,7 @@
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
-  "passwordRequirements": "Password must be at least 6 characters",
+  "passwordRequirements": "Password must be at least 8 characters with a lowercase letter and a number",
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
@@ -328,6 +328,77 @@
   "@otpExpired": {
     "description": "Error message for expired OTP"
   },
+  "authRateLimitExceeded": "Too many attempts. Please try again later.",
+  "@authRateLimitExceeded": {
+    "description": "Error message when rate limit exceeded during auth"
+  },
+  "authServerError": "Server error. Please try again later.",
+  "@authServerError": {
+    "description": "Error message for generic server error during auth"
+  },
+  "authServiceUnavailable": "Authentication service temporarily unavailable. Please try again later.",
+  "@authServiceUnavailable": {
+    "description": "Error message when auth service is unavailable"
+  },
+  "authNetworkError": "No internet connection. Please check your connection.",
+  "@authNetworkError": {
+    "description": "Error message when network is unavailable during auth"
+  },
+  "authAccountLocked": "Account locked due to too many failed attempts. Try again in {duration}.",
+  "@authAccountLocked": {
+    "description": "Error message when account is locked due to too many failed login attempts",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "15 minutes"
+      }
+    }
+  },
+  "durationSeconds": "{count} seconds",
+  "@durationSeconds": {
+    "description": "Duration in seconds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationMinutes": "{count} minutes",
+  "@durationMinutes": {
+    "description": "Duration in minutes",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationHours": "{count} hours",
+  "@durationHours": {
+    "description": "Duration in hours",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "phoneNotVerified": "Phone number not verified. Please complete OTP verification.",
+  "@phoneNotVerified": {
+    "description": "Error message when user tries to login but phone is not verified"
+  },
+  "authApiNotConfigured": "App setup incomplete. Please contact support.",
+  "@authApiNotConfigured": {
+    "description": "Error message when API credentials are not configured at build time"
+  },
+  "authOfflineNotAvailable": "Please log in online first to enable offline mode.",
+  "@authOfflineNotAvailable": {
+    "description": "Error message when user tries offline login without prior online login"
+  },
+  "authAccountDisabled": "Your account has been disabled. Contact support.",
+  "@authAccountDisabled": {
+    "description": "Error message when user account is disabled"
+  },
+  "authPasswordResetRequired": "Password reset required. Please reset your password.",
+  "@authPasswordResetRequired": {
+    "description": "Error message when password reset is required before login"
+  },
+  "authOtpAttemptsExceeded": "Too many failed attempts. Request a new code.",
+  "@authOtpAttemptsExceeded": {
+    "description": "Error message when OTP verification attempts are exhausted"
+  },
   "registrationSuccess": "Registration successful! Please verify your phone",
   "@registrationSuccess": {
     "description": "Success message after registration"
@@ -347,6 +418,10 @@
   "myListings": "My Listings",
   "@myListings": {
     "description": "My listings menu item"
+  },
+  "browseListings": "Browse Listings",
+  "@browseListings": {
+    "description": "Browse listings tab label for non-farmer roles"
   },
   "myOrders": "My Orders",
   "@myOrders": {
@@ -506,9 +581,21 @@
   "@listingStatusSold": {
     "description": "Status label for sold crop listing"
   },
+  "listingStatusReserved": "Reserved",
+  "@listingStatusReserved": {
+    "description": "Status label for reserved crop listing (matched with trip, pending pickup)"
+  },
   "listingStatusExpired": "Expired",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "listingFilterAll": "All",
+  "@listingFilterAll": {
+    "description": "Filter label to show all listing statuses"
+  },
+  "listingSeedTestButton": "Seed Test Listings",
+  "@listingSeedTestButton": {
+    "description": "Debug button text to create test crop listings"
   },
   "backToHome": "Back to Home",
   "@backToHome": {
@@ -678,6 +765,14 @@
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
   },
+  "vehiclePlate": "Vehicle Plate",
+  "@vehiclePlate": {
+    "description": "Label for vehicle license plate number field"
+  },
+  "vehicleDescription": "Vehicle Description",
+  "@vehicleDescription": {
+    "description": "Label for vehicle description field"
+  },
   "deliveries": "Deliveries",
   "@deliveries": {
     "description": "Deliveries navigation tab label"
@@ -754,6 +849,10 @@
   "@deliveryTakePhoto": {
     "description": "Button to capture photo evidence"
   },
+  "deliveryTimeLabel": "Time",
+  "@deliveryTimeLabel": {
+    "description": "Label for time data row in pickup/delivery sections"
+  },
   "deliveryRegenerateQr": "Regenerate QR",
   "@deliveryRegenerateQr": {
     "description": "Button to regenerate QR code"
@@ -769,6 +868,16 @@
   "deliveryBuyer": "Buyer",
   "@deliveryBuyer": {
     "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsAccuracy": "Accuracy: {meters}m",
+  "@deliveryGpsAccuracy": {
+    "description": "GPS accuracy display with distance in meters",
+    "placeholders": {
+      "meters": {
+        "type": "String",
+        "example": "5"
+      }
+    }
   },
   "deliveryGpsCaptured": "GPS Captured",
   "@deliveryGpsCaptured": {
@@ -789,6 +898,14 @@
   "deliveryGpsCapturing": "Capturing GPS...",
   "@deliveryGpsCapturing": {
     "description": "GPS capture in progress"
+  },
+  "deliveryGpsLabel": "GPS",
+  "@deliveryGpsLabel": {
+    "description": "Label for GPS location data row"
+  },
+  "deliveryGpsNotCaptured": "Not captured",
+  "@deliveryGpsNotCaptured": {
+    "description": "Placeholder when GPS location was not captured"
   },
   "deliveryGpsPermissionDenied": "Location permission denied",
   "@deliveryGpsPermissionDenied": {
@@ -965,6 +1082,903 @@
   "deliverySeedTestButton": "Seed Test Delivery",
   "@deliverySeedTestButton": {
     "description": "Debug button text to create a test delivery"
+  },
+
+  "@@escrowPaymentSection": "=== Escrow Payment Feature ===",
+
+  "escrowPayments": "Payments",
+  "@escrowPayments": {
+    "description": "Navigation label for escrow payments section"
+  },
+  "escrowPayForDelivery": "Pay for Delivery",
+  "@escrowPayForDelivery": {
+    "description": "Screen title for initiating escrow payment"
+  },
+  "escrowPaymentStatus": "Payment Status",
+  "@escrowPaymentStatus": {
+    "description": "Screen title for viewing single escrow status"
+  },
+  "escrowPaymentHistory": "My Payments",
+  "@escrowPaymentHistory": {
+    "description": "Screen title for payment history list"
+  },
+  "escrowRaiseDispute": "Raise Dispute",
+  "@escrowRaiseDispute": {
+    "description": "Screen title for raising an escrow dispute"
+  },
+
+  "escrowStatusInitiated": "Payment Pending",
+  "@escrowStatusInitiated": {
+    "description": "Status label when escrow payment is initiated but not yet held"
+  },
+  "escrowStatusEscrowed": "Funds Held Safely",
+  "@escrowStatusEscrowed": {
+    "description": "Status label when funds are held in escrow"
+  },
+  "escrowStatusReleased": "Funds Released",
+  "@escrowStatusReleased": {
+    "description": "Status label when funds have been released to farmer"
+  },
+  "escrowStatusCompleted": "Payment Complete",
+  "@escrowStatusCompleted": {
+    "description": "Status label when escrow transaction is fully settled"
+  },
+  "escrowStatusCancelled": "Cancelled",
+  "@escrowStatusCancelled": {
+    "description": "Status label when escrow payment was cancelled"
+  },
+  "escrowStatusDisputed": "Under Dispute",
+  "@escrowStatusDisputed": {
+    "description": "Status label when escrow payment is under dispute"
+  },
+  "escrowStatusRefunded": "Refunded",
+  "@escrowStatusRefunded": {
+    "description": "Status label when escrow payment has been refunded"
+  },
+
+  "escrowProtectionInfo": "Your payment is held safely until delivery is confirmed.",
+  "@escrowProtectionInfo": {
+    "description": "Trust-building message explaining escrow protection"
+  },
+  "escrowTotalAmount": "Total Amount",
+  "@escrowTotalAmount": {
+    "description": "Label for total payment amount"
+  },
+  "escrowCommission": "Commission ({rate}%)",
+  "@escrowCommission": {
+    "description": "Label for platform commission with percentage rate",
+    "placeholders": {
+      "rate": {
+        "type": "String",
+        "example": "2.5"
+      }
+    }
+  },
+  "escrowFarmerReceives": "Farmer Receives",
+  "@escrowFarmerReceives": {
+    "description": "Label for net amount farmer will receive after commission"
+  },
+  "escrowConfirmPayment": "Confirm Payment",
+  "@escrowConfirmPayment": {
+    "description": "Button label to confirm and initiate escrow payment"
+  },
+  "escrowConfirmPaymentDialog": "Pay ETB {amount} to {farmerName}?",
+  "@escrowConfirmPaymentDialog": {
+    "description": "Confirmation dialog message before payment",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      },
+      "farmerName": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowFaydaWarning": "Fayda ID verification required for amounts above ETB 10,000.",
+  "@escrowFaydaWarning": {
+    "description": "Warning shown when payment amount exceeds Fayda ID threshold"
+  },
+  "escrowFundsHeldInfo": "Funds held for 7 days maximum. Refunded if not delivered.",
+  "@escrowFundsHeldInfo": {
+    "description": "Info text explaining escrow fund holding period"
+  },
+  "escrowPaymentQueued": "Payment queued. Will process when you have internet.",
+  "@escrowPaymentQueued": {
+    "description": "Message shown when payment intent is queued offline"
+  },
+  "escrowPaymentSuccess": "Payment initiated successfully.",
+  "@escrowPaymentSuccess": {
+    "description": "Success message after payment is initiated"
+  },
+
+  "escrowDeliveryLabel": "Delivery",
+  "@escrowDeliveryLabel": {
+    "description": "Label for delivery reference on escrow status screen"
+  },
+  "escrowFarmerLabel": "Farmer",
+  "@escrowFarmerLabel": {
+    "description": "Label for farmer name on escrow status screen"
+  },
+  "escrowBuyerLabel": "Buyer",
+  "@escrowBuyerLabel": {
+    "description": "Label for buyer name on escrow status screen"
+  },
+  "escrowCreatedLabel": "Created",
+  "@escrowCreatedLabel": {
+    "description": "Label for escrow creation date"
+  },
+  "escrowExpiresLabel": "Expires",
+  "@escrowExpiresLabel": {
+    "description": "Label for escrow expiration date"
+  },
+  "escrowTelebirrRefLabel": "Telebirr Ref",
+  "@escrowTelebirrRefLabel": {
+    "description": "Label for Telebirr transaction reference number"
+  },
+  "escrowMayBeOutdated": "Status may be outdated. Pull to refresh.",
+  "@escrowMayBeOutdated": {
+    "description": "Warning shown when cached escrow data may be stale"
+  },
+  "escrowLastUpdated": "Last updated {time}",
+  "@escrowLastUpdated": {
+    "description": "Label showing when escrow data was last refreshed",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "5 min ago"
+      }
+    }
+  },
+
+  "escrowFilterAll": "All",
+  "@escrowFilterAll": {
+    "description": "Filter chip label to show all escrow payments"
+  },
+  "escrowFilterBuyer": "As Buyer",
+  "@escrowFilterBuyer": {
+    "description": "Filter chip to show payments where user is buyer"
+  },
+  "escrowFilterFarmer": "As Farmer",
+  "@escrowFilterFarmer": {
+    "description": "Filter chip to show payments where user is farmer"
+  },
+  "escrowPendingSection": "Pending ({count})",
+  "@escrowPendingSection": {
+    "description": "Section header for pending payment intents with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "escrowHistorySection": "History",
+  "@escrowHistorySection": {
+    "description": "Section header for confirmed payment history"
+  },
+  "escrowNoPayments": "No payments yet.",
+  "@escrowNoPayments": {
+    "description": "Empty state message when user has no payment history"
+  },
+  "escrowNoMatchingPayments": "No matching payments.",
+  "@escrowNoMatchingPayments": {
+    "description": "Empty state when no payments match the active filter"
+  },
+  "escrowCancelIntent": "Cancel",
+  "@escrowCancelIntent": {
+    "description": "Button to cancel a queued payment intent"
+  },
+  "escrowCancelIntentDialog": "Cancel this queued payment?",
+  "@escrowCancelIntentDialog": {
+    "description": "Confirmation dialog for cancelling a queued payment intent"
+  },
+  "escrowIntentCancelled": "Queued payment cancelled.",
+  "@escrowIntentCancelled": {
+    "description": "Success message after cancelling a queued payment intent"
+  },
+
+  "escrowDisputeTimeRemaining": "Time remaining: {hours}h {minutes}m",
+  "@escrowDisputeTimeRemaining": {
+    "description": "Countdown showing remaining time to raise a dispute",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "23"
+      },
+      "minutes": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "escrowDisputeWindowExpired": "Dispute window expired.",
+  "@escrowDisputeWindowExpired": {
+    "description": "Message when the 48-hour dispute window has passed"
+  },
+  "escrowDisputeReasonLabel": "Reason",
+  "@escrowDisputeReasonLabel": {
+    "description": "Label for dispute reason selection"
+  },
+  "escrowDisputeDescriptionLabel": "Description (optional)",
+  "@escrowDisputeDescriptionLabel": {
+    "description": "Label for optional dispute description text field"
+  },
+  "escrowDisputeDescriptionHint": "Describe the issue...",
+  "@escrowDisputeDescriptionHint": {
+    "description": "Hint text for dispute description input field"
+  },
+  "escrowDisputeSubmit": "Submit Dispute",
+  "@escrowDisputeSubmit": {
+    "description": "Button to submit a dispute on an escrow payment"
+  },
+  "escrowDisputeConfirmDialog": "This will freeze funds pending review. Continue?",
+  "@escrowDisputeConfirmDialog": {
+    "description": "Confirmation dialog before submitting a dispute"
+  },
+  "escrowDisputeSuccess": "Dispute registered. Platform will review within 48 hours.",
+  "@escrowDisputeSuccess": {
+    "description": "Success message after dispute is submitted"
+  },
+  "escrowDisputeReviewInfo": "Disputes are reviewed by the platform within 48 hours.",
+  "@escrowDisputeReviewInfo": {
+    "description": "Info text about dispute review process"
+  },
+  "escrowDisputeRequiresInternet": "Internet connection required to raise disputes.",
+  "@escrowDisputeRequiresInternet": {
+    "description": "Error message when user tries to raise dispute while offline"
+  },
+
+  "escrowReasonDamagedGoods": "Damaged goods",
+  "@escrowReasonDamagedGoods": {
+    "description": "Dispute reason: goods were damaged"
+  },
+  "escrowReasonWrongQuantity": "Wrong quantity",
+  "@escrowReasonWrongQuantity": {
+    "description": "Dispute reason: received wrong quantity"
+  },
+  "escrowReasonWrongCrop": "Wrong crop type",
+  "@escrowReasonWrongCrop": {
+    "description": "Dispute reason: received wrong crop type"
+  },
+  "escrowReasonNotDelivered": "Not delivered",
+  "@escrowReasonNotDelivered": {
+    "description": "Dispute reason: goods were not delivered"
+  },
+  "escrowReasonQualityMismatch": "Quality mismatch",
+  "@escrowReasonQualityMismatch": {
+    "description": "Dispute reason: quality does not match listing"
+  },
+  "escrowReasonOther": "Other",
+  "@escrowReasonOther": {
+    "description": "Dispute reason: other reason not listed"
+  },
+
+  "escrowErrorInvalidAmount": "Amount must be between ETB 100 and ETB 500,000.",
+  "@escrowErrorInvalidAmount": {
+    "description": "Error when payment amount is outside allowed range"
+  },
+  "escrowErrorFaydaRequired": "Fayda ID verification required for amounts above ETB 10,000.",
+  "@escrowErrorFaydaRequired": {
+    "description": "Error when Fayda ID is required but not verified"
+  },
+  "escrowErrorAlreadyExists": "Payment already exists for this delivery.",
+  "@escrowErrorAlreadyExists": {
+    "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorGateway": "Telebirr service error. Please try again.",
+  "@escrowErrorGateway": {
+    "description": "Error when Telebirr gateway returns an error"
+  },
+  "escrowErrorServiceUnavailable": "Telebirr is currently unavailable. Please try later.",
+  "@escrowErrorServiceUnavailable": {
+    "description": "Error when Telebirr service is down"
+  },
+  "escrowErrorGeneric": "Something went wrong. Please try again.",
+  "@escrowErrorGeneric": {
+    "description": "Generic fallback error message for escrow operations"
+  },
+  "escrowErrorAuthRequired": "Please log in to continue.",
+  "@escrowErrorAuthRequired": {
+    "description": "Error when authentication is required for escrow operation"
+  },
+  "escrowErrorConflict": "This request is already being processed.",
+  "@escrowErrorConflict": {
+    "description": "Error when a duplicate/conflicting escrow request is detected"
+  },
+  "escrowErrorRateLimit": "Too many requests. Please wait and try again.",
+  "@escrowErrorRateLimit": {
+    "description": "Error when escrow rate limit is exceeded"
+  },
+  "escrowErrorOffline": "Internet connection required for this action.",
+  "@escrowErrorOffline": {
+    "description": "Error when escrow action requires internet but device is offline"
+  },
+
+  "escrowEtbAmount": "ETB {amount}",
+  "@escrowEtbAmount": {
+    "description": "Formatted ETB currency amount",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+
+  "profileRestartApp": "Please restart the app",
+  "@profileRestartApp": {
+    "description": "Message shown when user is not authenticated — prompt to restart"
+  },
+  "profileLoadError": "Could not load user profile",
+  "@profileLoadError": {
+    "description": "Error message when profile data cannot be loaded from the database"
+  },
+  "escrowTimeline": "Timeline",
+  "@escrowTimeline": {
+    "description": "Section heading for escrow event timeline on status screen"
+  },
+  "escrowDisputeDetailsTitle": "Dispute Details",
+  "@escrowDisputeDetailsTitle": {
+    "description": "Section heading for dispute info card on escrow status screen"
+  },
+
+  "@@audioNoteSection": "=== Audio Note Feature ===",
+
+  "recording": "Recording...",
+  "@recording": {
+    "description": "Label shown while recording audio"
+  },
+  "stopRecording": "Stop Recording",
+  "@stopRecording": {
+    "description": "Button to stop audio recording"
+  },
+  "playAudio": "Play",
+  "@playAudio": {
+    "description": "Button to play audio"
+  },
+  "pauseAudio": "Pause",
+  "@pauseAudio": {
+    "description": "Button to pause audio playback"
+  },
+  "deleteRecording": "Delete Recording",
+  "@deleteRecording": {
+    "description": "Button to delete a voice note recording"
+  },
+  "deleteRecordingConfirm": "Delete this voice note?",
+  "@deleteRecordingConfirm": {
+    "description": "Confirmation dialog for deleting a voice note"
+  },
+  "microphonePermissionRequired": "Microphone permission is required to record audio",
+  "@microphonePermissionRequired": {
+    "description": "Error when microphone permission is denied"
+  },
+  "audioRecorded": "Voice note recorded",
+  "@audioRecorded": {
+    "description": "Success message after recording completes"
+  },
+  "audioTooLong": "Maximum recording length is 30 seconds",
+  "@audioTooLong": {
+    "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingLimit": "Maximum 30 seconds",
+  "@audioRecordingLimit": {
+    "description": "Hint text shown below the record button indicating the recording time limit"
+  },
+  "reRecord": "Re-record",
+  "@reRecord": {
+    "description": "Button label to re-record a voice note"
+  },
+  "audioRecordingFailed": "Recording failed. Please try again.",
+  "@audioRecordingFailed": {
+    "description": "Error message when recording fails"
+  },
+  "secondsAbbreviation": "{count}s",
+  "@secondsAbbreviation": {
+    "description": "Abbreviated seconds display for duration",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+
+  "@@dataUsageSection": "=== Data Usage Screen ===",
+
+  "dataUsageDownloaded": "Downloaded",
+  "@dataUsageDownloaded": {
+    "description": "Label for bytes downloaded counter"
+  },
+  "dataUsageUploaded": "Uploaded",
+  "@dataUsageUploaded": {
+    "description": "Label for bytes uploaded counter"
+  },
+  "dataUsageTotal": "Total",
+  "@dataUsageTotal": {
+    "description": "Label for combined total bytes"
+  },
+  "dataUsageReset": "Reset",
+  "@dataUsageReset": {
+    "description": "Button to reset data usage statistics"
+  },
+  "dataUsageResetConfirm": "Clear all data usage statistics?",
+  "@dataUsageResetConfirm": {
+    "description": "Confirmation dialog message before resetting stats"
+  },
+  "dataUsageTrackingSince": "Tracking since",
+  "@dataUsageTrackingSince": {
+    "description": "Label prefix shown before the tracking start date"
+  },
+
+  "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
+
+  "conflictTitle": "Data Updated",
+  "@conflictTitle": {
+    "description": "Title shown on conflict resolution modal when server overwrites local data"
+  },
+  "conflictExplanation": "Another device or the server updated this record. Your local copy has been updated to match.",
+  "@conflictExplanation": {
+    "description": "Explanation of what happened during a sync conflict"
+  },
+  "conflictAccept": "OK, Got It",
+  "@conflictAccept": {
+    "description": "Primary button to acknowledge the conflict resolution"
+  },
+  "conflictDismiss": "Dismiss",
+  "@conflictDismiss": {
+    "description": "Secondary button to dismiss the conflict notification"
+  },
+  "conflictEntityCropListing": "Crop Listing",
+  "@conflictEntityCropListing": {
+    "description": "Entity type label for crop listing in conflict dialog"
+  },
+  "conflictEntityDelivery": "Delivery",
+  "@conflictEntityDelivery": {
+    "description": "Entity type label for delivery in conflict dialog"
+  },
+  "conflictEntityTrip": "Trip",
+  "@conflictEntityTrip": {
+    "description": "Entity type label for trip in conflict dialog"
+  },
+  "conflictServerValues": "Updated values from server:",
+  "@conflictServerValues": {
+    "description": "Section header showing server-side field values"
+  },
+  "conflictNoDetails": "No details available.",
+  "@conflictNoDetails": {
+    "description": "Shown when conflict event has no displayable field changes"
+  },
+  "conflictBannerSingle": "Your {entityType} was updated on another device",
+  "@conflictBannerSingle": {
+    "description": "Banner text for single conflict notification",
+    "placeholders": {
+      "entityType": {
+        "type": "String",
+        "example": "crop listing"
+      }
+    }
+  },
+  "conflictBannerMultiple": "{count} items were updated on another device",
+  "@conflictBannerMultiple": {
+    "description": "Banner text for multiple conflict notifications",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "conflictBannerAction": "View Changes",
+  "@conflictBannerAction": {
+    "description": "Action button text on conflict notification banner"
+  },
+  "conflictScreenTitle": "Updates from Sync",
+  "@conflictScreenTitle": {
+    "description": "App bar title for conflict resolution screen"
+  },
+  "conflictYourVersion": "Your version",
+  "@conflictYourVersion": {
+    "description": "Label for user's local version in conflict diff"
+  },
+  "conflictCurrentVersion": "Current version",
+  "@conflictCurrentVersion": {
+    "description": "Label for server's current version in conflict diff"
+  },
+  "conflictServerApplied": "Server version applied",
+  "@conflictServerApplied": {
+    "description": "Badge text confirming server version was applied"
+  },
+  "conflictGotIt": "Got It",
+  "@conflictGotIt": {
+    "description": "Primary button to acknowledge and dismiss all conflicts"
+  },
+  "conflictEmptyTitle": "Everything is up to date",
+  "@conflictEmptyTitle": {
+    "description": "Empty state title when no conflicts exist"
+  },
+  "conflictEmptySubtitle": "No changes from other devices.",
+  "@conflictEmptySubtitle": {
+    "description": "Empty state subtitle when no conflicts exist"
+  },
+  "conflictEntityDeleted": "This {entityType} was removed on another device",
+  "@conflictEntityDeleted": {
+    "description": "Message when a conflicting entity was deleted on server",
+    "placeholders": {
+      "entityType": {
+        "type": "String",
+        "example": "crop listing"
+      }
+    }
+  },
+  "conflictShowAllChanges": "Show all changes",
+  "@conflictShowAllChanges": {
+    "description": "Expandable button to show all field changes when more than 4 fields changed"
+  },
+
+  "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
+
+  "fraudDuplicateListing": "A similar listing already exists. Please update your existing listing instead.",
+  "@fraudDuplicateListing": {
+    "description": "Error when duplicate crop listing detected by server fraud check"
+  },
+  "fraudVelocityExceeded": "Too many requests. Please wait a moment and try again.",
+  "@fraudVelocityExceeded": {
+    "description": "Error when velocity limit exceeded by server fraud check"
+  },
+
+  "@@profileSection": "=== Profile Feature ===",
+
+  "profileSaved": "Profile updated",
+  "@profileSaved": {
+    "description": "Snackbar message after profile is saved successfully"
+  },
+  "noNotificationsYet": "No notifications yet",
+  "@noNotificationsYet": {
+    "description": "Empty state title on notifications screen"
+  },
+  "noNotificationsDescription": "You'll see your alerts here",
+  "@noNotificationsDescription": {
+    "description": "Empty state subtitle on notifications screen"
+  },
+
+  "@@matchingFlowSection": "=== Matching / Delivery Creation ===",
+
+  "createDelivery": "Create Delivery",
+  "@createDelivery": {
+    "description": "Button label and screen title for creating a new delivery"
+  },
+  "contactFarmer": "Contact Farmer",
+  "@contactFarmer": {
+    "description": "Button to contact the farmer about a listing"
+  },
+  "detailQuantity": "Quantity",
+  "@detailQuantity": {
+    "description": "Label for quantity row in listing detail view"
+  },
+  "detailPrice": "Price",
+  "@detailPrice": {
+    "description": "Label for price row in listing detail view"
+  },
+  "detailCreated": "Created",
+  "@detailCreated": {
+    "description": "Label for creation date row in detail view"
+  },
+  "filterMin": "Min",
+  "@filterMin": {
+    "description": "Hint text for minimum price filter input"
+  },
+  "filterMax": "Max",
+  "@filterMax": {
+    "description": "Hint text for maximum price filter input"
+  },
+  "selectTrip": "Select Trip",
+  "@selectTrip": {
+    "description": "Section header for trip selection in create delivery screen"
+  },
+  "buyerInformation": "Buyer Information",
+  "@buyerInformation": {
+    "description": "Section header for buyer info in create delivery screen"
+  },
+  "buyerNameLabel": "Buyer Name",
+  "@buyerNameLabel": {
+    "description": "Input label for buyer name field"
+  },
+  "buyerPhoneIdLabel": "Buyer Phone / ID",
+  "@buyerPhoneIdLabel": {
+    "description": "Input label for buyer phone or ID field"
+  },
+  "buyerNameRequired": "Buyer name is required",
+  "@buyerNameRequired": {
+    "description": "Validation error when buyer name is empty"
+  },
+  "buyerIdRequired": "Buyer phone or ID is required",
+  "@buyerIdRequired": {
+    "description": "Validation error when buyer phone/ID is empty"
+  },
+  "tripSelectionRequired": "Please select a trip",
+  "@tripSelectionRequired": {
+    "description": "Validation error when no trip is selected"
+  },
+  "chooseTripHint": "Choose a trip",
+  "@chooseTripHint": {
+    "description": "Dropdown hint for trip selection"
+  },
+  "noOpenTrips": "No open trips available. Create a trip first.",
+  "@noOpenTrips": {
+    "description": "Warning when trucker has no open trips for delivery creation"
+  },
+  "deliveryCreatedSuccess": "Delivery created successfully",
+  "@deliveryCreatedSuccess": {
+    "description": "Success message after creating a delivery"
+  },
+  "farmerContactInfo": "Farmer Contact",
+  "@farmerContactInfo": {
+    "description": "Title for farmer contact info bottom sheet"
+  },
+  "copiedToClipboard": "Copied to clipboard",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying text to clipboard"
+  },
+  "forgotPasswordContactSupport": "Please contact support at +251-111-234567 to reset your password.",
+  "@forgotPasswordContactSupport": {
+    "description": "Message shown in forgot password dialog with support contact info"
+  },
+  "resendOtpIn": "Resend in {seconds}s",
+  "@resendOtpIn": {
+    "description": "Countdown text for OTP resend button",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpResent": "OTP resent successfully",
+  "@otpResent": {
+    "description": "Snackbar message after OTP is resent"
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Generic OK button label"
+  },
+  "tutorialComingSoon": "Tutorial carousel coming soon. You can explore the app by creating an account!",
+  "@tutorialComingSoon": {
+    "description": "Snackbar message shown when user taps How it works chip on welcome screen"
+  },
+
+  "@@p0LocalizationFixes": "=== P0 Localization Fixes (FIX-013 to FIX-018) ===",
+
+  "escrowDescInitiated": "Waiting for Telebirr confirmation",
+  "@escrowDescInitiated": {
+    "description": "Status description for initiated escrow payment"
+  },
+  "escrowDescEscrowed": "Funds held safely until delivery",
+  "@escrowDescEscrowed": {
+    "description": "Status description for escrowed payment"
+  },
+  "escrowDescReleased": "Funds sent to farmer",
+  "@escrowDescReleased": {
+    "description": "Status description for released payment"
+  },
+  "escrowDescCompleted": "Transaction settled",
+  "@escrowDescCompleted": {
+    "description": "Status description for completed escrow"
+  },
+  "escrowDescCancelled": "Payment was cancelled",
+  "@escrowDescCancelled": {
+    "description": "Status description for cancelled escrow"
+  },
+  "escrowDescDisputed": "Under review by platform",
+  "@escrowDescDisputed": {
+    "description": "Status description for disputed escrow"
+  },
+  "escrowDescRefunded": "Funds returned to buyer",
+  "@escrowDescRefunded": {
+    "description": "Status description for refunded escrow"
+  },
+
+  "conflictFieldCropType": "Crop Type",
+  "@conflictFieldCropType": {
+    "description": "Field label for crop type in conflict resolution"
+  },
+  "conflictFieldQuantity": "Quantity",
+  "@conflictFieldQuantity": {
+    "description": "Field label for quantity in conflict resolution"
+  },
+  "conflictFieldPricePerKg": "Price/kg",
+  "@conflictFieldPricePerKg": {
+    "description": "Field label for price per kg in conflict resolution"
+  },
+  "conflictFieldStatus": "Status",
+  "@conflictFieldStatus": {
+    "description": "Field label for status in conflict resolution"
+  },
+  "conflictFieldRoute": "Route",
+  "@conflictFieldRoute": {
+    "description": "Field label for route in conflict resolution"
+  },
+  "conflictFieldCapacity": "Capacity",
+  "@conflictFieldCapacity": {
+    "description": "Field label for capacity in conflict resolution"
+  },
+  "conflictFieldTrip": "Trip",
+  "@conflictFieldTrip": {
+    "description": "Field label for trip in conflict resolution"
+  },
+
+  "escrowPayButton": "Pay",
+  "@escrowPayButton": {
+    "description": "Button label for payment confirmation dialog"
+  },
+
+  "escrowDisputeReasonPrefix": "Reason: {reason}",
+  "@escrowDisputeReasonPrefix": {
+    "description": "Prefix label for dispute reason display",
+    "placeholders": {
+      "reason": {
+        "type": "String",
+        "example": "Damaged goods"
+      }
+    }
+  },
+
+  "escrowDeliveryNumber": "Delivery #{id}",
+  "@escrowDeliveryNumber": {
+    "description": "Delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowPaymentTo": "To: {name}",
+  "@escrowPaymentTo": {
+    "description": "Payment recipient label",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowPaymentAmount": "Payment: ETB {amount}",
+  "@escrowPaymentAmount": {
+    "description": "Payment amount display",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+  "escrowDeliveryShort": "Del. #{id}",
+  "@escrowDeliveryShort": {
+    "description": "Short delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowQueuedStatus": "Queued",
+  "@escrowQueuedStatus": {
+    "description": "Status label for queued payment intent"
+  },
+
+  "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
+
+  "genericError": "Something went wrong. Please try again.",
+  "@genericError": {
+    "description": "Generic error message shown when an unexpected error occurs"
+  },
+  "authErrorRegistrationFailed": "Registration failed. Please try again.",
+  "@authErrorRegistrationFailed": {
+    "description": "Fallback error for failed registration"
+  },
+  "authErrorOtpFailed": "OTP verification failed. Please try again.",
+  "@authErrorOtpFailed": {
+    "description": "Fallback error for failed OTP verification"
+  },
+  "authErrorResendOtpFailed": "Failed to resend OTP. Please try again.",
+  "@authErrorResendOtpFailed": {
+    "description": "Fallback error for failed OTP resend"
+  },
+  "authErrorLoginFailed": "Login failed. Please try again.",
+  "@authErrorLoginFailed": {
+    "description": "Fallback error for failed login"
+  },
+  "authErrorOfflineLoginFailed": "Offline login failed. Please log in online first.",
+  "@authErrorOfflineLoginFailed": {
+    "description": "Fallback error for failed offline login"
+  },
+  "authErrorSecureStorage": "Error accessing secure storage. Please restart the app.",
+  "@authErrorSecureStorage": {
+    "description": "Error accessing secure storage"
+  },
+  "authErrorDatabase": "Database error. Please restart the app.",
+  "@authErrorDatabase": {
+    "description": "Error accessing database"
+  },
+  "authErrorUserNotConfirmed": "Please verify your phone number first.",
+  "@authErrorUserNotConfirmed": {
+    "description": "Error when user has not confirmed phone number"
+  },
+  "authErrorTokenExpired": "Session expired. Please log in again.",
+  "@authErrorTokenExpired": {
+    "description": "Error when authentication token has expired"
+  },
+  "deliveryErrorInvalidId": "Invalid delivery ID",
+  "@deliveryErrorInvalidId": {
+    "description": "Error when delivery ID format is invalid"
+  },
+  "deliveryErrorStatusInvalid": "Invalid delivery status for this action",
+  "@deliveryErrorStatusInvalid": {
+    "description": "Error when delivery status does not allow the requested action"
+  },
+  "deliveryErrorUnauthorized": "You are not authorized for this action",
+  "@deliveryErrorUnauthorized": {
+    "description": "Error when user is not authorized for a delivery action"
+  },
+  "deliveryErrorDisputeExpired": "Dispute window has expired",
+  "@deliveryErrorDisputeExpired": {
+    "description": "Error when dispute window (48 hours) has passed"
+  },
+  "deliveryErrorDisputeReasonRequired": "Please provide a reason",
+  "@deliveryErrorDisputeReasonRequired": {
+    "description": "Error when dispute reason is missing or invalid"
+  },
+  "deliveryErrorGpsInvalid": "Invalid GPS coordinates",
+  "@deliveryErrorGpsInvalid": {
+    "description": "Error when GPS coordinates are invalid"
+  },
+  "deliveryErrorGeneric": "Delivery operation failed",
+  "@deliveryErrorGeneric": {
+    "description": "Generic delivery error message"
+  },
+  "deliveryErrorNotFound": "Delivery not found",
+  "@deliveryErrorNotFound": {
+    "description": "Error when delivery cannot be found"
+  },
+  "deliveryQrTooLarge": "QR code too large",
+  "@deliveryQrTooLarge": {
+    "description": "Error when scanned QR code exceeds size limit"
+  },
+  "deliveryQrIncomplete": "Incomplete QR data",
+  "@deliveryQrIncomplete": {
+    "description": "Error when QR code has missing fields"
+  },
+  "deliveryQrInvalidData": "Invalid QR data",
+  "@deliveryQrInvalidData": {
+    "description": "Error when QR code fields exceed length limits"
+  },
+  "deliveryQrWrongDelivery": "QR code does not match this delivery",
+  "@deliveryQrWrongDelivery": {
+    "description": "Error when QR code deliveryId does not match expected delivery"
+  },
+  "deliveryQrInvalidFormat": "Invalid QR code format",
+  "@deliveryQrInvalidFormat": {
+    "description": "Error when QR code cannot be decoded"
+  },
+  "deliveryQrProcessFailed": "Could not process QR code",
+  "@deliveryQrProcessFailed": {
+    "description": "Error when QR code processing fails unexpectedly"
+  },
+  "escrowPaymentNotFound": "Payment not found",
+  "@escrowPaymentNotFound": {
+    "description": "Error when escrow payment cannot be found"
+  },
+  "escrowPaymentNotFoundForDelivery": "Payment not found for this delivery",
+  "@escrowPaymentNotFoundForDelivery": {
+    "description": "Error when escrow payment for a specific delivery cannot be found"
+  },
+
+  "@@authUxFixes": "=== Auth UX Fixes (loading feedback) ===",
+
+  "pleaseWait": "Please wait...",
+  "@pleaseWait": {
+    "description": "Loading indicator text shown during auth operations on slow networks"
   }
 }
-

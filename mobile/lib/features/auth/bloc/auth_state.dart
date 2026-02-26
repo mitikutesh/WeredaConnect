@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Base class for authentication states.
 abstract class AuthState extends Equatable {
@@ -25,15 +26,17 @@ class AuthAuthenticated extends AuthState {
   final String userId;
   final AuthTokens tokens;
   final bool isOfflineAuth;
+  final UserRole role;
 
   const AuthAuthenticated({
     required this.userId,
     required this.tokens,
     this.isOfflineAuth = false,
+    this.role = UserRole.farmer,
   });
 
   @override
-  List<Object?> get props => [userId, tokens, isOfflineAuth];
+  List<Object?> get props => [userId, tokens, isOfflineAuth, role];
 }
 
 /// Unauthenticated state (user is not logged in).
@@ -60,13 +63,16 @@ class AuthError extends AuthState {
   final String errorCode;
   final String errorMessage;
   final bool canRetry;
+  final int? retryAfterSeconds;
 
   const AuthError({
     required this.errorCode,
     required this.errorMessage,
     this.canRetry = true,
+    this.retryAfterSeconds,
   });
 
   @override
-  List<Object?> get props => [errorCode, errorMessage, canRetry];
+  List<Object?> get props =>
+      [errorCode, errorMessage, canRetry, retryAfterSeconds];
 }

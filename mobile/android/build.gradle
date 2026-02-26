@@ -38,6 +38,14 @@ subprojects {
         }
     }
 
+    // Force compileSdk 36 for all library subprojects after evaluation
+    // (overrides isar_flutter_libs compileSdkVersion 30 → fixes lStar error)
+    afterEvaluate {
+        if (plugins.hasPlugin("com.android.library")) {
+            android.compileSdk = 36
+        }
+    }
+
     project.evaluationDependsOn(':app')
 }
 

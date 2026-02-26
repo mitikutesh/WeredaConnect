@@ -23,6 +23,8 @@ class CreateTrip extends TripListingEvent {
   final String truckerId;
   final String truckerName;
   final String truckerPhone;
+  final String? vehiclePlate;
+  final String? vehicleDescription;
   final String fromWoreda;
   final String toWoreda;
   final DateTime departureDate;
@@ -38,6 +40,8 @@ class CreateTrip extends TripListingEvent {
     required this.departureDate,
     required this.capacity,
     required this.pricePerQuintal,
+    this.vehiclePlate,
+    this.vehicleDescription,
   });
 
   @override
@@ -45,6 +49,8 @@ class CreateTrip extends TripListingEvent {
         truckerId,
         truckerName,
         truckerPhone,
+        vehiclePlate,
+        vehicleDescription,
         fromWoreda,
         toWoreda,
         departureDate,
@@ -65,6 +71,17 @@ class CancelTrip extends TripListingEvent {
 
   @override
   List<Object?> get props => [tripId, truckerId];
+}
+
+/// Event to load all open trips (browse mode for farmers/buyers).
+class LoadOpenTrips extends TripListingEvent {
+  final String? fromWoreda;
+  final String? toWoreda;
+
+  const LoadOpenTrips({this.fromWoreda, this.toWoreda});
+
+  @override
+  List<Object?> get props => [fromWoreda, toWoreda];
 }
 
 /// Event to filter trips by route.

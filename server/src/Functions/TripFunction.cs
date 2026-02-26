@@ -239,6 +239,8 @@ public class TripFunction
             TruckerId = GetString(item, "truckerId"),
             TruckerName = GetString(item, "truckerName"),
             TruckerPhone = includePhone ? GetStringOrNull(item, "truckerPhone") : null,
+            VehiclePlate = GetStringOrNull(item, "vehiclePlate"),
+            VehicleDescription = GetStringOrNull(item, "vehicleDescription"),
             FromWoreda = GetString(item, "fromWoreda"),
             ToWoreda = GetString(item, "toWoreda"),
             DepartureDate = GetString(item, "departureDate"),

@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -11,6 +12,10 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 /// All operations go through the offline-first DeliveryRepository.
 class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   final DeliveryRepository _repository;
+
+  /// Exposed for sub-screens that need to call repository methods directly
+  /// (e.g., QrGenerateScreen persisting nonces).
+  DeliveryRepository get repository => _repository;
 
   DeliveryBloc({required DeliveryRepository repository})
       : _repository = repository,
@@ -28,6 +33,20 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     on<FilterUserDeliveries>(_onFilterUserDeliveries);
   }
 
+  /// Emit a [DeliveryError] from an exception.
+  ///
+  /// Extracts the error code from [DeliveryValidationException] for
+  /// l10n mapping in the presentation layer.
+  DeliveryError _errorFromException(Exception e) {
+    if (e is DeliveryValidationException) {
+      return DeliveryError(message: e.message, code: e.code);
+    }
+    return DeliveryError(
+      message: e.toString(),
+      code: DeliveryErrorCode.generic,
+    );
+  }
+
   Future<void> _onLoadDeliveries(
     LoadDeliveries event,
     Emitter<DeliveryState> emit,
@@ -35,10 +54,13 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     emit(const DeliveryLoading());
 
     try {
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -62,7 +84,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveryCreated(delivery: delivery));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -78,10 +100,11 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         truckerId: event.truckerId,
         gpsPickup: event.gpsPickup,
         photoRef: event.photoRef,
+        scannedQrNonce: event.scannedQrNonce,
       );
       emit(const PickupConfirmed());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -98,7 +121,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(const MarkedInTransit());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -114,10 +137,11 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         buyerId: event.buyerId,
         gpsDropoff: event.gpsDropoff,
         photoRef: event.photoRef,
+        scannedQrNonce: event.scannedQrNonce,
       );
       emit(const DeliveryConfirmed());
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -134,10 +158,13 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         reason: event.reason,
       );
       emit(const DisputeRaised());
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -153,10 +180,13 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
       );
       emit(const DeliveryCancelled());
-      final deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+      final deliveries = await _repository.getDeliveriesByTrip(
+        event.tripId,
+        userId: event.userId,
+      );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -173,9 +203,15 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
           (s) => s.name == event.statusFilter,
           orElse: () => DeliveryStatus.pending,
         );
-        deliveries = await _repository.getDeliveriesByStatus(status);
+        deliveries = await _repository.getDeliveriesByStatus(
+          status,
+          userId: event.userId,
+        );
       } else {
-        deliveries = await _repository.getDeliveriesByTrip(event.tripId);
+        deliveries = await _repository.getDeliveriesByTrip(
+          event.tripId,
+          userId: event.userId,
+        );
       }
       emit(
         DeliveriesLoaded(
@@ -184,7 +220,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         ),
       );
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -200,7 +236,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -210,14 +246,22 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   ) async {
     emit(const DeliveryLoading());
     try {
-      final delivery = await _repository.getDeliveryById(event.deliveryId);
+      final delivery = await _repository.getDeliveryById(
+        event.deliveryId,
+        userId: event.userId,
+      );
       if (delivery != null) {
         emit(DeliveryDetailLoaded(delivery: delivery));
       } else {
-        emit(const DeliveryError(message: 'Delivery not found'));
+        emit(
+          const DeliveryError(
+            message: 'Delivery not found',
+            code: DeliveryErrorCode.notFound,
+          ),
+        );
       }
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 
@@ -239,7 +283,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         ),
       );
     } on Exception catch (e) {
-      emit(DeliveryError(message: e.toString()));
+      emit(_errorFromException(e));
     }
   }
 }

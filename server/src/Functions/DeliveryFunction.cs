@@ -1,5 +1,7 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using Amazon.S3;
+using Amazon.S3.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -7,16 +9,17 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// GET /deliveries and GET /deliveries/{id} Lambda handler.
-/// Provides read-only access to delivery records.
+/// GET /deliveries, GET /deliveries/{id}, and POST /deliveries/{id}/photos Lambda handler.
+/// Provides read-only access to delivery records and photo upload URL generation.
 /// Create/update/delete operations are handled through /sync endpoint.
 ///
 /// Endpoints:
 /// - GET /deliveries - Query deliveries with optional filters (status, tripId, listingId, etc.)
 /// - GET /deliveries/{id} - Get a single delivery by ID (participants only)
+/// - POST /deliveries/{id}/photos - Generate pre-signed S3 upload URL for photo evidence
 ///
 /// Error codes:
-/// - 400: DELIVERY_VALIDATION - Invalid query parameters
+/// - 400: DELIVERY_VALIDATION - Invalid query parameters or request body
 /// - 401: DELIVERY_UNAUTHORIZED - Authentication required or not a participant
 /// - 404: DELIVERY_NOT_FOUND - Delivery does not exist
 /// - 500: DELIVERY_SERVER_ERROR - Unexpected server failure
@@ -24,6 +27,14 @@ namespace WeredaConnect.Server.Functions;
 public class DeliveryFunction
 {
     private readonly IDeliveryRepository _deliveryRepo;
+    private readonly IAmazonS3? _s3Client;
+    private readonly string? _uploadsBucket;
+
+    /// Pre-signed URL expiry: 15 minutes (sufficient for 3G upload of 200KB WebP)
+    internal const int PresignedUrlExpirySeconds = 900;
+
+    /// Allowed photo types
+    private static readonly HashSet<string> AllowedPhotoTypes = new(StringComparer.OrdinalIgnoreCase) { "pickup", "dropoff" };
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -36,14 +47,18 @@ public class DeliveryFunction
 
         var dynamoDb = new AmazonDynamoDBClient();
         _deliveryRepo = new DeliveryRepository(dynamoDb, deliveriesTable);
+        _s3Client = new AmazonS3Client();
+        _uploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public DeliveryFunction(IDeliveryRepository deliveryRepo)
+    public DeliveryFunction(IDeliveryRepository deliveryRepo, IAmazonS3? s3Client = null, string? uploadsBucket = null)
     {
         _deliveryRepo = deliveryRepo ?? throw new ArgumentNullException(nameof(deliveryRepo));
+        _s3Client = s3Client;
+        _uploadsBucket = uploadsBucket;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -58,6 +73,9 @@ public class DeliveryFunction
             "GET" when request.PathParameters?.ContainsKey("id") == true
                 => await HandleGetDeliveryByIdAsync(request, context),
             "GET" => await HandleGetDeliveriesAsync(request, context),
+            "POST" when request.PathParameters?.ContainsKey("id") == true
+                   && request.Path?.Contains("/photos") == true
+                => await HandleUploadPhotoAsync(request, context),
             _ => LambdaResponse.Error(405, "DELIVERY_VALIDATION", "Method not allowed.")
         };
     }
@@ -204,6 +222,106 @@ public class DeliveryFunction
     }
 
     /// <summary>
+    /// POST /deliveries/{id}/photos - Generate a pre-signed S3 URL for photo upload.
+    /// Only delivery participants can upload photos.
+    /// Returns a pre-signed PUT URL (15-min expiry) and the S3 key (photoRef).
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleUploadPhotoAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!IsAuthenticated(request))
+        {
+            return LambdaResponse.Error(401, "DELIVERY_UNAUTHORIZED", "Authentication required.");
+        }
+
+        if (!request.PathParameters.TryGetValue("id", out var deliveryId) || string.IsNullOrEmpty(deliveryId))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing delivery ID in path.");
+        }
+
+        // Parse request body
+        UploadPhotoRequest? photoRequest;
+        try
+        {
+            photoRequest = JsonSerializer.Deserialize(request.Body ?? "", AppJsonContext.Default.UploadPhotoRequest);
+        }
+        catch
+        {
+            photoRequest = null;
+        }
+
+        if (photoRequest == null || string.IsNullOrEmpty(photoRequest.Type))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing or invalid 'type' field. Must be 'pickup' or 'dropoff'.", "type");
+        }
+
+        var photoType = photoRequest.Type.ToLowerInvariant();
+        if (!AllowedPhotoTypes.Contains(photoType))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid photo type. Must be 'pickup' or 'dropoff'.", "type");
+        }
+
+        try
+        {
+            // Verify delivery exists and is not cancelled
+            var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+            if (delivery == null)
+            {
+                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
+            }
+
+            if (delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+            {
+                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
+            }
+
+            // Verify requester is a participant
+            var userId = GetAuthenticatedUserId(request);
+            if (!IsParticipant(delivery, userId))
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
+            }
+
+            // Check S3 configuration
+            if (_s3Client == null || string.IsNullOrEmpty(_uploadsBucket))
+            {
+                context.Logger.LogError("S3 client or UPLOADS_BUCKET not configured.");
+                return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Photo upload not configured.");
+            }
+
+            // Generate S3 key: uploads/photos/{deliveryId}/{type}-{timestamp}.webp
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var s3Key = $"uploads/photos/{deliveryId}/{photoType}-{timestamp}.webp";
+
+            // Generate pre-signed PUT URL
+            var presignedUrl = _s3Client.GetPreSignedURL(new GetPreSignedUrlRequest
+            {
+                BucketName = _uploadsBucket,
+                Key = s3Key,
+                Verb = HttpVerb.PUT,
+                Expires = DateTime.UtcNow.AddSeconds(PresignedUrlExpirySeconds),
+                ContentType = "image/webp",
+            });
+
+            var response = new UploadPhotoResponse
+            {
+                UploadUrl = presignedUrl,
+                PhotoRef = s3Key,
+                IssuedAt = DateTime.UtcNow.ToString("o"),
+                ExpiresInSeconds = PresignedUrlExpirySeconds,
+            };
+
+            return LambdaResponse.Ok(response, AppJsonContext.Default.UploadPhotoResponse);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error generating photo upload URL for delivery {deliveryId}: {ex.Message}");
+            return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Failed to generate photo upload URL.");
+        }
+    }
+
+    /// <summary>
     /// Map a DynamoDB item dictionary to a DeliveryDto.
     /// Handles type conversions from string/number representations.
     /// </summary>
@@ -243,25 +361,13 @@ public class DeliveryFunction
     }
 
     /// <summary>
-    /// Check if the request is authenticated by looking for an Authorization header
-    /// or JWT authorizer claims in the request context.
+    /// Check if the request is authenticated by verifying JWT authorizer claims
+    /// in the request context (set by API Gateway after JWT validation).
+    /// SECURITY: Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
     {
-        // Check for Authorization header (case-insensitive lookup)
-        if (request.Headers != null)
-        {
-            foreach (var header in request.Headers)
-            {
-                if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(header.Value))
-                {
-                    return true;
-                }
-            }
-        }
-
-        // Check for JWT authorizer claims in request context
+        // Only trust JWT authorizer claims set by API Gateway after validation
         if (request.RequestContext?.Authorizer != null
             && request.RequestContext.Authorizer.Count > 0)
         {
@@ -277,12 +383,20 @@ public class DeliveryFunction
     private static string? GetAuthenticatedUserId(APIGatewayProxyRequest request)
     {
         var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer == null) return null;
+        if (authorizer == null)
+        {
+            return null;
+        }
 
         if (authorizer.ContainsKey("sub"))
+        {
             return authorizer["sub"]?.ToString();
+        }
+
         if (authorizer.ContainsKey("userId"))
+        {
             return authorizer["userId"]?.ToString();
+        }
 
         return null;
     }
@@ -292,7 +406,10 @@ public class DeliveryFunction
     /// </summary>
     private static bool IsParticipant(Dictionary<string, object> item, string? userId)
     {
-        if (string.IsNullOrEmpty(userId)) return false;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
 
         var farmerId = GetStringOrNull(item, "farmerId");
         var truckerId = GetStringOrNull(item, "truckerId");
@@ -324,7 +441,9 @@ public class DeliveryFunction
     private static int GetInt(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return 0;
+        }
 
         return value switch
         {
@@ -341,7 +460,9 @@ public class DeliveryFunction
     private static LatLngDto? GetLatLng(Dictionary<string, object> item, string key)
     {
         if (!item.TryGetValue(key, out var value))
+        {
             return null;
+        }
 
         // Handle nested dictionary (e.g., from test data or enriched FromItem)
         if (value is Dictionary<string, object> nested)
@@ -366,7 +487,10 @@ public class DeliveryFunction
     /// </summary>
     private static double? ParseDouble(object? value)
     {
-        if (value == null) return null;
+        if (value == null)
+        {
+            return null;
+        }
 
         return value switch
         {

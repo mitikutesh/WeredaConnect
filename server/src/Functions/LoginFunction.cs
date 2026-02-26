@@ -81,7 +81,8 @@ public class LoginFunction
         if (!rateLimitCheck.IsSuccess)
         {
             var rlError = rateLimitCheck.Error!;
-            return LambdaResponse.Error(rlError.HttpStatus, rlError.Code, rlError.Message);
+            return LambdaResponse.Error(rlError.HttpStatus, rlError.Code, rlError.Message,
+                retryAfterSeconds: rlError.RetryAfterSeconds);
         }
 
         // Cognito login
@@ -99,7 +100,8 @@ public class LoginFunction
                 if (failCount >= RateLimitService.MaxLoginFailures)
                 {
                     return LambdaResponse.Error(403, "AUTH_015",
-                        $"Account locked due to too many failed attempts. Try again in {RateLimitService.LoginLockoutSeconds / 60} minutes.");
+                        "Account locked due to too many failed attempts.",
+                        retryAfterSeconds: RateLimitService.LoginLockoutSeconds);
                 }
             }
 

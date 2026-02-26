@@ -55,13 +55,17 @@ class DeliveryConfirmed extends DeliveryState {
 }
 
 /// Error state when an operation fails.
+///
+/// [code] is a stable error code for l10n mapping in the presentation layer.
+/// [message] is a fallback English message (used only if l10n mapping is missing).
 class DeliveryError extends DeliveryState {
   final String message;
+  final String? code;
 
-  const DeliveryError({required this.message});
+  const DeliveryError({required this.message, this.code});
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, code];
 }
 
 /// Single delivery loaded for detail view.

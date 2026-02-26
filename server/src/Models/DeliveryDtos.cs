@@ -38,6 +38,44 @@ public sealed record GetDeliveryResponse
 }
 
 /// <summary>
+/// POST /deliveries/{id}/photos request body.
+/// Client sends photo type to get a pre-signed S3 upload URL.
+/// </summary>
+public sealed record UploadPhotoRequest
+{
+    /// <summary>
+    /// Photo type: "pickup" or "dropoff".
+    /// </summary>
+    public required string Type { get; init; }
+}
+
+/// <summary>
+/// POST /deliveries/{id}/photos response with pre-signed upload URL.
+/// </summary>
+public sealed record UploadPhotoResponse
+{
+    /// <summary>
+    /// Pre-signed S3 URL for uploading the photo (PUT request, 15-min expiry).
+    /// </summary>
+    public required string UploadUrl { get; init; }
+
+    /// <summary>
+    /// S3 key that the photo will be stored at. Use this as photoRef in delivery updates.
+    /// </summary>
+    public required string PhotoRef { get; init; }
+
+    /// <summary>
+    /// ISO 8601 UTC timestamp of when the upload URL was generated.
+    /// </summary>
+    public required string IssuedAt { get; init; }
+
+    /// <summary>
+    /// Seconds until the upload URL expires (900 = 15 minutes).
+    /// </summary>
+    public required int ExpiresInSeconds { get; init; }
+}
+
+/// <summary>
 /// GPS coordinates data transfer object.
 /// </summary>
 public sealed record LatLngDto

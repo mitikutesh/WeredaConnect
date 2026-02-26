@@ -15,6 +15,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       : _repository = repository,
         super(const CropListingInitial()) {
     on<LoadCropListings>(_onLoadCropListings);
+    on<LoadActiveListings>(_onLoadActiveListings);
     on<CreateCropListing>(_onCreateCropListing);
     on<DeleteCropListing>(_onDeleteCropListing);
     on<FilterCropListings>(_onFilterCropListings);
@@ -34,6 +35,30 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     }
   }
 
+  Future<void> _onLoadActiveListings(
+    LoadActiveListings event,
+    Emitter<CropListingState> emit,
+  ) async {
+    emit(const CropListingLoading());
+
+    try {
+      final listings = await _repository.getActiveListings(
+        cropTypeFilter: event.cropTypeFilter,
+        weredaFilter: event.weredaFilter,
+        priceMin: event.priceMin,
+        priceMax: event.priceMax,
+      );
+      emit(
+        CropListingsLoaded(
+          listings: listings,
+          activeFilter: event.cropTypeFilter,
+        ),
+      );
+    } on Exception catch (e) {
+      emit(CropListingError(message: e.toString()));
+    }
+  }
+
   Future<void> _onCreateCropListing(
     CreateCropListing event,
     Emitter<CropListingState> emit,
@@ -48,6 +73,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         pricePerKg: event.pricePerKg,
         latitude: event.latitude,
         longitude: event.longitude,
+        locationName: event.locationName,
         description: event.description,
         audioNoteRef: event.audioNoteRef,
       );
@@ -83,11 +109,11 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     emit(const CropListingLoading());
 
     try {
-      final listings = event.cropType != null
-          ? await _repository.getActiveListings(
-              cropTypeFilter: event.cropType,
-            )
-          : await _repository.getListingsByFarmer(event.farmerId);
+      final listings = await _repository.getListingsByFarmerFiltered(
+        farmerId: event.farmerId,
+        statusFilter: event.statusFilter,
+        cropTypeFilter: event.cropType,
+      );
       emit(
         CropListingsLoaded(
           listings: listings,

@@ -232,6 +232,7 @@ void main() {
             ..latitude = 9.0
             ..longitude = 38.0)
           ..description = 'Local version'
+          ..locationName = 'Bishoftu'
           ..audioNoteRef = null
           ..status = ListingStatus.draft
           ..createdAt = DateTime.parse('2026-02-14T10:00:00Z')

@@ -114,6 +114,7 @@ class ConflictResolver {
         }
 
         listing.description = serverData['description'] as String;
+        listing.locationName = (serverData['locationName'] as String?) ?? '';
         listing.audioNoteRef = serverData['audioNoteRef'] as String?;
 
         // Parse status enum

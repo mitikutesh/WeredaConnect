@@ -83,7 +83,7 @@ public static partial class RequestValidator
     }
 
     /// <summary>
-    /// Validate password: 6-128 characters.
+    /// Validate password: 8-128 characters with at least one lowercase letter and one digit.
     /// </summary>
     public static ValidationResult ValidatePassword(string? password)
     {
@@ -97,13 +97,13 @@ public static partial class RequestValidator
             });
         }
 
-        if (password.Length < 6)
+        if (password.Length < 8)
         {
             return ValidationResult.Failure(new ValidationError
             {
                 Field = "password",
                 Code = "AUTH_002",
-                Message = "Password must be at least 6 characters."
+                Message = "Password must be at least 8 characters."
             });
         }
 
@@ -114,6 +114,26 @@ public static partial class RequestValidator
                 Field = "password",
                 Code = "AUTH_002",
                 Message = "Password must not exceed 128 characters."
+            });
+        }
+
+        if (!password.Any(char.IsLower))
+        {
+            return ValidationResult.Failure(new ValidationError
+            {
+                Field = "password",
+                Code = "AUTH_002",
+                Message = "Password must contain at least one lowercase letter."
+            });
+        }
+
+        if (!password.Any(char.IsDigit))
+        {
+            return ValidationResult.Failure(new ValidationError
+            {
+                Field = "password",
+                Code = "AUTH_002",
+                Message = "Password must contain at least one digit."
             });
         }
 

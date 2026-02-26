@@ -49,7 +49,7 @@ public static class LambdaResponse
     /// <summary>
     /// Error response with AUTH_* code, message, and optional field reference.
     /// </summary>
-    public static APIGatewayProxyResponse Error(int statusCode, string code, string message, string? field = null)
+    public static APIGatewayProxyResponse Error(int statusCode, string code, string message, string? field = null, int? retryAfterSeconds = null)
     {
         var errorResponse = new AuthErrorResponse
         {
@@ -57,7 +57,8 @@ public static class LambdaResponse
             {
                 Code = code,
                 Message = message,
-                Field = field
+                Field = field,
+                RetryAfterSeconds = retryAfterSeconds
             }
         };
 

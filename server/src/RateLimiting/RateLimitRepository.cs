@@ -27,7 +27,8 @@ public sealed class RateLimitRepository : IRateLimitRepository
             TableName = _tableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "pk", new AttributeValue { S = key } }
+                { "pk", new AttributeValue { S = key } },
+                { "sk", new AttributeValue { S = key } }
             }
         };
 
@@ -50,7 +51,8 @@ public sealed class RateLimitRepository : IRateLimitRepository
             TableName = _tableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "pk", new AttributeValue { S = key } }
+                { "pk", new AttributeValue { S = key } },
+                { "sk", new AttributeValue { S = key } }
             },
             UpdateExpression = "ADD #count :inc SET #ttl = :ttl",
             ExpressionAttributeNames = new Dictionary<string, string>
@@ -79,7 +81,8 @@ public sealed class RateLimitRepository : IRateLimitRepository
             TableName = _tableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "pk", new AttributeValue { S = key } }
+                { "pk", new AttributeValue { S = key } },
+                { "sk", new AttributeValue { S = key } }
             },
             UpdateExpression = "SET #lockedUntil = :lockedUntil, #ttl = :ttl",
             ExpressionAttributeNames = new Dictionary<string, string>
@@ -104,7 +107,8 @@ public sealed class RateLimitRepository : IRateLimitRepository
             TableName = _tableName,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "pk", new AttributeValue { S = key } }
+                { "pk", new AttributeValue { S = key } },
+                { "sk", new AttributeValue { S = key } }
             }
         };
 

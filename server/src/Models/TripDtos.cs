@@ -64,6 +64,16 @@ public sealed record TripDto
     public string? TruckerPhone { get; init; }
 
     /// <summary>
+    /// Vehicle license plate number (e.g., 3-AA-12345).
+    /// </summary>
+    public string? VehiclePlate { get; init; }
+
+    /// <summary>
+    /// Vehicle description (e.g., Isuzu FTR 10-ton).
+    /// </summary>
+    public string? VehicleDescription { get; init; }
+
+    /// <summary>
     /// Origin woreda (Ethiopian administrative district).
     /// </summary>
     public required string FromWoreda { get; init; }

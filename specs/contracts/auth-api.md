@@ -42,7 +42,7 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `phoneNumber` | string | Yes | Ethiopian format: `+251` followed by 9 digits. Regex: `^\+251[0-9]{9}$` |
-| `password` | string | Yes | Minimum 6 characters, maximum 128 characters |
+| `password` | string | Yes | Minimum 8 characters, maximum 128 characters. Must contain at least one lowercase letter and one digit |
 | `role` | string | Yes | Enum: `farmer`, `trucker`, `buyer` |
 | `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name) |
 | `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. |

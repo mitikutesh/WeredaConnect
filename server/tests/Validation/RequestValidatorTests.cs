@@ -39,9 +39,9 @@ public class RequestValidatorTests
     // --- Password ---
 
     [Theory]
-    [InlineData("123456")]
-    [InlineData("abcdef")]
-    [InlineData("a very long password that is within limits")]
+    [InlineData("abcdefg1")]  // 8 chars, lowercase + digit
+    [InlineData("securePass1")]
+    [InlineData("a very long password that has 1 digit")]
     public void ValidatePassword_ValidPasswords_ReturnsSuccess(string password)
     {
         var result = RequestValidator.ValidatePassword(password);
@@ -51,8 +51,9 @@ public class RequestValidatorTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("12345")] // too short
-    public void ValidatePassword_InvalidPasswords_ReturnsFailure(string? password)
+    [InlineData("abcde1")]  // too short (6 chars)
+    [InlineData("abcd1")]   // too short (5 chars)
+    public void ValidatePassword_TooShortOrEmpty_ReturnsFailure(string? password)
     {
         var result = RequestValidator.ValidatePassword(password);
         Assert.False(result.IsValid);
@@ -66,6 +67,24 @@ public class RequestValidatorTests
         var result = RequestValidator.ValidatePassword(password);
         Assert.False(result.IsValid);
         Assert.Equal("AUTH_002", result.Errors[0].Code);
+    }
+
+    [Fact]
+    public void ValidatePassword_NoLowercase_ReturnsFailure()
+    {
+        var result = RequestValidator.ValidatePassword("12345678");
+        Assert.False(result.IsValid);
+        Assert.Equal("AUTH_002", result.Errors[0].Code);
+        Assert.Contains("lowercase", result.Errors[0].Message);
+    }
+
+    [Fact]
+    public void ValidatePassword_NoDigit_ReturnsFailure()
+    {
+        var result = RequestValidator.ValidatePassword("abcdefgh");
+        Assert.False(result.IsValid);
+        Assert.Equal("AUTH_002", result.Errors[0].Code);
+        Assert.Contains("digit", result.Errors[0].Message);
     }
 
     // --- Role ---

@@ -2,6 +2,8 @@ using System.Text.Json;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
+using Amazon.S3;
+using Amazon.S3.Model;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
@@ -15,13 +17,18 @@ namespace WeredaConnect.Server.Tests.Functions;
 public class DeliveryFunctionTests
 {
     private readonly IDeliveryRepository _mockDeliveryRepo;
+    private readonly IAmazonS3 _mockS3;
     private readonly DeliveryFunction _function;
+    private readonly DeliveryFunction _functionWithS3;
     private readonly TestLambdaContext _context;
+    private const string TestBucket = "test-uploads-bucket";
 
     public DeliveryFunctionTests()
     {
         _mockDeliveryRepo = Substitute.For<IDeliveryRepository>();
+        _mockS3 = Substitute.For<IAmazonS3>();
         _function = new DeliveryFunction(_mockDeliveryRepo);
+        _functionWithS3 = new DeliveryFunction(_mockDeliveryRepo, _mockS3, TestBucket);
         _context = new TestLambdaContext();
     }
 
@@ -943,8 +950,10 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetDeliveryById_AuthWithAuthorizationHeader_NonParticipant_Returns403()
+    public async Task HandleGetDeliveryById_AuthWithOnlyAuthorizationHeader_Returns401()
     {
+        // SECURITY: Raw Authorization headers are NOT trusted — only JWT authorizer claims are.
+        // A request with only an Authorization header (no authorizer claims) must be rejected.
         var delivery = CreateDeliveryItem("del-001");
         _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
 
@@ -953,8 +962,8 @@ public class DeliveryFunctionTests
         var request = MakeGetRequest("/deliveries/del-001", pathParams: pathParams, headers: headers);
         var response = await _function.FunctionHandler(request, _context);
 
-        // Non-participant should be rejected with 403
-        Assert.Equal(403, response.StatusCode);
+        // Without authorizer claims, request is unauthenticated — returns 401
+        Assert.Equal(401, response.StatusCode);
         Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
     }
 
@@ -973,5 +982,223 @@ public class DeliveryFunctionTests
         Assert.NotNull(dto.GpsPickup);
         Assert.Equal(8.9806, dto.GpsPickup.Latitude, precision: 4);
         Assert.Equal(38.7578, dto.GpsPickup.Longitude, precision: 4);
+    }
+
+    // --- Photo Upload (POST /deliveries/{id}/photos) Tests ---
+
+    private static APIGatewayProxyRequest MakePhotoUploadRequest(
+        string userId,
+        string deliveryId,
+        string body)
+    {
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = $"/deliveries/{deliveryId}/photos",
+            Body = body,
+            PathParameters = new Dictionary<string, string> { { "id", deliveryId } },
+            RequestContext = new ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "userId", userId }
+                }
+            }
+        };
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_ValidRequest_ReturnsPresignedUrl()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Returns("https://s3.amazonaws.com/test-bucket/presigned-url");
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("uploadUrl", response.Body);
+        Assert.Contains("photoRef", response.Body);
+        Assert.Contains("uploads/photos/del-001/pickup-", response.Body);
+        Assert.Contains(".webp", response.Body);
+        Assert.Contains("expiresInSeconds", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_DropoffType_ReturnsPresignedUrl()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Returns("https://s3.amazonaws.com/test-bucket/presigned-url");
+
+        var request = MakePhotoUploadRequest("trucker-789", "del-001", "{\"type\":\"dropoff\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("uploads/photos/del-001/dropoff-", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_Unauthenticated_Returns401()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/deliveries/del-001/photos",
+            Body = "{\"type\":\"pickup\"}",
+            PathParameters = new Dictionary<string, string> { { "id", "del-001" } }
+        };
+
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(401, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_MissingType_Returns400()
+    {
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("type", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_InvalidType_Returns400()
+    {
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"selfie\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("pickup", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_EmptyBody_Returns400()
+    {
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_DeliveryNotFound_Returns404()
+    {
+        _mockDeliveryRepo.GetByIdAsync("del-nonexistent").Returns((Dictionary<string, object>?)null);
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-nonexistent", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(404, response.StatusCode);
+        Assert.Contains("DELIVERY_NOT_FOUND", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_CancelledDelivery_Returns404()
+    {
+        var delivery = CreateDeliveryItem("del-001", "cancelled");
+        delivery["deletedAt"] = "2026-02-17T00:00:00Z";
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(404, response.StatusCode);
+        Assert.Contains("DELIVERY_NOT_FOUND", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_NonParticipant_Returns403()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+
+        var request = MakePhotoUploadRequest("random-user-999", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_NoS3Config_Returns500()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+
+        // Use _function which has no S3 client
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("DELIVERY_SERVER_ERROR", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_MissingDeliveryId_Returns400()
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/deliveries//photos",
+            Body = "{\"type\":\"pickup\"}",
+            PathParameters = new Dictionary<string, string> { { "id", "" } },
+            RequestContext = new ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "userId", "farmer-123" }
+                }
+            }
+        };
+
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_S3Exception_Returns500()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Throws(new AmazonS3Exception("S3 error"));
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("DELIVERY_SERVER_ERROR", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleUploadPhoto_PresignedUrlContainsWebPContentType()
+    {
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Returns("https://s3.amazonaws.com/test-bucket/presigned");
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        await _functionWithS3.FunctionHandler(request, _context);
+
+        // Verify S3 was called with correct content type
+        _mockS3.Received(1).GetPreSignedURL(Arg.Is<GetPreSignedUrlRequest>(r =>
+            r.ContentType == "image/webp" &&
+            r.BucketName == TestBucket &&
+            r.Verb == HttpVerb.PUT &&
+            r.Key.StartsWith("uploads/photos/del-001/pickup-") &&
+            r.Key.EndsWith(".webp")));
     }
 }

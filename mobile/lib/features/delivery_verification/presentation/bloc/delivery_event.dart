@@ -10,14 +10,15 @@ abstract class DeliveryEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Load deliveries for a trip.
+/// Load deliveries for a trip, scoped by userId.
 class LoadDeliveries extends DeliveryEvent {
   final String tripId;
+  final String userId;
 
-  const LoadDeliveries({required this.tripId});
+  const LoadDeliveries({required this.tripId, required this.userId});
 
   @override
-  List<Object?> get props => [tripId];
+  List<Object?> get props => [tripId, userId];
 }
 
 /// Create a new delivery.
@@ -64,16 +65,19 @@ class ConfirmPickup extends DeliveryEvent {
   final String truckerId;
   final LatLng? gpsPickup;
   final String? photoRef;
+  final String? scannedQrNonce;
 
   const ConfirmPickup({
     required this.deliveryId,
     required this.truckerId,
     this.gpsPickup,
     this.photoRef,
+    this.scannedQrNonce,
   });
 
   @override
-  List<Object?> get props => [deliveryId, truckerId, gpsPickup, photoRef];
+  List<Object?> get props =>
+      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce];
 }
 
 /// Confirm delivery received by buyer.
@@ -82,16 +86,19 @@ class ConfirmDelivery extends DeliveryEvent {
   final String buyerId;
   final LatLng? gpsDropoff;
   final String? photoRef;
+  final String? scannedQrNonce;
 
   const ConfirmDelivery({
     required this.deliveryId,
     required this.buyerId,
     this.gpsDropoff,
     this.photoRef,
+    this.scannedQrNonce,
   });
 
   @override
-  List<Object?> get props => [deliveryId, buyerId, gpsDropoff, photoRef];
+  List<Object?> get props =>
+      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce];
 }
 
 /// Raise a dispute on a delivery.
@@ -128,18 +135,20 @@ class CancelDelivery extends DeliveryEvent {
   List<Object?> get props => [deliveryId, userId, tripId];
 }
 
-/// Filter deliveries by status.
+/// Filter deliveries by status, scoped by userId.
 class FilterDeliveries extends DeliveryEvent {
   final String tripId;
+  final String userId;
   final String? statusFilter;
 
   const FilterDeliveries({
     required this.tripId,
+    required this.userId,
     this.statusFilter,
   });
 
   @override
-  List<Object?> get props => [tripId, statusFilter];
+  List<Object?> get props => [tripId, userId, statusFilter];
 }
 
 /// Load all deliveries for the authenticated user across all trips.
@@ -154,14 +163,18 @@ class LoadUserDeliveries extends DeliveryEvent {
   List<Object?> get props => [userId, role];
 }
 
-/// Load a single delivery by ID for detail screen.
+/// Load a single delivery by ID for detail screen, scoped by userId.
 class LoadDeliveryDetail extends DeliveryEvent {
   final String deliveryId;
+  final String userId;
 
-  const LoadDeliveryDetail({required this.deliveryId});
+  const LoadDeliveryDetail({
+    required this.deliveryId,
+    required this.userId,
+  });
 
   @override
-  List<Object?> get props => [deliveryId];
+  List<Object?> get props => [deliveryId, userId];
 }
 
 /// Mark a delivery as in transit (pickedUp → inTransit).

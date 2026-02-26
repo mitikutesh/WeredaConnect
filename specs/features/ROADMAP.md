@@ -1,5 +1,5 @@
 # WeredaConnect Product Roadmap
-**Version**: 2.0.0 | **Date**: 2026-02-16 | **Status**: Active — Phase R4 next
+**Version**: 2.4.0 | **Date**: 2026-02-24 | **Status**: Active — Phase R4 nearly complete (~95%)
 
 ---
 
@@ -10,9 +10,9 @@
 | **R1: Security Foundation** | ✅ COMPLETE | Feb 2026 |
 | **R2: Auth + Data Models** | ✅ COMPLETE | Feb 14, 2026 |
 | **R3: Sync + First Feature** | ✅ COMPLETE | Feb 15, 2026 (2 weeks early) |
-| **R4: Complete Transaction Flow** | ⏳ PREP DONE | Target: Apr-May 2026 |
+| **R4: Complete Transaction Flow** | ⚙️ IN PROGRESS (~95%) | Target: Apr-May 2026 |
 
-**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution, browse listings from server, 3 languages, 228 server tests passing.
+**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution UI, browse listings from server, trip listings (create/browse/filter with offline sync), full delivery verification (QR + GPS + photo upload), Telebirr escrow payments (initiate, status, history, disputes), fraud detection (5 rules engine), role-based navigation, voice note recording/playback, data isolation, profile management, 3 languages, 611 server tests passing, ~345 mobile tests passing.
 
 **Full feature scoring for all 31 features**: see [BACKLOG.md](BACKLOG.md)
 
@@ -22,7 +22,7 @@
 
 ### Phases R1-R3: COMPLETE ✅
 
-R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Listings) are all complete. 228 server tests passing, 12+ integration tests, all deployed to AWS (me-south-1). See `docs/archive/` for detailed completion records.
+R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Listings) are all complete. 611 server tests passing, 20+ integration tests, all deployed to AWS (me-south-1). See `docs/archive/` for detailed completion records.
 
 **Deferred items**: F-01 (git history purge — runbook ready at `docs/runbooks/f01-git-history-purge.md`), F-05 (cert pinning — real hashes extracted, activation at `docs/runbooks/f05-cert-pinning-activation.md`).
 
@@ -33,26 +33,28 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 **Goal**: The full Crop > Trip > Delivery > Payment flow works end-to-end.
 **Layer**: 2 - Stability and Trust + Core Transaction Flow
 
-| Order | Feature | Score | Delivers |
-|-------|---------|-------|----------|
-| R4.1 | F-11: Trip listing flow | 13 | Transport marketplace |
-| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | Trust mechanism |
-| R4.3 | F-13: Telebirr escrow integration | 19 | Revenue |
-| R4.4 | F-14: Fraud detection checks | 13 | Platform safety |
-| R4.5 | F-15: Conflict resolution UI | 10 | User experience |
-| R4.6 | F-18: S3 access logging + versioning | 3 | Audit trail |
+| Order | Feature | Score | Status | Delivers |
+|-------|---------|-------|--------|----------|
+| R4.1 | F-11: Trip listing flow | 13 | ✅ COMPLETE | Transport marketplace |
+| R4.2 | F-12: Delivery verification (QR + GPS) | 16 | ✅ COMPLETE (server + mobile + photo upload endpoint) | Trust mechanism |
+| R4.3 | F-13: Telebirr escrow integration | 19 | ✅ COMPLETE (server + 20 integration tests, mobile UI & unit tests) | Revenue |
+| R4.4 | F-14: Fraud detection checks | 13 | ✅ COMPLETE (server 5-rules engine + mobile error handling) | Platform safety |
+| R4.5 | F-15: Conflict resolution UI | 10 | ✅ COMPLETE (resolver + notification service + UI + 49 tests) | User experience |
+| R4.6 | F-18: S3 access logging + versioning | 3 | ✅ COMPLETE | Audit trail |
 
 **Exit Criteria**:
-- Trucker can post trip availability
-- System suggests matching crop listings for a trip route
-- QR code generated at pickup, scanned at delivery, GPS captured at both
-- Telebirr escrow holds funds on buyer confirmation, releases on verified delivery
-- Fraud detection flags suspicious activity
-- Sync conflicts show user-friendly resolution UI
-- S3 uploads bucket has access logging and versioning enabled
+- ✅ Trucker can post trip availability
+- ⚠️ System suggests matching crop listings for a trip route (basic — same woreda matching)
+- ✅ QR code generated at pickup, scanned at delivery, GPS captured at both
+- ✅ Telebirr escrow holds funds on buyer confirmation, releases on verified delivery
+- ✅ Fraud detection flags suspicious activity (5 rules: duplicate detection, price anomaly, velocity limits, GPS consistency, risk scoring)
+- ✅ Sync conflicts show user-friendly resolution UI
+- ✅ S3 uploads bucket has access logging and versioning enabled
 
 **Milestone**: Minimum Viable Product (MVP) -- WeredaConnect can facilitate a real transaction from crop listing to payment.
 **Estimated Effort**: 25-30 days (solo developer)
+
+**Remaining to merge**: Branch `telebirr-mock` is 46 commits ahead of `main`. Merge and deploy to complete R4.
 
 ---
 
@@ -105,7 +107,7 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 ---
 
-**Document Version**: 1.3.0
+**Document Version**: 2.4.0
 **Created**: 2026-02-11
-**Last Updated**: 2026-02-17 (all R4 contracts written; deferred items planned)
+**Last Updated**: 2026-02-24 (R4 ~95% — all 6 features complete, merge + deploy remaining)
 **Completed task history**: See `docs/archive/completed-tasks.md`

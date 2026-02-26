@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/dispute_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
@@ -68,7 +74,12 @@ class DeliveryDetailScreen extends StatelessWidget {
         } else if (state is DeliveryError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(state.message),
+              content: Text(
+                localizeDeliveryError(
+                  AppLocalizations.of(context)!,
+                  state.code,
+                ),
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -168,22 +179,22 @@ class DeliveryDetailScreen extends StatelessWidget {
         if (delivery.pickedUpAt != null) ...[
           _InfoRow(
             icon: Icons.access_time,
-            label: 'Time',
+            label: l10n.deliveryTimeLabel,
             value: dateFormat.format(delivery.pickedUpAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsPickup != null)
             _InfoRow(
               icon: Icons.location_on,
-              label: 'GPS',
+              label: l10n.deliveryGpsLabel,
               value:
                   '${delivery.gpsPickup!.latitude.toStringAsFixed(4)}, ${delivery.gpsPickup!.longitude.toStringAsFixed(4)}',
             )
           else
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.location_off,
-              label: 'GPS',
-              value: 'Not captured',
+              label: l10n.deliveryGpsLabel,
+              value: l10n.deliveryGpsNotCaptured,
             ),
           const SizedBox(height: 8),
           PhotoEvidenceWidget(
@@ -221,22 +232,22 @@ class DeliveryDetailScreen extends StatelessWidget {
         if (delivery.confirmedAt != null) ...[
           _InfoRow(
             icon: Icons.access_time,
-            label: 'Time',
+            label: l10n.deliveryTimeLabel,
             value: dateFormat.format(delivery.confirmedAt!),
           ),
           const SizedBox(height: 8),
           if (delivery.gpsDropoff != null)
             _InfoRow(
               icon: Icons.location_on,
-              label: 'GPS',
+              label: l10n.deliveryGpsLabel,
               value:
                   '${delivery.gpsDropoff!.latitude.toStringAsFixed(4)}, ${delivery.gpsDropoff!.longitude.toStringAsFixed(4)}',
             )
           else
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.location_off,
-              label: 'GPS',
-              value: 'Not captured',
+              label: l10n.deliveryGpsLabel,
+              value: l10n.deliveryGpsNotCaptured,
             ),
           const SizedBox(height: 8),
           PhotoEvidenceWidget(
@@ -307,12 +318,17 @@ class DeliveryDetailScreen extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: () {
+              final deviceKeyService = DeviceSigningKeyService();
               Navigator.push(
                 context,
                 MaterialPageRoute<void>(
                   builder: (context) => QrGenerateScreen(
                     delivery: delivery,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: deviceKeyService,
+                    ),
+                    repository: context.read<DeliveryBloc>().repository,
+                    userId: currentUserId,
                   ),
                 ),
               );
@@ -341,7 +357,9 @@ class DeliveryDetailScreen extends StatelessWidget {
                   builder: (context) => QrScanScreen(
                     delivery: delivery,
                     verificationType: VerificationType.pickup,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: DeviceSigningKeyService(),
+                    ),
                     gpsService: GpsCaptureService(),
                     photoManager: PhotoManager(),
                   ),
@@ -407,7 +425,9 @@ class DeliveryDetailScreen extends StatelessWidget {
                   builder: (context) => QrScanScreen(
                     delivery: delivery,
                     verificationType: VerificationType.delivery,
-                    qrService: QrVerificationService(),
+                    qrService: QrVerificationService(
+                      deviceKeyService: DeviceSigningKeyService(),
+                    ),
                     gpsService: GpsCaptureService(),
                     photoManager: PhotoManager(),
                   ),
@@ -433,6 +453,17 @@ class DeliveryDetailScreen extends StatelessWidget {
     // Buyer + delivered → Raise Dispute (within 48h)
     if (isBuyer && delivery.status == DeliveryStatus.delivered) {
       _addDisputeButton(context, widgets);
+    }
+
+    // Buyer + pending → Initiate escrow payment
+    if (isBuyer && delivery.status == DeliveryStatus.pending) {
+      widgets.add(
+        _EscrowPayButton(
+          delivery: delivery,
+          currentUserId: currentUserId,
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
     }
 
     // Cancel button (pending/pickedUp + participant)
@@ -746,6 +777,89 @@ class _ParticipantRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Loads the escrow amount from the crop listing and shows a Pay button.
+///
+/// Uses the delivery's listingId to look up pricePerKg × quantity × 100kg.
+/// Shows nothing if the listing cannot be found.
+class _EscrowPayButton extends StatefulWidget {
+  final Delivery delivery;
+  final String currentUserId;
+
+  const _EscrowPayButton({
+    required this.delivery,
+    required this.currentUserId,
+  });
+
+  @override
+  State<_EscrowPayButton> createState() => _EscrowPayButtonState();
+}
+
+class _EscrowPayButtonState extends State<_EscrowPayButton> {
+  double? _amount;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAmount();
+  }
+
+  Future<void> _loadAmount() async {
+    try {
+      final listing = await IsarService.instance.db.cropListings
+          .where()
+          .listingIdEqualTo(widget.delivery.listingId)
+          .findFirst();
+      if (mounted) {
+        setState(() {
+          _amount = listing != null
+              ? listing.quantity * 100 * listing.pricePerKg
+              : null;
+          _loading = false;
+        });
+      }
+    } on Exception {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+        height: 48,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_amount == null) return const SizedBox.shrink();
+
+    final l10n = AppLocalizations.of(context)!;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => InitiatePaymentScreen(
+              deliveryId: widget.delivery.deliveryId,
+              buyerId: widget.currentUserId,
+              farmerId: widget.delivery.farmerId,
+              farmerName: widget.delivery.farmerName,
+              amount: _amount!,
+            ),
+          ),
+        ),
+        icon: const Icon(Icons.payment),
+        label: Text(l10n.escrowPayForDelivery),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          backgroundColor: Colors.green.shade700,
+        ),
+      ),
     );
   }
 }

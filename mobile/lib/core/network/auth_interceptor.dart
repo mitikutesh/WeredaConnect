@@ -20,9 +20,10 @@ class AuthInterceptor extends QueuedInterceptor {
   AuthInterceptor({
     required this.storage,
     required this.refreshTokenCallback,
+    required Dio dio,
     this.tokenKey = 'access_token',
     this.refreshTokenKey = 'refresh_token',
-  });
+  }) : _retryDio = _createRetryDio(dio);
 
   /// Secure storage for reading/writing tokens
   final FlutterSecureStorage storage;
@@ -31,11 +32,33 @@ class AuthInterceptor extends QueuedInterceptor {
   /// Should call POST /auth/refresh with refresh token
   final Future<String?> Function(String refreshToken) refreshTokenCallback;
 
+  /// Dio instance for retrying requests, shares the parent's base config
+  /// and httpClientAdapter (cert pinning) but without the AuthInterceptor
+  /// to avoid QueuedInterceptor deadlock.
+  final Dio _retryDio;
+
   /// Storage key for access token
   final String tokenKey;
 
   /// Storage key for refresh token
   final String refreshTokenKey;
+
+  /// Create a Dio clone that shares the parent's configuration and
+  /// httpClientAdapter (preserving certificate pinning) but without
+  /// the AuthInterceptor to avoid QueuedInterceptor deadlock.
+  static Dio _createRetryDio(Dio parent) {
+    final retryDio = Dio(
+      BaseOptions(
+        baseUrl: parent.options.baseUrl,
+        connectTimeout: parent.options.connectTimeout,
+        receiveTimeout: parent.options.receiveTimeout,
+        sendTimeout: parent.options.sendTimeout,
+        headers: Map.from(parent.options.headers),
+      ),
+    );
+    retryDio.httpClientAdapter = parent.httpClientAdapter;
+    return retryDio;
+  }
 
   /// Flag to prevent concurrent refresh attempts
   bool _isRefreshing = false;
@@ -130,7 +153,11 @@ class AuthInterceptor extends QueuedInterceptor {
     }
   }
 
-  /// Retry a request with new access token
+  /// Retry a request with new access token.
+  ///
+  /// Uses [_retryDio] which shares the parent Dio's base config and
+  /// httpClientAdapter (cert pinning) but without AuthInterceptor,
+  /// avoiding QueuedInterceptor deadlock.
   Future<Response<dynamic>> _retry(
     RequestOptions requestOptions,
     String newAccessToken,
@@ -141,10 +168,11 @@ class AuthInterceptor extends QueuedInterceptor {
         ...requestOptions.headers,
         'Authorization': 'Bearer $newAccessToken',
       },
+      sendTimeout: requestOptions.sendTimeout,
+      receiveTimeout: requestOptions.receiveTimeout,
     );
 
-    final dio = Dio();
-    return dio.request(
+    return _retryDio.request(
       requestOptions.path,
       data: requestOptions.data,
       queryParameters: requestOptions.queryParameters,

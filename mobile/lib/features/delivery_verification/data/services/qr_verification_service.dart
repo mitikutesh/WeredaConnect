@@ -5,34 +5,42 @@ import 'package:crypto/crypto.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 
-/// Offline HMAC-SHA256 QR token generation and verification
-/// with nonce-based physical proximity enforcement.
+/// Offline HMAC-SHA256 QR token generation and structural parsing
+/// with device-local key + server nonce cross-validation.
 ///
-/// Security design (F12-SEC-01):
-/// - Nonce generated at QR time prevents token forgery without physical
-///   proximity. The nonce only exists in the displayed QR code, not in
-///   synced delivery data.
-/// - MVP limitation: Server nonce cross-validation is not yet implemented.
-///   Offline QR verification is a physical proximity ritual — the scanner
-///   must physically see the generator's screen to obtain the nonce.
-///   Server-side nonce validation is planned for a future release when the
-///   photo upload endpoint (T12) provides guaranteed server connectivity.
+/// Security design (F12-SEC-01 fix):
+/// - Device-local 32-byte random key stored in FlutterSecureStorage is
+///   included in HMAC derivation. Other participants cannot forge tokens.
+/// - Scanner performs structural validation only (no HMAC recomputation).
+/// - Physical proximity is enforced by optical QR scan + server-side
+///   nonce cross-validation.
 class QrVerificationService {
+  final DeviceSigningKeyService _deviceKeyService;
+
+  QrVerificationService({required DeviceSigningKeyService deviceKeyService})
+      : _deviceKeyService = deviceKeyService;
+
   /// Generate QR token string for display as QR code.
   ///
-  /// Includes a cryptographic nonce for physical proximity enforcement.
-  /// Returns (qrTokenString, nonce) — nonce must be stored locally by
-  /// the caller for server-side cross-validation during sync.
-  (String token, String nonce) generateQrToken(Delivery delivery) {
+  /// Includes a cryptographic nonce for physical proximity enforcement
+  /// and a device-local key in the HMAC derivation.
+  /// Returns (qrTokenString, nonce) — nonce must be persisted for
+  /// server-side cross-validation during sync.
+  Future<(String token, String nonce)> generateQrToken(
+    Delivery delivery,
+  ) async {
     final nonce = _generateNonce();
     final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch;
 
+    final deviceKey = await _deviceKeyService.getKey();
     final secret = _deriveSecret(
       delivery.deliveryId,
       delivery.tripId,
       delivery.listingId,
       delivery.createdAt.millisecondsSinceEpoch,
+      deviceKey,
     );
 
     final message =
@@ -53,16 +61,18 @@ class QrVerificationService {
     return (token, nonce);
   }
 
-  /// Verify a scanned QR token against local delivery data.
+  /// Parse a scanned QR token — structural validation only.
   ///
-  /// Returns [QrVerificationResult] with status, extracted fields, and nonce.
-  /// The nonce enforces physical proximity — the scanner must see the
-  /// generator's screen. Server nonce cross-validation is planned for
-  /// a future release (see class-level doc).
-  QrVerificationResult verifyQrToken(String qrToken, Delivery delivery) {
+  /// Returns [QrParseResult] with extracted fields and nonce.
+  /// Does NOT recompute HMAC (scanner doesn't have generator's device key).
+  /// Physical proximity is enforced by optical scan + server nonce matching.
+  QrParseResult parseQrToken(String qrToken, Delivery delivery) {
     // F12-SEC-07: Hard size limit BEFORE any processing
     if (qrToken.length > DeliveryConstants.maxQrTokenChars) {
-      return const QrVerificationResult.invalid('QR code too large');
+      return const QrParseResult.invalid(
+        'QR code too large',
+        errorCode: QrErrorCode.tooLarge,
+      );
     }
 
     // F12-SEC-07: Wrap all parsing in try-catch
@@ -77,48 +87,40 @@ class QrVerificationService {
       final lid = payload['lid']?.toString() ?? '';
       final fid = payload['fid']?.toString() ?? '';
       final nonce = payload['n']?.toString() ?? '';
-      final receivedHmac = payload['hmac']?.toString() ?? '';
+      final hmac = payload['hmac']?.toString() ?? '';
 
-      if ([did, tid, lid, fid, nonce, receivedHmac].any((s) => s.isEmpty)) {
-        return const QrVerificationResult.invalid('Incomplete QR data');
+      if ([did, tid, lid, fid, nonce, hmac].any((s) => s.isEmpty)) {
+        return const QrParseResult.invalid(
+          'Incomplete QR data',
+          errorCode: QrErrorCode.incomplete,
+        );
       }
       if ([did, tid, lid, fid]
           .any((s) => s.length > DeliveryConstants.maxQrFieldLength)) {
-        return const QrVerificationResult.invalid('Invalid QR data');
+        return const QrParseResult.invalid(
+          'Invalid QR data',
+          errorCode: QrErrorCode.invalidData,
+        );
       }
       if (nonce.length > DeliveryConstants.maxQrFieldLength ||
-          receivedHmac.length > DeliveryConstants.maxQrFieldLength) {
-        return const QrVerificationResult.invalid('Invalid QR data');
+          hmac.length > DeliveryConstants.maxQrFieldLength) {
+        return const QrParseResult.invalid(
+          'Invalid QR data',
+          errorCode: QrErrorCode.invalidData,
+        );
       }
 
       // Cross-check deliveryId matches expected delivery
       if (did != delivery.deliveryId) {
-        return const QrVerificationResult.invalid(
+        return const QrParseResult.invalid(
           'QR code does not match this delivery',
+          errorCode: QrErrorCode.wrongDelivery,
         );
       }
 
-      // Recompute HMAC
       final ts = payload['ts'] is int ? payload['ts'] as int : 0;
-      final secret = _deriveSecret(
-        delivery.deliveryId,
-        delivery.tripId,
-        delivery.listingId,
-        delivery.createdAt.millisecondsSinceEpoch,
-      );
-      final message = '$did|$tid|$lid|$fid|$ts|$nonce';
-      final computed = Hmac(sha256, secret).convert(utf8.encode(message));
 
-      // F12-SEC-03: Constant-time comparison
-      final computedBytes = utf8.encode(computed.toString());
-      final receivedBytes = utf8.encode(receivedHmac);
-      if (!_constantTimeEquals(computedBytes, receivedBytes)) {
-        return const QrVerificationResult.invalid(
-          'Verification failed \u2014 possible tampering',
-        );
-      }
-
-      return QrVerificationResult.valid(
+      return QrParseResult.valid(
         deliveryId: did,
         tripId: tid,
         farmerId: fid,
@@ -126,20 +128,28 @@ class QrVerificationService {
         nonce: nonce,
       );
     } on FormatException {
-      return const QrVerificationResult.invalid('Invalid QR code format');
+      return const QrParseResult.invalid(
+        'Invalid QR code format',
+        errorCode: QrErrorCode.invalidFormat,
+      );
     } on Exception catch (_) {
-      return const QrVerificationResult.invalid('Could not process QR code');
+      return const QrParseResult.invalid(
+        'Could not process QR code',
+        errorCode: QrErrorCode.processFailed,
+      );
     }
   }
 
-  /// Derive HMAC secret from delivery metadata.
+  /// Derive HMAC secret from delivery metadata + device-local key.
   List<int> _deriveSecret(
     String deliveryId,
     String tripId,
     String listingId,
     int creationTimestamp,
+    String deviceKey,
   ) {
-    final input = '$deliveryId:$tripId:$listingId:$creationTimestamp';
+    final input =
+        '$deliveryId:$tripId:$listingId:$creationTimestamp:$deviceKey';
     return sha256.convert(utf8.encode(input)).bytes;
   }
 
@@ -149,44 +159,48 @@ class QrVerificationService {
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     return base64Url.encode(bytes);
   }
-
-  /// Constant-time byte comparison to prevent timing attacks (F12-SEC-03).
-  bool _constantTimeEquals(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    var result = 0;
-    for (var i = 0; i < a.length; i++) {
-      result |= a[i] ^ b[i];
-    }
-    return result == 0;
-  }
 }
 
-/// Result of QR verification.
-class QrVerificationResult {
+/// Result of QR structural parsing.
+class QrParseResult {
   final bool isValid;
   final String? errorMessage;
+  final String? errorCode;
   final String? deliveryId;
   final String? tripId;
   final String? farmerId;
   final int? timestamp;
 
-  /// Extracted nonce for sync cross-validation (F12-SEC-01).
+  /// Extracted nonce for sync cross-validation.
   final String? nonce;
 
-  const QrVerificationResult.valid({
+  const QrParseResult.valid({
     required this.deliveryId,
     required this.tripId,
     required this.farmerId,
     required this.timestamp,
     required this.nonce,
   })  : isValid = true,
-        errorMessage = null;
+        errorMessage = null,
+        errorCode = null;
 
-  const QrVerificationResult.invalid(this.errorMessage)
+  const QrParseResult.invalid(this.errorMessage, {this.errorCode})
       : isValid = false,
         deliveryId = null,
         tripId = null,
         farmerId = null,
         timestamp = null,
         nonce = null;
+}
+
+/// Error codes for QR parsing failures.
+///
+/// Used by the presentation layer to map to localized strings.
+class QrErrorCode {
+  static const tooLarge = 'QR_TOO_LARGE';
+  static const incomplete = 'QR_INCOMPLETE';
+  static const invalidData = 'QR_INVALID_DATA';
+  static const wrongDelivery = 'QR_WRONG_DELIVERY';
+  static const invalidFormat = 'QR_INVALID_FORMAT';
+  static const processFailed = 'QR_PROCESS_FAILED';
 }

@@ -48,6 +48,38 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetDeliveriesResponse))]
 [JsonSerializable(typeof(GetDeliveryResponse))]
 [JsonSerializable(typeof(LatLngDto))]
+[JsonSerializable(typeof(UploadPhotoRequest))]
+[JsonSerializable(typeof(UploadPhotoResponse))]
+// Escrow endpoint DTOs
+[JsonSerializable(typeof(InitiateEscrowRequest))]
+[JsonSerializable(typeof(InitiateEscrowResponse))]
+[JsonSerializable(typeof(ReleaseEscrowRequest))]
+[JsonSerializable(typeof(ReleaseEscrowResponse))]
+[JsonSerializable(typeof(DisputeEscrowRequest))]
+[JsonSerializable(typeof(DisputeEscrowResponse))]
+[JsonSerializable(typeof(RefundEscrowRequest))]
+[JsonSerializable(typeof(RefundEscrowResponse))]
+[JsonSerializable(typeof(GetEscrowHistoryResponse))]
+// Escrow domain DTOs
+[JsonSerializable(typeof(EscrowDto))]
+[JsonSerializable(typeof(DisputeDto))]
+[JsonSerializable(typeof(EscrowSummaryDto))]
+[JsonSerializable(typeof(List<EscrowSummaryDto>))]
+[JsonSerializable(typeof(EscrowAuditEntryDto))]
+[JsonSerializable(typeof(List<EscrowAuditEntryDto>))]
+// Telebirr gateway DTOs
+[JsonSerializable(typeof(HoldFundsRequest))]
+[JsonSerializable(typeof(HoldFundsResponse))]
+[JsonSerializable(typeof(ReleaseFundsRequest))]
+[JsonSerializable(typeof(ReleaseFundsResponse))]
+[JsonSerializable(typeof(RefundFundsRequest))]
+[JsonSerializable(typeof(RefundFundsResponse))]
+[JsonSerializable(typeof(TransactionStatusResponse))]
+// Escrow error DTOs
+[JsonSerializable(typeof(EscrowErrorResponse))]
+[JsonSerializable(typeof(EscrowError))]
+// Fraud detection DTOs (F-14)
+[JsonSerializable(typeof(FraudCheckResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

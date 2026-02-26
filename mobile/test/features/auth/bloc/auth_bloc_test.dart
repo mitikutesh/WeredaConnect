@@ -1,0 +1,686 @@
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/models/auth_result.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+class MockAuthService extends Mock implements AuthService {}
+
+class MockOfflineAuthCache extends Mock implements OfflineAuthCache {}
+
+class FakeAuthEvent extends Fake implements AuthEvent {}
+
+class FakeAuthState extends Fake implements AuthState {}
+
+// ---------------------------------------------------------------------------
+// Test data
+// ---------------------------------------------------------------------------
+const _testTokens = AuthTokens(
+  accessToken: 'fake-access-token',
+  refreshToken: 'fake-refresh-token',
+  idToken: 'fake-id-token',
+);
+
+const _refreshedTokens = AuthTokens(
+  accessToken: 'refreshed-access-token',
+  refreshToken: 'refreshed-refresh-token',
+  idToken: 'refreshed-id-token',
+);
+
+final _testUser = User()
+  ..userId = 'user-001'
+  ..phoneNumber = '+251911234567'
+  ..name = 'Abebe Kebede'
+  ..role = UserRole.farmer
+  ..woreda = 'Jimma'
+  ..createdAt = DateTime.utc(2026)
+  ..updatedAt = DateTime.utc(2026)
+  ..version = 1;
+
+/// In-memory store for FlutterSecureStorage method channel mock.
+final Map<String, String> _secureStorageData = {};
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late MockAuthService authService;
+  late MockOfflineAuthCache offlineCache;
+
+  setUpAll(() {
+    registerFallbackValue(FakeAuthEvent());
+    registerFallbackValue(FakeAuthState());
+    registerFallbackValue(
+      const AuthTokens(
+        accessToken: '',
+        refreshToken: '',
+        idToken: '',
+      ),
+    );
+    registerFallbackValue(UserRole.farmer);
+
+    // Mock FlutterSecureStorage method channel
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+      (MethodCall methodCall) async {
+        switch (methodCall.method) {
+          case 'write':
+            final args = methodCall.arguments as Map<dynamic, dynamic>;
+            final key = args['key'] as String;
+            final value = args['value'] as String?;
+            if (value != null) {
+              _secureStorageData[key] = value;
+            }
+            return null;
+          case 'read':
+            final args = methodCall.arguments as Map<dynamic, dynamic>;
+            final key = args['key'] as String;
+            return _secureStorageData[key];
+          case 'delete':
+            final args = methodCall.arguments as Map<dynamic, dynamic>;
+            final key = args['key'] as String;
+            _secureStorageData.remove(key);
+            return null;
+          case 'deleteAll':
+            _secureStorageData.clear();
+            return null;
+          default:
+            return null;
+        }
+      },
+    );
+  });
+
+  setUp(() {
+    _secureStorageData.clear();
+    authService = MockAuthService();
+    offlineCache = MockOfflineAuthCache();
+  });
+
+  AuthBloc buildBloc() => AuthBloc(
+        authService: authService,
+        offlineCache: offlineCache,
+      );
+
+  /// Collects states emitted by [bloc] after adding [event].
+  Future<List<AuthState>> collectStates(
+    AuthBloc bloc,
+    AuthEvent event, {
+    int expectedCount = 2,
+  }) async {
+    final states = <AuthState>[];
+    final subscription = bloc.stream.listen(states.add);
+
+    bloc.add(event);
+
+    // Wait enough time for the BLoC to process
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    await subscription.cancel();
+    return states;
+  }
+
+  group('AuthBloc', () {
+    // -----------------------------------------------------------------------
+    // Login flow: success
+    // -----------------------------------------------------------------------
+    group('Login flow', () {
+      test('emits [AuthLoading, AuthAuthenticated] on successful login',
+          () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthAuthenticated>());
+
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.userId, equals('user-001'));
+        expect(authenticated.tokens, equals(_testTokens));
+      });
+
+      test('emits [AuthLoading, AuthError] on failed login', () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.invalidCredentials,
+            'Invalid phone number or password',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'wrong',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+
+        final error = states[1] as AuthError;
+        expect(error.errorCode, equals(AuthErrorCode.invalidCredentials));
+        expect(error.canRetry, isTrue);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Registration flow
+    // -----------------------------------------------------------------------
+    group('Registration flow', () {
+      test(
+          'emits [AuthLoading, AuthOtpVerificationRequired] on successful registration',
+          () async {
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(
+              accessToken: '',
+              refreshToken: '',
+              idToken: '',
+            ),
+            userId: 'user-002',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251912345678',
+            password: 'newpass1',
+            name: 'Kebede Alemu',
+            role: UserRole.trucker,
+            woreda: 'Bahir Dar',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthOtpVerificationRequired>());
+
+        final otp = states[1] as AuthOtpVerificationRequired;
+        expect(otp.phoneNumber, equals('+251912345678'));
+        expect(otp.userId, equals('user-002'));
+      });
+
+      test('emits [AuthLoading, AuthError] on failed registration', () async {
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.phoneAlreadyRegistered,
+            'This phone number is already registered',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251911234567',
+            password: 'pass1234',
+            name: 'Test',
+            role: UserRole.farmer,
+            woreda: 'Jimma',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+
+        final error = states[1] as AuthError;
+        expect(error.errorCode, equals(AuthErrorCode.phoneAlreadyRegistered));
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // OTP verification
+    // -----------------------------------------------------------------------
+    group('OTP verification', () {
+      test(
+          'emits [AuthLoading, AuthAuthenticated] on successful OTP + auto-login',
+          () async {
+        // Mock register (sets pending data in bloc)
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+            preferredLanguage: any(named: 'preferredLanguage'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+            userId: 'user-002',
+          ),
+        );
+
+        // Mock verifyOtp (returns success with empty tokens)
+        when(
+          () => authService.verifyOtp(
+            phoneNumber: any(named: 'phoneNumber'),
+            otp: any(named: 'otp'),
+            userId: any(named: 'userId'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+            userId: 'user-002',
+          ),
+        );
+
+        // Mock loginOnline (auto-login after OTP)
+        when(
+          () => authService.loginOnline(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-002'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        // Step 1: Register to set pending data
+        await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251912345678',
+            password: 'Test1234',
+            name: 'Test User',
+            role: UserRole.farmer,
+            woreda: 'Jimma',
+          ),
+        );
+
+        // Step 2: Verify OTP (triggers auto-login)
+        final states = await collectStates(
+          bloc,
+          const AuthVerifyOtpRequested(
+            phoneNumber: '+251912345678',
+            otp: '123456',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthAuthenticated>());
+
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.userId, equals('user-002'));
+      });
+
+      test('emits [AuthLoading, AuthError] on invalid OTP', () async {
+        when(
+          () => authService.verifyOtp(
+            phoneNumber: any(named: 'phoneNumber'),
+            otp: any(named: 'otp'),
+            userId: any(named: 'userId'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.invalidOtp,
+            'Invalid verification code',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthVerifyOtpRequested(
+            phoneNumber: '+251912345678',
+            otp: '000000',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+
+        final error = states[1] as AuthError;
+        expect(error.errorCode, equals(AuthErrorCode.invalidOtp));
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Token refresh
+    // -----------------------------------------------------------------------
+    group('Token refresh', () {
+      test('stays AuthAuthenticated with new tokens on successful refresh',
+          () async {
+        when(
+          () => authService.refreshToken(any()),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_refreshedTokens),
+        );
+        when(
+          () => offlineCache.updateTokens(any(), any()),
+        ).thenAnswer((_) async {});
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        // Seed authenticated state by simulating a successful login first
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+
+        // Now refresh
+        final states = await collectStates(
+          bloc,
+          const AuthRefreshTokenRequested(
+            refreshToken: 'fake-refresh-token',
+          ),
+          expectedCount: 1,
+        );
+
+        // Should emit AuthAuthenticated with new tokens (no loading for refresh)
+        expect(states.any((s) => s is AuthAuthenticated), isTrue);
+
+        final authenticated = states.whereType<AuthAuthenticated>().last;
+        expect(authenticated.tokens.accessToken, 'refreshed-access-token');
+        expect(authenticated.userId, equals('user-001'));
+      });
+
+      test('emits AuthUnauthenticated on failed token refresh', () async {
+        when(
+          () => authService.refreshToken(any()),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.refreshTokenExpired,
+            'Refresh token expired',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        // Seed authenticated state
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+
+        // Refresh with expired token
+        final states = await collectStates(
+          bloc,
+          const AuthRefreshTokenRequested(
+            refreshToken: 'expired-refresh-token',
+          ),
+          expectedCount: 1,
+        );
+
+        expect(states.any((s) => s is AuthUnauthenticated), isTrue);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Logout
+    // -----------------------------------------------------------------------
+    group('Logout', () {
+      test('emits [AuthLoading, AuthUnauthenticated] on logout', () async {
+        when(
+          () => authService.logout(
+            phoneNumber: any(named: 'phoneNumber'),
+            accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
+            clearCache: any(named: 'clearCache'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        // Seed authenticated state
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        bloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+
+        // Now logout
+        final states = await collectStates(
+          bloc,
+          const AuthLogoutRequested(),
+        );
+
+        expect(states.any((s) => s is AuthLoading), isTrue);
+        expect(states.any((s) => s is AuthUnauthenticated), isTrue);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Session check
+    // -----------------------------------------------------------------------
+    group('Session check', () {
+      test('emits [AuthLoading, AuthUnauthenticated] when no session',
+          () async {
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthCheckRequested(),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthUnauthenticated>());
+      });
+
+      test('emits [AuthLoading, AuthAuthenticated] when session exists',
+          () async {
+        // Pre-populate secure storage with a phone number
+        _secureStorageData['current_user_phone'] = '+251911234567';
+
+        when(() => offlineCache.getCachedTokens('+251911234567'))
+            .thenAnswer((_) async => _testTokens);
+        when(() => offlineCache.getCachedUser('+251911234567'))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthCheckRequested(),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthAuthenticated>());
+
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.userId, equals('user-001'));
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Rate limit error with retryAfterSeconds
+    // -----------------------------------------------------------------------
+    group('Rate limit error', () {
+      test('login returns AuthError with retryAfterSeconds', () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.rateLimitExceeded,
+            'Too many attempts',
+            retryAfterSeconds: 300,
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+
+        final error = states[1] as AuthError;
+        expect(error.errorCode, equals(AuthErrorCode.rateLimitExceeded));
+        expect(error.retryAfterSeconds, equals(300));
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Offline login fallback
+    // -----------------------------------------------------------------------
+    group('Offline login fallback', () {
+      test('network error falls back to offline login via AuthService.login',
+          () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            isOfflineAuth: true,
+          ),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthAuthenticated>());
+
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.isOfflineAuth, isTrue);
+        expect(authenticated.userId, equals('user-001'));
+      });
+    });
+  });
+}

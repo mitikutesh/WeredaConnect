@@ -28,6 +28,7 @@ describe('CDK Integration Tests', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -66,6 +67,7 @@ describe('CDK Integration Tests', () => {
         escrowsTable: dbStack.escrowsTable,
         escrowAuditTable: dbStack.escrowAuditTable,
         escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+        fraudSignalsTable: dbStack.fraudSignalsTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 

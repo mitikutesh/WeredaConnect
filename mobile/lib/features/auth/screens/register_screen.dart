@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
@@ -56,6 +56,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  String _localizeAuthError(String errorCode, String fallback) {
+    final l10n = AppLocalizations.of(context)!;
+    return switch (errorCode) {
+      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
+      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
+      AuthErrorCode.phoneAlreadyRegistered => l10n.phoneAlreadyRegistered,
+      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
+      AuthErrorCode.internalServerError => l10n.authServerError,
+      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+      AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      AuthErrorCode.invalidOtp => l10n.invalidOtp,
+      AuthErrorCode.otpExpired => l10n.otpExpired,
+      AuthErrorCode.otpAttemptsExceeded => l10n.authOtpAttemptsExceeded,
+      AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
+      AuthErrorCode.userNotFound => l10n.invalidCredentials,
+      AuthErrorCode.userNotConfirmed => l10n.phoneNotVerified,
+      AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
+      AuthErrorCode.databaseError => l10n.authErrorDatabase,
+      _ => l10n.genericError,
+    };
+  }
+
   void _handleRegister() {
     // Clear previous errors
     setState(() {
@@ -74,6 +97,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    // Get current language code (am, om, en)
+    final languageCode = Localizations.localeOf(context).languageCode;
+
     // Dispatch register event via BLoC
     context.read<AuthBloc>().add(
           AuthRegisterRequested(
@@ -82,6 +108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             name: _nameController.text.trim(),
             role: _selectedRole!,
             woreda: _woredaController.text.trim(),
+            preferredLanguage: languageCode,
           ),
         );
   }
@@ -102,7 +129,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       listener: (context, state) {
         if (state is AuthError) {
           setState(() {
-            _errorMessage = state.errorMessage;
+            _errorMessage =
+                _localizeAuthError(state.errorCode, state.errorMessage);
           });
         }
         if (state is AuthOtpVerificationRequired) {
@@ -118,11 +146,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WelcomeScreen(),
-                ),
-              );
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
             },
             tooltip: l10n.backToHome,
           ),
@@ -226,6 +252,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           labelText: l10n.fullName,
                           prefixIcon: const Icon(Icons.person),
                           border: const OutlineInputBorder(),
+                          counterText: '',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 20,
@@ -233,6 +260,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         keyboardType: TextInputType.name,
                         textCapitalization: TextCapitalization.words,
+                        maxLength: 100,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.fullName;
@@ -249,6 +277,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           labelText: l10n.wereda,
                           prefixIcon: const Icon(Icons.location_on),
                           border: const OutlineInputBorder(),
+                          counterText: '',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 20,
@@ -256,6 +285,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         keyboardType: TextInputType.text,
                         textCapitalization: TextCapitalization.words,
+                        maxLength: 100,
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.wereda;
@@ -346,11 +376,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         obscureText: _obscurePassword,
+                        maxLength: 128,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return l10n.password;
                           }
-                          if (value.length < 6) {
+                          if (value.length < 8 ||
+                              !RegExp(r'[a-z]').hasMatch(value) ||
+                              !RegExp(r'[0-9]').hasMatch(value)) {
                             return l10n.passwordRequirements;
                           }
                           return null;
@@ -433,15 +466,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    l10n.pleaseWait,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ],
                               )
                             : Text(
                                 l10n.signUp,

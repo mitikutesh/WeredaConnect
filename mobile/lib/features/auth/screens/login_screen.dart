@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
-import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
+import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
@@ -45,6 +47,48 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String _formatDuration(int seconds) {
+    final l10n = AppLocalizations.of(context)!;
+    if (seconds >= 3600) {
+      return l10n.durationHours((seconds / 3600).ceil());
+    } else if (seconds >= 60) {
+      return l10n.durationMinutes((seconds / 60).ceil());
+    } else {
+      return l10n.durationSeconds(seconds);
+    }
+  }
+
+  String _localizeAuthError(
+    String errorCode,
+    String fallback, {
+    int? retryAfterSeconds,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    if (errorCode == 'AUTH_015' && retryAfterSeconds != null) {
+      return l10n.authAccountLocked(_formatDuration(retryAfterSeconds));
+    }
+    return switch (errorCode) {
+      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
+      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
+      AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
+      AuthErrorCode.userNotConfirmed => l10n.authErrorUserNotConfirmed,
+      AuthErrorCode.userNotFound => l10n.invalidCredentials,
+      AuthErrorCode.accountLocked => l10n.authAccountDisabled,
+      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
+      AuthErrorCode.internalServerError => l10n.authServerError,
+      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
+      AuthErrorCode.networkError => l10n.authNetworkError,
+      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
+      AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
+      AuthErrorCode.refreshTokenRevoked => l10n.authErrorTokenExpired,
+      AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
+      AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
+      AuthErrorCode.databaseError => l10n.authErrorDatabase,
+      _ => l10n.genericError,
+    };
+  }
+
   void _handleLogin() {
     // Clear previous errors
     setState(() {
@@ -79,9 +123,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthError) {
+        if (state is AuthAuthenticated) {
+          // Pop self if pushed on top of AuthGate (e.g. from WelcomeScreen).
+          // AuthGate will then show MainNavigation.
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        } else if (state is AuthError) {
           setState(() {
-            _errorMessage = state.errorMessage;
+            _errorMessage = _localizeAuthError(
+              state.errorCode,
+              state.errorMessage,
+              retryAfterSeconds: state.retryAfterSeconds,
+            );
           });
         }
       },
@@ -90,11 +144,13 @@ class _LoginScreenState extends State<LoginScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WelcomeScreen(),
-                ),
-              );
+              if (Navigator.of(context).canPop()) {
+                // Pushed as a route (e.g. from WelcomeScreen) — pop back
+                Navigator.of(context).pop();
+              } else {
+                // Rendered inline by AuthGate — tell AuthGate to show WelcomeScreen
+                context.read<OnboardingBloc>().add(const ShowWelcomeScreen());
+              }
             },
             tooltip: l10n.backToHome,
           ),
@@ -200,11 +256,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         obscureText: _obscurePassword,
+                        maxLength: 128,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return l10n.password;
                           }
-                          if (value.length < 6) {
+                          if (value.length < 8) {
                             return l10n.passwordRequirements;
                           }
                           return null;
@@ -217,9 +274,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            // TODO: Implement forgot password
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(l10n.comingSoon)),
+                            showDialog<void>(
+                              context: context,
+                              builder: (context) {
+                                final l10n = AppLocalizations.of(context)!;
+                                return AlertDialog(
+                                  title: Text(l10n.forgotPassword),
+                                  content: Text(
+                                    l10n.forgotPasswordContactSupport,
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: Text(l10n.ok),
+                                    ),
+                                  ],
+                                );
+                              },
                             );
                           },
                           child: Text(l10n.forgotPassword),
@@ -266,15 +337,26 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    l10n.pleaseWait,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ],
                               )
                             : Text(
                                 l10n.login,

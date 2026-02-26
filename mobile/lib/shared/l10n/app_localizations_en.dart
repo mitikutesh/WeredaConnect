@@ -239,7 +239,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlineModeIndicator => 'You are in offline mode';
 
   @override
-  String get passwordRequirements => 'Password must be at least 6 characters';
+  String get passwordRequirements =>
+      'Password must be at least 8 characters with a lowercase letter and a number';
 
   @override
   String get invalidPhoneFormat =>
@@ -259,6 +260,65 @@ class AppLocalizationsEn extends AppLocalizations {
   String get otpExpired => 'Verification code expired. Request a new one';
 
   @override
+  String get authRateLimitExceeded =>
+      'Too many attempts. Please try again later.';
+
+  @override
+  String get authServerError => 'Server error. Please try again later.';
+
+  @override
+  String get authServiceUnavailable =>
+      'Authentication service temporarily unavailable. Please try again later.';
+
+  @override
+  String get authNetworkError =>
+      'No internet connection. Please check your connection.';
+
+  @override
+  String authAccountLocked(String duration) {
+    return 'Account locked due to too many failed attempts. Try again in $duration.';
+  }
+
+  @override
+  String durationSeconds(int count) {
+    return '$count seconds';
+  }
+
+  @override
+  String durationMinutes(int count) {
+    return '$count minutes';
+  }
+
+  @override
+  String durationHours(int count) {
+    return '$count hours';
+  }
+
+  @override
+  String get phoneNotVerified =>
+      'Phone number not verified. Please complete OTP verification.';
+
+  @override
+  String get authApiNotConfigured =>
+      'App setup incomplete. Please contact support.';
+
+  @override
+  String get authOfflineNotAvailable =>
+      'Please log in online first to enable offline mode.';
+
+  @override
+  String get authAccountDisabled =>
+      'Your account has been disabled. Contact support.';
+
+  @override
+  String get authPasswordResetRequired =>
+      'Password reset required. Please reset your password.';
+
+  @override
+  String get authOtpAttemptsExceeded =>
+      'Too many failed attempts. Request a new code.';
+
+  @override
   String get registrationSuccess =>
       'Registration successful! Please verify your phone';
 
@@ -273,6 +333,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get myListings => 'My Listings';
+
+  @override
+  String get browseListings => 'Browse Listings';
 
   @override
   String get myOrders => 'My Orders';
@@ -392,7 +455,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listingStatusSold => 'Sold';
 
   @override
+  String get listingStatusReserved => 'Reserved';
+
+  @override
   String get listingStatusExpired => 'Expired';
+
+  @override
+  String get listingFilterAll => 'All';
+
+  @override
+  String get listingSeedTestButton => 'Seed Test Listings';
 
   @override
   String get backToHome => 'Back to Home';
@@ -521,6 +593,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get truckerNameRequired => 'Trucker name is required';
 
   @override
+  String get vehiclePlate => 'Vehicle Plate';
+
+  @override
+  String get vehicleDescription => 'Vehicle Description';
+
+  @override
   String get deliveries => 'Deliveries';
 
   @override
@@ -578,6 +656,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryTakePhoto => 'Take Photo';
 
   @override
+  String get deliveryTimeLabel => 'Time';
+
+  @override
   String get deliveryRegenerateQr => 'Regenerate QR';
 
   @override
@@ -588,6 +669,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryBuyer => 'Buyer';
+
+  @override
+  String deliveryGpsAccuracy(String meters) {
+    return 'Accuracy: ${meters}m';
+  }
 
   @override
   String get deliveryGpsCaptured => 'GPS Captured';
@@ -603,6 +689,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryGpsCapturing => 'Capturing GPS...';
+
+  @override
+  String get deliveryGpsLabel => 'GPS';
+
+  @override
+  String get deliveryGpsNotCaptured => 'Not captured';
 
   @override
   String get deliveryGpsPermissionDenied => 'Location permission denied';
@@ -735,4 +827,628 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliverySeedTestButton => 'Seed Test Delivery';
+
+  @override
+  String get escrowPayments => 'Payments';
+
+  @override
+  String get escrowPayForDelivery => 'Pay for Delivery';
+
+  @override
+  String get escrowPaymentStatus => 'Payment Status';
+
+  @override
+  String get escrowPaymentHistory => 'My Payments';
+
+  @override
+  String get escrowRaiseDispute => 'Raise Dispute';
+
+  @override
+  String get escrowStatusInitiated => 'Payment Pending';
+
+  @override
+  String get escrowStatusEscrowed => 'Funds Held Safely';
+
+  @override
+  String get escrowStatusReleased => 'Funds Released';
+
+  @override
+  String get escrowStatusCompleted => 'Payment Complete';
+
+  @override
+  String get escrowStatusCancelled => 'Cancelled';
+
+  @override
+  String get escrowStatusDisputed => 'Under Dispute';
+
+  @override
+  String get escrowStatusRefunded => 'Refunded';
+
+  @override
+  String get escrowProtectionInfo =>
+      'Your payment is held safely until delivery is confirmed.';
+
+  @override
+  String get escrowTotalAmount => 'Total Amount';
+
+  @override
+  String escrowCommission(String rate) {
+    return 'Commission ($rate%)';
+  }
+
+  @override
+  String get escrowFarmerReceives => 'Farmer Receives';
+
+  @override
+  String get escrowConfirmPayment => 'Confirm Payment';
+
+  @override
+  String escrowConfirmPaymentDialog(String amount, String farmerName) {
+    return 'Pay ETB $amount to $farmerName?';
+  }
+
+  @override
+  String get escrowFaydaWarning =>
+      'Fayda ID verification required for amounts above ETB 10,000.';
+
+  @override
+  String get escrowFundsHeldInfo =>
+      'Funds held for 7 days maximum. Refunded if not delivered.';
+
+  @override
+  String get escrowPaymentQueued =>
+      'Payment queued. Will process when you have internet.';
+
+  @override
+  String get escrowPaymentSuccess => 'Payment initiated successfully.';
+
+  @override
+  String get escrowDeliveryLabel => 'Delivery';
+
+  @override
+  String get escrowFarmerLabel => 'Farmer';
+
+  @override
+  String get escrowBuyerLabel => 'Buyer';
+
+  @override
+  String get escrowCreatedLabel => 'Created';
+
+  @override
+  String get escrowExpiresLabel => 'Expires';
+
+  @override
+  String get escrowTelebirrRefLabel => 'Telebirr Ref';
+
+  @override
+  String get escrowMayBeOutdated => 'Status may be outdated. Pull to refresh.';
+
+  @override
+  String escrowLastUpdated(String time) {
+    return 'Last updated $time';
+  }
+
+  @override
+  String get escrowFilterAll => 'All';
+
+  @override
+  String get escrowFilterBuyer => 'As Buyer';
+
+  @override
+  String get escrowFilterFarmer => 'As Farmer';
+
+  @override
+  String escrowPendingSection(int count) {
+    return 'Pending ($count)';
+  }
+
+  @override
+  String get escrowHistorySection => 'History';
+
+  @override
+  String get escrowNoPayments => 'No payments yet.';
+
+  @override
+  String get escrowNoMatchingPayments => 'No matching payments.';
+
+  @override
+  String get escrowCancelIntent => 'Cancel';
+
+  @override
+  String get escrowCancelIntentDialog => 'Cancel this queued payment?';
+
+  @override
+  String get escrowIntentCancelled => 'Queued payment cancelled.';
+
+  @override
+  String escrowDisputeTimeRemaining(int hours, int minutes) {
+    return 'Time remaining: ${hours}h ${minutes}m';
+  }
+
+  @override
+  String get escrowDisputeWindowExpired => 'Dispute window expired.';
+
+  @override
+  String get escrowDisputeReasonLabel => 'Reason';
+
+  @override
+  String get escrowDisputeDescriptionLabel => 'Description (optional)';
+
+  @override
+  String get escrowDisputeDescriptionHint => 'Describe the issue...';
+
+  @override
+  String get escrowDisputeSubmit => 'Submit Dispute';
+
+  @override
+  String get escrowDisputeConfirmDialog =>
+      'This will freeze funds pending review. Continue?';
+
+  @override
+  String get escrowDisputeSuccess =>
+      'Dispute registered. Platform will review within 48 hours.';
+
+  @override
+  String get escrowDisputeReviewInfo =>
+      'Disputes are reviewed by the platform within 48 hours.';
+
+  @override
+  String get escrowDisputeRequiresInternet =>
+      'Internet connection required to raise disputes.';
+
+  @override
+  String get escrowReasonDamagedGoods => 'Damaged goods';
+
+  @override
+  String get escrowReasonWrongQuantity => 'Wrong quantity';
+
+  @override
+  String get escrowReasonWrongCrop => 'Wrong crop type';
+
+  @override
+  String get escrowReasonNotDelivered => 'Not delivered';
+
+  @override
+  String get escrowReasonQualityMismatch => 'Quality mismatch';
+
+  @override
+  String get escrowReasonOther => 'Other';
+
+  @override
+  String get escrowErrorInvalidAmount =>
+      'Amount must be between ETB 100 and ETB 500,000.';
+
+  @override
+  String get escrowErrorFaydaRequired =>
+      'Fayda ID verification required for amounts above ETB 10,000.';
+
+  @override
+  String get escrowErrorAlreadyExists =>
+      'Payment already exists for this delivery.';
+
+  @override
+  String get escrowErrorGateway => 'Telebirr service error. Please try again.';
+
+  @override
+  String get escrowErrorServiceUnavailable =>
+      'Telebirr is currently unavailable. Please try later.';
+
+  @override
+  String get escrowErrorGeneric => 'Something went wrong. Please try again.';
+
+  @override
+  String get escrowErrorAuthRequired => 'Please log in to continue.';
+
+  @override
+  String get escrowErrorConflict => 'This request is already being processed.';
+
+  @override
+  String get escrowErrorRateLimit =>
+      'Too many requests. Please wait and try again.';
+
+  @override
+  String get escrowErrorOffline =>
+      'Internet connection required for this action.';
+
+  @override
+  String escrowEtbAmount(String amount) {
+    return 'ETB $amount';
+  }
+
+  @override
+  String get profileRestartApp => 'Please restart the app';
+
+  @override
+  String get profileLoadError => 'Could not load user profile';
+
+  @override
+  String get escrowTimeline => 'Timeline';
+
+  @override
+  String get escrowDisputeDetailsTitle => 'Dispute Details';
+
+  @override
+  String get recording => 'Recording...';
+
+  @override
+  String get stopRecording => 'Stop Recording';
+
+  @override
+  String get playAudio => 'Play';
+
+  @override
+  String get pauseAudio => 'Pause';
+
+  @override
+  String get deleteRecording => 'Delete Recording';
+
+  @override
+  String get deleteRecordingConfirm => 'Delete this voice note?';
+
+  @override
+  String get microphonePermissionRequired =>
+      'Microphone permission is required to record audio';
+
+  @override
+  String get audioRecorded => 'Voice note recorded';
+
+  @override
+  String get audioTooLong => 'Maximum recording length is 30 seconds';
+
+  @override
+  String get audioRecordingLimit => 'Maximum 30 seconds';
+
+  @override
+  String get reRecord => 'Re-record';
+
+  @override
+  String get audioRecordingFailed => 'Recording failed. Please try again.';
+
+  @override
+  String secondsAbbreviation(int count) {
+    return '${count}s';
+  }
+
+  @override
+  String get dataUsageDownloaded => 'Downloaded';
+
+  @override
+  String get dataUsageUploaded => 'Uploaded';
+
+  @override
+  String get dataUsageTotal => 'Total';
+
+  @override
+  String get dataUsageReset => 'Reset';
+
+  @override
+  String get dataUsageResetConfirm => 'Clear all data usage statistics?';
+
+  @override
+  String get dataUsageTrackingSince => 'Tracking since';
+
+  @override
+  String get conflictTitle => 'Data Updated';
+
+  @override
+  String get conflictExplanation =>
+      'Another device or the server updated this record. Your local copy has been updated to match.';
+
+  @override
+  String get conflictAccept => 'OK, Got It';
+
+  @override
+  String get conflictDismiss => 'Dismiss';
+
+  @override
+  String get conflictEntityCropListing => 'Crop Listing';
+
+  @override
+  String get conflictEntityDelivery => 'Delivery';
+
+  @override
+  String get conflictEntityTrip => 'Trip';
+
+  @override
+  String get conflictServerValues => 'Updated values from server:';
+
+  @override
+  String get conflictNoDetails => 'No details available.';
+
+  @override
+  String conflictBannerSingle(String entityType) {
+    return 'Your $entityType was updated on another device';
+  }
+
+  @override
+  String conflictBannerMultiple(int count) {
+    return '$count items were updated on another device';
+  }
+
+  @override
+  String get conflictBannerAction => 'View Changes';
+
+  @override
+  String get conflictScreenTitle => 'Updates from Sync';
+
+  @override
+  String get conflictYourVersion => 'Your version';
+
+  @override
+  String get conflictCurrentVersion => 'Current version';
+
+  @override
+  String get conflictServerApplied => 'Server version applied';
+
+  @override
+  String get conflictGotIt => 'Got It';
+
+  @override
+  String get conflictEmptyTitle => 'Everything is up to date';
+
+  @override
+  String get conflictEmptySubtitle => 'No changes from other devices.';
+
+  @override
+  String conflictEntityDeleted(String entityType) {
+    return 'This $entityType was removed on another device';
+  }
+
+  @override
+  String get conflictShowAllChanges => 'Show all changes';
+
+  @override
+  String get fraudDuplicateListing =>
+      'A similar listing already exists. Please update your existing listing instead.';
+
+  @override
+  String get fraudVelocityExceeded =>
+      'Too many requests. Please wait a moment and try again.';
+
+  @override
+  String get profileSaved => 'Profile updated';
+
+  @override
+  String get noNotificationsYet => 'No notifications yet';
+
+  @override
+  String get noNotificationsDescription => 'You\'ll see your alerts here';
+
+  @override
+  String get createDelivery => 'Create Delivery';
+
+  @override
+  String get contactFarmer => 'Contact Farmer';
+
+  @override
+  String get detailQuantity => 'Quantity';
+
+  @override
+  String get detailPrice => 'Price';
+
+  @override
+  String get detailCreated => 'Created';
+
+  @override
+  String get filterMin => 'Min';
+
+  @override
+  String get filterMax => 'Max';
+
+  @override
+  String get selectTrip => 'Select Trip';
+
+  @override
+  String get buyerInformation => 'Buyer Information';
+
+  @override
+  String get buyerNameLabel => 'Buyer Name';
+
+  @override
+  String get buyerPhoneIdLabel => 'Buyer Phone / ID';
+
+  @override
+  String get buyerNameRequired => 'Buyer name is required';
+
+  @override
+  String get buyerIdRequired => 'Buyer phone or ID is required';
+
+  @override
+  String get tripSelectionRequired => 'Please select a trip';
+
+  @override
+  String get chooseTripHint => 'Choose a trip';
+
+  @override
+  String get noOpenTrips => 'No open trips available. Create a trip first.';
+
+  @override
+  String get deliveryCreatedSuccess => 'Delivery created successfully';
+
+  @override
+  String get farmerContactInfo => 'Farmer Contact';
+
+  @override
+  String get copiedToClipboard => 'Copied to clipboard';
+
+  @override
+  String get forgotPasswordContactSupport =>
+      'Please contact support at +251-111-234567 to reset your password.';
+
+  @override
+  String resendOtpIn(int seconds) {
+    return 'Resend in ${seconds}s';
+  }
+
+  @override
+  String get otpResent => 'OTP resent successfully';
+
+  @override
+  String get ok => 'OK';
+
+  @override
+  String get tutorialComingSoon =>
+      'Tutorial carousel coming soon. You can explore the app by creating an account!';
+
+  @override
+  String get escrowDescInitiated => 'Waiting for Telebirr confirmation';
+
+  @override
+  String get escrowDescEscrowed => 'Funds held safely until delivery';
+
+  @override
+  String get escrowDescReleased => 'Funds sent to farmer';
+
+  @override
+  String get escrowDescCompleted => 'Transaction settled';
+
+  @override
+  String get escrowDescCancelled => 'Payment was cancelled';
+
+  @override
+  String get escrowDescDisputed => 'Under review by platform';
+
+  @override
+  String get escrowDescRefunded => 'Funds returned to buyer';
+
+  @override
+  String get conflictFieldCropType => 'Crop Type';
+
+  @override
+  String get conflictFieldQuantity => 'Quantity';
+
+  @override
+  String get conflictFieldPricePerKg => 'Price/kg';
+
+  @override
+  String get conflictFieldStatus => 'Status';
+
+  @override
+  String get conflictFieldRoute => 'Route';
+
+  @override
+  String get conflictFieldCapacity => 'Capacity';
+
+  @override
+  String get conflictFieldTrip => 'Trip';
+
+  @override
+  String get escrowPayButton => 'Pay';
+
+  @override
+  String escrowDisputeReasonPrefix(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String escrowDeliveryNumber(String id) {
+    return 'Delivery #$id';
+  }
+
+  @override
+  String escrowPaymentTo(String name) {
+    return 'To: $name';
+  }
+
+  @override
+  String escrowPaymentAmount(String amount) {
+    return 'Payment: ETB $amount';
+  }
+
+  @override
+  String escrowDeliveryShort(String id) {
+    return 'Del. #$id';
+  }
+
+  @override
+  String get escrowQueuedStatus => 'Queued';
+
+  @override
+  String get genericError => 'Something went wrong. Please try again.';
+
+  @override
+  String get authErrorRegistrationFailed =>
+      'Registration failed. Please try again.';
+
+  @override
+  String get authErrorOtpFailed => 'OTP verification failed. Please try again.';
+
+  @override
+  String get authErrorResendOtpFailed =>
+      'Failed to resend OTP. Please try again.';
+
+  @override
+  String get authErrorLoginFailed => 'Login failed. Please try again.';
+
+  @override
+  String get authErrorOfflineLoginFailed =>
+      'Offline login failed. Please log in online first.';
+
+  @override
+  String get authErrorSecureStorage =>
+      'Error accessing secure storage. Please restart the app.';
+
+  @override
+  String get authErrorDatabase => 'Database error. Please restart the app.';
+
+  @override
+  String get authErrorUserNotConfirmed =>
+      'Please verify your phone number first.';
+
+  @override
+  String get authErrorTokenExpired => 'Session expired. Please log in again.';
+
+  @override
+  String get deliveryErrorInvalidId => 'Invalid delivery ID';
+
+  @override
+  String get deliveryErrorStatusInvalid =>
+      'Invalid delivery status for this action';
+
+  @override
+  String get deliveryErrorUnauthorized =>
+      'You are not authorized for this action';
+
+  @override
+  String get deliveryErrorDisputeExpired => 'Dispute window has expired';
+
+  @override
+  String get deliveryErrorDisputeReasonRequired => 'Please provide a reason';
+
+  @override
+  String get deliveryErrorGpsInvalid => 'Invalid GPS coordinates';
+
+  @override
+  String get deliveryErrorGeneric => 'Delivery operation failed';
+
+  @override
+  String get deliveryErrorNotFound => 'Delivery not found';
+
+  @override
+  String get deliveryQrTooLarge => 'QR code too large';
+
+  @override
+  String get deliveryQrIncomplete => 'Incomplete QR data';
+
+  @override
+  String get deliveryQrInvalidData => 'Invalid QR data';
+
+  @override
+  String get deliveryQrWrongDelivery => 'QR code does not match this delivery';
+
+  @override
+  String get deliveryQrInvalidFormat => 'Invalid QR code format';
+
+  @override
+  String get deliveryQrProcessFailed => 'Could not process QR code';
+
+  @override
+  String get escrowPaymentNotFound => 'Payment not found';
+
+  @override
+  String get escrowPaymentNotFoundForDelivery =>
+      'Payment not found for this delivery';
+
+  @override
+  String get pleaseWait => 'Please wait...';
 }

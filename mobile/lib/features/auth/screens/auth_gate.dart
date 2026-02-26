@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
@@ -14,7 +15,8 @@ import 'package:wereda_connect/screens/main_navigation.dart';
 /// Root routing widget that declaratively switches screens based on auth state.
 ///
 /// Uses BlocBuilder to react to AuthBloc state changes:
-/// - AuthInitial / AuthLoading → splash screen
+/// - AuthInitial → splash screen
+/// - AuthLoading → ignored (current screen stays, shows its own spinner)
 /// - AuthAuthenticated → MainNavigation
 /// - AuthOtpVerificationRequired → OtpVerificationScreen
 /// - AuthUnauthenticated / AuthError → Check onboarding state
@@ -38,6 +40,11 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
+      // Don't rebuild on AuthLoading — let the current screen handle it
+      // with its own inline loading indicator. Without this, emitting
+      // AuthLoading during OTP verification would swap the OTP screen for
+      // WelcomeScreen/LoginScreen, then flash back on AuthAuthenticated.
+      buildWhen: (previous, current) => current is! AuthLoading,
       builder: (context, authState) {
         // If authenticated, mark welcome as seen and go to main app
         if (authState is AuthAuthenticated) {
@@ -51,12 +58,12 @@ class _AuthGateState extends State<AuthGate> {
           return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
-        // If still loading auth state, show splash
-        if (authState is AuthInitial || authState is AuthLoading) {
+        // If initial auth check still in progress, show splash
+        if (authState is AuthInitial) {
           return const _SplashScreen();
         }
 
-        // AuthUnauthenticated or AuthError - check onboarding state
+        // AuthUnauthenticated or AuthError — check onboarding state
         return BlocBuilder<OnboardingBloc, OnboardingState>(
           builder: (context, onboardingState) {
             // If first launch, show welcome screen
@@ -98,7 +105,7 @@ class _SplashScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Text(
-              'WeredaConnect',
+              AppLocalizations.of(context)?.appName ?? 'WeredaConnect',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: theme.primaryColor,

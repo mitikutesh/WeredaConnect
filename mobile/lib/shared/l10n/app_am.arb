@@ -304,7 +304,7 @@
   "@offlineModeIndicator": {
     "description": "Offline mode indicator message"
   },
-  "passwordRequirements": "የይለፍ ቃል ቢያንስ 6 ቁምፊዎች መሆን አለበት",
+  "passwordRequirements": "የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት",
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
@@ -328,6 +328,77 @@
   "@otpExpired": {
     "description": "Error message for expired OTP"
   },
+  "authRateLimitExceeded": "ብዙ ጊዜ ሞክረዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authRateLimitExceeded": {
+    "description": "Error message when rate limit exceeded during auth"
+  },
+  "authServerError": "የሰርቨር ስህተት። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authServerError": {
+    "description": "Error message for generic server error during auth"
+  },
+  "authServiceUnavailable": "የማረጋገጫ አገልግሎት ጊዜያዊ አይገኝም። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@authServiceUnavailable": {
+    "description": "Error message when auth service is unavailable"
+  },
+  "authNetworkError": "የበይነመረብ ግንኙነት የለም። እባክዎ ግንኙነትዎን ያረጋግጡ።",
+  "@authNetworkError": {
+    "description": "Error message when network is unavailable during auth"
+  },
+  "authAccountLocked": "ብዙ ጊዜ ያልተሳካ ሙከራ ስለነበር መለያዎ ተቆልፏል። ከ{duration} በኋላ እንደገና ይሞክሩ።",
+  "@authAccountLocked": {
+    "description": "Error message when account is locked due to too many failed login attempts",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "15 ደቂቃ"
+      }
+    }
+  },
+  "durationSeconds": "{count} ሰከንዶች",
+  "@durationSeconds": {
+    "description": "Duration in seconds",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationMinutes": "{count} ደቂቃ",
+  "@durationMinutes": {
+    "description": "Duration in minutes",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "durationHours": "{count} ሰዓት",
+  "@durationHours": {
+    "description": "Duration in hours",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "phoneNotVerified": "ስልክ ቁጥር አልተረጋገጠም። እባክዎ የOTP ማረጋገጫን ያጠናቅቁ።",
+  "@phoneNotVerified": {
+    "description": "Error message when user tries to login but phone is not verified"
+  },
+  "authApiNotConfigured": "የመተግበሪያ ማዋቀር አልተጠናቀቀም። እባክዎ ድጋፍን ያግኙ።",
+  "@authApiNotConfigured": {
+    "description": "Error message when API credentials are not configured at build time"
+  },
+  "authOfflineNotAvailable": "ከመስመር ውጭ ሁነታን ለማንቃት እባክዎ በመጀመሪያ በመስመር ላይ ይግቡ።",
+  "@authOfflineNotAvailable": {
+    "description": "Error message when user tries offline login without prior online login"
+  },
+  "authAccountDisabled": "መለያዎ ተሰናክሏል። ድጋፍን ያግኙ።",
+  "@authAccountDisabled": {
+    "description": "Error message when user account is disabled"
+  },
+  "authPasswordResetRequired": "የይለፍ ቃል ዳግም ማዘጋጀት ያስፈልጋል። እባክዎ የይለፍ ቃልዎን ያስተካክሉ።",
+  "@authPasswordResetRequired": {
+    "description": "Error message when password reset is required before login"
+  },
+  "authOtpAttemptsExceeded": "ብዙ ያልተሳኩ ሙከራዎች። አዲስ ኮድ ይጠይቁ።",
+  "@authOtpAttemptsExceeded": {
+    "description": "Error message when OTP verification attempts are exhausted"
+  },
   "registrationSuccess": "ምዝገባ ተሳክቷል! እባክዎ ስልክዎን ያረጋግጡ",
   "@registrationSuccess": {
     "description": "Success message after registration"
@@ -347,6 +418,10 @@
   "myListings": "የእኔ ዝርዝሮች",
   "@myListings": {
     "description": "My listings menu item"
+  },
+  "browseListings": "ዝርዝሮችን ያስሱ",
+  "@browseListings": {
+    "description": "Browse listings tab label for non-farmer roles"
   },
   "myOrders": "የእኔ ትዕዛዞች",
   "@myOrders": {
@@ -506,9 +581,21 @@
   "@listingStatusSold": {
     "description": "Status label for sold crop listing"
   },
+  "listingStatusReserved": "ተይዟል",
+  "@listingStatusReserved": {
+    "description": "Status label for reserved crop listing (matched with trip, pending pickup)"
+  },
   "listingStatusExpired": "ጊዜው አልፏል",
   "@listingStatusExpired": {
     "description": "Status label for expired crop listing"
+  },
+  "listingFilterAll": "ሁሉም",
+  "@listingFilterAll": {
+    "description": "Filter label to show all listing statuses"
+  },
+  "listingSeedTestButton": "የሙከራ ዝርዝሮች ፍጠር",
+  "@listingSeedTestButton": {
+    "description": "Debug button text to create test crop listings"
   },
   "backToHome": "ወደ መነሻ ይመለሱ",
   "@backToHome": {
@@ -678,6 +765,14 @@
   "@truckerNameRequired": {
     "description": "Validation error when trucker name is not entered"
   },
+  "vehiclePlate": "የመኪና ሰሌዳ",
+  "@vehiclePlate": {
+    "description": "Label for vehicle license plate number field"
+  },
+  "vehicleDescription": "የመኪና መግለጫ",
+  "@vehicleDescription": {
+    "description": "Label for vehicle description field"
+  },
   "deliveries": "ማድረሻዎች",
   "@deliveries": {
     "description": "Deliveries navigation tab label"
@@ -754,6 +849,10 @@
   "@deliveryTakePhoto": {
     "description": "Button to capture photo evidence"
   },
+  "deliveryTimeLabel": "ሰዓት",
+  "@deliveryTimeLabel": {
+    "description": "Label for time data row in pickup/delivery sections"
+  },
   "deliveryRegenerateQr": "ኪዩአር እንደገና ፍጠር",
   "@deliveryRegenerateQr": {
     "description": "Button to regenerate QR code"
@@ -769,6 +868,16 @@
   "deliveryBuyer": "ገዥ",
   "@deliveryBuyer": {
     "description": "Participant label for buyer in delivery"
+  },
+  "deliveryGpsAccuracy": "ትክክለኛነት: {meters}ሜ",
+  "@deliveryGpsAccuracy": {
+    "description": "GPS accuracy display with distance in meters",
+    "placeholders": {
+      "meters": {
+        "type": "String",
+        "example": "5"
+      }
+    }
   },
   "deliveryGpsCaptured": "ጂፒኤስ ተቀርጿል",
   "@deliveryGpsCaptured": {
@@ -789,6 +898,14 @@
   "deliveryGpsCapturing": "ጂፒኤስ በመቀረጽ...",
   "@deliveryGpsCapturing": {
     "description": "GPS capture in progress"
+  },
+  "deliveryGpsLabel": "ጂፒኤስ",
+  "@deliveryGpsLabel": {
+    "description": "Label for GPS location data row"
+  },
+  "deliveryGpsNotCaptured": "አልተቀረጸም",
+  "@deliveryGpsNotCaptured": {
+    "description": "Placeholder when GPS location was not captured"
   },
   "deliveryGpsPermissionDenied": "የአካባቢ ፈቃድ ተከልክሏል",
   "@deliveryGpsPermissionDenied": {
@@ -965,6 +1082,840 @@
   "deliverySeedTestButton": "የሙከራ ማድረሻ ፍጠር",
   "@deliverySeedTestButton": {
     "description": "Debug button text to create a test delivery"
+  },
+
+  "@@escrowPaymentSection": "=== Escrow Payment Feature ===",
+
+  "escrowPayments": "ክፍያዎች",
+  "@escrowPayments": {
+    "description": "Navigation label for escrow payments section"
+  },
+  "escrowPayForDelivery": "ለማድረሻ ክፈል",
+  "@escrowPayForDelivery": {
+    "description": "Screen title for initiating escrow payment"
+  },
+  "escrowPaymentStatus": "የክፍያ ሁኔታ",
+  "@escrowPaymentStatus": {
+    "description": "Screen title for viewing single escrow status"
+  },
+  "escrowPaymentHistory": "የክፍያ ታሪክ",
+  "@escrowPaymentHistory": {
+    "description": "Screen title for payment history list"
+  },
+  "escrowRaiseDispute": "ክርክር አቅርብ",
+  "@escrowRaiseDispute": {
+    "description": "Screen title for raising an escrow dispute"
+  },
+
+  "escrowStatusInitiated": "ክፍያ በመጠባበቅ",
+  "@escrowStatusInitiated": {
+    "description": "Status label when escrow payment is initiated but not yet held"
+  },
+  "escrowStatusEscrowed": "ገንዘብ በጥበቃ ተይዟል",
+  "@escrowStatusEscrowed": {
+    "description": "Status label when funds are held in escrow"
+  },
+  "escrowStatusReleased": "ገንዘብ ተለቋል",
+  "@escrowStatusReleased": {
+    "description": "Status label when funds have been released to farmer"
+  },
+  "escrowStatusCompleted": "ክፍያ ተጠናቋል",
+  "@escrowStatusCompleted": {
+    "description": "Status label when escrow transaction is fully settled"
+  },
+  "escrowStatusCancelled": "ተሰርዟል",
+  "@escrowStatusCancelled": {
+    "description": "Status label when escrow payment was cancelled"
+  },
+  "escrowStatusDisputed": "ክርክር ቀርቧል",
+  "@escrowStatusDisputed": {
+    "description": "Status label when escrow payment is under dispute"
+  },
+  "escrowStatusRefunded": "ተመላሽ ሆኗል",
+  "@escrowStatusRefunded": {
+    "description": "Status label when escrow payment has been refunded"
+  },
+
+  "escrowProtectionInfo": "ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።",
+  "@escrowProtectionInfo": {
+    "description": "Trust-building message explaining escrow protection"
+  },
+  "escrowTotalAmount": "ጠቅላላ መጠን",
+  "@escrowTotalAmount": {
+    "description": "Label for total payment amount"
+  },
+  "escrowCommission": "ኮሚሽን ({rate}%)",
+  "@escrowCommission": {
+    "description": "Label for platform commission with percentage rate",
+    "placeholders": {
+      "rate": {
+        "type": "String",
+        "example": "2.5"
+      }
+    }
+  },
+  "escrowFarmerReceives": "ገበሬው የሚቀበለው",
+  "@escrowFarmerReceives": {
+    "description": "Label for net amount farmer will receive after commission"
+  },
+  "escrowConfirmPayment": "ክፍያ አረጋግጥ",
+  "@escrowConfirmPayment": {
+    "description": "Button label to confirm and initiate escrow payment"
+  },
+  "escrowConfirmPaymentDialog": "ብር {amount} ለ{farmerName} ይከፈል?",
+  "@escrowConfirmPaymentDialog": {
+    "description": "Confirmation dialog message before payment",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      },
+      "farmerName": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowFaydaWarning": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "@escrowFaydaWarning": {
+    "description": "Warning shown when payment amount exceeds Fayda ID threshold"
+  },
+  "escrowFundsHeldInfo": "ገንዘብ ቢበዛ ለ7 ቀናት ይቀመጣል። ካልደረሰ ተመላሽ ይሆናል።",
+  "@escrowFundsHeldInfo": {
+    "description": "Info text explaining escrow fund holding period"
+  },
+  "escrowPaymentQueued": "ክፍያ ተመዝግቧል። ኢንተርኔት ሲኖር ይከናወናል።",
+  "@escrowPaymentQueued": {
+    "description": "Message shown when payment intent is queued offline"
+  },
+  "escrowPaymentSuccess": "ክፍያ በተሳካ ሁኔታ ተጀምሯል።",
+  "@escrowPaymentSuccess": {
+    "description": "Success message after payment is initiated"
+  },
+
+  "escrowDeliveryLabel": "ማድረሻ",
+  "@escrowDeliveryLabel": {
+    "description": "Label for delivery reference on escrow status screen"
+  },
+  "escrowFarmerLabel": "ገበሬ",
+  "@escrowFarmerLabel": {
+    "description": "Label for farmer name on escrow status screen"
+  },
+  "escrowBuyerLabel": "ገዢ",
+  "@escrowBuyerLabel": {
+    "description": "Label for buyer name on escrow status screen"
+  },
+  "escrowCreatedLabel": "የተፈጠረ",
+  "@escrowCreatedLabel": {
+    "description": "Label for escrow creation date"
+  },
+  "escrowExpiresLabel": "የሚያልቅ",
+  "@escrowExpiresLabel": {
+    "description": "Label for escrow expiration date"
+  },
+  "escrowTelebirrRefLabel": "ቴሌብር ማጣቀሻ",
+  "@escrowTelebirrRefLabel": {
+    "description": "Label for Telebirr transaction reference number"
+  },
+  "escrowMayBeOutdated": "ሁኔታ ያረጀ ሊሆን ይችላል። ለማዘመን ይጎትቱ።",
+  "@escrowMayBeOutdated": {
+    "description": "Warning shown when cached escrow data may be stale"
+  },
+  "escrowLastUpdated": "ለመጨረሻ ጊዜ የዘመነ {time}",
+  "@escrowLastUpdated": {
+    "description": "Label showing when escrow data was last refreshed",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "5 min ago"
+      }
+    }
+  },
+
+  "escrowFilterAll": "ሁሉም",
+  "@escrowFilterAll": {
+    "description": "Filter chip label to show all escrow payments"
+  },
+  "escrowFilterBuyer": "እንደ ገዢ",
+  "@escrowFilterBuyer": {
+    "description": "Filter chip to show payments where user is buyer"
+  },
+  "escrowFilterFarmer": "እንደ ገበሬ",
+  "@escrowFilterFarmer": {
+    "description": "Filter chip to show payments where user is farmer"
+  },
+  "escrowPendingSection": "በመጠባበቅ ({count})",
+  "@escrowPendingSection": {
+    "description": "Section header for pending payment intents with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "escrowHistorySection": "ታሪክ",
+  "@escrowHistorySection": {
+    "description": "Section header for confirmed payment history"
+  },
+  "escrowNoPayments": "እስካሁን ክፍያ የለም።",
+  "@escrowNoPayments": {
+    "description": "Empty state message when user has no payment history"
+  },
+  "escrowNoMatchingPayments": "ተመሳሳይ ክፍያ አልተገኘም።",
+  "@escrowNoMatchingPayments": {
+    "description": "Empty state when no payments match the active filter"
+  },
+  "escrowCancelIntent": "ሰርዝ",
+  "@escrowCancelIntent": {
+    "description": "Button to cancel a queued payment intent"
+  },
+  "escrowCancelIntentDialog": "ይህ በመጠባበቅ ላይ ያለ ክፍያ ይሰረዝ?",
+  "@escrowCancelIntentDialog": {
+    "description": "Confirmation dialog for cancelling a queued payment intent"
+  },
+  "escrowIntentCancelled": "በመጠባበቅ ላይ ያለ ክፍያ ተሰርዟል።",
+  "@escrowIntentCancelled": {
+    "description": "Success message after cancelling a queued payment intent"
+  },
+
+  "escrowDisputeTimeRemaining": "ቀሪ ጊዜ: {hours} ሰዓት {minutes} ደቂቃ",
+  "@escrowDisputeTimeRemaining": {
+    "description": "Countdown showing remaining time to raise a dispute",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "23"
+      },
+      "minutes": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+  "escrowDisputeWindowExpired": "የክርክር ጊዜ አልፏል።",
+  "@escrowDisputeWindowExpired": {
+    "description": "Message when the 48-hour dispute window has passed"
+  },
+  "escrowDisputeReasonLabel": "ምክንያት",
+  "@escrowDisputeReasonLabel": {
+    "description": "Label for dispute reason selection"
+  },
+  "escrowDisputeDescriptionLabel": "ዝርዝር መግለጫ (አማራጭ)",
+  "@escrowDisputeDescriptionLabel": {
+    "description": "Label for optional dispute description text field"
+  },
+  "escrowDisputeDescriptionHint": "ችግሩን ይግለጹ...",
+  "@escrowDisputeDescriptionHint": {
+    "description": "Hint text for dispute description input field"
+  },
+  "escrowDisputeSubmit": "ክርክር ያቅርቡ",
+  "@escrowDisputeSubmit": {
+    "description": "Button to submit a dispute on an escrow payment"
+  },
+  "escrowDisputeConfirmDialog": "ይህ ክፍያውን ለክርክር ያቆማል። ይቀጥሉ?",
+  "@escrowDisputeConfirmDialog": {
+    "description": "Confirmation dialog before submitting a dispute"
+  },
+  "escrowDisputeSuccess": "ክርክር ተመዝግቧል። መድረኩ በ48 ሰዓት ውስጥ ይገመግማል።",
+  "@escrowDisputeSuccess": {
+    "description": "Success message after dispute is submitted"
+  },
+  "escrowDisputeReviewInfo": "ክርክሮች በመድረኩ በ48 ሰዓት ውስጥ ይገመገማሉ።",
+  "@escrowDisputeReviewInfo": {
+    "description": "Info text about dispute review process"
+  },
+  "escrowDisputeRequiresInternet": "ክርክር ለማቅረብ የኢንተርኔት ግንኙነት ያስፈልጋል።",
+  "@escrowDisputeRequiresInternet": {
+    "description": "Error message when user tries to raise dispute while offline"
+  },
+
+  "escrowReasonDamagedGoods": "የተበላሸ ዕቃ",
+  "@escrowReasonDamagedGoods": {
+    "description": "Dispute reason: goods were damaged"
+  },
+  "escrowReasonWrongQuantity": "የተሳሳተ መጠን",
+  "@escrowReasonWrongQuantity": {
+    "description": "Dispute reason: received wrong quantity"
+  },
+  "escrowReasonWrongCrop": "የተሳሳተ የሰብል ዓይነት",
+  "@escrowReasonWrongCrop": {
+    "description": "Dispute reason: received wrong crop type"
+  },
+  "escrowReasonNotDelivered": "አልደረሰም",
+  "@escrowReasonNotDelivered": {
+    "description": "Dispute reason: goods were not delivered"
+  },
+  "escrowReasonQualityMismatch": "ጥራት አይዛመድም",
+  "@escrowReasonQualityMismatch": {
+    "description": "Dispute reason: quality does not match listing"
+  },
+  "escrowReasonOther": "ሌላ",
+  "@escrowReasonOther": {
+    "description": "Dispute reason: other reason not listed"
+  },
+
+  "escrowErrorInvalidAmount": "መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።",
+  "@escrowErrorInvalidAmount": {
+    "description": "Error when payment amount is outside allowed range"
+  },
+  "escrowErrorFaydaRequired": "ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።",
+  "@escrowErrorFaydaRequired": {
+    "description": "Error when Fayda ID is required but not verified"
+  },
+  "escrowErrorAlreadyExists": "ለዚህ ማድረሻ ክፍያ ቀድሞ ተከፍሏል።",
+  "@escrowErrorAlreadyExists": {
+    "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorGateway": "የቴሌብር አገልግሎት ስህተት። እባክዎ እንደገና ይሞክሩ።",
+  "@escrowErrorGateway": {
+    "description": "Error when Telebirr gateway returns an error"
+  },
+  "escrowErrorServiceUnavailable": "ቴሌብር በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
+  "@escrowErrorServiceUnavailable": {
+    "description": "Error when Telebirr service is down"
+  },
+  "escrowErrorGeneric": "ያልተጠበቀ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
+  "@escrowErrorGeneric": {
+    "description": "Generic fallback error message for escrow operations"
+  },
+  "escrowErrorAuthRequired": "እባክዎ ለመቀጠል ይግቡ።",
+  "@escrowErrorAuthRequired": {
+    "description": "Error when authentication is required for escrow operation"
+  },
+  "escrowErrorConflict": "ይህ ጥያቄ ቀድሞ በሂደት ላይ ነው።",
+  "@escrowErrorConflict": {
+    "description": "Error when a duplicate/conflicting escrow request is detected"
+  },
+  "escrowErrorRateLimit": "ብዙ ጥያቄዎች ተልከዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "@escrowErrorRateLimit": {
+    "description": "Error when escrow rate limit is exceeded"
+  },
+  "escrowErrorOffline": "ለዚህ ድርጊት የኢንተርኔት ግንኙነት ያስፈልጋል።",
+  "@escrowErrorOffline": {
+    "description": "Error when escrow action requires internet but device is offline"
+  },
+
+  "escrowEtbAmount": "ብር {amount}",
+  "@escrowEtbAmount": {
+    "description": "Formatted ETB currency amount",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+
+  "@@audioNoteSection": "=== Audio Note Feature ===",
+
+  "recording": "በመቅዳት ላይ...",
+  "@recording": {
+    "description": "Label shown while recording audio"
+  },
+  "stopRecording": "ቅዳት አቁም",
+  "@stopRecording": {
+    "description": "Button to stop audio recording"
+  },
+  "playAudio": "አጫውት",
+  "@playAudio": {
+    "description": "Button to play audio"
+  },
+  "pauseAudio": "አቁም",
+  "@pauseAudio": {
+    "description": "Button to pause audio playback"
+  },
+  "deleteRecording": "ቅዳት ሰርዝ",
+  "@deleteRecording": {
+    "description": "Button to delete a voice note recording"
+  },
+  "deleteRecordingConfirm": "ይህን የድምጽ ማስታወሻ ይሰርዙ?",
+  "@deleteRecordingConfirm": {
+    "description": "Confirmation dialog for deleting a voice note"
+  },
+  "microphonePermissionRequired": "ድምጽ ለመቅዳት የማይክሮፎን ፈቃድ ያስፈልጋል",
+  "@microphonePermissionRequired": {
+    "description": "Error when microphone permission is denied"
+  },
+  "audioRecorded": "የድምጽ ማስታወሻ ተቀድቷል",
+  "@audioRecorded": {
+    "description": "Success message after recording completes"
+  },
+  "audioTooLong": "ከፍተኛ የቅዳት ጊዜ 30 ሰከንድ ነው",
+  "@audioTooLong": {
+    "description": "Warning when recording reaches max duration"
+  },
+  "audioRecordingLimit": "ከፍተኛ 30 ሰከንድ",
+  "@audioRecordingLimit": {
+    "description": "Hint text shown below the record button indicating the recording time limit"
+  },
+  "reRecord": "እንደገና ቅዳ",
+  "@reRecord": {
+    "description": "Button label to re-record a voice note"
+  },
+  "audioRecordingFailed": "ቅዳት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+  "@audioRecordingFailed": {
+    "description": "Error message when recording fails"
+  },
+  "secondsAbbreviation": "{count}ሰ",
+  "@secondsAbbreviation": {
+    "description": "Abbreviated seconds display for duration",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "30"
+      }
+    }
+  },
+  "profileRestartApp": "እባክዎ ፕሮግራሙን እንደገና ያስነሱ",
+  "@profileRestartApp": {
+    "description": "Message shown when user is not authenticated — prompt to restart"
+  },
+  "profileLoadError": "የተጠቃሚ መረጃ ሊጫን አልቻለም",
+  "@profileLoadError": {
+    "description": "Error message when profile data cannot be loaded from the database"
+  },
+  "escrowTimeline": "ጊዜ ሰሌዳ",
+  "@escrowTimeline": {
+    "description": "Section heading for escrow event timeline on status screen"
+  },
+  "escrowDisputeDetailsTitle": "የቅሬታ ዝርዝር",
+  "@escrowDisputeDetailsTitle": {
+    "description": "Section heading for dispute info card on escrow status screen"
+  },
+  "dataUsageDownloaded": "የተቀበሉ",
+  "@dataUsageDownloaded": {
+    "description": "Label for bytes downloaded counter"
+  },
+  "dataUsageUploaded": "የተላኩ",
+  "@dataUsageUploaded": {
+    "description": "Label for bytes uploaded counter"
+  },
+  "dataUsageTotal": "ጠቅላላ",
+  "@dataUsageTotal": {
+    "description": "Label for combined total bytes"
+  },
+  "dataUsageReset": "ዳግም አስጀምር",
+  "@dataUsageReset": {
+    "description": "Button to reset data usage statistics"
+  },
+  "dataUsageResetConfirm": "የውሂብ አጠቃቀም ስታቲስቲክስ ይደመሰስ?",
+  "@dataUsageResetConfirm": {
+    "description": "Confirmation dialog message before resetting stats"
+  },
+  "dataUsageTrackingSince": "ከ ጀምሮ",
+  "@dataUsageTrackingSince": {
+    "description": "Label prefix shown before the tracking start date"
+  },
+
+  "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
+
+  "conflictTitle": "ዳታ ተዘምኗል",
+  "@conflictTitle": {
+    "description": "Title shown on conflict resolution modal when server overwrites local data"
+  },
+  "conflictExplanation": "ሌላ መሳሪያ ወይም አገልጋይ ይህን መዝገብ ዘምኗል። የአካባቢ ቅጂዎ ተዘምኗል።",
+  "@conflictExplanation": {
+    "description": "Explanation of what happened during a sync conflict"
+  },
+  "conflictAccept": "እሺ፣ ገባኝ",
+  "@conflictAccept": {
+    "description": "Primary button to acknowledge the conflict resolution"
+  },
+  "conflictDismiss": "ዝጋ",
+  "@conflictDismiss": {
+    "description": "Secondary button to dismiss the conflict notification"
+  },
+  "conflictEntityCropListing": "የሰብል ዝርዝር",
+  "@conflictEntityCropListing": {
+    "description": "Entity type label for crop listing in conflict dialog"
+  },
+  "conflictEntityDelivery": "ማድረስ",
+  "@conflictEntityDelivery": {
+    "description": "Entity type label for delivery in conflict dialog"
+  },
+  "conflictEntityTrip": "ጉዞ",
+  "@conflictEntityTrip": {
+    "description": "Entity type label for trip in conflict dialog"
+  },
+  "conflictServerValues": "የአሁኑ እሴቶች",
+  "@conflictServerValues": {
+    "description": "Section header showing server-side field values"
+  },
+  "conflictNoDetails": "ምንም ዝርዝሮች የሉም",
+  "@conflictNoDetails": {
+    "description": "Shown when conflict event has no displayable field changes"
+  },
+  "conflictBannerSingle": "የእርስዎ {entityType} በሌላ መሳሪያ ተዘምኗል",
+  "@conflictBannerSingle": {
+    "description": "Banner text for single conflict notification",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictBannerMultiple": "{count} መዝገቦች ተዘምነዋል",
+  "@conflictBannerMultiple": {
+    "description": "Banner text for multiple conflict notifications",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "conflictBannerAction": "ለውጦችን ይመልከቱ",
+  "@conflictBannerAction": {
+    "description": "Action button text on conflict notification banner"
+  },
+  "conflictScreenTitle": "ዝማኔዎች",
+  "@conflictScreenTitle": {
+    "description": "App bar title for conflict resolution screen"
+  },
+  "conflictYourVersion": "የእርስዎ ስሪት",
+  "@conflictYourVersion": {
+    "description": "Label for user's local version in conflict diff"
+  },
+  "conflictCurrentVersion": "የአሁኑ ስሪት",
+  "@conflictCurrentVersion": {
+    "description": "Label for server's current version in conflict diff"
+  },
+  "conflictServerApplied": "የአሁኑ ስሪት ተፈጽሟል",
+  "@conflictServerApplied": {
+    "description": "Badge text confirming server version was applied"
+  },
+  "conflictGotIt": "ገባኝ",
+  "@conflictGotIt": {
+    "description": "Primary button to acknowledge and dismiss all conflicts"
+  },
+  "conflictEmptyTitle": "ሁሉም ወቅታዊ ነው",
+  "@conflictEmptyTitle": {
+    "description": "Empty state title when no conflicts exist"
+  },
+  "conflictEmptySubtitle": "ምንም ዝማኔዎች የሉም",
+  "@conflictEmptySubtitle": {
+    "description": "Empty state subtitle when no conflicts exist"
+  },
+  "conflictEntityDeleted": "ይህ {entityType} ተሰርዟል",
+  "@conflictEntityDeleted": {
+    "description": "Message when a conflicting entity was deleted on server",
+    "placeholders": {
+      "entityType": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictShowAllChanges": "ሁሉንም ለውጦች አሳይ",
+  "@conflictShowAllChanges": {
+    "description": "Expandable button to show all field changes when more than 4 fields changed"
+  },
+
+  "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
+
+  "fraudDuplicateListing": "ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።",
+  "@fraudDuplicateListing": {
+    "description": "Error when duplicate crop listing detected by server fraud check"
+  },
+  "fraudVelocityExceeded": "በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።",
+  "@fraudVelocityExceeded": {
+    "description": "Error when velocity limit exceeded by server fraud check"
+  },
+
+  "profileSaved": "መገለጫ ተዘምኗል",
+  "@profileSaved": {
+    "description": "Snackbar message after profile is saved successfully"
+  },
+  "noNotificationsYet": "እስካሁን ማሳወቂያዎች የሉም",
+  "@noNotificationsYet": {
+    "description": "Empty state title on notifications screen"
+  },
+  "noNotificationsDescription": "ማስጠንቀቂያዎችዎ እዚህ ይታያሉ",
+  "@noNotificationsDescription": {
+    "description": "Empty state subtitle on notifications screen"
+  },
+  "createDelivery": "ማድረስ ፍጠር",
+  "contactFarmer": "ገበሬውን አግኝ",
+  "detailQuantity": "መጠን",
+  "detailPrice": "ዋጋ",
+  "detailCreated": "የተፈጠረ",
+  "filterMin": "ዝቅተኛ",
+  "filterMax": "ከፍተኛ",
+  "selectTrip": "ጉዞ ይምረጡ",
+  "buyerInformation": "የገዢ መረጃ",
+  "buyerNameLabel": "የገዢ ስም",
+  "buyerPhoneIdLabel": "የገዢ ስልክ / መታወቂያ",
+  "buyerNameRequired": "የገዢ ስም ያስፈልጋል",
+  "buyerIdRequired": "የገዢ ስልክ ወይም መታወቂያ ያስፈልጋል",
+  "tripSelectionRequired": "እባክዎ ጉዞ ይምረጡ",
+  "chooseTripHint": "ጉዞ ይምረጡ",
+  "noOpenTrips": "ክፍት ጉዞ የለም። መጀመሪያ ጉዞ ይፍጠሩ።",
+  "deliveryCreatedSuccess": "ማድረስ በተሳካ ሁኔታ ተፈጥሯል",
+  "farmerContactInfo": "የገበሬ መረጃ",
+  "@farmerContactInfo": {
+    "description": "Title for farmer contact info bottom sheet"
+  },
+  "copiedToClipboard": "ተቀድቷል",
+  "@copiedToClipboard": {
+    "description": "Snackbar message after copying text to clipboard"
+  },
+  "forgotPasswordContactSupport": "የይለፍ ቃልዎን ለማስቀየር እባክዎ በ +251-111-234567 ድጋፍን ያግኙ።",
+  "@forgotPasswordContactSupport": {
+    "description": "Message shown in forgot password dialog with support contact info"
+  },
+  "resendOtpIn": "በ{seconds} ሰከንድ ውስጥ እንደገና ላክ",
+  "@resendOtpIn": {
+    "description": "Countdown text for OTP resend button",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpResent": "ኦቲፒ በተሳካ ሁኔታ ተልኳል",
+  "@otpResent": {
+    "description": "Snackbar message after OTP is resent"
+  },
+  "ok": "እሺ",
+  "@ok": {
+    "description": "Generic OK button label"
+  },
+  "tutorialComingSoon": "የመማሪያ ካሩሴል በቅርቡ ይመጣል። መለያ በመፍጠር መተግበሪያውን ማሰስ ይችላሉ!",
+  "@tutorialComingSoon": {
+    "description": "Snackbar message shown when user taps How it works chip on welcome screen"
+  },
+
+  "@@p0LocalizationFixes": "=== P0 Localization Fixes (FIX-013 to FIX-018) ===",
+
+  "escrowDescInitiated": "የቴሌብር ማረጋገጫ በመጠበቅ ላይ",
+  "@escrowDescInitiated": {
+    "description": "Status description for initiated escrow payment"
+  },
+  "escrowDescEscrowed": "ገንዘቡ እስከ ማድረስ ድረስ በጥበቃ ላይ ነው",
+  "@escrowDescEscrowed": {
+    "description": "Status description for escrowed payment"
+  },
+  "escrowDescReleased": "ገንዘቡ ለገበሬው ተልኳል",
+  "@escrowDescReleased": {
+    "description": "Status description for released payment"
+  },
+  "escrowDescCompleted": "ግብይቱ ተጠናቋል",
+  "@escrowDescCompleted": {
+    "description": "Status description for completed escrow"
+  },
+  "escrowDescCancelled": "ክፍያው ተሰርዟል",
+  "@escrowDescCancelled": {
+    "description": "Status description for cancelled escrow"
+  },
+  "escrowDescDisputed": "በመድረኩ ግምገማ ላይ",
+  "@escrowDescDisputed": {
+    "description": "Status description for disputed escrow"
+  },
+  "escrowDescRefunded": "ገንዘቡ ለገዢው ተመልሷል",
+  "@escrowDescRefunded": {
+    "description": "Status description for refunded escrow"
+  },
+
+  "conflictFieldCropType": "የሰብል ዓይነት",
+  "@conflictFieldCropType": {
+    "description": "Field label for crop type in conflict resolution"
+  },
+  "conflictFieldQuantity": "መጠን",
+  "@conflictFieldQuantity": {
+    "description": "Field label for quantity in conflict resolution"
+  },
+  "conflictFieldPricePerKg": "ዋጋ/ኪግ",
+  "@conflictFieldPricePerKg": {
+    "description": "Field label for price per kg in conflict resolution"
+  },
+  "conflictFieldStatus": "ሁኔታ",
+  "@conflictFieldStatus": {
+    "description": "Field label for status in conflict resolution"
+  },
+  "conflictFieldRoute": "መንገድ",
+  "@conflictFieldRoute": {
+    "description": "Field label for route in conflict resolution"
+  },
+  "conflictFieldCapacity": "አቅም",
+  "@conflictFieldCapacity": {
+    "description": "Field label for capacity in conflict resolution"
+  },
+  "conflictFieldTrip": "ጉዞ",
+  "@conflictFieldTrip": {
+    "description": "Field label for trip in conflict resolution"
+  },
+
+  "escrowPayButton": "ክፈል",
+  "@escrowPayButton": {
+    "description": "Button label for payment confirmation dialog"
+  },
+
+  "escrowDisputeReasonPrefix": "ምክንያት: {reason}",
+  "@escrowDisputeReasonPrefix": {
+    "description": "Prefix label for dispute reason display",
+    "placeholders": {
+      "reason": {
+        "type": "String",
+        "example": "የተበላሸ ዕቃ"
+      }
+    }
+  },
+
+  "escrowDeliveryNumber": "ማድረስ #{id}",
+  "@escrowDeliveryNumber": {
+    "description": "Delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowPaymentTo": "ለ: {name}",
+  "@escrowPaymentTo": {
+    "description": "Payment recipient label",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alemayehu Bekele"
+      }
+    }
+  },
+  "escrowPaymentAmount": "ክፍያ: ETB {amount}",
+  "@escrowPaymentAmount": {
+    "description": "Payment amount display",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "15,000.00"
+      }
+    }
+  },
+  "escrowDeliveryShort": "ማድ. #{id}",
+  "@escrowDeliveryShort": {
+    "description": "Short delivery reference with ID",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
+  "escrowQueuedStatus": "ተራ ላይ",
+  "@escrowQueuedStatus": {
+    "description": "Status label for queued payment intent"
+  },
+
+  "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
+
+  "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
+  "@genericError": {
+    "description": "Generic error message shown when an unexpected error occurs"
+  },
+  "authErrorRegistrationFailed": "ምዝገባ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorRegistrationFailed": {
+    "description": "Fallback error for failed registration"
+  },
+  "authErrorOtpFailed": "የኦቲፒ ማረጋገጫ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorOtpFailed": {
+    "description": "Fallback error for failed OTP verification"
+  },
+  "authErrorResendOtpFailed": "ኦቲፒ እንደገና መላክ ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorResendOtpFailed": {
+    "description": "Fallback error for failed OTP resend"
+  },
+  "authErrorLoginFailed": "መግባት ያልተሳካ። እባክዎ እንደገና ይሞክሩ።",
+  "@authErrorLoginFailed": {
+    "description": "Fallback error for failed login"
+  },
+  "authErrorOfflineLoginFailed": "ከመስመር ውጭ መግባት ያልተሳካ። እባክዎ መጀመሪያ በመስመር ይግቡ።",
+  "@authErrorOfflineLoginFailed": {
+    "description": "Fallback error for failed offline login"
+  },
+  "authErrorSecureStorage": "ደህንነታዊ ማከማቻ ላይ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።",
+  "@authErrorSecureStorage": {
+    "description": "Error accessing secure storage"
+  },
+  "authErrorDatabase": "የዳታቤዝ ስህተት። እባክዎ መተግበሪያውን እንደገና ያስጀምሩ።",
+  "@authErrorDatabase": {
+    "description": "Error accessing database"
+  },
+  "authErrorUserNotConfirmed": "እባክዎ መጀመሪያ ስልክ ቁጥርዎን ያረጋግጡ።",
+  "@authErrorUserNotConfirmed": {
+    "description": "Error when user has not confirmed phone number"
+  },
+  "authErrorTokenExpired": "ክፍለ ጊዜ አልፏል። እባክዎ እንደገና ይግቡ።",
+  "@authErrorTokenExpired": {
+    "description": "Error when authentication token has expired"
+  },
+  "deliveryErrorInvalidId": "ልክ ያልሆነ የማድረስ መታወቂያ",
+  "@deliveryErrorInvalidId": {
+    "description": "Error when delivery ID format is invalid"
+  },
+  "deliveryErrorStatusInvalid": "ለዚህ ድርጊት ልክ ያልሆነ የማድረስ ሁኔታ",
+  "@deliveryErrorStatusInvalid": {
+    "description": "Error when delivery status does not allow the requested action"
+  },
+  "deliveryErrorUnauthorized": "ለዚህ ድርጊት ስልጣን የሎትም",
+  "@deliveryErrorUnauthorized": {
+    "description": "Error when user is not authorized for a delivery action"
+  },
+  "deliveryErrorDisputeExpired": "የክርክር ጊዜ አልፏል",
+  "@deliveryErrorDisputeExpired": {
+    "description": "Error when dispute window (48 hours) has passed"
+  },
+  "deliveryErrorDisputeReasonRequired": "እባክዎ ምክንያት ያቅርቡ",
+  "@deliveryErrorDisputeReasonRequired": {
+    "description": "Error when dispute reason is missing or invalid"
+  },
+  "deliveryErrorGpsInvalid": "ልክ ያልሆነ GPS ቅንጅት",
+  "@deliveryErrorGpsInvalid": {
+    "description": "Error when GPS coordinates are invalid"
+  },
+  "deliveryErrorGeneric": "የማድረስ ስራ ያልተሳካ",
+  "@deliveryErrorGeneric": {
+    "description": "Generic delivery error message"
+  },
+  "deliveryErrorNotFound": "ማድረስ አልተገኘም",
+  "@deliveryErrorNotFound": {
+    "description": "Error when delivery cannot be found"
+  },
+  "deliveryQrTooLarge": "QR ኮድ በጣም ትልቅ ነው",
+  "@deliveryQrTooLarge": {
+    "description": "Error when scanned QR code exceeds size limit"
+  },
+  "deliveryQrIncomplete": "ያልተሟላ QR ዳታ",
+  "@deliveryQrIncomplete": {
+    "description": "Error when QR code has missing fields"
+  },
+  "deliveryQrInvalidData": "ልክ ያልሆነ QR ዳታ",
+  "@deliveryQrInvalidData": {
+    "description": "Error when QR code fields exceed length limits"
+  },
+  "deliveryQrWrongDelivery": "QR ኮድ ለዚህ ማድረስ አይገጥምም",
+  "@deliveryQrWrongDelivery": {
+    "description": "Error when QR code deliveryId does not match expected delivery"
+  },
+  "deliveryQrInvalidFormat": "ልክ ያልሆነ QR ኮድ ቅርጸት",
+  "@deliveryQrInvalidFormat": {
+    "description": "Error when QR code cannot be decoded"
+  },
+  "deliveryQrProcessFailed": "QR ኮድ ማስተናገድ አልተቻለም",
+  "@deliveryQrProcessFailed": {
+    "description": "Error when QR code processing fails unexpectedly"
+  },
+  "escrowPaymentNotFound": "ክፍያ አልተገኘም",
+  "@escrowPaymentNotFound": {
+    "description": "Error when escrow payment cannot be found"
+  },
+  "escrowPaymentNotFoundForDelivery": "ለዚህ ማድረስ ክፍያ አልተገኘም",
+  "@escrowPaymentNotFoundForDelivery": {
+    "description": "Error when escrow payment for a specific delivery cannot be found"
+  },
+
+  "@@authUxFixes": "=== Auth UX Fixes (loading feedback) ===",
+
+  "pleaseWait": "እባክዎ ይጠብቁ...",
+  "@pleaseWait": {
+    "description": "Loading indicator text shown during auth operations on slow networks"
   }
 }
-

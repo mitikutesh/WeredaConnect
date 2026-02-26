@@ -41,12 +41,17 @@ public sealed class RateLimitService : IRateLimitService
 
         // Check if account is locked
         if (entry.LockedUntil != null &&
-            DateTime.TryParse(entry.LockedUntil, null, System.Globalization.DateTimeStyles.RoundtripKind, out var lockedUntil) &&
-            lockedUntil > DateTime.UtcNow)
+            DateTime.TryParse(entry.LockedUntil, null, System.Globalization.DateTimeStyles.RoundtripKind, out var lockedUntil))
         {
-            var retryAfterSeconds = (int)Math.Ceiling((lockedUntil - DateTime.UtcNow).TotalSeconds);
-            return AuthResult<bool>.Failure(403, "AUTH_015",
-                $"Account locked due to too many failed attempts. Try again in {retryAfterSeconds} seconds.");
+            if (lockedUntil > DateTime.UtcNow)
+            {
+                var retryAfterSeconds = (int)Math.Ceiling((lockedUntil - DateTime.UtcNow).TotalSeconds);
+                return AuthResult<bool>.Failure(403, "AUTH_015",
+                    "Account locked due to too many failed attempts.", retryAfterSeconds: retryAfterSeconds);
+            }
+
+            // Lockout expired — reset counter so user gets fresh attempts
+            await _repository.DeleteAsync(key);
         }
 
         return AuthResult<bool>.Success(true);

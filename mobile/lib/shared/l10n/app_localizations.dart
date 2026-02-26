@@ -559,7 +559,7 @@ abstract class AppLocalizations {
   /// Password requirements message
   ///
   /// In en, this message translates to:
-  /// **'Password must be at least 6 characters'**
+  /// **'Password must be at least 8 characters with a lowercase letter and a number'**
   String get passwordRequirements;
 
   /// Error message for invalid phone format
@@ -592,6 +592,90 @@ abstract class AppLocalizations {
   /// **'Verification code expired. Request a new one'**
   String get otpExpired;
 
+  /// Error message when rate limit exceeded during auth
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Please try again later.'**
+  String get authRateLimitExceeded;
+
+  /// Error message for generic server error during auth
+  ///
+  /// In en, this message translates to:
+  /// **'Server error. Please try again later.'**
+  String get authServerError;
+
+  /// Error message when auth service is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication service temporarily unavailable. Please try again later.'**
+  String get authServiceUnavailable;
+
+  /// Error message when network is unavailable during auth
+  ///
+  /// In en, this message translates to:
+  /// **'No internet connection. Please check your connection.'**
+  String get authNetworkError;
+
+  /// Error message when account is locked due to too many failed login attempts
+  ///
+  /// In en, this message translates to:
+  /// **'Account locked due to too many failed attempts. Try again in {duration}.'**
+  String authAccountLocked(String duration);
+
+  /// Duration in seconds
+  ///
+  /// In en, this message translates to:
+  /// **'{count} seconds'**
+  String durationSeconds(int count);
+
+  /// Duration in minutes
+  ///
+  /// In en, this message translates to:
+  /// **'{count} minutes'**
+  String durationMinutes(int count);
+
+  /// Duration in hours
+  ///
+  /// In en, this message translates to:
+  /// **'{count} hours'**
+  String durationHours(int count);
+
+  /// Error message when user tries to login but phone is not verified
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number not verified. Please complete OTP verification.'**
+  String get phoneNotVerified;
+
+  /// Error message when API credentials are not configured at build time
+  ///
+  /// In en, this message translates to:
+  /// **'App setup incomplete. Please contact support.'**
+  String get authApiNotConfigured;
+
+  /// Error message when user tries offline login without prior online login
+  ///
+  /// In en, this message translates to:
+  /// **'Please log in online first to enable offline mode.'**
+  String get authOfflineNotAvailable;
+
+  /// Error message when user account is disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Your account has been disabled. Contact support.'**
+  String get authAccountDisabled;
+
+  /// Error message when password reset is required before login
+  ///
+  /// In en, this message translates to:
+  /// **'Password reset required. Please reset your password.'**
+  String get authPasswordResetRequired;
+
+  /// Error message when OTP verification attempts are exhausted
+  ///
+  /// In en, this message translates to:
+  /// **'Too many failed attempts. Request a new code.'**
+  String get authOtpAttemptsExceeded;
+
   /// Success message after registration
   ///
   /// In en, this message translates to:
@@ -621,6 +705,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My Listings'**
   String get myListings;
+
+  /// Browse listings tab label for non-farmer roles
+  ///
+  /// In en, this message translates to:
+  /// **'Browse Listings'**
+  String get browseListings;
 
   /// My orders menu item
   ///
@@ -850,11 +940,29 @@ abstract class AppLocalizations {
   /// **'Sold'**
   String get listingStatusSold;
 
+  /// Status label for reserved crop listing (matched with trip, pending pickup)
+  ///
+  /// In en, this message translates to:
+  /// **'Reserved'**
+  String get listingStatusReserved;
+
   /// Status label for expired crop listing
   ///
   /// In en, this message translates to:
   /// **'Expired'**
   String get listingStatusExpired;
+
+  /// Filter label to show all listing statuses
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get listingFilterAll;
+
+  /// Debug button text to create test crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Seed Test Listings'**
+  String get listingSeedTestButton;
 
   /// Button to navigate back to welcome/landing screen
   ///
@@ -1102,6 +1210,18 @@ abstract class AppLocalizations {
   /// **'Trucker name is required'**
   String get truckerNameRequired;
 
+  /// Label for vehicle license plate number field
+  ///
+  /// In en, this message translates to:
+  /// **'Vehicle Plate'**
+  String get vehiclePlate;
+
+  /// Label for vehicle description field
+  ///
+  /// In en, this message translates to:
+  /// **'Vehicle Description'**
+  String get vehicleDescription;
+
   /// Deliveries navigation tab label
   ///
   /// In en, this message translates to:
@@ -1216,6 +1336,12 @@ abstract class AppLocalizations {
   /// **'Take Photo'**
   String get deliveryTakePhoto;
 
+  /// Label for time data row in pickup/delivery sections
+  ///
+  /// In en, this message translates to:
+  /// **'Time'**
+  String get deliveryTimeLabel;
+
   /// Button to regenerate QR code
   ///
   /// In en, this message translates to:
@@ -1239,6 +1365,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Buyer'**
   String get deliveryBuyer;
+
+  /// GPS accuracy display with distance in meters
+  ///
+  /// In en, this message translates to:
+  /// **'Accuracy: {meters}m'**
+  String deliveryGpsAccuracy(String meters);
 
   /// GPS location successfully captured
   ///
@@ -1269,6 +1401,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Capturing GPS...'**
   String get deliveryGpsCapturing;
+
+  /// Label for GPS location data row
+  ///
+  /// In en, this message translates to:
+  /// **'GPS'**
+  String get deliveryGpsLabel;
+
+  /// Placeholder when GPS location was not captured
+  ///
+  /// In en, this message translates to:
+  /// **'Not captured'**
+  String get deliveryGpsNotCaptured;
 
   /// Location permission was denied by user
   ///
@@ -1515,6 +1659,1134 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Seed Test Delivery'**
   String get deliverySeedTestButton;
+
+  /// Navigation label for escrow payments section
+  ///
+  /// In en, this message translates to:
+  /// **'Payments'**
+  String get escrowPayments;
+
+  /// Screen title for initiating escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay for Delivery'**
+  String get escrowPayForDelivery;
+
+  /// Screen title for viewing single escrow status
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Status'**
+  String get escrowPaymentStatus;
+
+  /// Screen title for payment history list
+  ///
+  /// In en, this message translates to:
+  /// **'My Payments'**
+  String get escrowPaymentHistory;
+
+  /// Screen title for raising an escrow dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Raise Dispute'**
+  String get escrowRaiseDispute;
+
+  /// Status label when escrow payment is initiated but not yet held
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Pending'**
+  String get escrowStatusInitiated;
+
+  /// Status label when funds are held in escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Funds Held Safely'**
+  String get escrowStatusEscrowed;
+
+  /// Status label when funds have been released to farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Funds Released'**
+  String get escrowStatusReleased;
+
+  /// Status label when escrow transaction is fully settled
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Complete'**
+  String get escrowStatusCompleted;
+
+  /// Status label when escrow payment was cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get escrowStatusCancelled;
+
+  /// Status label when escrow payment is under dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Under Dispute'**
+  String get escrowStatusDisputed;
+
+  /// Status label when escrow payment has been refunded
+  ///
+  /// In en, this message translates to:
+  /// **'Refunded'**
+  String get escrowStatusRefunded;
+
+  /// Trust-building message explaining escrow protection
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is held safely until delivery is confirmed.'**
+  String get escrowProtectionInfo;
+
+  /// Label for total payment amount
+  ///
+  /// In en, this message translates to:
+  /// **'Total Amount'**
+  String get escrowTotalAmount;
+
+  /// Label for platform commission with percentage rate
+  ///
+  /// In en, this message translates to:
+  /// **'Commission ({rate}%)'**
+  String escrowCommission(String rate);
+
+  /// Label for net amount farmer will receive after commission
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Receives'**
+  String get escrowFarmerReceives;
+
+  /// Button label to confirm and initiate escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Payment'**
+  String get escrowConfirmPayment;
+
+  /// Confirmation dialog message before payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay ETB {amount} to {farmerName}?'**
+  String escrowConfirmPaymentDialog(String amount, String farmerName);
+
+  /// Warning shown when payment amount exceeds Fayda ID threshold
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda ID verification required for amounts above ETB 10,000.'**
+  String get escrowFaydaWarning;
+
+  /// Info text explaining escrow fund holding period
+  ///
+  /// In en, this message translates to:
+  /// **'Funds held for 7 days maximum. Refunded if not delivered.'**
+  String get escrowFundsHeldInfo;
+
+  /// Message shown when payment intent is queued offline
+  ///
+  /// In en, this message translates to:
+  /// **'Payment queued. Will process when you have internet.'**
+  String get escrowPaymentQueued;
+
+  /// Success message after payment is initiated
+  ///
+  /// In en, this message translates to:
+  /// **'Payment initiated successfully.'**
+  String get escrowPaymentSuccess;
+
+  /// Label for delivery reference on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get escrowDeliveryLabel;
+
+  /// Label for farmer name on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer'**
+  String get escrowFarmerLabel;
+
+  /// Label for buyer name on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer'**
+  String get escrowBuyerLabel;
+
+  /// Label for escrow creation date
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get escrowCreatedLabel;
+
+  /// Label for escrow expiration date
+  ///
+  /// In en, this message translates to:
+  /// **'Expires'**
+  String get escrowExpiresLabel;
+
+  /// Label for Telebirr transaction reference number
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr Ref'**
+  String get escrowTelebirrRefLabel;
+
+  /// Warning shown when cached escrow data may be stale
+  ///
+  /// In en, this message translates to:
+  /// **'Status may be outdated. Pull to refresh.'**
+  String get escrowMayBeOutdated;
+
+  /// Label showing when escrow data was last refreshed
+  ///
+  /// In en, this message translates to:
+  /// **'Last updated {time}'**
+  String escrowLastUpdated(String time);
+
+  /// Filter chip label to show all escrow payments
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get escrowFilterAll;
+
+  /// Filter chip to show payments where user is buyer
+  ///
+  /// In en, this message translates to:
+  /// **'As Buyer'**
+  String get escrowFilterBuyer;
+
+  /// Filter chip to show payments where user is farmer
+  ///
+  /// In en, this message translates to:
+  /// **'As Farmer'**
+  String get escrowFilterFarmer;
+
+  /// Section header for pending payment intents with count
+  ///
+  /// In en, this message translates to:
+  /// **'Pending ({count})'**
+  String escrowPendingSection(int count);
+
+  /// Section header for confirmed payment history
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get escrowHistorySection;
+
+  /// Empty state message when user has no payment history
+  ///
+  /// In en, this message translates to:
+  /// **'No payments yet.'**
+  String get escrowNoPayments;
+
+  /// Empty state when no payments match the active filter
+  ///
+  /// In en, this message translates to:
+  /// **'No matching payments.'**
+  String get escrowNoMatchingPayments;
+
+  /// Button to cancel a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get escrowCancelIntent;
+
+  /// Confirmation dialog for cancelling a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel this queued payment?'**
+  String get escrowCancelIntentDialog;
+
+  /// Success message after cancelling a queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Queued payment cancelled.'**
+  String get escrowIntentCancelled;
+
+  /// Countdown showing remaining time to raise a dispute
+  ///
+  /// In en, this message translates to:
+  /// **'Time remaining: {hours}h {minutes}m'**
+  String escrowDisputeTimeRemaining(int hours, int minutes);
+
+  /// Message when the 48-hour dispute window has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute window expired.'**
+  String get escrowDisputeWindowExpired;
+
+  /// Label for dispute reason selection
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get escrowDisputeReasonLabel;
+
+  /// Label for optional dispute description text field
+  ///
+  /// In en, this message translates to:
+  /// **'Description (optional)'**
+  String get escrowDisputeDescriptionLabel;
+
+  /// Hint text for dispute description input field
+  ///
+  /// In en, this message translates to:
+  /// **'Describe the issue...'**
+  String get escrowDisputeDescriptionHint;
+
+  /// Button to submit a dispute on an escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Dispute'**
+  String get escrowDisputeSubmit;
+
+  /// Confirmation dialog before submitting a dispute
+  ///
+  /// In en, this message translates to:
+  /// **'This will freeze funds pending review. Continue?'**
+  String get escrowDisputeConfirmDialog;
+
+  /// Success message after dispute is submitted
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute registered. Platform will review within 48 hours.'**
+  String get escrowDisputeSuccess;
+
+  /// Info text about dispute review process
+  ///
+  /// In en, this message translates to:
+  /// **'Disputes are reviewed by the platform within 48 hours.'**
+  String get escrowDisputeReviewInfo;
+
+  /// Error message when user tries to raise dispute while offline
+  ///
+  /// In en, this message translates to:
+  /// **'Internet connection required to raise disputes.'**
+  String get escrowDisputeRequiresInternet;
+
+  /// Dispute reason: goods were damaged
+  ///
+  /// In en, this message translates to:
+  /// **'Damaged goods'**
+  String get escrowReasonDamagedGoods;
+
+  /// Dispute reason: received wrong quantity
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong quantity'**
+  String get escrowReasonWrongQuantity;
+
+  /// Dispute reason: received wrong crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong crop type'**
+  String get escrowReasonWrongCrop;
+
+  /// Dispute reason: goods were not delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Not delivered'**
+  String get escrowReasonNotDelivered;
+
+  /// Dispute reason: quality does not match listing
+  ///
+  /// In en, this message translates to:
+  /// **'Quality mismatch'**
+  String get escrowReasonQualityMismatch;
+
+  /// Dispute reason: other reason not listed
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get escrowReasonOther;
+
+  /// Error when payment amount is outside allowed range
+  ///
+  /// In en, this message translates to:
+  /// **'Amount must be between ETB 100 and ETB 500,000.'**
+  String get escrowErrorInvalidAmount;
+
+  /// Error when Fayda ID is required but not verified
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda ID verification required for amounts above ETB 10,000.'**
+  String get escrowErrorFaydaRequired;
+
+  /// Error when escrow payment already exists for delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Payment already exists for this delivery.'**
+  String get escrowErrorAlreadyExists;
+
+  /// Error when Telebirr gateway returns an error
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr service error. Please try again.'**
+  String get escrowErrorGateway;
+
+  /// Error when Telebirr service is down
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr is currently unavailable. Please try later.'**
+  String get escrowErrorServiceUnavailable;
+
+  /// Generic fallback error message for escrow operations
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get escrowErrorGeneric;
+
+  /// Error when authentication is required for escrow operation
+  ///
+  /// In en, this message translates to:
+  /// **'Please log in to continue.'**
+  String get escrowErrorAuthRequired;
+
+  /// Error when a duplicate/conflicting escrow request is detected
+  ///
+  /// In en, this message translates to:
+  /// **'This request is already being processed.'**
+  String get escrowErrorConflict;
+
+  /// Error when escrow rate limit is exceeded
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please wait and try again.'**
+  String get escrowErrorRateLimit;
+
+  /// Error when escrow action requires internet but device is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Internet connection required for this action.'**
+  String get escrowErrorOffline;
+
+  /// Formatted ETB currency amount
+  ///
+  /// In en, this message translates to:
+  /// **'ETB {amount}'**
+  String escrowEtbAmount(String amount);
+
+  /// Message shown when user is not authenticated — prompt to restart
+  ///
+  /// In en, this message translates to:
+  /// **'Please restart the app'**
+  String get profileRestartApp;
+
+  /// Error message when profile data cannot be loaded from the database
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load user profile'**
+  String get profileLoadError;
+
+  /// Section heading for escrow event timeline on status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get escrowTimeline;
+
+  /// Section heading for dispute info card on escrow status screen
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute Details'**
+  String get escrowDisputeDetailsTitle;
+
+  /// Label shown while recording audio
+  ///
+  /// In en, this message translates to:
+  /// **'Recording...'**
+  String get recording;
+
+  /// Button to stop audio recording
+  ///
+  /// In en, this message translates to:
+  /// **'Stop Recording'**
+  String get stopRecording;
+
+  /// Button to play audio
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get playAudio;
+
+  /// Button to pause audio playback
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pauseAudio;
+
+  /// Button to delete a voice note recording
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Recording'**
+  String get deleteRecording;
+
+  /// Confirmation dialog for deleting a voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this voice note?'**
+  String get deleteRecordingConfirm;
+
+  /// Error when microphone permission is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone permission is required to record audio'**
+  String get microphonePermissionRequired;
+
+  /// Success message after recording completes
+  ///
+  /// In en, this message translates to:
+  /// **'Voice note recorded'**
+  String get audioRecorded;
+
+  /// Warning when recording reaches max duration
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum recording length is 30 seconds'**
+  String get audioTooLong;
+
+  /// Hint text shown below the record button indicating the recording time limit
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum 30 seconds'**
+  String get audioRecordingLimit;
+
+  /// Button label to re-record a voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Re-record'**
+  String get reRecord;
+
+  /// Error message when recording fails
+  ///
+  /// In en, this message translates to:
+  /// **'Recording failed. Please try again.'**
+  String get audioRecordingFailed;
+
+  /// Abbreviated seconds display for duration
+  ///
+  /// In en, this message translates to:
+  /// **'{count}s'**
+  String secondsAbbreviation(int count);
+
+  /// Label for bytes downloaded counter
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded'**
+  String get dataUsageDownloaded;
+
+  /// Label for bytes uploaded counter
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded'**
+  String get dataUsageUploaded;
+
+  /// Label for combined total bytes
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get dataUsageTotal;
+
+  /// Button to reset data usage statistics
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get dataUsageReset;
+
+  /// Confirmation dialog message before resetting stats
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all data usage statistics?'**
+  String get dataUsageResetConfirm;
+
+  /// Label prefix shown before the tracking start date
+  ///
+  /// In en, this message translates to:
+  /// **'Tracking since'**
+  String get dataUsageTrackingSince;
+
+  /// Title shown on conflict resolution modal when server overwrites local data
+  ///
+  /// In en, this message translates to:
+  /// **'Data Updated'**
+  String get conflictTitle;
+
+  /// Explanation of what happened during a sync conflict
+  ///
+  /// In en, this message translates to:
+  /// **'Another device or the server updated this record. Your local copy has been updated to match.'**
+  String get conflictExplanation;
+
+  /// Primary button to acknowledge the conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'OK, Got It'**
+  String get conflictAccept;
+
+  /// Secondary button to dismiss the conflict notification
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get conflictDismiss;
+
+  /// Entity type label for crop listing in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Listing'**
+  String get conflictEntityCropListing;
+
+  /// Entity type label for delivery in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get conflictEntityDelivery;
+
+  /// Entity type label for trip in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get conflictEntityTrip;
+
+  /// Section header showing server-side field values
+  ///
+  /// In en, this message translates to:
+  /// **'Updated values from server:'**
+  String get conflictServerValues;
+
+  /// Shown when conflict event has no displayable field changes
+  ///
+  /// In en, this message translates to:
+  /// **'No details available.'**
+  String get conflictNoDetails;
+
+  /// Banner text for single conflict notification
+  ///
+  /// In en, this message translates to:
+  /// **'Your {entityType} was updated on another device'**
+  String conflictBannerSingle(String entityType);
+
+  /// Banner text for multiple conflict notifications
+  ///
+  /// In en, this message translates to:
+  /// **'{count} items were updated on another device'**
+  String conflictBannerMultiple(int count);
+
+  /// Action button text on conflict notification banner
+  ///
+  /// In en, this message translates to:
+  /// **'View Changes'**
+  String get conflictBannerAction;
+
+  /// App bar title for conflict resolution screen
+  ///
+  /// In en, this message translates to:
+  /// **'Updates from Sync'**
+  String get conflictScreenTitle;
+
+  /// Label for user's local version in conflict diff
+  ///
+  /// In en, this message translates to:
+  /// **'Your version'**
+  String get conflictYourVersion;
+
+  /// Label for server's current version in conflict diff
+  ///
+  /// In en, this message translates to:
+  /// **'Current version'**
+  String get conflictCurrentVersion;
+
+  /// Badge text confirming server version was applied
+  ///
+  /// In en, this message translates to:
+  /// **'Server version applied'**
+  String get conflictServerApplied;
+
+  /// Primary button to acknowledge and dismiss all conflicts
+  ///
+  /// In en, this message translates to:
+  /// **'Got It'**
+  String get conflictGotIt;
+
+  /// Empty state title when no conflicts exist
+  ///
+  /// In en, this message translates to:
+  /// **'Everything is up to date'**
+  String get conflictEmptyTitle;
+
+  /// Empty state subtitle when no conflicts exist
+  ///
+  /// In en, this message translates to:
+  /// **'No changes from other devices.'**
+  String get conflictEmptySubtitle;
+
+  /// Message when a conflicting entity was deleted on server
+  ///
+  /// In en, this message translates to:
+  /// **'This {entityType} was removed on another device'**
+  String conflictEntityDeleted(String entityType);
+
+  /// Expandable button to show all field changes when more than 4 fields changed
+  ///
+  /// In en, this message translates to:
+  /// **'Show all changes'**
+  String get conflictShowAllChanges;
+
+  /// Error when duplicate crop listing detected by server fraud check
+  ///
+  /// In en, this message translates to:
+  /// **'A similar listing already exists. Please update your existing listing instead.'**
+  String get fraudDuplicateListing;
+
+  /// Error when velocity limit exceeded by server fraud check
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Please wait a moment and try again.'**
+  String get fraudVelocityExceeded;
+
+  /// Snackbar message after profile is saved successfully
+  ///
+  /// In en, this message translates to:
+  /// **'Profile updated'**
+  String get profileSaved;
+
+  /// Empty state title on notifications screen
+  ///
+  /// In en, this message translates to:
+  /// **'No notifications yet'**
+  String get noNotificationsYet;
+
+  /// Empty state subtitle on notifications screen
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ll see your alerts here'**
+  String get noNotificationsDescription;
+
+  /// Button label and screen title for creating a new delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Create Delivery'**
+  String get createDelivery;
+
+  /// Button to contact the farmer about a listing
+  ///
+  /// In en, this message translates to:
+  /// **'Contact Farmer'**
+  String get contactFarmer;
+
+  /// Label for quantity row in listing detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity'**
+  String get detailQuantity;
+
+  /// Label for price row in listing detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Price'**
+  String get detailPrice;
+
+  /// Label for creation date row in detail view
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get detailCreated;
+
+  /// Hint text for minimum price filter input
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get filterMin;
+
+  /// Hint text for maximum price filter input
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get filterMax;
+
+  /// Section header for trip selection in create delivery screen
+  ///
+  /// In en, this message translates to:
+  /// **'Select Trip'**
+  String get selectTrip;
+
+  /// Section header for buyer info in create delivery screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Information'**
+  String get buyerInformation;
+
+  /// Input label for buyer name field
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Name'**
+  String get buyerNameLabel;
+
+  /// Input label for buyer phone or ID field
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Phone / ID'**
+  String get buyerPhoneIdLabel;
+
+  /// Validation error when buyer name is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer name is required'**
+  String get buyerNameRequired;
+
+  /// Validation error when buyer phone/ID is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer phone or ID is required'**
+  String get buyerIdRequired;
+
+  /// Validation error when no trip is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a trip'**
+  String get tripSelectionRequired;
+
+  /// Dropdown hint for trip selection
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a trip'**
+  String get chooseTripHint;
+
+  /// Warning when trucker has no open trips for delivery creation
+  ///
+  /// In en, this message translates to:
+  /// **'No open trips available. Create a trip first.'**
+  String get noOpenTrips;
+
+  /// Success message after creating a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery created successfully'**
+  String get deliveryCreatedSuccess;
+
+  /// Title for farmer contact info bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Contact'**
+  String get farmerContactInfo;
+
+  /// Snackbar message after copying text to clipboard
+  ///
+  /// In en, this message translates to:
+  /// **'Copied to clipboard'**
+  String get copiedToClipboard;
+
+  /// Message shown in forgot password dialog with support contact info
+  ///
+  /// In en, this message translates to:
+  /// **'Please contact support at +251-111-234567 to reset your password.'**
+  String get forgotPasswordContactSupport;
+
+  /// Countdown text for OTP resend button
+  ///
+  /// In en, this message translates to:
+  /// **'Resend in {seconds}s'**
+  String resendOtpIn(int seconds);
+
+  /// Snackbar message after OTP is resent
+  ///
+  /// In en, this message translates to:
+  /// **'OTP resent successfully'**
+  String get otpResent;
+
+  /// Generic OK button label
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get ok;
+
+  /// Snackbar message shown when user taps How it works chip on welcome screen
+  ///
+  /// In en, this message translates to:
+  /// **'Tutorial carousel coming soon. You can explore the app by creating an account!'**
+  String get tutorialComingSoon;
+
+  /// Status description for initiated escrow payment
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for Telebirr confirmation'**
+  String get escrowDescInitiated;
+
+  /// Status description for escrowed payment
+  ///
+  /// In en, this message translates to:
+  /// **'Funds held safely until delivery'**
+  String get escrowDescEscrowed;
+
+  /// Status description for released payment
+  ///
+  /// In en, this message translates to:
+  /// **'Funds sent to farmer'**
+  String get escrowDescReleased;
+
+  /// Status description for completed escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction settled'**
+  String get escrowDescCompleted;
+
+  /// Status description for cancelled escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Payment was cancelled'**
+  String get escrowDescCancelled;
+
+  /// Status description for disputed escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Under review by platform'**
+  String get escrowDescDisputed;
+
+  /// Status description for refunded escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Funds returned to buyer'**
+  String get escrowDescRefunded;
+
+  /// Field label for crop type in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Type'**
+  String get conflictFieldCropType;
+
+  /// Field label for quantity in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity'**
+  String get conflictFieldQuantity;
+
+  /// Field label for price per kg in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Price/kg'**
+  String get conflictFieldPricePerKg;
+
+  /// Field label for status in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get conflictFieldStatus;
+
+  /// Field label for route in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Route'**
+  String get conflictFieldRoute;
+
+  /// Field label for capacity in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity'**
+  String get conflictFieldCapacity;
+
+  /// Field label for trip in conflict resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get conflictFieldTrip;
+
+  /// Button label for payment confirmation dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Pay'**
+  String get escrowPayButton;
+
+  /// Prefix label for dispute reason display
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String escrowDisputeReasonPrefix(String reason);
+
+  /// Delivery reference with ID
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery #{id}'**
+  String escrowDeliveryNumber(String id);
+
+  /// Payment recipient label
+  ///
+  /// In en, this message translates to:
+  /// **'To: {name}'**
+  String escrowPaymentTo(String name);
+
+  /// Payment amount display
+  ///
+  /// In en, this message translates to:
+  /// **'Payment: ETB {amount}'**
+  String escrowPaymentAmount(String amount);
+
+  /// Short delivery reference with ID
+  ///
+  /// In en, this message translates to:
+  /// **'Del. #{id}'**
+  String escrowDeliveryShort(String id);
+
+  /// Status label for queued payment intent
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get escrowQueuedStatus;
+
+  /// Generic error message shown when an unexpected error occurs
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong. Please try again.'**
+  String get genericError;
+
+  /// Fallback error for failed registration
+  ///
+  /// In en, this message translates to:
+  /// **'Registration failed. Please try again.'**
+  String get authErrorRegistrationFailed;
+
+  /// Fallback error for failed OTP verification
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verification failed. Please try again.'**
+  String get authErrorOtpFailed;
+
+  /// Fallback error for failed OTP resend
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to resend OTP. Please try again.'**
+  String get authErrorResendOtpFailed;
+
+  /// Fallback error for failed login
+  ///
+  /// In en, this message translates to:
+  /// **'Login failed. Please try again.'**
+  String get authErrorLoginFailed;
+
+  /// Fallback error for failed offline login
+  ///
+  /// In en, this message translates to:
+  /// **'Offline login failed. Please log in online first.'**
+  String get authErrorOfflineLoginFailed;
+
+  /// Error accessing secure storage
+  ///
+  /// In en, this message translates to:
+  /// **'Error accessing secure storage. Please restart the app.'**
+  String get authErrorSecureStorage;
+
+  /// Error accessing database
+  ///
+  /// In en, this message translates to:
+  /// **'Database error. Please restart the app.'**
+  String get authErrorDatabase;
+
+  /// Error when user has not confirmed phone number
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your phone number first.'**
+  String get authErrorUserNotConfirmed;
+
+  /// Error when authentication token has expired
+  ///
+  /// In en, this message translates to:
+  /// **'Session expired. Please log in again.'**
+  String get authErrorTokenExpired;
+
+  /// Error when delivery ID format is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery ID'**
+  String get deliveryErrorInvalidId;
+
+  /// Error when delivery status does not allow the requested action
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery status for this action'**
+  String get deliveryErrorStatusInvalid;
+
+  /// Error when user is not authorized for a delivery action
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized for this action'**
+  String get deliveryErrorUnauthorized;
+
+  /// Error when dispute window (48 hours) has passed
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute window has expired'**
+  String get deliveryErrorDisputeExpired;
+
+  /// Error when dispute reason is missing or invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Please provide a reason'**
+  String get deliveryErrorDisputeReasonRequired;
+
+  /// Error when GPS coordinates are invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid GPS coordinates'**
+  String get deliveryErrorGpsInvalid;
+
+  /// Generic delivery error message
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery operation failed'**
+  String get deliveryErrorGeneric;
+
+  /// Error when delivery cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not found'**
+  String get deliveryErrorNotFound;
+
+  /// Error when scanned QR code exceeds size limit
+  ///
+  /// In en, this message translates to:
+  /// **'QR code too large'**
+  String get deliveryQrTooLarge;
+
+  /// Error when QR code has missing fields
+  ///
+  /// In en, this message translates to:
+  /// **'Incomplete QR data'**
+  String get deliveryQrIncomplete;
+
+  /// Error when QR code fields exceed length limits
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid QR data'**
+  String get deliveryQrInvalidData;
+
+  /// Error when QR code deliveryId does not match expected delivery
+  ///
+  /// In en, this message translates to:
+  /// **'QR code does not match this delivery'**
+  String get deliveryQrWrongDelivery;
+
+  /// Error when QR code cannot be decoded
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid QR code format'**
+  String get deliveryQrInvalidFormat;
+
+  /// Error when QR code processing fails unexpectedly
+  ///
+  /// In en, this message translates to:
+  /// **'Could not process QR code'**
+  String get deliveryQrProcessFailed;
+
+  /// Error when escrow payment cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Payment not found'**
+  String get escrowPaymentNotFound;
+
+  /// Error when escrow payment for a specific delivery cannot be found
+  ///
+  /// In en, this message translates to:
+  /// **'Payment not found for this delivery'**
+  String get escrowPaymentNotFoundForDelivery;
+
+  /// Loading indicator text shown during auth operations on slow networks
+  ///
+  /// In en, this message translates to:
+  /// **'Please wait...'**
+  String get pleaseWait;
 }
 
 class _AppLocalizationsDelegate

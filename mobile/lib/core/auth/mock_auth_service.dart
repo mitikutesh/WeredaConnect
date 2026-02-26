@@ -1,3 +1,4 @@
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
@@ -33,6 +34,15 @@ class MockAuthService {
     // Simulate network delay
     await Future<void>.delayed(const Duration(milliseconds: 500));
 
+    // Check if phone number is already registered
+    final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
+    if (hasCached) {
+      return AuthResult.failure(
+        AuthErrorCode.phoneAlreadyRegistered,
+        'Phone number already registered',
+      );
+    }
+
     // Generate a mock user ID
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
 
@@ -47,7 +57,7 @@ class MockAuthService {
     );
   }
 
-  /// Mock OTP verification - accepts '123456' or any 6-digit code
+  /// Mock OTP verification - only accepts [validOtpCode] ('123456')
   Future<AuthResult> verifyOtp({
     required String phoneNumber,
     required String otp,
@@ -55,27 +65,21 @@ class MockAuthService {
     // Simulate network delay
     await Future<void>.delayed(const Duration(milliseconds: 500));
 
-    // Accept any 6-digit OTP in mock mode
-    if (otp.length != 6) {
+    // Only accept the documented mock OTP code
+    if (otp != validOtpCode) {
       return AuthResult.failure(
-        'INVALID_OTP',
-        'OTP must be 6 digits',
+        AuthErrorCode.invalidOtp,
+        'Invalid OTP code. Hint: use $validOtpCode in mock mode.',
       );
     }
 
+    // Match real service behavior: OTP verification returns no tokens.
+    // Caller must call login() after verification.
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
-    final now = DateTime.now();
-    final tokens = AuthTokens(
-      accessToken: 'mock_access_token_$userId',
-      refreshToken: 'mock_refresh_token_$userId',
-      idToken: 'mock_id_token_$userId',
-      expiresAt: now.add(const Duration(hours: 1)),
-    );
-
-    return AuthResult.success(tokens, userId: userId);
+    return AuthResult.otpVerified(userId: userId);
   }
 
-  /// Mock login - accepts any password
+  /// Mock login - verifies cached credentials or creates first-time session
   Future<AuthResult> login({
     required String phoneNumber,
     required String password,
@@ -87,27 +91,41 @@ class MockAuthService {
     final hasCached = await _offlineCache.hasCachedCredentials(phoneNumber);
 
     if (hasCached) {
-      // Try offline auth first
-      final isValid = await _offlineCache.verifyPassword(
-        phoneNumber,
-        password,
-      );
+      // Verify password against cached hash (may throw RateLimitException)
+      try {
+        final isValid = await _offlineCache.verifyPassword(
+          phoneNumber,
+          password,
+        );
 
-      if (isValid) {
-        final user = await _offlineCache.getCachedUser(phoneNumber);
-        final tokens = await _offlineCache.getCachedTokens(phoneNumber);
+        if (isValid) {
+          final user = await _offlineCache.getCachedUser(phoneNumber);
+          final tokens = await _offlineCache.getCachedTokens(phoneNumber);
 
-        if (user != null && tokens != null) {
-          return AuthResult.success(
-            tokens,
-            userId: user.userId,
-            isOfflineAuth: true,
-          );
+          if (user != null && tokens != null) {
+            return AuthResult.success(
+              tokens,
+              userId: user.userId,
+              isOfflineAuth: true,
+            );
+          }
         }
+
+        // Password mismatch — return failure (don't create new session)
+        return AuthResult.failure(
+          AuthErrorCode.invalidCredentials,
+          'Invalid phone number or password',
+        );
+      } on RateLimitException catch (e) {
+        return AuthResult.failure(
+          AuthErrorCode.accountLocked,
+          e.message,
+          retryAfterSeconds: e.lockoutRemaining.inSeconds,
+        );
       }
     }
 
-    // If no cached credentials or password mismatch, create new mock session
+    // No cached credentials — first-time mock login, create session
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
     final now = DateTime.now();
     final tokens = AuthTokens(

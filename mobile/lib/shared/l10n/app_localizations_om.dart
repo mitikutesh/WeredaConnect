@@ -242,7 +242,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get passwordRequirements =>
-      'Jecha icciitiin yoo xiqqaate qubeelee 6 ta\'uu qaba';
+      'Jecha icciitiin yoo xiqqaate qubeelee 8, qubee xixiqqaa fi lakkoofsa of keessatti qabaachuu qaba';
 
   @override
   String get invalidPhoneFormat =>
@@ -263,6 +263,66 @@ class AppLocalizationsOm extends AppLocalizations {
   String get otpExpired => 'Koodiin mirkaneessaa darbeeera. Haaraa gaafadhu';
 
   @override
+  String get authRateLimitExceeded =>
+      'Yaalii baay\'ee. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authServerError =>
+      'Dogoggora sarvaraa. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authServiceUnavailable =>
+      'Tajaajilli mirkaneessuu yeroo ammaa hin argamu. Maaloo booda irra deebi\'ii yaali.';
+
+  @override
+  String get authNetworkError =>
+      'Interneetiin hin jiru. Maaloo walqunnamtii keessan mirkaneessaa.';
+
+  @override
+  String authAccountLocked(String duration) {
+    return 'Yaalii baay\'ee waan kufteef herregni keessan cufameera. Erga $duration booda irra deebi\'ii yaali.';
+  }
+
+  @override
+  String durationSeconds(int count) {
+    return 'sekoondii $count';
+  }
+
+  @override
+  String durationMinutes(int count) {
+    return 'daqiiqaa $count';
+  }
+
+  @override
+  String durationHours(int count) {
+    return 'sa\'aatii $count';
+  }
+
+  @override
+  String get phoneNotVerified =>
+      'Lakkoofsi bilbilaa hin mirkanaa\'iin. Maaloo mirkaneessa OTP xumuraa.';
+
+  @override
+  String get authApiNotConfigured =>
+      'Qophiin appii hin xumuramne. Maaloo gargaarsa quunnamaa.';
+
+  @override
+  String get authOfflineNotAvailable =>
+      'Haalata offline dandeessisuuf dursa online seenaa.';
+
+  @override
+  String get authAccountDisabled =>
+      'Herregni keessan cufameera. Gargaarsa quunnamaa.';
+
+  @override
+  String get authPasswordResetRequired =>
+      'Jecha icciitii haareffachuun barbaachisa. Maaloo jecha icciitii keessan haareffadhaa.';
+
+  @override
+  String get authOtpAttemptsExceeded =>
+      'Yaalii baay\'ee kufee. Koodii haaraa gaafadhu.';
+
+  @override
   String get registrationSuccess =>
       'Galmaa\'uun milkaa\'eera! Maaloo bilbila keessan mirkaneessaa';
 
@@ -277,6 +337,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get myListings => 'Tarree Koo';
+
+  @override
+  String get browseListings => 'Tarree Barbaadi';
 
   @override
   String get myOrders => 'Ajaja Koo';
@@ -396,7 +459,16 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingStatusSold => 'Gurguramee Jira';
 
   @override
+  String get listingStatusReserved => 'Qabamee';
+
+  @override
   String get listingStatusExpired => 'Darbe';
+
+  @override
+  String get listingFilterAll => 'Hunda';
+
+  @override
+  String get listingSeedTestButton => 'Tarree Qormaataa Uumi';
 
   @override
   String get backToHome => 'Gara Manatti Deebi\'i';
@@ -525,6 +597,12 @@ class AppLocalizationsOm extends AppLocalizations {
   String get truckerNameRequired => 'Maqaan konkolaachisaa barbaachisaadha';
 
   @override
+  String get vehiclePlate => 'Lakkoofsa Gabatee Konkolaataa';
+
+  @override
+  String get vehicleDescription => 'Ibsa Konkolaataa';
+
+  @override
   String get deliveries => 'Geejjibaalee';
 
   @override
@@ -582,6 +660,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryTakePhoto => 'Suuraa Kaasi';
 
   @override
+  String get deliveryTimeLabel => 'Yeroo';
+
+  @override
   String get deliveryRegenerateQr => 'QR Haaromsi';
 
   @override
@@ -592,6 +673,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryBuyer => 'Bitaa';
+
+  @override
+  String deliveryGpsAccuracy(String meters) {
+    return 'Sirrii: ${meters}m';
+  }
 
   @override
   String get deliveryGpsCaptured => 'GPS Qabame';
@@ -607,6 +693,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryGpsCapturing => 'GPS Qabamaa...';
+
+  @override
+  String get deliveryGpsLabel => 'GPS';
+
+  @override
+  String get deliveryGpsNotCaptured => 'Hin qabamne';
 
   @override
   String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
@@ -739,4 +831,637 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliverySeedTestButton => 'Geejjiba Qormaataa Uumi';
+
+  @override
+  String get escrowPayments => 'Kaffaltii';
+
+  @override
+  String get escrowPayForDelivery => 'Geejjibaaf Kaffali';
+
+  @override
+  String get escrowPaymentStatus => 'Haala Kaffaltii';
+
+  @override
+  String get escrowPaymentHistory => 'Kaffaltii Koo';
+
+  @override
+  String get escrowRaiseDispute => 'Komii Dhiyeessi';
+
+  @override
+  String get escrowStatusInitiated => 'Kaffaltiin Eeggataa';
+
+  @override
+  String get escrowStatusEscrowed => 'Maallaqni Nagaan Qabame';
+
+  @override
+  String get escrowStatusReleased => 'Maallaqni Gadhiifame';
+
+  @override
+  String get escrowStatusCompleted => 'Kaffaltiin Xumurameera';
+
+  @override
+  String get escrowStatusCancelled => 'Haqame';
+
+  @override
+  String get escrowStatusDisputed => 'Komii Keessa';
+
+  @override
+  String get escrowStatusRefunded => 'Deebifameera';
+
+  @override
+  String get escrowProtectionInfo =>
+      'Kaffaltiin keessan geejjibni mirkanaa\'uu hanga gahutti nagaan qabama.';
+
+  @override
+  String get escrowTotalAmount => 'Hamma Waliigalaa';
+
+  @override
+  String escrowCommission(String rate) {
+    return 'Komishiinii ($rate%)';
+  }
+
+  @override
+  String get escrowFarmerReceives => 'Qonnaan Bulaan Kan Fudhatu';
+
+  @override
+  String get escrowConfirmPayment => 'Kaffaltii Mirkaneessi';
+
+  @override
+  String escrowConfirmPaymentDialog(String amount, String farmerName) {
+    return 'Birrii $amount $farmerName\'f kaffaluu?';
+  }
+
+  @override
+  String get escrowFaydaWarning =>
+      'Hamma Birrii 10,000 olii tiif mirkaneessa Fayda ID barbaachisa.';
+
+  @override
+  String get escrowFundsHeldInfo =>
+      'Maallaqni guyyaa 7 qabama. Yoo hin geejjibamiin deebifama.';
+
+  @override
+  String get escrowPaymentQueued =>
+      'Kaffaltiin galmaa\'e. Intarneetii yeroo argattan raawwatama.';
+
+  @override
+  String get escrowPaymentSuccess => 'Kaffaltiin milkaa\'inaan jalqabame.';
+
+  @override
+  String get escrowDeliveryLabel => 'Geejjiba';
+
+  @override
+  String get escrowFarmerLabel => 'Qonnaan Bulaa';
+
+  @override
+  String get escrowBuyerLabel => 'Bitaa';
+
+  @override
+  String get escrowCreatedLabel => 'Uumame';
+
+  @override
+  String get escrowExpiresLabel => 'Yeroon Darbu';
+
+  @override
+  String get escrowTelebirrRefLabel => 'Wabii Telebirr';
+
+  @override
+  String get escrowMayBeOutdated =>
+      'Haalichi haaromfamuu dhiisuu danda\'a. Haaromsuuf harkisi.';
+
+  @override
+  String escrowLastUpdated(String time) {
+    return 'Dhumarratti haaromfame $time';
+  }
+
+  @override
+  String get escrowFilterAll => 'Hunda';
+
+  @override
+  String get escrowFilterBuyer => 'Akka Bitaa';
+
+  @override
+  String get escrowFilterFarmer => 'Akka Qonnaan Bulaa';
+
+  @override
+  String escrowPendingSection(int count) {
+    return 'Eeggataa ($count)';
+  }
+
+  @override
+  String get escrowHistorySection => 'Seenaa';
+
+  @override
+  String get escrowNoPayments => 'Hanga ammaatti kaffaltiin hin jiru.';
+
+  @override
+  String get escrowNoMatchingPayments => 'Kaffaltiin walsimatu hin argamne.';
+
+  @override
+  String get escrowCancelIntent => 'Haqi';
+
+  @override
+  String get escrowCancelIntentDialog => 'Kaffaltii eeggataa kana haquu?';
+
+  @override
+  String get escrowIntentCancelled => 'Kaffaltiin eeggataa haqameera.';
+
+  @override
+  String escrowDisputeTimeRemaining(int hours, int minutes) {
+    return 'Yeroo hafee: sa\'a $hours daqiiqaa $minutes';
+  }
+
+  @override
+  String get escrowDisputeWindowExpired => 'Yeroon komii darbee jira.';
+
+  @override
+  String get escrowDisputeReasonLabel => 'Sababii';
+
+  @override
+  String get escrowDisputeDescriptionLabel => 'Ibsa (filannoo)';
+
+  @override
+  String get escrowDisputeDescriptionHint => 'Rakkoo ibsi...';
+
+  @override
+  String get escrowDisputeSubmit => 'Komii Galchi';
+
+  @override
+  String get escrowDisputeConfirmDialog =>
+      'Kun maallaqa hanga ilaalametti dhaaba. Itti fufuu?';
+
+  @override
+  String get escrowDisputeSuccess =>
+      'Komiin galmaa\'eera. Waltajjiin sa\'aatii 48 keessatti ilaala.';
+
+  @override
+  String get escrowDisputeReviewInfo =>
+      'Komiin waltajjiidhaan sa\'aatii 48 keessatti ilaalama.';
+
+  @override
+  String get escrowDisputeRequiresInternet =>
+      'Komii dhiyeessuuf intarneetiin barbaachisaadha.';
+
+  @override
+  String get escrowReasonDamagedGoods => 'Meeshaa miidhame';
+
+  @override
+  String get escrowReasonWrongQuantity => 'Hamma dogoggoraa';
+
+  @override
+  String get escrowReasonWrongCrop => 'Gosa midhaan dogoggoraa';
+
+  @override
+  String get escrowReasonNotDelivered => 'Hin geejjibamne';
+
+  @override
+  String get escrowReasonQualityMismatch => 'Qulqullinni wal hin simne';
+
+  @override
+  String get escrowReasonOther => 'Kan biroo';
+
+  @override
+  String get escrowErrorInvalidAmount =>
+      'Hammni Birrii 100 hanga Birrii 500,000 ta\'uu qaba.';
+
+  @override
+  String get escrowErrorFaydaRequired =>
+      'Hamma Birrii 10,000 olii tiif mirkaneessa Fayda ID barbaachisa.';
+
+  @override
+  String get escrowErrorAlreadyExists =>
+      'Geejjiba kanaaf kaffaltiin duraan jira.';
+
+  @override
+  String get escrowErrorGateway =>
+      'Dogoggora tajaajila Telebirr. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get escrowErrorServiceUnavailable =>
+      'Telebirr yeroo ammaa hin argamu. Maaloo booda yaali.';
+
+  @override
+  String get escrowErrorGeneric =>
+      'Wanti dogoggoraa ta\'eera. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get escrowErrorAuthRequired => 'Maaloo itti fufuuf seeni.';
+
+  @override
+  String get escrowErrorConflict => 'Gaaffiin kun duraan adeemsifamaa jira.';
+
+  @override
+  String get escrowErrorRateLimit =>
+      'Gaaffiiwwan baay\'ee ergamaniiru. Maaloo turtii booda yaali.';
+
+  @override
+  String get escrowErrorOffline => 'Hojii kanaaf interneetiin barbaachisaadha.';
+
+  @override
+  String escrowEtbAmount(String amount) {
+    return 'Birrii $amount';
+  }
+
+  @override
+  String get profileRestartApp => 'Maaloo app irra deebi\'i bani';
+
+  @override
+  String get profileLoadError => 'Profaayilii fayyadamaa fe\'uu hin dandeenye';
+
+  @override
+  String get escrowTimeline => 'Tartiiba Yeroo';
+
+  @override
+  String get escrowDisputeDetailsTitle => 'Ibsa Dhibdee';
+
+  @override
+  String get recording => 'Waraabamaa jira...';
+
+  @override
+  String get stopRecording => 'Waraabbii Dhaabi';
+
+  @override
+  String get playAudio => 'Taphadhu';
+
+  @override
+  String get pauseAudio => 'Dhaabi';
+
+  @override
+  String get deleteRecording => 'Waraabbii Haqi';
+
+  @override
+  String get deleteRecordingConfirm => 'Yaadannoo sagalee kana haquu?';
+
+  @override
+  String get microphonePermissionRequired =>
+      'Sagalee waraabbuuf hayyama maayikiroofoonii barbaachisa';
+
+  @override
+  String get audioRecorded => 'Yaadannoon sagalee waraabame';
+
+  @override
+  String get audioTooLong => 'Dheerinni waraabbii guddaan sekoondii 30';
+
+  @override
+  String get audioRecordingLimit => 'Guddaan sekoondii 30';
+
+  @override
+  String get reRecord => 'Irra Deebi\'ii Waraabi';
+
+  @override
+  String get audioRecordingFailed =>
+      'Waraabbiiin hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String secondsAbbreviation(int count) {
+    return '${count}s';
+  }
+
+  @override
+  String get dataUsageDownloaded => 'Buufame';
+
+  @override
+  String get dataUsageUploaded => 'Ergame';
+
+  @override
+  String get dataUsageTotal => 'Waliigalaa';
+
+  @override
+  String get dataUsageReset => 'Deebi\'i';
+
+  @override
+  String get dataUsageResetConfirm => 'Tilaaloo itti fayyadama daataa haquu?';
+
+  @override
+  String get dataUsageTrackingSince => 'Irraa eegalee';
+
+  @override
+  String get conflictTitle => 'Deetaan Haaromfame';
+
+  @override
+  String get conflictExplanation =>
+      'Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.';
+
+  @override
+  String get conflictAccept => 'Tole, Hubadhe';
+
+  @override
+  String get conflictDismiss => 'Cufi';
+
+  @override
+  String get conflictEntityCropListing => 'Tarree Midhaan';
+
+  @override
+  String get conflictEntityDelivery => 'Geejjiba';
+
+  @override
+  String get conflictEntityTrip => 'Imala';
+
+  @override
+  String get conflictServerValues => 'Gatii Ammaa';
+
+  @override
+  String get conflictNoDetails => 'Bal\'inni hin jiru';
+
+  @override
+  String conflictBannerSingle(String entityType) {
+    return '$entityType kee meeshaa biraan haaromfame';
+  }
+
+  @override
+  String conflictBannerMultiple(int count) {
+    return 'Galmeeleen $count haaromfaman';
+  }
+
+  @override
+  String get conflictBannerAction => 'Jijjiirama ilaali';
+
+  @override
+  String get conflictScreenTitle => 'Haaromsa';
+
+  @override
+  String get conflictYourVersion => 'Versiinkee';
+
+  @override
+  String get conflictCurrentVersion => 'Versii Ammaa';
+
+  @override
+  String get conflictServerApplied => 'Versii ammaa hojiirra ooleera';
+
+  @override
+  String get conflictGotIt => 'Hubadhe';
+
+  @override
+  String get conflictEmptyTitle => 'Hundumtuu Haaraa Dha';
+
+  @override
+  String get conflictEmptySubtitle => 'Haaromsi hin jiru';
+
+  @override
+  String conflictEntityDeleted(String entityType) {
+    return '$entityType kun haquudhaan balleeffame';
+  }
+
+  @override
+  String get conflictShowAllChanges => 'Jijjiirama hunda agarsiisi';
+
+  @override
+  String get fraudDuplicateListing =>
+      'Tarreen walfakkaataan duraan jira. Maaloo tarree jiru haaromsi.';
+
+  @override
+  String get fraudVelocityExceeded =>
+      'Gaaffiin baay\'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi\'ii yaali.';
+
+  @override
+  String get profileSaved => 'Profaayiliin haaromfame';
+
+  @override
+  String get noNotificationsYet => 'Hanga ammaatti beeksisni hin jiru';
+
+  @override
+  String get noNotificationsDescription =>
+      'Akeekkachiisni keessan asitti mul\'ata';
+
+  @override
+  String get createDelivery => 'Ergaa Uumi';
+
+  @override
+  String get contactFarmer => 'Qonnaan Bulaa Quunnamuu';
+
+  @override
+  String get detailQuantity => 'Hamma';
+
+  @override
+  String get detailPrice => 'Gatii';
+
+  @override
+  String get detailCreated => 'Kan Uumame';
+
+  @override
+  String get filterMin => 'Xiqqaa';
+
+  @override
+  String get filterMax => 'Guddaa';
+
+  @override
+  String get selectTrip => 'Imala Filadhu';
+
+  @override
+  String get buyerInformation => 'Odeeffannoo Bitaa';
+
+  @override
+  String get buyerNameLabel => 'Maqaa Bitaa';
+
+  @override
+  String get buyerPhoneIdLabel => 'Bilbila / Eenyummaa Bitaa';
+
+  @override
+  String get buyerNameRequired => 'Maqaan bitaa barbaachisaadha';
+
+  @override
+  String get buyerIdRequired => 'Bilbilli ykn eenyummaan bitaa barbaachisaadha';
+
+  @override
+  String get tripSelectionRequired => 'Maaloo imala filadhaa';
+
+  @override
+  String get chooseTripHint => 'Imala filadhaa';
+
+  @override
+  String get noOpenTrips => 'Imalii banaa hin jiru. Dursa imala uumaa.';
+
+  @override
+  String get deliveryCreatedSuccess => 'Ergaan milkaa\'inaan uumame';
+
+  @override
+  String get farmerContactInfo => 'Odeeffannoo Qonnaan Bulaa';
+
+  @override
+  String get copiedToClipboard => 'Garagalchamee';
+
+  @override
+  String get forgotPasswordContactSupport =>
+      'Jecha darbii keessan haaromsuuf gargaarsa +251-111-234567 irratti quunnamaa.';
+
+  @override
+  String resendOtpIn(int seconds) {
+    return 'Sekondii $seconds keessatti irra deebi\'ii ergi';
+  }
+
+  @override
+  String get otpResent => 'OTP milkaa\'inaan ergameera';
+
+  @override
+  String get ok => 'Tole';
+
+  @override
+  String get tutorialComingSoon =>
+      'Karuuzeliin barnoota dhiyootti ni dhufa. Herrega uumuudhaan appicha sakatta\'uu dandeessu!';
+
+  @override
+  String get escrowDescInitiated => 'Mirkaneessa Telebirr eegaa jira';
+
+  @override
+  String get escrowDescEscrowed =>
+      'Maallaqni hanga geejjibsiifamutti nagaan qabameera';
+
+  @override
+  String get escrowDescReleased => 'Maallaqni qonnaan bultaatti ergameera';
+
+  @override
+  String get escrowDescCompleted => 'Daldalli xumurameera';
+
+  @override
+  String get escrowDescCancelled => 'Kaffaltiin haqameera';
+
+  @override
+  String get escrowDescDisputed => 'Mana maree platformiin ilaalamaa jira';
+
+  @override
+  String get escrowDescRefunded => 'Maallaqni bitaadhaaf deebi\'eera';
+
+  @override
+  String get conflictFieldCropType => 'Gosa Midhaan';
+
+  @override
+  String get conflictFieldQuantity => 'Hamma';
+
+  @override
+  String get conflictFieldPricePerKg => 'Gatii/kg';
+
+  @override
+  String get conflictFieldStatus => 'Haala';
+
+  @override
+  String get conflictFieldRoute => 'Karaa';
+
+  @override
+  String get conflictFieldCapacity => 'Dandeettii';
+
+  @override
+  String get conflictFieldTrip => 'Imala';
+
+  @override
+  String get escrowPayButton => 'Kaffalii';
+
+  @override
+  String escrowDisputeReasonPrefix(String reason) {
+    return 'Sababaa: $reason';
+  }
+
+  @override
+  String escrowDeliveryNumber(String id) {
+    return 'Geejjibsiisa #$id';
+  }
+
+  @override
+  String escrowPaymentTo(String name) {
+    return 'Gara: $name';
+  }
+
+  @override
+  String escrowPaymentAmount(String amount) {
+    return 'Kaffaltii: ETB $amount';
+  }
+
+  @override
+  String escrowDeliveryShort(String id) {
+    return 'Geej. #$id';
+  }
+
+  @override
+  String get escrowQueuedStatus => 'Tarree irra';
+
+  @override
+  String get genericError => 'Rakkoon uumameera. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get authErrorRegistrationFailed =>
+      'Galmeen hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get authErrorOtpFailed =>
+      'Mirkaneessuu OTP hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get authErrorResendOtpFailed =>
+      'OTP irra deebi\'ii erguu hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get authErrorLoginFailed =>
+      'Seenuu hin milkoofne. Maaloo irra deebi\'ii yaali.';
+
+  @override
+  String get authErrorOfflineLoginFailed =>
+      'Oflaayiniin seenuu hin milkoofne. Maaloo dursa onlaayiniin seeni.';
+
+  @override
+  String get authErrorSecureStorage =>
+      'Kuusaa nageenya qaqqabuu irratti dogoggora. Maaloo appii irra deebi\'ii jalqabi.';
+
+  @override
+  String get authErrorDatabase =>
+      'Dogoggora kuusaa deetaa. Maaloo appii irra deebi\'ii jalqabi.';
+
+  @override
+  String get authErrorUserNotConfirmed =>
+      'Maaloo dursa lakkoofsa bilbilaa keessan mirkaneessaa.';
+
+  @override
+  String get authErrorTokenExpired =>
+      'Yeroon sesshinii darbe. Maaloo irra deebi\'ii seeni.';
+
+  @override
+  String get deliveryErrorInvalidId => 'Eenyummaa geejjibsiisa sirrii miti';
+
+  @override
+  String get deliveryErrorStatusInvalid =>
+      'Haalli geejjibsiisa gocha kanaaf sirrii miti';
+
+  @override
+  String get deliveryErrorUnauthorized => 'Gocha kanaaf mirga hin qabdan';
+
+  @override
+  String get deliveryErrorDisputeExpired => 'Yeroon komii darbe';
+
+  @override
+  String get deliveryErrorDisputeReasonRequired => 'Maaloo sababaa ibsaa';
+
+  @override
+  String get deliveryErrorGpsInvalid => 'Qindeessaa GPS sirrii miti';
+
+  @override
+  String get deliveryErrorGeneric => 'Hojiin geejjibsiisa hin milkoofne';
+
+  @override
+  String get deliveryErrorNotFound => 'Geejjibsiisni hin argamne';
+
+  @override
+  String get deliveryQrTooLarge => 'QR koodiin baay\'ee guddaadha';
+
+  @override
+  String get deliveryQrIncomplete => 'Daataan QR guutuu miti';
+
+  @override
+  String get deliveryQrInvalidData => 'Daataan QR sirrii miti';
+
+  @override
+  String get deliveryQrWrongDelivery =>
+      'QR koodiin geejjibsiisa kana waliin hin malu';
+
+  @override
+  String get deliveryQrInvalidFormat => 'Bifa QR koodii sirrii miti';
+
+  @override
+  String get deliveryQrProcessFailed => 'QR koodii adeemsisuu hin danda\'amne';
+
+  @override
+  String get escrowPaymentNotFound => 'Kaffaltiin hin argamne';
+
+  @override
+  String get escrowPaymentNotFoundForDelivery =>
+      'Geejjibsiisa kanaaf kaffaltiin hin argamne';
+
+  @override
+  String get pleaseWait => 'Maaloo eegaa...';
 }

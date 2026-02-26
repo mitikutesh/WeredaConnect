@@ -43,76 +43,42 @@ class Environment {
     }
   }
 
-  /// Development environment configuration (AWS Deployment - me-south-1)
+  /// Development environment configuration (AWS Deployment - me-south-1).
+  /// SECURITY: All credentials MUST be passed via --dart-define at build time.
+  /// No defaults are provided for Cognito/API values to prevent accidental leaks.
   static const development = Environment._(
-    apiBaseUrl: String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: 'https://s0om0hib4i.execute-api.me-south-1.amazonaws.com',
-    ),
+    apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.development,
     enableLogging: true,
     connectTimeout: Duration(seconds: 30),
     receiveTimeout: Duration(seconds: 30),
-    cognitoUserPoolId: String.fromEnvironment(
-      'COGNITO_USER_POOL_ID',
-      defaultValue: 'me-south-1_lKHy1XJrd',
-    ),
-    cognitoClientId: String.fromEnvironment(
-      'COGNITO_CLIENT_ID',
-      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
-    ),
-    cognitoRegion: String.fromEnvironment(
-      'COGNITO_REGION',
-      defaultValue: 'me-south-1',
-    ),
+    cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
+    cognitoClientId: String.fromEnvironment('COGNITO_CLIENT_ID'),
+    cognitoRegion: String.fromEnvironment('COGNITO_REGION'),
   );
 
   /// Staging environment configuration
   static const staging = Environment._(
-    apiBaseUrl: String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: 'https://api-staging.weredaconnect.com',
-    ),
+    apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.staging,
     enableLogging: true,
     connectTimeout: Duration(seconds: 20),
     receiveTimeout: Duration(seconds: 20),
-    cognitoUserPoolId: String.fromEnvironment(
-      'COGNITO_USER_POOL_ID',
-      defaultValue: 'me-south-1_lKHy1XJrd',
-    ),
-    cognitoClientId: String.fromEnvironment(
-      'COGNITO_CLIENT_ID',
-      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
-    ),
-    cognitoRegion: String.fromEnvironment(
-      'COGNITO_REGION',
-      defaultValue: 'me-south-1',
-    ),
+    cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
+    cognitoClientId: String.fromEnvironment('COGNITO_CLIENT_ID'),
+    cognitoRegion: String.fromEnvironment('COGNITO_REGION'),
   );
 
   /// Production environment configuration
   static const production = Environment._(
-    apiBaseUrl: String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: 'https://api.weredaconnect.com',
-    ),
+    apiBaseUrl: String.fromEnvironment('API_BASE_URL'),
     environment: AppEnvironment.production,
     enableLogging: false,
     connectTimeout: Duration(seconds: 15),
     receiveTimeout: Duration(seconds: 15),
-    cognitoUserPoolId: String.fromEnvironment(
-      'COGNITO_USER_POOL_ID',
-      defaultValue: 'me-south-1_lKHy1XJrd',
-    ),
-    cognitoClientId: String.fromEnvironment(
-      'COGNITO_CLIENT_ID',
-      defaultValue: '7g3kbk30cmbc297ghmid8pu1nm',
-    ),
-    cognitoRegion: String.fromEnvironment(
-      'COGNITO_REGION',
-      defaultValue: 'me-south-1',
-    ),
+    cognitoUserPoolId: String.fromEnvironment('COGNITO_USER_POOL_ID'),
+    cognitoClientId: String.fromEnvironment('COGNITO_CLIENT_ID'),
+    cognitoRegion: String.fromEnvironment('COGNITO_REGION'),
   );
 
   /// Base URL for API requests
@@ -148,10 +114,14 @@ class Environment {
   /// Is production environment
   bool get isProduction => environment == AppEnvironment.production;
 
-  /// Enable mock auth for local development (bypasses real API)
-  /// Set to true to test UI without server dependency
-  static const bool useMockAuth = bool.fromEnvironment(
-    'USE_MOCK_AUTH',
-    defaultValue: true, // Default to true for easier development
-  );
+  /// Whether the required API credentials have been provided via --dart-define.
+  static bool get isApiConfigured =>
+      config.apiBaseUrl.isNotEmpty &&
+      config.cognitoUserPoolId.isNotEmpty &&
+      config.cognitoClientId.isNotEmpty &&
+      config.cognitoRegion.isNotEmpty;
+
+  /// Enable mock auth for local development (bypasses real API).
+  /// Defaults to false. Override with --dart-define=USE_MOCK_AUTH=true.
+  static const bool useMockAuth = bool.fromEnvironment('USE_MOCK_AUTH');
 }

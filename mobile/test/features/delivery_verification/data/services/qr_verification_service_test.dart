@@ -4,7 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
+
+/// Fake in-memory implementation for tests.
+class FakeDeviceSigningKeyService extends DeviceSigningKeyService {
+  final String _key;
+
+  FakeDeviceSigningKeyService({
+    String key = 'dGVzdC1kZXZpY2Uta2V5LWZvci10ZXN0aW5n',
+  })  : _key = key,
+        super(storage: null);
+
+  @override
+  Future<String> getKey() async => _key;
+}
 
 Delivery _createTestDelivery() {
   return Delivery()
@@ -27,15 +41,17 @@ Delivery _createTestDelivery() {
 void main() {
   group('QrVerificationService', () {
     late QrVerificationService service;
+    late FakeDeviceSigningKeyService fakeKeyService;
 
     setUp(() {
-      service = QrVerificationService();
+      fakeKeyService = FakeDeviceSigningKeyService();
+      service = QrVerificationService(deviceKeyService: fakeKeyService);
     });
 
     group('generateQrToken', () {
-      test('returns token and nonce', () {
+      test('returns token and nonce', () async {
         final delivery = _createTestDelivery();
-        final (token, nonce) = service.generateQrToken(delivery);
+        final (token, nonce) = await service.generateQrToken(delivery);
 
         expect(token, isNotEmpty);
         expect(nonce, isNotEmpty);
@@ -47,33 +63,57 @@ void main() {
         );
       });
 
-      test('returns different tokens for different deliveries', () {
+      test('returns different tokens for different deliveries', () async {
         final delivery1 = _createTestDelivery();
         final delivery2 = _createTestDelivery()
           ..deliveryId = '880e8400-e29b-41d4-a716-446655440099';
 
-        final (token1, _) = service.generateQrToken(delivery1);
-        final (token2, _) = service.generateQrToken(delivery2);
+        final (token1, _) = await service.generateQrToken(delivery1);
+        final (token2, _) = await service.generateQrToken(delivery2);
 
         expect(token1, isNot(token2));
       });
 
-      test('returns different nonces each call', () {
+      test('returns different nonces each call', () async {
         final delivery = _createTestDelivery();
 
-        final (_, nonce1) = service.generateQrToken(delivery);
-        final (_, nonce2) = service.generateQrToken(delivery);
+        final (_, nonce1) = await service.generateQrToken(delivery);
+        final (_, nonce2) = await service.generateQrToken(delivery);
 
         expect(nonce1, isNot(nonce2));
       });
+
+      test('different device keys produce different tokens', () async {
+        final delivery = _createTestDelivery();
+
+        final service1 = QrVerificationService(
+          deviceKeyService: FakeDeviceSigningKeyService(key: 'key-alpha'),
+        );
+        final service2 = QrVerificationService(
+          deviceKeyService: FakeDeviceSigningKeyService(key: 'key-beta'),
+        );
+
+        final (token1, _) = await service1.generateQrToken(delivery);
+        final (token2, _) = await service2.generateQrToken(delivery);
+
+        // Decode payloads to compare HMACs
+        final payload1 = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(token1))),
+        ) as Map<String, dynamic>;
+        final payload2 = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(token2))),
+        ) as Map<String, dynamic>;
+
+        expect(payload1['hmac'], isNot(payload2['hmac']));
+      });
     });
 
-    group('verifyQrToken', () {
-      test('validates correctly signed token', () {
+    group('parseQrToken', () {
+      test('parses correctly structured token', () async {
         final delivery = _createTestDelivery();
-        final (token, nonce) = service.generateQrToken(delivery);
+        final (token, nonce) = await service.generateQrToken(delivery);
 
-        final result = service.verifyQrToken(token, delivery);
+        final result = service.parseQrToken(token, delivery);
 
         expect(result.isValid, isTrue);
         expect(result.deliveryId, delivery.deliveryId);
@@ -84,15 +124,15 @@ void main() {
         expect(result.errorMessage, isNull);
       });
 
-      test('rejects token for wrong delivery', () {
+      test('rejects token for wrong delivery', () async {
         final deliveryA = _createTestDelivery();
         final deliveryB = _createTestDelivery()
           ..deliveryId = '880e8400-e29b-41d4-a716-446655440099'
           ..tripId = '990e8400-e29b-41d4-a716-446655440003';
 
-        final (token, _) = service.generateQrToken(deliveryA);
+        final (token, _) = await service.generateQrToken(deliveryA);
 
-        final result = service.verifyQrToken(token, deliveryB);
+        final result = service.parseQrToken(token, deliveryB);
 
         expect(result.isValid, isFalse);
         expect(result.errorMessage, contains('does not match'));
@@ -101,7 +141,7 @@ void main() {
       test('rejects empty string', () {
         final delivery = _createTestDelivery();
 
-        final result = service.verifyQrToken('', delivery);
+        final result = service.parseQrToken('', delivery);
 
         expect(result.isValid, isFalse);
       });
@@ -110,7 +150,7 @@ void main() {
         final delivery = _createTestDelivery();
         final oversized = 'A' * (DeliveryConstants.maxQrTokenChars + 1);
 
-        final result = service.verifyQrToken(oversized, delivery);
+        final result = service.parseQrToken(oversized, delivery);
 
         expect(result.isValid, isFalse);
         expect(result.errorMessage, contains('too large'));
@@ -119,36 +159,35 @@ void main() {
       test('rejects malformed base64', () {
         final delivery = _createTestDelivery();
 
-        final result = service.verifyQrToken('not-valid-base64!!!', delivery);
+        final result = service.parseQrToken('not-valid-base64!!!', delivery);
 
         expect(result.isValid, isFalse);
       });
 
-      test('rejects tampered HMAC', () {
+      test('returns nonce in valid result', () async {
         final delivery = _createTestDelivery();
-        final (token, _) = service.generateQrToken(delivery);
+        final (token, nonce) = await service.generateQrToken(delivery);
 
-        // Decode, tamper HMAC, re-encode
-        final decoded =
-            utf8.decode(base64Url.decode(base64Url.normalize(token)));
-        final payload = jsonDecode(decoded) as Map<String, dynamic>;
-        payload['hmac'] = 'tampered_${payload['hmac']}';
-        final tampered = base64Url.encode(utf8.encode(jsonEncode(payload)));
-
-        final result = service.verifyQrToken(tampered, delivery);
-
-        expect(result.isValid, isFalse);
-        expect(result.errorMessage, contains('tampering'));
-      });
-
-      test('returns nonce in valid result', () {
-        final delivery = _createTestDelivery();
-        final (token, nonce) = service.generateQrToken(delivery);
-
-        final result = service.verifyQrToken(token, delivery);
+        final result = service.parseQrToken(token, delivery);
 
         expect(result.isValid, isTrue);
         expect(result.nonce, isNotNull);
+        expect(result.nonce, nonce);
+      });
+
+      test('parses token from different device key (no HMAC check)', () async {
+        final delivery = _createTestDelivery();
+        // Generate with one device key
+        final otherService = QrVerificationService(
+          deviceKeyService: FakeDeviceSigningKeyService(key: 'other-device'),
+        );
+        final (token, nonce) = await otherService.generateQrToken(delivery);
+
+        // Parse with a different device key — should still succeed
+        // because parseQrToken only does structural validation
+        final result = service.parseQrToken(token, delivery);
+
+        expect(result.isValid, isTrue);
         expect(result.nonce, nonce);
       });
     });

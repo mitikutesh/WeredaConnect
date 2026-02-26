@@ -32,7 +32,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
         int limit = 20,
         Dictionary<string, AttributeValue>? exclusiveStartKey = null)
     {
-        if (limit < 1 || limit > 50) limit = 20;
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
 
         // If tripId filter is provided, use TripIdIndex GSI
         if (!string.IsNullOrEmpty(tripId))
@@ -61,7 +64,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
         };
 
         if (exclusiveStartKey != null)
+        {
             request.ExclusiveStartKey = exclusiveStartKey;
+        }
 
         // Exclude deleted items
         var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
@@ -105,7 +110,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
         };
 
         if (exclusiveStartKey != null)
+        {
             request.ExclusiveStartKey = exclusiveStartKey;
+        }
 
         var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
         request.ExpressionAttributeNames["#deletedAt"] = "deletedAt";

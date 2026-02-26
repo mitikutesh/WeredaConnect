@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 
 void main() {
@@ -32,6 +33,7 @@ void main() {
           TripSchema,
           DeliverySchema,
           PaymentSchema,
+          PaymentIntentSchema,
           SyncOperationSchema,
         ],
         directory: tempDir.path,
@@ -91,6 +93,7 @@ void main() {
           ..latitude = 8.7519
           ..longitude = 38.9811)
         ..description = 'High quality white teff from Bishoftu region'
+        ..locationName = 'Bishoftu'
         ..audioNoteRef = null
         ..status = ListingStatus.active
         ..createdAt = DateTime.now().toUtc()
@@ -204,9 +207,13 @@ void main() {
         ..farmerId = 'user-001'
         ..buyerId = 'user-003'
         ..amount = 4450.0 // (50 quintals * 85 ETB) + transport cost
+        ..commission = 111.25
+        ..commissionRate = 0.025
+        ..farmerPayout = 4338.75
         ..telebirrRef = 'TB-20260214-12345'
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
         ..version = 1;
 
       // Save to database
@@ -442,9 +449,13 @@ void main() {
           ..farmerId = 'farmer-001'
           ..buyerId = 'buyer-001'
           ..amount = 1000.0 + i
+          ..commission = 25.0
+          ..commissionRate = 0.025
+          ..farmerPayout = 975.0 + i
           ..telebirrRef = null
           ..status = statuses[i]
           ..createdAt = DateTime.now().toUtc()
+          ..updatedAt = DateTime.now().toUtc()
           ..version = 1;
 
         await isar.writeTxn(() async {
@@ -470,8 +481,12 @@ void main() {
         ..farmerId = 'farmer-001'
         ..buyerId = 'buyer-001'
         ..amount = 100.0
+        ..commission = 5.0
+        ..commissionRate = 0.025
+        ..farmerPayout = 95.0
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
         ..version = 1;
 
       final paymentMax = Payment()
@@ -480,8 +495,12 @@ void main() {
         ..farmerId = 'farmer-001'
         ..buyerId = 'buyer-001'
         ..amount = 500000.0
+        ..commission = 12500.0
+        ..commissionRate = 0.025
+        ..farmerPayout = 487500.0
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
         ..version = 1;
 
       await isar.writeTxn(() async {
@@ -510,8 +529,12 @@ void main() {
         ..farmerId = 'farmer-001'
         ..buyerId = 'buyer-001'
         ..amount = 1234.56
+        ..commission = 30.86
+        ..commissionRate = 0.025
+        ..farmerPayout = 1203.70
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
         ..version = 1;
 
       await isar.writeTxn(() async {
@@ -532,9 +555,13 @@ void main() {
         ..farmerId = 'farmer-001'
         ..buyerId = 'buyer-001'
         ..amount = 5000.0
+        ..commission = 125.0
+        ..commissionRate = 0.025
+        ..farmerPayout = 4875.0
         ..telebirrRef = null
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
         ..version = 1;
 
       await isar.writeTxn(() async {

@@ -64,12 +64,21 @@ public sealed class CognitoJwtValidator : IJwtValidator
     /// <param name="userPoolId">Cognito User Pool ID (e.g., "me-south-1_AbCdEfGhI").</param>
     /// <param name="region">AWS region (e.g., "me-south-1").</param>
     /// <param name="clientId">Cognito App Client ID.</param>
-    /// <param name="signingKey">Optional signing key. If null, signature validation is skipped (useful for testing).</param>
-    public CognitoJwtValidator(string userPoolId, string region, string clientId, SecurityKey? signingKey = null)
+    /// <param name="signingKey">Signing key for JWT signature validation. Required for production use.</param>
+    /// <param name="isTestingEnvironment">Set to true only in unit tests to skip signature validation.</param>
+    public CognitoJwtValidator(string userPoolId, string region, string clientId, SecurityKey? signingKey = null, bool isTestingEnvironment = false)
     {
         ArgumentNullException.ThrowIfNull(userPoolId);
         ArgumentNullException.ThrowIfNull(region);
         ArgumentNullException.ThrowIfNull(clientId);
+
+        // SECURITY: Signing key is required in non-test environments to prevent JWT forgery.
+        if (signingKey is null && !isTestingEnvironment)
+        {
+            throw new InvalidOperationException(
+                "JWT signing key must be provided for production use. " +
+                "Pass isTestingEnvironment: true only in unit tests.");
+        }
 
         _clientId = clientId;
         _issuer = $"https://cognito-idp.{region}.amazonaws.com/{userPoolId}";
@@ -89,8 +98,8 @@ public sealed class CognitoJwtValidator : IJwtValidator
             IssuerSigningKey = signingKey
         };
 
-        // If no signing key provided, skip signature validation
-        if (signingKey is null)
+        // Only skip signature validation in testing environments
+        if (signingKey is null && isTestingEnvironment)
         {
             _validationParameters.SignatureValidator = (token, _) => new JwtSecurityToken(token);
         }

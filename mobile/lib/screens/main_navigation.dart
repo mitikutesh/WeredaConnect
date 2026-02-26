@@ -1,12 +1,29 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_list_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -23,14 +40,48 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+  bool _isOnline = true; // Optimistic default until first stream event
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    BrowseListingsScreen(),
-    BrowseTripsScreen(),
-    DeliveryListScreen(),
-    ProfileScreen(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    final monitor = context.read<ConnectivityMonitor>();
+    // Seed with real current state
+    monitor.isConnected().then((online) {
+      if (mounted) setState(() => _isOnline = online);
+    });
+    // Listen for changes (debounced — safe on flaky 3G)
+    _connectivitySub = monitor.onConnectivityChanged.listen((results) {
+      final online = monitor.isConnectedFromResults(results);
+      if (mounted) setState(() => _isOnline = online);
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectivitySub?.cancel();
+    super.dispose();
+  }
+
+  List<Widget> _buildScreens() {
+    return [
+      HomeScreen(
+        onNavigateToTab: (index) {
+          setState(() => _currentIndex = index);
+        },
+      ),
+      const BrowseListingsScreen(),
+      const BrowseTripsScreen(),
+      const DeliveryListScreen(),
+      const PaymentHistoryScreen(),
+      ProfileScreen(
+        onNavigateToTab: (index) {
+          setState(() => _currentIndex = index);
+        },
+      ),
+    ];
+  }
 
   void _showLogoutConfirmation(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -49,10 +100,10 @@ class _MainNavigationState extends State<MainNavigation> {
             TextButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                // clearCache: false preserves offline credentials
-                // (important for Ethiopian rural users who share devices)
+                // Default clearCache: true clears user-specific business data
+                // (deliveries, payments) to prevent data leakage on shared devices
                 context.read<AuthBloc>().add(
-                      const AuthLogoutRequested(clearCache: false),
+                      const AuthLogoutRequested(),
                     );
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -64,90 +115,241 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
+  void _showResetTestDataConfirmation(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Test Data?'),
+          content: const Text(
+            'This will delete all listings, trips, deliveries, and payments. '
+            'Your registered accounts will be preserved.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final isar = IsarService.instance.db;
+                  await isar.writeTxn(() async {
+                    await isar.cropListings.clear();
+                    await isar.trips.clear();
+                    await isar.deliverys.clear();
+                    await isar.payments.clear();
+                    await isar.paymentIntents.clear();
+                  });
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('Test data cleared successfully'),
+                      ),
+                    );
+                  }
+                } on Exception catch (e) {
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Reset failed: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              child: const Text('Reset'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget? _buildFab(UserRole role) {
+    // FAB on tab 1 only for farmer (Create Listing)
+    if (_currentIndex == 1 && role == UserRole.farmer) {
+      return FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => const CreateCropListingScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      );
+    }
+    // FAB on tab 2 only for trucker (Create Trip)
+    if (_currentIndex == 2 && role == UserRole.trucker) {
+      return FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => const CreateTripScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      );
+    }
+    return null;
+  }
+
+  String _getListingsTabLabel(AppLocalizations l10n, UserRole role) {
+    return role == UserRole.farmer ? l10n.myListings : l10n.browseListings;
+  }
+
+  String _getTripsTabLabel(AppLocalizations l10n, UserRole role) {
+    return role == UserRole.trucker ? l10n.myTrips : l10n.browseTrips;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_getTitle(l10n)),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // Sync status indicator
-          IconButton(
-            icon: const Icon(Icons.cloud_done_outlined),
-            tooltip: l10n.offlineReady,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.offlineReady)),
-              );
-            },
-          ),
-        ],
-      ),
-      drawer: _buildDrawer(context, l10n),
-      body: _screens[_currentIndex],
-      floatingActionButton: _currentIndex == 1
-          ? FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (context) => const CreateCropListingScreen(),
+    return BlocBuilder<AuthBloc, AuthState>(
+      buildWhen: (prev, curr) =>
+          prev is! AuthAuthenticated ||
+          curr is! AuthAuthenticated ||
+          prev.role != curr.role,
+      builder: (context, authState) {
+        final role =
+            authState is AuthAuthenticated ? authState.role : UserRole.farmer;
+        final screens = _buildScreens();
+
+        return BlocListener<ConflictBloc, ConflictState>(
+          listener: (context, state) {
+            if (state is ConflictPending) {
+              final messenger = ScaffoldMessenger.of(context);
+              final message =
+                  l10n.conflictBannerSingle(state.conflict.entityType);
+              messenger.showMaterialBanner(
+                MaterialBanner(
+                  backgroundColor: Colors.amber.shade50,
+                  leading: Icon(
+                    Icons.sync,
+                    size: 24,
+                    color: Colors.amber.shade700,
                   ),
-                );
-              },
-              child: const Icon(Icons.add),
-            )
-          : _currentIndex == 2
-              ? FloatingActionButton(
+                  content: Text(
+                    message,
+                    style: const TextStyle(fontSize: 16),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        messenger.hideCurrentMaterialBanner();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => BlocProvider.value(
+                              value: context.read<ConflictBloc>(),
+                              child: ConflictResolutionScreen(
+                                conflict: state.conflict,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      child: Text(l10n.conflictBannerAction),
+                    ),
+                  ],
+                  onVisible: () {
+                    Future.delayed(const Duration(seconds: 8), () {
+                      messenger.hideCurrentMaterialBanner();
+                    });
+                  },
+                ),
+              );
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(_getTitle(l10n)),
+              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+              actions: [
+                IconButton(
+                  icon: Icon(
+                    _isOnline
+                        ? Icons.cloud_done_outlined
+                        : Icons.cloud_off_outlined,
+                    color: _isOnline
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4),
+                  ),
+                  tooltip: _isOnline ? l10n.offlineReady : l10n.offlineMode,
                   onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (context) => const CreateTripScreen(),
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          _isOnline
+                              ? l10n.syncComplete
+                              : l10n.offlineModeIndicator,
+                        ),
                       ),
                     );
                   },
-                  child: const Icon(Icons.add),
-                )
-              : null,
-      // Deliveries tab (index 3) has no FAB since deliveries are created from trips
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.home_outlined),
-            selectedIcon: const Icon(Icons.home),
-            label: l10n.home,
+                ),
+              ],
+            ),
+            drawer: _buildDrawer(context, l10n),
+            body: screens[_currentIndex],
+            floatingActionButton: _buildFab(role),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.home_outlined),
+                  selectedIcon: const Icon(Icons.home),
+                  label: l10n.home,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.list_alt_outlined),
+                  selectedIcon: const Icon(Icons.list_alt),
+                  label: _getListingsTabLabel(l10n, role),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.local_shipping_outlined),
+                  selectedIcon: const Icon(Icons.local_shipping),
+                  label: _getTripsTabLabel(l10n, role),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.inventory_2_outlined),
+                  selectedIcon: const Icon(Icons.inventory_2),
+                  label: l10n.deliveries,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                  selectedIcon: const Icon(Icons.account_balance_wallet),
+                  label: l10n.escrowPayments,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.person_outline),
+                  selectedIcon: const Icon(Icons.person),
+                  label: l10n.profile,
+                ),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.list_alt_outlined),
-            selectedIcon: const Icon(Icons.list_alt),
-            label: l10n.listings,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.local_shipping_outlined),
-            selectedIcon: const Icon(Icons.local_shipping),
-            label: l10n.trips,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.inventory_2_outlined),
-            selectedIcon: const Icon(Icons.inventory_2),
-            label: l10n.deliveries,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.person_outline),
-            selectedIcon: const Icon(Icons.person),
-            label: l10n.profile,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -162,6 +364,8 @@ class _MainNavigationState extends State<MainNavigation> {
       case 3:
         return l10n.deliveryMyDeliveries;
       case 4:
+        return l10n.escrowPayments;
+      case 5:
         return l10n.myProfile;
       default:
         return l10n.appTitle;
@@ -194,7 +398,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       ),
                 ),
                 Text(
-                  l10n.offlineReady,
+                  _isOnline ? l10n.offlineReady : l10n.offlineMode,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onPrimaryContainer,
                       ),
@@ -233,6 +437,22 @@ class _MainNavigationState extends State<MainNavigation> {
               );
             },
           ),
+          if (kDebugMode) ...[
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep, color: Colors.orange),
+              title: const Text(
+                'Reset Test Data',
+                style: TextStyle(color: Colors.orange),
+              ),
+              subtitle:
+                  const Text('Clear listings, trips, deliveries, payments'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                _showResetTestDataConfirmation(context);
+              },
+            ),
+          ],
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),

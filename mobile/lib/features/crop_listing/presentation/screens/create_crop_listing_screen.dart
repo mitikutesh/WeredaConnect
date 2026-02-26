@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -8,7 +9,9 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Screen for creating a new crop listing.
 ///
@@ -18,7 +21,10 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// - BlocListener for state transitions
 /// - Loading spinner on submit
 class CreateCropListingScreen extends StatefulWidget {
-  const CreateCropListingScreen({super.key});
+  /// Injectable GPS capture service (for testing).
+  final GpsCaptureService? gpsCaptureService;
+
+  const CreateCropListingScreen({this.gpsCaptureService, super.key});
 
   @override
   State<CreateCropListingScreen> createState() =>
@@ -32,7 +38,35 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   final _locationController = TextEditingController();
   final _descriptionController = TextEditingController();
 
+  /// Pre-generated listing ID used for audio file naming.
+  final String _listingId = const Uuid().v4();
+
   CropType? _selectedCropType;
+  String? _audioNoteRef;
+
+  late final GpsCaptureService _gpsCaptureService;
+  GpsCaptureResult? _gpsResult;
+  bool _gpsCapturing = false;
+
+  /// Guards against accidental double-tap submission.
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _gpsCaptureService = widget.gpsCaptureService ?? GpsCaptureService();
+    _captureGps();
+  }
+
+  Future<void> _captureGps() async {
+    setState(() => _gpsCapturing = true);
+    final result = await _gpsCaptureService.captureCurrentPosition();
+    if (!mounted) return;
+    setState(() {
+      _gpsResult = result;
+      _gpsCapturing = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -44,6 +78,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   }
 
   void _handleSave() {
+    // Prevent accidental double-tap submission
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
 
     final l10n = AppLocalizations.of(context)!;
@@ -63,16 +99,19 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       return;
     }
 
+    _isSubmitting = true;
+
     context.read<CropListingBloc>().add(
           CreateCropListing(
             farmerId: authState.userId,
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),
-            // Default coordinates for Addis Ababa (GPS deferred)
-            latitude: 9.0192,
-            longitude: 38.7525,
+            latitude: _gpsResult?.latitude ?? 0.0,
+            longitude: _gpsResult?.longitude ?? 0.0,
+            locationName: _locationController.text.trim(),
             description: _descriptionController.text.trim(),
+            audioNoteRef: _audioNoteRef,
           ),
         );
   }
@@ -90,12 +129,29 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           );
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message),
-              backgroundColor: Colors.red,
-            ),
-          );
+          _isSubmitting = false;
+          if (state.message.contains('FRAUD_DUPLICATE_LISTING')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.fraudDuplicateListing),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else if (state.message.contains('FRAUD_VELOCITY_EXCEEDED')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.fraudVelocityExceeded),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       },
       child: Scaffold(
@@ -221,6 +277,14 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 8),
+
+                      // GPS status indicator
+                      _GpsStatusIndicator(
+                        gpsResult: _gpsResult,
+                        isCapturing: _gpsCapturing,
+                        onRetry: _captureGps,
+                      ),
                       const SizedBox(height: 16),
 
                       // Description input
@@ -240,19 +304,25 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Audio note placeholder
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.comingSoon)),
+                      // Audio voice note
+                      Builder(
+                        builder: (context) {
+                          final authState = context.read<AuthBloc>().state;
+                          final userId = authState is AuthAuthenticated
+                              ? authState.userId
+                              : '';
+                          return VoiceNoteWidget(
+                            audioFilePath: _audioNoteRef,
+                            userId: userId,
+                            entityId: _listingId,
+                            onRecorded: (path) {
+                              setState(() => _audioNoteRef = path);
+                            },
+                            onDeleted: () {
+                              setState(() => _audioNoteRef = null);
+                            },
                           );
                         },
-                        icon: const Icon(Icons.mic),
-                        label: Text(l10n.recordAudioNote),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          minimumSize: const Size.fromHeight(48),
-                        ),
                       ),
                       const SizedBox(height: 24),
 
@@ -290,6 +360,81 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// GPS status indicator widget.
+///
+/// Shows capturing spinner, green "GPS Captured", or orange "GPS unavailable"
+/// with retry button.
+class _GpsStatusIndicator extends StatelessWidget {
+  final GpsCaptureResult? gpsResult;
+  final bool isCapturing;
+  final VoidCallback onRetry;
+
+  const _GpsStatusIndicator({
+    required this.gpsResult,
+    required this.isCapturing,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    if (isCapturing) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            l10n.deliveryGpsCapturing,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      );
+    }
+
+    if (gpsResult != null && gpsResult!.isAvailable) {
+      return Row(
+        children: [
+          Icon(Icons.check_circle, size: 16, color: Colors.green.shade600),
+          const SizedBox(width: 8),
+          Text(
+            l10n.deliveryGpsCaptured,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.green.shade600,
+                ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Icon(Icons.warning_amber, size: 16, color: Colors.orange.shade700),
+        const SizedBox(width: 8),
+        Text(
+          l10n.deliveryGpsUnavailable,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.orange.shade700,
+              ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: onRetry,
+          child: Icon(
+            Icons.refresh,
+            size: 16,
+            color: Colors.orange.shade700,
+          ),
+        ),
+      ],
     );
   }
 }

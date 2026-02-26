@@ -64,7 +64,7 @@ public class RateLimitServiceTests
     }
 
     [Fact]
-    public async Task CheckLoginAllowed_LockExpired_ReturnsSuccess()
+    public async Task CheckLoginAllowed_LockExpired_ReturnsSuccessAndResetsCounter()
     {
         var lockedUntil = DateTime.UtcNow.AddMinutes(-1).ToString("o");
         _mockRepo.GetAsync("LOGIN#+251912345678").Returns(new RateLimitEntry
@@ -78,6 +78,8 @@ public class RateLimitServiceTests
         var result = await _service.CheckLoginAllowedAsync("+251912345678");
 
         Assert.True(result.IsSuccess);
+        // Counter must be deleted so user gets fresh 3 attempts
+        await _mockRepo.Received(1).DeleteAsync("LOGIN#+251912345678");
     }
 
     [Fact]

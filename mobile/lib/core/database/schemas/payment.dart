@@ -14,7 +14,7 @@ class Payment {
   /// Isar auto-generated ID (internal use only)
   Id id = Isar.autoIncrement;
 
-  /// Server-assigned payment ID (UUID)
+  /// Server-assigned payment ID (maps to escrowId on server)
   @Index(unique: true)
   late String paymentId;
 
@@ -29,8 +29,16 @@ class Payment {
   late String buyerId;
 
   /// Payment amount in Ethiopian Birr (ETB)
-  /// Calculated as: (quantity * pricePerKg) + (quantity * pricePerQuintal / 100)
   late double amount;
+
+  /// Platform commission in ETB: max(amount * commissionRate, 5.0)
+  late double commission;
+
+  /// Commission rate (server-configured, default 0.025)
+  late double commissionRate;
+
+  /// Net amount farmer receives: amount - commission
+  late double farmerPayout;
 
   /// Telebirr transaction reference
   /// Null until payment is initiated with Telebirr API
@@ -44,21 +52,54 @@ class Payment {
   /// Timestamp when payment was created (UTC)
   late DateTime createdAt;
 
+  /// Timestamp of last server state change (UTC)
+  late DateTime updatedAt;
+
+  /// Auto-refund deadline (createdAt + 7 days)
+  DateTime? expiresAt;
+
+  /// Dispute deadline (deliveryConfirmedAt + 48 hours)
+  DateTime? disputeWindowEndsAt;
+
+  /// When funds were released to farmer
+  DateTime? releasedAt;
+
+  /// When funds were refunded to buyer
+  DateTime? refundedAt;
+
+  /// When transaction fully settled
+  DateTime? completedAt;
+
+  /// Dispute reason enum value (if disputed)
+  String? disputeReason;
+
+  /// Dispute free-text description
+  String? disputeDescription;
+
   /// Version number for optimistic concurrency control
   late int version;
 }
 
 /// Status of a payment in its lifecycle
 enum PaymentStatus {
-  /// Payment held in escrow (buyer deposited, farmer not paid yet)
+  /// Payment intent submitted; Telebirr hold pending
+  initiated,
+
+  /// Funds held in platform Telebirr account
   escrowed,
 
-  /// Payment released to farmer (delivery confirmed)
+  /// Funds released to farmer (minus commission)
   released,
 
-  /// Payment disputed (quality/quantity issue)
+  /// Transaction fully settled
+  completed,
+
+  /// Buyer cancelled before funds were held
+  cancelled,
+
+  /// Dispute raised within 48h of delivery
   disputed,
 
-  /// Payment refunded to buyer (delivery failed/cancelled)
+  /// Funds returned to buyer
   refunded,
 }

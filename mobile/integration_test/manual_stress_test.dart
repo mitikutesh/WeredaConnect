@@ -129,6 +129,7 @@ void main() {
             pricePerKg: 40.0 + (i % 20).toDouble(),
             latitude: 9.0 + (i * 0.001),
             longitude: 38.0 + (j * 0.001),
+            locationName: 'Test Wereda',
             description: 'Stress test cycle $i operation $j',
           );
         }

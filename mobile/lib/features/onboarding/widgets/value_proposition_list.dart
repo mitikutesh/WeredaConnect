@@ -29,14 +29,14 @@ class ValuePropositionList extends StatelessWidget {
           text: l10n.recordAudioNote,
           color: Colors.blue,
         ),
-        const _ValuePropItem(
+        _ValuePropItem(
           icon: Icons.payment,
-          text: 'Telebirr Payment', // TODO: Add to l10n
+          text: l10n.telebirrPayment,
           color: Colors.orange,
         ),
-        const _ValuePropItem(
+        _ValuePropItem(
           icon: Icons.storefront,
-          text: 'Connect with Local Markets', // TODO: Add to l10n
+          text: l10n.connectWithMarkets,
           color: Colors.purple,
         ),
       ],

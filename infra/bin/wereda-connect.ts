@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-import 'source-map-support/register';
-import * as cdk from 'aws-cdk-lib';
-import { DatabaseStack } from '../lib/stacks/database-stack';
-import { ApiStack } from '../lib/stacks/api-stack';
-import { MonitoringStack } from '../lib/stacks/monitoring-stack';
-import { environments } from '../lib/config/environments';
+import "source-map-support/register";
+import * as cdk from "aws-cdk-lib";
+import { DatabaseStack } from "../lib/stacks/database-stack";
+import { ApiStack } from "../lib/stacks/api-stack";
+import { MonitoringStack } from "../lib/stacks/monitoring-stack";
+import { environments } from "../lib/config/environments";
 
 const app = new cdk.App();
 
 // Determine environment from context or default to dev
-const envName = app.node.tryGetContext('environment') || 'dev';
-const envConfig = environments[envName] ?? environments['dev'];
+const envName = app.node.tryGetContext("environment") || "dev";
+const envConfig = environments[envName] ?? environments["dev"];
 
 const envProps: cdk.Environment = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -46,6 +46,7 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   escrowsTable: databaseStack.escrowsTable,
   escrowAuditTable: databaseStack.escrowAuditTable,
   escrowIdempotencyTable: databaseStack.escrowIdempotencyTable,
+  fraudSignalsTable: databaseStack.fraudSignalsTable,
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);

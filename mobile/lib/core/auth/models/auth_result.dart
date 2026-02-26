@@ -34,6 +34,9 @@ class AuthResult {
   /// Human-readable error message (only present on failure)
   final String? errorMessage;
 
+  /// Seconds until account lockout expires (only for AUTH_015)
+  final int? retryAfterSeconds;
+
   /// Whether this was an offline authentication
   /// (used to show "offline mode" indicator in UI)
   final bool isOfflineAuth;
@@ -44,6 +47,7 @@ class AuthResult {
     this.userId,
     this.errorCode,
     this.errorMessage,
+    this.retryAfterSeconds,
     this.isOfflineAuth = false,
   });
 
@@ -64,12 +68,14 @@ class AuthResult {
   /// Create a failed authentication result
   factory AuthResult.failure(
     String errorCode,
-    String errorMessage,
-  ) {
+    String errorMessage, {
+    int? retryAfterSeconds,
+  }) {
     return AuthResult._(
       isSuccess: false,
       errorCode: errorCode,
       errorMessage: errorMessage,
+      retryAfterSeconds: retryAfterSeconds,
     );
   }
 
@@ -80,6 +86,18 @@ class AuthResult {
       'No internet connection and no cached credentials available',
     );
   }
+
+  /// Create a successful OTP verification result (no tokens yet — caller must login)
+  factory AuthResult.otpVerified({required String userId}) {
+    return AuthResult._(
+      isSuccess: true,
+      userId: userId,
+    );
+  }
+
+  /// Whether this result represents a successful OTP verification
+  /// that still requires a login call to obtain tokens.
+  bool get isOtpVerifiedOnly => isSuccess && tokens == null;
 
   /// Create an offline-not-available result
   factory AuthResult.offlineNotAvailable() {

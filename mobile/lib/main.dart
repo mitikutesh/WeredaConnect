@@ -4,10 +4,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
+import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
@@ -19,21 +26,60 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
+import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
+import 'package:wereda_connect/shared/providers/settings_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // SECURITY: Fail fast if API credentials are missing (prevents silent fallback to empty URL)
+  if (!Environment.useMockAuth && !Environment.isApiConfigured) {
+    throw StateError(
+      'API_BASE_URL and Cognito credentials must be provided via --dart-define. '
+      'See README for build instructions. '
+      'For local development, use --dart-define=USE_MOCK_AUTH=true.',
+    );
+  }
+
+  // Initialize data usage tracker before API client so the interceptor
+  // can be attached immediately.
+  final dataUsageTracker = DataUsageTracker();
+  await dataUsageTracker.initialize();
+
   // Initialize API client before AuthBloc creation
-  ApiClient().initialize();
+  ApiClient().initialize(
+    interceptors: [DataUsageInterceptor(dataUsageTracker)],
+  );
 
   // Initialize Isar before runApp - required for AuthCheckRequested
   // which reads cached user from Isar
   await IsarService.instance.initialize();
 
+  // Create ConnectivityMonitor early so it can be shared between
+  // the widget tree and EscrowSyncService.
+  final connectivityMonitor = ConnectivityMonitor(dio: ApiClient().dio);
+
+  // Start escrow sync service to process offline payment intents
+  // when connectivity returns (MH2 / MH4 requirements).
+  final escrowSyncService = EscrowSyncService(
+    isar: IsarService.instance.db,
+    apiClient: ApiClient(),
+    connectivityMonitor: connectivityMonitor,
+  );
+  escrowSyncService.startListening();
+
+  // Create conflict notification service for sync conflict UI
+  final conflictNotificationService = ConflictNotificationService();
+
   // Initialize language provider and load saved language preference
   final languageProvider = LanguageProvider();
   await languageProvider.initialize();
+
+  // Initialize settings provider and load persisted settings
+  final settingsProvider = SettingsProvider();
+  await settingsProvider.initialize();
 
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
@@ -54,19 +100,39 @@ Future<void> main() async {
     }
   };
 
-  // Add lifecycle observer for resource cleanup
-  WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
+  // Create AuthBloc early so the lifecycle observer can clear sensitive data
+  final authBloc = AuthBloc(
+    isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
+  )..add(const AuthCheckRequested());
+
+  // Add lifecycle observer for resource cleanup and sensitive data clearing
+  WidgetsBinding.instance
+      .addObserver(_AppLifecycleObserver(authBloc: authBloc));
 
   runApp(
-    ChangeNotifierProvider.value(
-      value: languageProvider,
-      child: const WeredaConnectApp(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: languageProvider),
+        ChangeNotifierProvider.value(value: settingsProvider),
+        ChangeNotifierProvider.value(value: dataUsageTracker),
+      ],
+      child: WeredaConnectApp(
+        authBloc: authBloc,
+        connectivityMonitor: connectivityMonitor,
+        escrowSyncService: escrowSyncService,
+        conflictNotificationService: conflictNotificationService,
+      ),
     ),
   );
 }
 
 /// Manages app lifecycle to optimize memory usage on low-end devices
+/// and clear sensitive in-memory data when the app is backgrounded.
 class _AppLifecycleObserver extends WidgetsBindingObserver {
+  _AppLifecycleObserver({required this.authBloc});
+
+  final AuthBloc authBloc;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
@@ -74,79 +140,127 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
       // This frees ~50MB on 2GB devices
       imageCache.clear();
       imageCache.clearLiveImages();
+
+      // SECURITY: Clear sensitive in-memory data when app goes to background.
+      // On shared devices (common in Ethiopia), this prevents password exposure
+      // via memory inspection tools when the app is backgrounded.
+      authBloc.clearSensitiveData();
     }
   }
 }
 
 class WeredaConnectApp extends StatelessWidget {
-  const WeredaConnectApp({super.key});
+  final AuthBloc authBloc;
+  final ConnectivityMonitor connectivityMonitor;
+  final EscrowSyncService escrowSyncService;
+  final ConflictNotificationService conflictNotificationService;
+
+  const WeredaConnectApp({
+    required this.authBloc,
+    required this.connectivityMonitor,
+    required this.escrowSyncService,
+    required this.conflictNotificationService,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
+    return MultiProvider(
       providers: [
-        BlocProvider<AuthBloc>(
-          create: (_) => AuthBloc()..add(const AuthCheckRequested()),
+        Provider<ConnectivityMonitor>(
+          create: (_) => connectivityMonitor,
+          dispose: (_, monitor) => monitor.dispose(),
         ),
-        BlocProvider<OnboardingBloc>(
-          create: (_) => OnboardingBloc(),
+        Provider<EscrowSyncService>(
+          create: (_) => escrowSyncService,
+          dispose: (_, service) => service.dispose(),
         ),
-        BlocProvider<CropListingBloc>(
-          create: (_) => CropListingBloc(
-            repository: CropListingRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
-          ),
-        ),
-        BlocProvider<TripListingBloc>(
-          create: (_) => TripListingBloc(
-            repository: TripListingRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
-          ),
-        ),
-        BlocProvider<DeliveryBloc>(
-          create: (_) => DeliveryBloc(
-            repository: DeliveryRepository(
-              isar: IsarService.instance.db,
-              syncQueue: SyncQueue(IsarService.instance.db),
-            ),
-          ),
+        Provider<ConflictNotificationService>(
+          create: (_) => conflictNotificationService,
+          dispose: (_, service) => service.dispose(),
         ),
       ],
-      child: Consumer<LanguageProvider>(
-        builder: (context, languageProvider, child) {
-          return MaterialApp(
-            title: 'WeredaConnect',
-
-            // Localization - use dynamic locale from provider
-            locale: languageProvider.locale,
-            localizationsDelegates: const [
-              AppLocalizations.delegate,
-              FallbackMaterialLocalizationsDelegate(),
-              GlobalWidgetsLocalizations.delegate,
-              FallbackCupertinoLocalizationsDelegate(),
-            ],
-            supportedLocales: const [
-              Locale('en'), // English
-              Locale('am'), // Amharic (app text + English Material widgets)
-              Locale('om'), // Afan Oromo (app text + English Material widgets)
-            ],
-
-            // Theme
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: Colors.green,
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(
+            value: authBloc,
+          ),
+          BlocProvider<OnboardingBloc>(
+            create: (_) => OnboardingBloc(),
+          ),
+          BlocProvider<CropListingBloc>(
+            create: (_) => CropListingBloc(
+              repository: CropListingRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
               ),
-              useMaterial3: true,
             ),
+          ),
+          BlocProvider<TripListingBloc>(
+            create: (_) => TripListingBloc(
+              repository: TripListingRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
+              ),
+            ),
+          ),
+          BlocProvider<DeliveryBloc>(
+            create: (_) => DeliveryBloc(
+              repository: DeliveryRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
+              ),
+            ),
+          ),
+          BlocProvider<ConflictBloc>(
+            create: (context) => ConflictBloc(
+              notificationService: context.read<ConflictNotificationService>(),
+            ),
+          ),
+          BlocProvider<EscrowBloc>(
+            create: (context) => EscrowBloc(
+              repository: EscrowRepository(
+                isar: IsarService.instance.db,
+                apiClient: ApiClient(),
+                connectivityMonitor: context.read<ConnectivityMonitor>(),
+              ),
+            ),
+          ),
+        ],
+        child: Consumer<LanguageProvider>(
+          builder: (context, languageProvider, child) {
+            return MaterialApp(
+              title: 'WeredaConnect',
 
-            // Auth gate handles routing based on authentication state
-            home: const AuthGate(),
-          );
-        },
+              // Localization - use dynamic locale from provider
+              locale: languageProvider.locale,
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                FallbackMaterialLocalizationsDelegate(),
+                GlobalWidgetsLocalizations.delegate,
+                FallbackCupertinoLocalizationsDelegate(),
+              ],
+              supportedLocales: const [
+                Locale('en'), // English
+                Locale('am'), // Amharic (app text + English Material widgets)
+                Locale(
+                  'om',
+                ), // Afan Oromo (app text + English Material widgets)
+              ],
+
+              // Theme
+              theme: ThemeData(
+                colorScheme: ColorScheme.fromSeed(
+                  seedColor: Colors.green,
+                ),
+                useMaterial3: true,
+              ),
+
+              // Auth gate handles routing based on authentication state
+              home: const AuthGate(),
+            );
+          },
+        ),
       ),
     );
   }

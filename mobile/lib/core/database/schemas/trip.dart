@@ -29,6 +29,12 @@ class Trip {
   /// Hidden from unauthenticated users in browse results
   late String truckerPhone;
 
+  /// Vehicle license plate number (e.g., 3-AA-12345)
+  String? vehiclePlate;
+
+  /// Vehicle description (e.g., Isuzu FTR 10-ton)
+  String? vehicleDescription;
+
   /// Origin woreda (district)
   /// Example: 'Bishoftu', 'Debre Zeit'
   late String fromWoreda;

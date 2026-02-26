@@ -26,6 +26,7 @@ class CreateCropListing extends CropListingEvent {
   final double pricePerKg;
   final double latitude;
   final double longitude;
+  final String locationName;
   final String description;
   final String? audioNoteRef;
 
@@ -36,6 +37,7 @@ class CreateCropListing extends CropListingEvent {
     required this.pricePerKg,
     required this.latitude,
     required this.longitude,
+    required this.locationName,
     required this.description,
     this.audioNoteRef,
   });
@@ -48,6 +50,7 @@ class CreateCropListing extends CropListingEvent {
         pricePerKg,
         latitude,
         longitude,
+        locationName,
         description,
         audioNoteRef,
       ];
@@ -67,16 +70,36 @@ class DeleteCropListing extends CropListingEvent {
   List<Object?> get props => [listingId, farmerId];
 }
 
-/// Event to filter crop listings by crop type.
+/// Event to load all active listings (browse mode for truckers/buyers).
+class LoadActiveListings extends CropListingEvent {
+  final String? cropTypeFilter;
+  final String? weredaFilter;
+  final double? priceMin;
+  final double? priceMax;
+
+  const LoadActiveListings({
+    this.cropTypeFilter,
+    this.weredaFilter,
+    this.priceMin,
+    this.priceMax,
+  });
+
+  @override
+  List<Object?> get props => [cropTypeFilter, weredaFilter, priceMin, priceMax];
+}
+
+/// Event to filter crop listings by crop type and/or status.
 class FilterCropListings extends CropListingEvent {
   final String farmerId;
   final String? cropType;
+  final String? statusFilter;
 
   const FilterCropListings({
     required this.farmerId,
     this.cropType,
+    this.statusFilter,
   });
 
   @override
-  List<Object?> get props => [farmerId, cropType];
+  List<Object?> get props => [farmerId, cropType, statusFilter];
 }
