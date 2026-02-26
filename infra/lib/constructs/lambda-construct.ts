@@ -13,7 +13,7 @@ export interface WeredaLambdaProps {
   readonly environment?: Record<string, string>;
   readonly memorySize?: number;
   readonly timeout?: cdk.Duration;
-  /** Maximum concurrent executions. Defaults to 10 to prevent runaway costs. */
+  /** Maximum concurrent executions. Skipped in dev (account limit too low). */
   readonly reservedConcurrentExecutions?: number;
   /** CloudWatch log retention. Defaults to THREE_MONTHS. */
   readonly logRetention?: logs.RetentionDays;
@@ -88,9 +88,13 @@ export class WeredaLambda extends Construct {
       architecture: lambda.Architecture.ARM_64,
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
-      ...(props.reservedConcurrentExecutions != null
-        ? { reservedConcurrentExecutions: props.reservedConcurrentExecutions }
-        : {}),
+      ...(() => {
+        if (props.reservedConcurrentExecutions == null) return {};
+        // Skip reserved concurrency in dev — account limit is too low (10 total)
+        const env = scope.node.tryGetContext('environment') ?? 'dev';
+        if (env === 'dev') return {};
+        return { reservedConcurrentExecutions: props.reservedConcurrentExecutions };
+      })(),
       logGroup,
       description: props.description,
       environment: {
