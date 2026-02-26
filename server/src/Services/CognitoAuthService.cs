@@ -13,11 +13,13 @@ public sealed class CognitoAuthService : ICognitoAuthService
 {
     private readonly IAmazonCognitoIdentityProvider _cognito;
     private readonly string _clientId;
+    private readonly string? _userPoolId;
 
-    public CognitoAuthService(IAmazonCognitoIdentityProvider cognito, string clientId)
+    public CognitoAuthService(IAmazonCognitoIdentityProvider cognito, string clientId, string? userPoolId = null)
     {
         _cognito = cognito ?? throw new ArgumentNullException(nameof(cognito));
         _clientId = clientId ?? throw new ArgumentNullException(nameof(clientId));
+        _userPoolId = userPoolId;
     }
 
     public async Task<AuthResult<string>> RegisterAsync(
@@ -28,6 +30,9 @@ public sealed class CognitoAuthService : ICognitoAuthService
         string? displayName,
         string language)
     {
+        // SEC-VULN-001: custom:role is excluded from client writeAttributes to prevent
+        // privilege escalation. Only client-writable attributes are included in SignUp.
+        // Non-writable attributes (custom:role) are set via AdminUpdateUserAttributes.
         var request = new SignUpRequest
         {
             ClientId = _clientId,
@@ -36,21 +41,30 @@ public sealed class CognitoAuthService : ICognitoAuthService
             UserAttributes =
             [
                 new AttributeType { Name = "phone_number", Value = phone },
-                new AttributeType { Name = "custom:role", Value = role },
                 new AttributeType { Name = "custom:woreda", Value = woreda },
-                new AttributeType { Name = "custom:language", Value = language }
+                new AttributeType { Name = "custom:preferredLanguage", Value = language },
+                new AttributeType { Name = "custom:displayName", Value = displayName ?? "" }
             ]
         };
-
-        if (!string.IsNullOrEmpty(displayName))
-        {
-            request.UserAttributes.Add(
-                new AttributeType { Name = "name", Value = displayName });
-        }
 
         try
         {
             var response = await _cognito.SignUpAsync(request);
+
+            // Set custom:role via admin API (bypasses client writeAttributes restriction)
+            if (_userPoolId != null)
+            {
+                await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+                {
+                    UserPoolId = _userPoolId,
+                    Username = phone,
+                    UserAttributes =
+                    [
+                        new AttributeType { Name = "custom:role", Value = role }
+                    ]
+                });
+            }
+
             return AuthResult<string>.Success(response.UserSub);
         }
         catch (UsernameExistsException)

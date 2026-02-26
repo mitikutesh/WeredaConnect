@@ -66,8 +66,21 @@ public class EscrowFlowIntegrationTests
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("resolver").Returns(new UserDto
+        {
+            UserId = "resolver",
+            PhoneNumber = "+251900000099",
+            Role = "admin",
+            Woreda = "test-woreda",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-17T10:00:00.0000000Z",
+            UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+            Version = 1
+        });
+
         var service = new EscrowService(
-            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, mockUserRepo);
         _function = new EscrowFunction(service);
         _cronFunction = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
         _context = new TestLambdaContext();

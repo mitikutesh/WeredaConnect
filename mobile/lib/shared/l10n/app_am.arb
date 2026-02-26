@@ -1910,5 +1910,12 @@
   "escrowPaymentNotFoundForDelivery": "ለዚህ ማድረስ ክፍያ አልተገኘም",
   "@escrowPaymentNotFoundForDelivery": {
     "description": "Error when escrow payment for a specific delivery cannot be found"
+  },
+
+  "@@authUxFixes": "=== Auth UX Fixes (loading feedback) ===",
+
+  "pleaseWait": "እባክዎ ይጠብቁ...",
+  "@pleaseWait": {
+    "description": "Loading indicator text shown during auth operations on slow networks"
   }
 }

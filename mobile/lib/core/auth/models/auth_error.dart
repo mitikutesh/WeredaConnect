@@ -4,8 +4,12 @@
 ///
 /// These error codes are returned by the server and used in the mobile app
 /// to show localized error messages to users.
+///
+/// IMPORTANT: These values MUST match the codes sent by the server.
+/// The server is the source of truth — see server/src/Services/CognitoAuthService.cs
+/// and server/src/RateLimiting/RateLimitService.cs.
 class AuthErrorCode {
-  // Registration errors (AUTH_001 - AUTH_010)
+  // Registration errors (AUTH_001 - AUTH_008)
   static const invalidPhoneFormat = 'AUTH_001';
   static const invalidPassword = 'AUTH_002';
   static const invalidRole = 'AUTH_003';
@@ -15,24 +19,28 @@ class AuthErrorCode {
   static const internalServerError = 'AUTH_007';
   static const cognitoUnavailable = 'AUTH_008';
 
-  // OTP verification errors (AUTH_011 - AUTH_020)
+  // OTP verification errors (AUTH_009 - AUTH_013)
+  static const invalidOtpFormat = 'AUTH_009';
+  static const otpExpired = 'AUTH_010';
   static const invalidOtp = 'AUTH_011';
-  static const otpExpired = 'AUTH_012';
-  static const otpAttemptsExceeded = 'AUTH_013';
-  static const userNotFound = 'AUTH_014';
+  static const otpAttemptsExceeded = 'AUTH_012';
+  static const userNotFound = 'AUTH_013';
 
+  // Login errors (AUTH_014 - AUTH_016)
+  static const invalidCredentials = 'AUTH_014';
   static const accountLocked = 'AUTH_015';
+  static const userNotConfirmed = 'AUTH_016';
 
-  // Login errors (AUTH_021 - AUTH_030)
-  static const invalidCredentials = 'AUTH_021';
-  static const userNotConfirmed = 'AUTH_022';
-  static const accountDisabled = 'AUTH_023';
-  static const passwordResetRequired = 'AUTH_024';
+  // Token errors (AUTH_017 - AUTH_020)
+  static const missingRefreshToken = 'AUTH_017';
+  static const refreshTokenExpired = 'AUTH_018';
+  static const refreshTokenRevoked = 'AUTH_019';
+  static const invalidToken = 'AUTH_020';
 
-  // Token errors (AUTH_031 - AUTH_040)
-  static const invalidToken = 'AUTH_031';
-  static const tokenExpired = 'AUTH_032';
-  static const refreshTokenExpired = 'AUTH_033';
+  // Aliases for backward compatibility within mobile code
+  static const tokenExpired = 'AUTH_018';
+  static const accountDisabled = 'AUTH_015'; // Reuse accountLocked code
+  static const passwordResetRequired = 'AUTH_014'; // Redirect to login
 
   // Mobile-specific errors (not from server)
   static const apiNotConfigured = 'API_NOT_CONFIGURED';
@@ -66,10 +74,12 @@ extension AuthErrorCodeExtension on String {
         return 'Too many attempts. Please try again later';
 
       // OTP errors
-      case AuthErrorCode.invalidOtp:
-        return 'Invalid verification code';
+      case AuthErrorCode.invalidOtpFormat:
+        return 'OTP must be 6 digits';
       case AuthErrorCode.otpExpired:
         return 'Verification code expired. Request a new one';
+      case AuthErrorCode.invalidOtp:
+        return 'Invalid verification code';
       case AuthErrorCode.otpAttemptsExceeded:
         return 'Too many failed attempts. Request a new code';
       case AuthErrorCode.userNotFound:
@@ -78,20 +88,20 @@ extension AuthErrorCodeExtension on String {
       // Login errors
       case AuthErrorCode.invalidCredentials:
         return 'Invalid phone number or password';
+      case AuthErrorCode.accountLocked:
+        return 'Account locked due to too many failed attempts. Try again later';
       case AuthErrorCode.userNotConfirmed:
         return 'Please verify your phone number first';
-      case AuthErrorCode.accountDisabled:
-        return 'Your account has been disabled. Contact support';
-      case AuthErrorCode.passwordResetRequired:
-        return 'Password reset required. Please reset your password';
 
       // Token errors
-      case AuthErrorCode.invalidToken:
-        return 'Invalid authentication token. Please log in again';
-      case AuthErrorCode.tokenExpired:
-        return 'Session expired. Please log in again';
+      case AuthErrorCode.missingRefreshToken:
+        return 'Session data missing. Please log in again';
       case AuthErrorCode.refreshTokenExpired:
         return 'Session expired. Please log in again';
+      case AuthErrorCode.refreshTokenRevoked:
+        return 'Session revoked. Please log in again';
+      case AuthErrorCode.invalidToken:
+        return 'Invalid authentication token. Please log in again';
 
       // Mobile-specific errors
       case AuthErrorCode.apiNotConfigured:
@@ -126,7 +136,6 @@ extension AuthErrorCodeExtension on String {
         return true;
 
       case AuthErrorCode.apiNotConfigured:
-      case AuthErrorCode.accountDisabled:
       case AuthErrorCode.phoneAlreadyRegistered:
         return false;
 

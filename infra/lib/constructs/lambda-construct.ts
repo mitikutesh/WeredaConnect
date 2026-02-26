@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -14,6 +15,8 @@ export interface WeredaLambdaProps {
   readonly timeout?: cdk.Duration;
   /** Maximum concurrent executions. Defaults to 10 to prevent runaway costs. */
   readonly reservedConcurrentExecutions?: number;
+  /** CloudWatch log retention. Defaults to THREE_MONTHS. */
+  readonly logRetention?: logs.RetentionDays;
 }
 
 /**
@@ -30,6 +33,12 @@ export class WeredaLambda extends Construct {
 
     // Build Lambda code using Docker (for cross-compilation on macOS)
     const serverPath = path.join(__dirname, '..', '..', '..', 'server');
+
+    const logGroup = new logs.LogGroup(this, 'LogGroup', {
+      logGroupName: `/aws/lambda/${props.functionName}`,
+      retention: props.logRetention ?? logs.RetentionDays.THREE_MONTHS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     this.function = new lambda.Function(this, 'Function', {
       functionName: props.functionName,
@@ -82,6 +91,7 @@ export class WeredaLambda extends Construct {
       ...(props.reservedConcurrentExecutions != null
         ? { reservedConcurrentExecutions: props.reservedConcurrentExecutions }
         : {}),
+      logGroup,
       description: props.description,
       environment: {
         DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1',

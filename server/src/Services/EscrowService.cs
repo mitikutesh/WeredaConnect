@@ -260,7 +260,7 @@ public sealed class EscrowService
         ReleaseEscrowRequest request, string authenticatedUserId, string? role = null)
     {
         // 1. Authorization: only system or admin can release funds
-        if (!IsSystemOrAdmin(authenticatedUserId, role))
+        if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 403, "ESCROW_006", "Only system or admin can release escrow funds.");
@@ -564,7 +564,7 @@ public sealed class EscrowService
         RefundEscrowRequest request, string authenticatedUserId, string? role = null)
     {
         // 1. Authorization: only system or admin can refund
-        if (!IsSystemOrAdmin(authenticatedUserId, role))
+        if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 403, "ESCROW_006", "Only system or admin can refund escrow funds.");
@@ -961,14 +961,33 @@ public sealed class EscrowService
     // ──────────────────────────────────────────────
 
     /// <summary>
-    /// Check if the actor is the system cron or an admin user.
+    /// Check if the actor is the system cron or a verified admin user.
     /// Release and refund operations are restricted to system/admin.
-    /// System actor ("system") is used by cron jobs.
-    /// Admin users are identified by the "admin" JWT role claim, not by a userId prefix.
+    /// System actor ("system") is used by cron jobs and short-circuits (no DB lookup).
+    /// Admin users must have the "admin" JWT role claim AND a matching Role in DynamoDB.
+    /// Fails closed: if _userRepo is null or user is not found, returns false.
     /// </summary>
-    private static bool IsSystemOrAdmin(string userId, string? role)
-        => string.Equals(userId, SystemActor, StringComparison.Ordinal)
-           || string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+    private async Task<bool> IsSystemOrAdminAsync(string userId, string? role)
+    {
+        if (string.Equals(userId, SystemActor, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_userRepo == null)
+        {
+            return false; // fail-closed
+        }
+
+        var user = await _userRepo.GetUserByIdAsync(userId);
+        return user != null
+            && string.Equals(user.Role, "admin", StringComparison.OrdinalIgnoreCase);
+    }
 
     // ──────────────────────────────────────────────
     // Validation helpers

@@ -19,6 +19,7 @@ public class SyncFunctionTests
     private readonly ISyncMetadataRepository _mockSyncMeta;
     private readonly ICropRepository _mockCropRepo;
     private readonly IAmazonDynamoDB _mockDynamoDb;
+    private readonly IUserRepository _mockUserRepo;
     private readonly SyncFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -32,11 +33,35 @@ public class SyncFunctionTests
         _mockSyncMeta = Substitute.For<ISyncMetadataRepository>();
         _mockCropRepo = Substitute.For<ICropRepository>();
         _mockDynamoDb = Substitute.For<IAmazonDynamoDB>();
-        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table");
+        _mockUserRepo = Substitute.For<IUserRepository>();
+        _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo);
         _context = new TestLambdaContext();
 
         // Default: no duplicate idempotency keys
         _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
+
+        // Default: listing exists with matching farmerId for delivery validation
+        _mockCropRepo.GetByIdAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
+        {
+            { "cropId", "00000000-0000-0000-0000-000000000004" },
+            { "farmerId", "00000000-0000-0000-0000-000000000002" },
+            { "status", "available" },
+            { "version", "1" }
+        });
+
+        // Default: buyer exists with correct role for delivery validation
+        _mockUserRepo.GetUserByIdAsync(Arg.Any<string>()).Returns(new UserDto
+        {
+            UserId = "00000000-0000-0000-0000-000000000003",
+            PhoneNumber = "+251933333333",
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
     }
 
     private static APIGatewayProxyRequest MakeRequest(object body) => new()
@@ -1516,5 +1541,147 @@ public class SyncFunctionTests
             {
                 Attributes = item
             });
+    }
+
+    // ===== Delivery Participant Validation Tests (SEC-VULN-002) =====
+
+    private const string TestTruckerId = "00000000-0000-0000-0000-000000000001";
+    private const string TestFarmerId = "00000000-0000-0000-0000-000000000002";
+    private const string TestBuyerId = "00000000-0000-0000-0000-000000000003";
+    private const string TestListingId = "00000000-0000-0000-0000-000000000004";
+    private const string TestTripId = "00000000-0000-0000-0000-000000000005";
+
+    private static SyncOperationRequest MakeDeliveryCreateOp(
+        string? truckerId = null,
+        string? farmerId = null,
+        string? buyerId = null,
+        string? listingId = null,
+        string opId = "op-del-create",
+        string entityId = "del-001")
+    {
+        return new SyncOperationRequest
+        {
+            OperationId = opId,
+            IdempotencyKey = $"user:delivery:{entityId}:create:12345",
+            EntityType = "delivery",
+            EntityId = entityId,
+            Action = "create",
+            Data = new Dictionary<string, object>
+            {
+                { "tripId", TestTripId },
+                { "listingId", listingId ?? TestListingId },
+                { "farmerId", farmerId ?? TestFarmerId },
+                { "farmerName", "Abebe" },
+                { "farmerPhone", "+251911111111" },
+                { "truckerId", truckerId ?? TestTruckerId },
+                { "truckerName", "Tadesse" },
+                { "truckerPhone", "+251922222222" },
+                { "buyerId", buyerId ?? TestBuyerId },
+                { "buyerName", "Mekonnen" },
+                { "buyerPhone", "+251933333333" },
+                { "qrToken", "qr-token-abc123" }
+            }
+        };
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ValidParticipants_ReturnsSuccess()
+    {
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_FarmerIdMismatchListingOwner_ReturnsError()
+    {
+        // Listing owner is TestFarmerId (from default mock), but delivery says different farmer
+        var mismatchedFarmer = "00000000-0000-0000-0000-000000000099";
+        var op = MakeDeliveryCreateOp(farmerId: mismatchedFarmer);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_PARTICIPANT_MISMATCH", response.Body);
+        Assert.Contains("farmerId does not match listing owner", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ListingNotFound_ReturnsError()
+    {
+        var missingListingId = "00000000-0000-0000-0000-000000000088";
+        _mockCropRepo.GetByIdAsync(missingListingId).Returns((Dictionary<string, object>?)null);
+
+        var op = MakeDeliveryCreateOp(listingId: missingListingId);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("Referenced listing not found", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_DeletedListing_ReturnsError()
+    {
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId },
+            { "farmerId", TestFarmerId },
+            { "status", "deleted" },
+            { "deletedAt", "2026-02-15T10:00:00Z" },
+            { "version", "1" }
+        });
+
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("listing has been deleted", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_BuyerNotFound_ReturnsError()
+    {
+        var unknownBuyer = "00000000-0000-0000-0000-000000000077";
+        _mockUserRepo.GetUserByIdAsync(unknownBuyer).Returns((UserDto?)null);
+
+        var op = MakeDeliveryCreateOp(buyerId: unknownBuyer);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("buyerId does not reference a valid user", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_BuyerHasWrongRole_ReturnsError()
+    {
+        var farmerActingAsBuyer = "00000000-0000-0000-0000-000000000066";
+        _mockUserRepo.GetUserByIdAsync(farmerActingAsBuyer).Returns(new UserDto
+        {
+            UserId = farmerActingAsBuyer,
+            PhoneNumber = "+251944444444",
+            Role = "farmer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeDeliveryCreateOp(buyerId: farmerActingAsBuyer);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_PARTICIPANT_MISMATCH", response.Body);
+        Assert.Contains("buyerId must reference a buyer", response.Body);
     }
 }

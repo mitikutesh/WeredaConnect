@@ -1415,4 +1415,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get escrowPaymentNotFoundForDelivery => 'ለዚህ ማድረስ ክፍያ አልተገኘም';
+
+  @override
+  String get pleaseWait => 'እባክዎ ይጠብቁ...';
 }

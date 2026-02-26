@@ -37,6 +37,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final Isar? _isar;
   String? _currentPhoneNumber;
   // Temporary storage for registration data (cleared after OTP verification)
+  String? _pendingUserId;
   String? _pendingName;
   UserRole? _pendingRole;
   String? _pendingWoreda;
@@ -163,6 +164,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
 
     if (result.isSuccess) {
+      _pendingUserId = result.userId;
       emit(
         AuthOtpVerificationRequired(
           phoneNumber: event.phoneNumber,
@@ -193,6 +195,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// Clear pending registration data after OTP verification or on error.
   void _clearPendingRegistrationData() {
+    _pendingUserId = null;
     _pendingName = null;
     _pendingRole = null;
     _pendingWoreda = null;
@@ -200,59 +203,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   /// Handle OTP verification.
+  ///
+  /// Server confirms sign-up but does NOT return tokens.
+  /// After successful OTP, auto-login with pending password to get tokens.
   Future<void> _onAuthVerifyOtpRequested(
     AuthVerifyOtpRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
 
-    // Verify OTP
+    // Verify OTP (server returns no tokens — just confirms the sign-up)
     final result = await _authService.verifyOtp(
       phoneNumber: event.phoneNumber,
       otp: event.otp,
+      userId: _pendingUserId ?? '',
     );
 
-    if (result.isSuccess) {
-      // Cache full credentials if we have pending registration data
-      if (_pendingName != null &&
-          _pendingRole != null &&
-          _pendingWoreda != null &&
-          _pendingPassword != null) {
-        await _offlineCache.cacheCredentials(
-          phoneNumber: event.phoneNumber,
-          password: _pendingPassword!,
-          userId: result.userId!,
-          role: _pendingRole!,
-          name: _pendingName!,
-          woreda: _pendingWoreda!,
-          tokens: result.tokens!,
-        );
-        // Clear pending data after successful caching
-        _clearPendingRegistrationData();
-      } else {
-        // Fallback: just cache tokens if no pending data
-        if (result.tokens != null) {
-          await _offlineCache.updateTokens(event.phoneNumber, result.tokens!);
-        }
-      }
-
-      await _saveSession(event.phoneNumber);
-
-      // Use pending role from registration, or fetch from Isar
-      var role = _pendingRole;
-      if (role == null) {
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
-        role = user?.role ?? UserRole.farmer;
-      }
-
-      emit(
-        AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-          role: role,
-        ),
-      );
-    } else {
+    if (!result.isSuccess) {
       emit(
         AuthError(
           errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
@@ -261,7 +228,52 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               'OTP verification failed',
         ),
       );
+      return;
     }
+
+    // OTP verified — now auto-login to get real tokens
+    if (_pendingPassword != null) {
+      final loginResult = await _authService.loginOnline(
+        phoneNumber: event.phoneNumber,
+        password: _pendingPassword!,
+      );
+
+      if (loginResult.isSuccess) {
+        await _saveSession(event.phoneNumber);
+        final user = await _offlineCache.getCachedUser(event.phoneNumber);
+        _clearPendingRegistrationData();
+
+        emit(
+          AuthAuthenticated(
+            userId: loginResult.userId!,
+            tokens: loginResult.tokens!,
+            role: user?.role ?? _pendingRole ?? UserRole.farmer,
+          ),
+        );
+        return;
+      }
+
+      // Login failed after OTP — clear pending data and show error
+      _clearPendingRegistrationData();
+      emit(
+        AuthError(
+          errorCode: loginResult.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: loginResult.errorMessage ??
+              loginResult.errorCode?.userMessage ??
+              'Login after verification failed',
+        ),
+      );
+      return;
+    }
+
+    // No pending password — shouldn't happen in normal flow, but handle gracefully
+    _clearPendingRegistrationData();
+    emit(
+      const AuthError(
+        errorCode: AuthErrorCode.internalServerError,
+        errorMessage: 'Session expired. Please register again.',
+      ),
+    );
   }
 
   /// Handle OTP resend request.
@@ -476,6 +488,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _authService.logout(
         phoneNumber: _currentPhoneNumber ?? '',
         accessToken: currentState.tokens.accessToken,
+        refreshToken: currentState.tokens.refreshToken,
         clearCache: event.clearCache,
       );
 

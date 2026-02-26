@@ -295,25 +295,68 @@ void main() {
     // OTP verification
     // -----------------------------------------------------------------------
     group('OTP verification', () {
-      test('emits [AuthLoading, AuthAuthenticated] on successful OTP',
+      test(
+          'emits [AuthLoading, AuthAuthenticated] on successful OTP + auto-login',
           () async {
+        // Mock register (sets pending data in bloc)
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+            preferredLanguage: any(named: 'preferredLanguage'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+            userId: 'user-002',
+          ),
+        );
+
+        // Mock verifyOtp (returns success with empty tokens)
         when(
           () => authService.verifyOtp(
             phoneNumber: any(named: 'phoneNumber'),
             otp: any(named: 'otp'),
+            userId: any(named: 'userId'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+            userId: 'user-002',
+          ),
+        );
+
+        // Mock loginOnline (auto-login after OTP)
+        when(
+          () => authService.loginOnline(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
           ),
         ).thenAnswer(
           (_) async => AuthResult.success(_testTokens, userId: 'user-002'),
         );
-        when(
-          () => offlineCache.updateTokens(any(), any()),
-        ).thenAnswer((_) async {});
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
 
         final bloc = buildBloc();
         addTearDown(bloc.close);
 
+        // Step 1: Register to set pending data
+        await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251912345678',
+            password: 'Test1234',
+            name: 'Test User',
+            role: UserRole.farmer,
+            woreda: 'Jimma',
+          ),
+        );
+
+        // Step 2: Verify OTP (triggers auto-login)
         final states = await collectStates(
           bloc,
           const AuthVerifyOtpRequested(
@@ -335,6 +378,7 @@ void main() {
           () => authService.verifyOtp(
             phoneNumber: any(named: 'phoneNumber'),
             otp: any(named: 'otp'),
+            userId: any(named: 'userId'),
           ),
         ).thenAnswer(
           (_) async => AuthResult.failure(
@@ -473,6 +517,7 @@ void main() {
           () => authService.logout(
             phoneNumber: any(named: 'phoneNumber'),
             accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
             clearCache: any(named: 'clearCache'),
           ),
         ).thenAnswer((_) async {});

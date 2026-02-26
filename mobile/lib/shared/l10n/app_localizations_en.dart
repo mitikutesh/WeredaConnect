@@ -1448,4 +1448,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get escrowPaymentNotFoundForDelivery =>
       'Payment not found for this delivery';
+
+  @override
+  String get pleaseWait => 'Please wait...';
 }

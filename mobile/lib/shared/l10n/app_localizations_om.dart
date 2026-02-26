@@ -1461,4 +1461,7 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get escrowPaymentNotFoundForDelivery =>
       'Geejjibsiisa kanaaf kaffaltiin hin argamne';
+
+  @override
+  String get pleaseWait => 'Maaloo eegaa...';
 }

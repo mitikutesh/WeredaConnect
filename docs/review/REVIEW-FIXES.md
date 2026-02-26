@@ -142,11 +142,11 @@ These bugs mean core features silently fail. Fix first.
   - **Files:** `infra/lib/constructs/lambda-construct.ts`, `infra/lib/stacks/api-stack.ts:369-394`
   - **Fix:** Create SQS DLQ, attach to escrow cron EventBridge target with `retryAttempts: 2`, `maxEventAge: 1 hour`. Add alarm on DLQ message count
 
-- [ ] **FIX-026**: Set Lambda log retention policy
+- [x] **FIX-026**: Set Lambda log retention policy
   - **File:** `infra/lib/constructs/lambda-construct.ts:34-91`
   - **Fix:** Add `logRetention: logs.RetentionDays.THREE_MONTHS` as default. Override to `ONE_YEAR` for escrow/payment functions
 
-- [ ] **FIX-027**: Set reserved concurrency on all Lambda functions
+- [x] **FIX-027**: Set reserved concurrency on all Lambda functions
   - **File:** `infra/lib/stacks/api-stack.ts` (all Lambda instantiations)
   - **Fix:** health=5, auth functions=20, sync=10, crop/trip=10, delivery=10, escrow=15, escrowCron=2
 
@@ -154,7 +154,7 @@ These bugs mean core features silently fail. Fix first.
   - **File:** `infra/lib/stacks/api-stack.ts:54`
   - **Fix:** Change `mfa: cognito.Mfa.OFF` to `mfa: cognito.Mfa.OPTIONAL`. Consider requiring for high-value escrow operations
 
-- [ ] **FIX-029**: Reduce API Gateway throttle limits
+- [x] **FIX-029**: Reduce API Gateway throttle limits
   - **File:** `infra/lib/stacks/api-stack.ts:661-665`
   - **Fix:** Reduce from 200 burst / 100 RPS to 50 burst / 25 RPS (appropriate for low-traffic rural app)
 
@@ -318,7 +318,7 @@ These bugs mean core features silently fail. Fix first.
 |------|-------|-------|--------|
 | 0 — Data Integrity | 2 | Broken features | [x] ✅ |
 | 1 — Security | 10 | Exploitable vulnerabilities | [x] ✅ |
-| 2 — Localization | 11 | User-facing English strings | [ ] |
+| 2 — Localization | 11 | User-facing English strings | [x] ✅ |
 | 3 — Infrastructure | 6 | Deploy blockers | [ ] |
 | 4 — Mobile UX | 12 | Touch targets, nav, errors | [ ] |
 | 5 — Server Quality | 7 | Tests, validation, polish | [ ] |

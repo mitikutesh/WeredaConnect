@@ -1973,5 +1973,12 @@
   "escrowPaymentNotFoundForDelivery": "Payment not found for this delivery",
   "@escrowPaymentNotFoundForDelivery": {
     "description": "Error when escrow payment for a specific delivery cannot be found"
+  },
+
+  "@@authUxFixes": "=== Auth UX Fixes (loading feedback) ===",
+
+  "pleaseWait": "Please wait...",
+  "@pleaseWait": {
+    "description": "Loading indicator text shown during auth operations on slow networks"
   }
 }

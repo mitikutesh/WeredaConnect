@@ -1,5 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/auth/mock_auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
@@ -43,6 +44,14 @@ class AuthService {
   })  : _dio = dio ?? ApiClient().dio,
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _connectivity = connectivity ?? Connectivity() {
+    // SECURITY: Prevent mock auth from being enabled in release builds.
+    // This catches accidental --dart-define=USE_MOCK_AUTH=true in production.
+    if (kReleaseMode && Environment.useMockAuth) {
+      throw StateError(
+        'USE_MOCK_AUTH must not be enabled in release builds. '
+        'Remove --dart-define=USE_MOCK_AUTH=true from your build command.',
+      );
+    }
     // Initialize ApiClient with base URL (cert pinning disabled by default)
     if (dio == null) {
       ApiClient().initialize();
@@ -125,26 +134,29 @@ class AuthService {
       );
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception catch (e) {
+    } on Exception {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
-        e.toString(),
+        'Something went wrong. Please try again.',
       );
     }
   }
 
   /// Verify OTP code sent during registration.
   ///
-  /// This completes the registration process and returns authentication tokens.
+  /// Server confirms the sign-up but does NOT return tokens.
+  /// Returns success with [userId] — caller must login separately to get tokens.
   ///
   /// Params:
   /// - [phoneNumber]: Phone number used during registration
   /// - [otp]: 6-digit OTP code from SMS
+  /// - [userId]: Cognito user ID returned from registration
   ///
-  /// Returns [AuthResult] with tokens on success.
+  /// Returns [AuthResult] with userId on success (tokens will be empty).
   Future<AuthResult> verifyOtp({
     required String phoneNumber,
     required String otp,
+    required String userId,
   }) async {
     // Use mock auth service in development mode
     if (Environment.useMockAuth) {
@@ -170,35 +182,25 @@ class AuthService {
       }
 
       // Call OTP verification API
-      final response = await _dio.post<Map<String, dynamic>>(
+      // Server expects: { userId, phoneNumber, otpCode }
+      await _dio.post<Map<String, dynamic>>(
         ApiConfig.verifyOtpEndpoint,
         data: {
+          'userId': userId,
           'phoneNumber': phoneNumber,
-          'otp': otp,
+          'otpCode': otp,
         },
       );
 
-      final data = response.data as Map<String, dynamic>;
-
-      // Extract tokens
-      final tokens = AuthTokens(
-        accessToken: data['accessToken'] as String,
-        refreshToken: data['refreshToken'] as String,
-        idToken: data['idToken'] as String,
-        expiresAt: DateTime.parse(data['expiresAt'] as String),
-      );
-
-      // Cache credentials for offline use
-      // Note: We don't have the password here, so we can't cache it
-      // User must log in at least once to enable offline mode
-
-      return AuthResult.success(tokens, userId: data['userId'] as String);
+      // Server returns { verified: true, tokens: null, user: {...} }
+      // No tokens — caller must call login() after verification.
+      return AuthResult.otpVerified(userId: userId);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception catch (e) {
+    } on Exception {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
-        e.toString(),
+        'Something went wrong. Please try again.',
       );
     }
   }
@@ -251,12 +253,14 @@ class AuthService {
 
       final data = response.data as Map<String, dynamic>;
 
-      // Extract tokens
+      // Server wraps tokens under "tokens" key with expiresIn (seconds)
+      final tokenData = data['tokens'] as Map<String, dynamic>;
+      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
       final tokens = AuthTokens(
-        accessToken: data['accessToken'] as String,
-        refreshToken: data['refreshToken'] as String,
-        idToken: data['idToken'] as String,
-        expiresAt: DateTime.parse(data['expiresAt'] as String),
+        accessToken: tokenData['accessToken'] as String,
+        refreshToken: tokenData['refreshToken'] as String? ?? '',
+        idToken: tokenData['idToken'] as String,
+        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
       );
 
       final user = data['user'] as Map<String, dynamic>;
@@ -267,9 +271,10 @@ class AuthService {
         password: password,
         userId: user['userId'] as String,
         role: UserRole.values.firstWhere(
-          (r) => r.name == user['role'],
+          (r) => r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
+          orElse: () => UserRole.farmer,
         ),
-        name: user['name'] as String,
+        name: (user['displayName'] as String?) ?? '',
         woreda: user['woreda'] as String,
         tokens: tokens,
       );
@@ -277,10 +282,10 @@ class AuthService {
       return AuthResult.success(tokens, userId: user['userId'] as String);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception catch (e) {
+    } on Exception {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
-        e.toString(),
+        'Something went wrong. Please try again.',
       );
     }
   }
@@ -353,10 +358,10 @@ class AuthService {
         e.message,
         retryAfterSeconds: e.lockoutRemaining.inSeconds,
       );
-    } on Exception catch (e) {
+    } on Exception {
       return AuthResult.failure(
         AuthErrorCode.databaseError,
-        e.toString(),
+        'Something went wrong. Please try again.',
       );
     }
   }
@@ -464,21 +469,23 @@ class AuthService {
 
       final data = response.data as Map<String, dynamic>;
 
-      // Extract new tokens
+      // Server wraps tokens under "tokens" key with expiresIn (seconds)
+      final tokenData = data['tokens'] as Map<String, dynamic>;
+      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
       final tokens = AuthTokens(
-        accessToken: data['accessToken'] as String,
-        refreshToken: data['refreshToken'] as String,
-        idToken: data['idToken'] as String,
-        expiresAt: DateTime.parse(data['expiresAt'] as String),
+        accessToken: tokenData['accessToken'] as String,
+        refreshToken: tokenData['refreshToken'] as String? ?? refreshToken,
+        idToken: tokenData['idToken'] as String,
+        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
       );
 
       return AuthResult.success(tokens);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception catch (e) {
+    } on Exception {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
-        e.toString(),
+        'Something went wrong. Please try again.',
       );
     }
   }
@@ -488,12 +495,14 @@ class AuthService {
   /// Params:
   /// - [phoneNumber]: User's phone number
   /// - [accessToken]: Current access token (for server-side logout)
+  /// - [refreshToken]: Refresh token to revoke on server
   /// - [clearCache]: Whether to clear cached credentials (default: true)
   ///
   /// If [clearCache] is false, user can still log in offline.
   Future<void> logout({
     required String phoneNumber,
     String? accessToken,
+    String? refreshToken,
     bool clearCache = true,
   }) async {
     // Use mock auth service in development mode
@@ -508,7 +517,7 @@ class AuthService {
 
     try {
       // Try to logout on server (invalidate tokens)
-      if (accessToken != null) {
+      if (accessToken != null && refreshToken != null) {
         final connectivityResults = await _connectivity.checkConnectivity();
         final isOnline = connectivityResults
             .any((result) => result != ConnectivityResult.none);
@@ -516,6 +525,7 @@ class AuthService {
         if (isOnline) {
           await _dio.post<Map<String, dynamic>>(
             ApiConfig.logoutEndpoint,
+            data: {'refreshToken': refreshToken},
             options: Options(
               headers: {
                 'Authorization': 'Bearer $accessToken',

@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// OTP verification screen for phone number verification.
 ///
@@ -147,6 +148,18 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         appBar: AppBar(
           title: Text(l10n.verifyOtp),
           elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.language),
+              onPressed: () {
+                showDialog<void>(
+                  context: context,
+                  builder: (context) => const LanguageSelectionDialog(),
+                );
+              },
+              tooltip: l10n.language,
+            ),
+          ],
         ),
         body: SafeArea(
           child: Padding(
@@ -296,15 +309,26 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         ),
                       ),
                       child: isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  l10n.pleaseWait,
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ],
                             )
                           : Text(
                               l10n.verifyOtp,

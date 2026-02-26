@@ -11,6 +11,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as ssm from "aws-cdk-lib/aws-ssm";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { WeredaLambda } from "../constructs/lambda-construct";
 import { EnvironmentConfig } from "../config/environments";
 
@@ -85,6 +86,11 @@ export class ApiStack extends cdk.Stack {
       refreshTokenValidity: cdk.Duration.days(30),
       idTokenValidity: cdk.Duration.minutes(15),
       preventUserExistenceErrors: true,
+      // SEC-VULN-001: Exclude custom:role from client-writable attributes
+      // to prevent privilege escalation via Cognito UpdateUserAttributes
+      writeAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({ phoneNumber: true })
+        .withCustomAttributes("woreda", "displayName", "preferredLanguage"),
     });
 
     // ─── Shared environment variables ────────────────────────────────
@@ -108,6 +114,7 @@ export class ApiStack extends cdk.Stack {
       functionName: `${prefix}-health`,
       description: "Health check endpoint",
       handlerName: "HealthCheckFunction",
+      reservedConcurrentExecutions: 5,
     });
     props.usersTable.grantReadData(healthCheck.function);
 
@@ -116,12 +123,14 @@ export class ApiStack extends cdk.Stack {
       description: "POST /auth/register — user registration with phone OTP",
       handlerName: "RegisterFunction",
       environment: cognitoEnv,
+      reservedConcurrentExecutions: 20,
     });
     props.usersTable.grantWriteData(registerFn.function);
     props.rateLimitsTable.grantReadWriteData(registerFn.function);
     this.grantCognito(registerFn.function, [
       "cognito-idp:SignUp",
       "cognito-idp:AdminGetUser",
+      "cognito-idp:AdminUpdateUserAttributes",
     ]);
 
     const verifyOtpFn = new WeredaLambda(this, "VerifyOtpFunction", {
@@ -129,6 +138,7 @@ export class ApiStack extends cdk.Stack {
       description: "POST /auth/verify-otp — confirm phone number with OTP",
       handlerName: "VerifyOtpFunction",
       environment: cognitoEnv,
+      reservedConcurrentExecutions: 20,
     });
     props.usersTable.grantReadWriteData(verifyOtpFn.function);
     props.rateLimitsTable.grantReadWriteData(verifyOtpFn.function);
@@ -143,6 +153,7 @@ export class ApiStack extends cdk.Stack {
       description: "POST /auth/login — authenticate with phone + password",
       handlerName: "LoginFunction",
       environment: cognitoEnv,
+      reservedConcurrentExecutions: 20,
     });
     props.usersTable.grantReadData(loginFn.function);
     props.rateLimitsTable.grantReadWriteData(loginFn.function);
@@ -157,6 +168,7 @@ export class ApiStack extends cdk.Stack {
       description: "POST /auth/refresh — refresh access token",
       handlerName: "RefreshFunction",
       environment: cognitoOnlyEnv,
+      reservedConcurrentExecutions: 20,
     });
     this.grantCognito(refreshFn.function, [
       "cognito-idp:InitiateAuth",
@@ -168,8 +180,10 @@ export class ApiStack extends cdk.Stack {
       description: "POST /auth/logout — global sign-out (protected)",
       handlerName: "LogoutFunction",
       environment: cognitoOnlyEnv,
+      reservedConcurrentExecutions: 20,
     });
     this.grantCognito(logoutFn.function, [
+      "cognito-idp:RevokeToken",
       "cognito-idp:GlobalSignOut",
       "cognito-idp:AdminUserGlobalSignOut",
     ]);
@@ -190,6 +204,7 @@ export class ApiStack extends cdk.Stack {
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: 10,
     });
     // Sync needs read-write on entity tables and sync metadata
     props.syncMetadataTable.grantReadWriteData(syncFn.function);
@@ -229,6 +244,7 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
+      reservedConcurrentExecutions: 10,
     });
     // Crop function needs read-only access to crops table
     props.cropsTable.grantReadData(cropFn.function);
@@ -246,6 +262,7 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
+      reservedConcurrentExecutions: 10,
     });
     // Trip function needs read-only access to trips table
     props.tripsTable.grantReadData(tripFn.function);
@@ -292,6 +309,7 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
+      reservedConcurrentExecutions: 10,
     });
     props.deliveriesTable.grantReadData(deliveryFn.function);
     props.tripsTable.grantReadData(deliveryFn.function);
@@ -323,6 +341,8 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      reservedConcurrentExecutions: 15,
     });
     props.escrowsTable.grantReadWriteData(escrowFn.function);
     props.escrowAuditTable.grantWriteData(escrowFn.function);
@@ -356,6 +376,8 @@ export class ApiStack extends cdk.Stack {
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_YEAR,
+      reservedConcurrentExecutions: 2,
     });
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
@@ -659,8 +681,8 @@ export class ApiStack extends cdk.Stack {
       .defaultChild as apigateway.CfnStage;
     if (defaultStage) {
       defaultStage.addPropertyOverride("DefaultRouteSettings", {
-        ThrottlingBurstLimit: 200,
-        ThrottlingRateLimit: 100,
+        ThrottlingBurstLimit: 50,
+        ThrottlingRateLimit: 25,
       });
     }
 

@@ -2781,6 +2781,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Payment not found for this delivery'**
   String get escrowPaymentNotFoundForDelivery;
+
+  /// Loading indicator text shown during auth operations on slow networks
+  ///
+  /// In en, this message translates to:
+  /// **'Please wait...'**
+  String get pleaseWait;
 }
 
 class _AppLocalizationsDelegate

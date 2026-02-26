@@ -71,10 +71,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       AuthErrorCode.otpExpired => l10n.otpExpired,
       AuthErrorCode.otpAttemptsExceeded => l10n.authOtpAttemptsExceeded,
       AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
-      // Server sends AUTH_014 for invalid credentials
       AuthErrorCode.userNotFound => l10n.invalidCredentials,
-      // Server sends AUTH_016 for unverified phone number
-      'AUTH_016' => l10n.phoneNotVerified,
+      AuthErrorCode.userNotConfirmed => l10n.phoneNotVerified,
       AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
       AuthErrorCode.databaseError => l10n.authErrorDatabase,
       _ => l10n.genericError,
@@ -254,6 +252,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           labelText: l10n.fullName,
                           prefixIcon: const Icon(Icons.person),
                           border: const OutlineInputBorder(),
+                          counterText: '',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 20,
@@ -278,6 +277,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           labelText: l10n.wereda,
                           prefixIcon: const Icon(Icons.location_on),
                           border: const OutlineInputBorder(),
+                          counterText: '',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 20,
@@ -466,15 +466,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    l10n.pleaseWait,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ],
                               )
                             : Text(
                                 l10n.signUp,

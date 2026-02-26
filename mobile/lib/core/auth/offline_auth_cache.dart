@@ -54,8 +54,8 @@ class OfflineAuthCache {
   static const _maxDailyFailures = 10;
   static const _dailyFailureWindow = Duration(hours: 24);
 
-  // Offline session TTL (invalidate cache after 48 hours without online login)
-  static const _offlineSessionTtl = Duration(hours: 48);
+  // Offline session TTL — per auth-api.md contract: 7 days max offline session
+  static const _offlineSessionTtl = Duration(days: 7);
 
   // Rate limit storage key prefix
   static const _rateLimitKeyPrefix = 'rate_limit_';
@@ -140,7 +140,7 @@ class OfflineAuthCache {
   /// Throws [RateLimitException] if too many failed attempts.
   Future<bool> verifyPassword(String phoneNumber, String password) async {
     try {
-      // Check offline session TTL (48-hour expiry)
+      // Check offline session TTL (7-day expiry)
       if (await _isSessionExpired(phoneNumber)) {
         // Clear expired credentials
         await clearCredentials(phoneNumber);
@@ -213,7 +213,7 @@ class OfflineAuthCache {
   /// Returns null if tokens are not cached.
   Future<AuthTokens?> getCachedTokens(String phoneNumber) async {
     try {
-      // Check offline session TTL (48-hour expiry)
+      // Check offline session TTL (7-day expiry)
       if (await _isSessionExpired(phoneNumber)) {
         return null;
       }
@@ -234,11 +234,21 @@ class OfflineAuthCache {
   }
 
   /// Update cached tokens (e.g., after token refresh).
+  ///
+  /// Also resets the offline session TTL so users on flaky 3G who
+  /// refresh tokens don't get forced to re-login prematurely.
   Future<void> updateTokens(String phoneNumber, AuthTokens tokens) async {
     try {
       await _secureStorage.write(
         key: _tokensKey(phoneNumber),
         value: jsonEncode(tokens.toJson()),
+      );
+
+      // Reset offline session TTL — a successful token refresh proves
+      // the user had connectivity, so the 7-day clock restarts.
+      await _secureStorage.write(
+        key: _sessionTimestampKey(phoneNumber),
+        value: DateTime.now().toUtc().toIso8601String(),
       );
     } catch (e) {
       throw Exception('Failed to update tokens: $e');
@@ -477,7 +487,7 @@ class OfflineAuthCache {
     await _secureStorage.delete(key: '$_rateLimitKeyPrefix$phoneNumber');
   }
 
-  /// Check if offline session has expired (48-hour TTL).
+  /// Check if offline session has expired (7-day TTL).
   Future<bool> _isSessionExpired(String phoneNumber) async {
     final timestampStr = await _secureStorage.read(
       key: _sessionTimestampKey(phoneNumber),

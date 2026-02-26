@@ -71,24 +71,20 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
       AuthErrorCode.invalidPassword => l10n.passwordRequirements,
       AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
-      // Server sends AUTH_014 for invalid login credentials (NotAuthorizedException)
-      AuthErrorCode.userNotFound => l10n.invalidCredentials,
-      // Server sends AUTH_016 for unverified phone number
-      'AUTH_016' => l10n.phoneNotVerified,
       AuthErrorCode.userNotConfirmed => l10n.authErrorUserNotConfirmed,
+      AuthErrorCode.userNotFound => l10n.invalidCredentials,
+      AuthErrorCode.accountLocked => l10n.authAccountDisabled,
       AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
       AuthErrorCode.internalServerError => l10n.authServerError,
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.networkError => l10n.authNetworkError,
       AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
       AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
-      AuthErrorCode.accountDisabled => l10n.authAccountDisabled,
-      AuthErrorCode.passwordResetRequired => l10n.authPasswordResetRequired,
+      AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
+      AuthErrorCode.refreshTokenRevoked => l10n.authErrorTokenExpired,
+      AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
       AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
       AuthErrorCode.databaseError => l10n.authErrorDatabase,
-      AuthErrorCode.tokenExpired => l10n.authErrorTokenExpired,
-      AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
-      AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
       _ => l10n.genericError,
     };
   }
@@ -341,15 +337,26 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         child: isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    l10n.pleaseWait,
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                ],
                               )
                             : Text(
                                 l10n.login,

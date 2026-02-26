@@ -39,6 +39,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "EscrowsTable90CEAB67",
       },
     },
+    "FraudSignalsTableName": {
+      "Description": "DynamoDB Fraud Signals Table (F-14)",
+      "Value": {
+        "Ref": "FraudSignalsTable0048AA89",
+      },
+    },
     "PaymentsTableName": {
       "Description": "DynamoDB Payments Table",
       "Value": {
@@ -668,6 +674,42 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-escrows",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "FraudSignalsTable0048AA89": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "signalKey",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "signalKey",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-fraud-signals",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

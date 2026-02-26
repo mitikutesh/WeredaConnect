@@ -39,6 +39,7 @@ public partial class SyncFunction
     private readonly string _deliveriesTable;
     private readonly IRateLimitService? _rateLimitService;
     private readonly IFraudDetectionService? _fraudService;
+    private readonly IUserRepository? _userRepo;
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
@@ -131,6 +132,9 @@ public partial class SyncFunction
         var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
                              ?? throw new InvalidOperationException("RATE_LIMITS_TABLE is not set.");
 
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE")
+                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
+
         _dynamoDb = new AmazonDynamoDBClient();
 
         _syncMetadataRepo = new SyncMetadataRepository(_dynamoDb, syncMetadataTable);
@@ -140,6 +144,7 @@ public partial class SyncFunction
             _dynamoDb,
             cropsTable,
             new RateLimitRepository(_dynamoDb, rateLimitTable));
+        _userRepo = new UserRepository(_dynamoDb, usersTable);
     }
 
     /// <summary>
@@ -148,7 +153,8 @@ public partial class SyncFunction
     public SyncFunction(ISyncMetadataRepository syncMetadataRepo, ICropRepository cropRepo,
         IAmazonDynamoDB dynamoDb, string tripsTable, string deliveriesTable,
         IRateLimitService? rateLimitService = null,
-        IFraudDetectionService? fraudService = null)
+        IFraudDetectionService? fraudService = null,
+        IUserRepository? userRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -157,6 +163,7 @@ public partial class SyncFunction
         _deliveriesTable = deliveriesTable ?? throw new ArgumentNullException(nameof(deliveriesTable));
         _rateLimitService = rateLimitService;
         _fraudService = fraudService;
+        _userRepo = userRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -1585,6 +1592,82 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "DELIVERY_UNAUTHORIZED: truckerId must match authenticated user."
                         };
+                    }
+
+                    // SEC-VULN-002: Validate farmerId matches listing owner
+                    if (operation.Data.TryGetValue("listingId", out var lidVal))
+                    {
+                        var listingId = lidVal?.ToString();
+                        if (!string.IsNullOrEmpty(listingId))
+                        {
+                            var listing = await _cropRepo.GetByIdAsync(listingId);
+                            if (listing == null)
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_VALIDATION: Referenced listing not found."
+                                };
+                            }
+
+                            // Check if listing is deleted
+                            if (listing.TryGetValue("deletedAt", out var deletedAt)
+                                && deletedAt != null
+                                && !string.IsNullOrEmpty(deletedAt.ToString()))
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_VALIDATION: Referenced listing has been deleted."
+                                };
+                            }
+
+                            // Check farmerId matches listing owner
+                            var requestedFarmerId = operation.Data.TryGetValue("farmerId", out var fid)
+                                ? fid?.ToString() : null;
+                            var listingFarmerId = listing.TryGetValue("farmerId", out var lfid)
+                                ? lfid?.ToString() : null;
+                            if (requestedFarmerId != listingFarmerId)
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match listing owner."
+                                };
+                            }
+                        }
+                    }
+
+                    // SEC-VULN-002: Validate buyerId references a real buyer
+                    if (operation.Data.TryGetValue("buyerId", out var bidVal))
+                    {
+                        var buyerId = bidVal?.ToString();
+                        if (!string.IsNullOrEmpty(buyerId) && _userRepo != null)
+                        {
+                            var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+                            if (buyer == null)
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_VALIDATION: buyerId does not reference a valid user."
+                                };
+                            }
+
+                            if (!string.Equals(buyer.Role, "buyer", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_PARTICIPANT_MISMATCH: buyerId must reference a buyer."
+                                };
+                            }
+                        }
                     }
 
                     // Field whitelist — reject unknown fields

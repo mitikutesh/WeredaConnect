@@ -57,7 +57,7 @@ class MockAuthService {
     );
   }
 
-  /// Mock OTP verification - accepts '123456' or any 6-digit code
+  /// Mock OTP verification - only accepts [validOtpCode] ('123456')
   Future<AuthResult> verifyOtp({
     required String phoneNumber,
     required String otp,
@@ -65,24 +65,18 @@ class MockAuthService {
     // Simulate network delay
     await Future<void>.delayed(const Duration(milliseconds: 500));
 
-    // Accept any 6-digit OTP in mock mode
-    if (otp.length != 6) {
+    // Only accept the documented mock OTP code
+    if (otp != validOtpCode) {
       return AuthResult.failure(
-        'INVALID_OTP',
-        'OTP must be 6 digits',
+        AuthErrorCode.invalidOtp,
+        'Invalid OTP code. Hint: use $validOtpCode in mock mode.',
       );
     }
 
+    // Match real service behavior: OTP verification returns no tokens.
+    // Caller must call login() after verification.
     final userId = 'mock_${phoneNumber.replaceAll('+', '')}';
-    final now = DateTime.now();
-    final tokens = AuthTokens(
-      accessToken: 'mock_access_token_$userId',
-      refreshToken: 'mock_refresh_token_$userId',
-      idToken: 'mock_id_token_$userId',
-      expiresAt: now.add(const Duration(hours: 1)),
-    );
-
-    return AuthResult.success(tokens, userId: userId);
+    return AuthResult.otpVerified(userId: userId);
   }
 
   /// Mock login - verifies cached credentials or creates first-time session

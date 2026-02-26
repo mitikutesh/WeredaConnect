@@ -43,13 +43,28 @@ public class EscrowServiceTests
     }
 
     /// <summary>
-    /// Helper to create an EscrowService with IUserRepository for Fayda tests.
+    /// Helper to create an EscrowService with IUserRepository for Fayda and role-verification tests.
     /// </summary>
     private EscrowService CreateServiceWithUserRepo(IUserRepository userRepo)
     {
         return new EscrowService(
             _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, userRepo);
     }
+
+    /// <summary>
+    /// Helper to create a UserDto with the admin role for role-verification tests.
+    /// </summary>
+    private static UserDto MakeAdminUser(string userId) => new()
+    {
+        UserId = userId,
+        PhoneNumber = "+251900000000",
+        Role = "admin",
+        Woreda = "test-woreda",
+        IsPhoneVerified = true,
+        CreatedAt = "2026-02-17T10:00:00.0000000Z",
+        UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+        Version = 1
+    };
 
     private static InitiateEscrowRequest MakeInitiateRequest(
         decimal amount = 15_000m,
@@ -317,6 +332,10 @@ public class EscrowServiceTests
         var escrowItem = MakeEscrowItem(status: "disputed");
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
 
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
+        var service = CreateServiceWithUserRepo(mockUserRepo);
+
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -325,7 +344,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"system:escrow-001:release:1708171200000"
         };
 
-        var result = await _service.ReleaseAsync(request, "resolver", role: "admin");
+        var result = await service.ReleaseAsync(request, "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("completed", result.Value!.Status);
@@ -639,6 +658,10 @@ public class EscrowServiceTests
         var escrowItem = MakeEscrowItem(status: "disputed");
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
 
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
+        var service = CreateServiceWithUserRepo(mockUserRepo);
+
         var request = new RefundEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -647,7 +670,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"admin:escrow-001:refund:1708257600000"
         };
 
-        var result = await _service.RefundAsync(request, "resolver", role: "admin");
+        var result = await service.RefundAsync(request, "resolver", role: "admin");
 
         Assert.True(result.IsSuccess);
         Assert.Equal("refunded", result.Value!.Status);
@@ -954,6 +977,10 @@ public class EscrowServiceTests
         var escrowItem = MakeEscrowItem(status: "escrowed");
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
 
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("admin-user").Returns(MakeAdminUser("admin-user"));
+        var service = CreateServiceWithUserRepo(mockUserRepo);
+
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -962,7 +989,7 @@ public class EscrowServiceTests
             IdempotencyKey = $"admin:escrow-001:release:1708171200000"
         };
 
-        var result = await _service.ReleaseAsync(request, "admin-user", role: "admin");
+        var result = await service.ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.True(result.IsSuccess);
     }
@@ -995,6 +1022,79 @@ public class EscrowServiceTests
         };
 
         var result = await _service.RefundAsync(request, FarmerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_JwtAdminButDbFarmer_Returns403()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("fake-admin").Returns(new UserDto
+        {
+            UserId = "fake-admin",
+            PhoneNumber = "+251900000001",
+            Role = "Farmer",
+            Woreda = "test-woreda",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-17T10:00:00.0000000Z",
+            UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+            Version = 1
+        });
+        var service = CreateServiceWithUserRepo(mockUserRepo);
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"fake-admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await service.ReleaseAsync(request, "fake-admin", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_JwtAdminButUserNotFound_Returns403()
+    {
+        var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync("ghost-admin").Returns((UserDto?)null);
+        var service = CreateServiceWithUserRepo(mockUserRepo);
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"ghost-admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await service.ReleaseAsync(request, "ghost-admin", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_NoUserRepoInjected_AdminReturns403()
+    {
+        // _service has no IUserRepository (null), so admin verification must fail-closed
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = $"admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_006", result.Error!.Code);
