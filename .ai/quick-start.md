@@ -107,7 +107,7 @@ Follow these existing patterns when adding new code:
 | Workflows & checklists | `.agents/workflows.md` |
 | Pre-deployment validation | `.agents/deployment_checklist.md` |
 | Ethiopian context & constraints | `docs/local_reality/README.md` |
-| Product definition | `docs/project-background.md` |
+| Product definition (PRD) | `docs/project-background.md` |
 | API contracts | `specs/contracts/` |
 | Architecture decisions | `specs/decisions/` |
 | AOT compliance (server) | `server/AOT_COMPLIANCE.md` |
