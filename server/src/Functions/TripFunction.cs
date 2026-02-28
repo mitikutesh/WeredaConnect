@@ -261,16 +261,7 @@ public class TripFunction
     /// Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
-    {
-        // Only trust JWT authorizer claims set by API Gateway after validation
-        if (request.RequestContext?.Authorizer != null
-            && request.RequestContext.Authorizer.Count > 0)
-        {
-            return true;
-        }
-
-        return false;
-    }
+        => AuthHelper.IsAuthenticated(request);
 
     /// <summary>
     /// Get a required string value from the item dictionary.

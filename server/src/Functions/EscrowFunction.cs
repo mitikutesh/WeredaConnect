@@ -432,56 +432,13 @@ public class EscrowFunction
     /// SECURITY: Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
-    {
-        // Only trust JWT authorizer claims set by API Gateway after validation
-        if (request.RequestContext?.Authorizer != null
-            && request.RequestContext.Authorizer.Count > 0)
-        {
-            return true;
-        }
+        => AuthHelper.IsAuthenticated(request);
 
-        return false;
-    }
-
-    /// <summary>
-    /// Extract the authenticated user ID from JWT authorizer claims.
-    /// </summary>
     private static string? GetAuthenticatedUserId(APIGatewayProxyRequest request)
-    {
-        var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer == null)
-        {
-            return null;
-        }
+        => AuthHelper.GetUserId(request);
 
-        if (authorizer.ContainsKey("sub"))
-        {
-            return authorizer["sub"]?.ToString();
-        }
-
-        if (authorizer.ContainsKey("userId"))
-        {
-            return authorizer["userId"]?.ToString();
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Extract the JWT role claim from the authorizer context.
-    /// The API Gateway authorizer populates "role" from the Cognito custom:role claim.
-    /// Returns null if the role claim is absent (e.g. for unauthenticated or legacy requests).
-    /// </summary>
     private static string? GetAuthenticatedUserRole(APIGatewayProxyRequest request)
-    {
-        var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer == null)
-        {
-            return null;
-        }
-
-        return authorizer.ContainsKey("role") ? authorizer["role"]?.ToString() : null;
-    }
+        => AuthHelper.GetClaim(request, "role") ?? AuthHelper.GetClaim(request, "custom:role");
 
     // ──────────────────────────────────────────────
     // Gateway factory

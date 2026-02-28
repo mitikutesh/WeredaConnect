@@ -366,40 +366,10 @@ public class DeliveryFunction
     /// SECURITY: Raw Authorization headers are NOT trusted — they can be spoofed.
     /// </summary>
     private static bool IsAuthenticated(APIGatewayProxyRequest request)
-    {
-        // Only trust JWT authorizer claims set by API Gateway after validation
-        if (request.RequestContext?.Authorizer != null
-            && request.RequestContext.Authorizer.Count > 0)
-        {
-            return true;
-        }
+        => AuthHelper.IsAuthenticated(request);
 
-        return false;
-    }
-
-    /// <summary>
-    /// Extract the authenticated user ID from JWT authorizer claims.
-    /// </summary>
     private static string? GetAuthenticatedUserId(APIGatewayProxyRequest request)
-    {
-        var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer == null)
-        {
-            return null;
-        }
-
-        if (authorizer.ContainsKey("sub"))
-        {
-            return authorizer["sub"]?.ToString();
-        }
-
-        if (authorizer.ContainsKey("userId"))
-        {
-            return authorizer["userId"]?.ToString();
-        }
-
-        return null;
-    }
+        => AuthHelper.GetUserId(request);
 
     /// <summary>
     /// Check if the user is a participant in the delivery (farmer, trucker, or buyer).

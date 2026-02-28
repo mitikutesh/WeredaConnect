@@ -203,22 +203,10 @@ public partial class SyncFunction
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Maximum 50 operations per batch.");
         }
 
-        // Extract authenticated user ID from API Gateway authorizer context
-        // JWT authorizer: Cognito `sub` claim is spread into authorizer dict
-        string? authenticatedUserId = null;
-        var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer != null)
-        {
-            if (authorizer.ContainsKey("sub"))
-            {
-                authenticatedUserId = authorizer["sub"]?.ToString();
-            }
-            else if (authorizer.ContainsKey("userId"))
-            {
-                authenticatedUserId = authorizer["userId"]?.ToString();
-            }
-        }
-
+        // Extract authenticated user ID from API Gateway authorizer context.
+        // Uses shared AuthHelper to handle both HTTP API v2 JWT authorizer
+        // (claims nested under "claims" key) and flat test dictionaries.
+        var authenticatedUserId = AuthHelper.GetUserId(request);
         if (string.IsNullOrEmpty(authenticatedUserId))
         {
             return LambdaResponse.Error(401, "UNAUTHORIZED", "Authentication required.");
