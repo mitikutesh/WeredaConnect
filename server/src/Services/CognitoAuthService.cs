@@ -106,6 +106,34 @@ public sealed class CognitoAuthService : ICognitoAuthService
 
     public async Task<AuthResult<bool>> ConfirmSignUpAsync(string phone, string otpCode)
     {
+        var devBypass = Environment.GetEnvironmentVariable("DEV_OTP_BYPASS");
+        if (devBypass == "true" && otpCode == "123456")
+        {
+            // Admin-confirm the user in Cognito so login works
+            if (_userPoolId != null)
+            {
+                await _cognito.AdminConfirmSignUpAsync(new AdminConfirmSignUpRequest
+                {
+                    UserPoolId = _userPoolId,
+                    Username = phone
+                });
+
+                // Mark phone as verified so the phone sign-in alias is created.
+                // Without this, Cognito cannot find the user by phone number
+                // when signInAliases includes phone.
+                await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+                {
+                    UserPoolId = _userPoolId,
+                    Username = phone,
+                    UserAttributes =
+                    [
+                        new AttributeType { Name = "phone_number_verified", Value = "true" }
+                    ]
+                });
+            }
+            return AuthResult<bool>.Success(true);
+        }
+
         var request = new ConfirmSignUpRequest
         {
             ClientId = _clientId,

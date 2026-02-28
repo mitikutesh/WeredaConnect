@@ -120,8 +120,4 @@ class Environment {
       config.cognitoUserPoolId.isNotEmpty &&
       config.cognitoClientId.isNotEmpty &&
       config.cognitoRegion.isNotEmpty;
-
-  /// Enable mock auth for local development (bypasses real API).
-  /// Defaults to false. Override with --dart-define=USE_MOCK_AUTH=true.
-  static const bool useMockAuth = bool.fromEnvironment('USE_MOCK_AUTH');
 }

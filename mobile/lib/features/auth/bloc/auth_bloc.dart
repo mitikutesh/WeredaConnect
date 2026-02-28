@@ -4,8 +4,8 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
@@ -50,6 +50,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
   static const _currentUserPhoneKey = 'current_user_phone';
+  static const _activeAccessTokenKey = 'access_token';
+  static const _activeRefreshTokenKey = 'refresh_token';
 
   AuthBloc({
     AuthService? authService,
@@ -80,10 +82,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
   }
 
+  /// Write active tokens to well-known keys for the AuthInterceptor.
+  ///
+  /// The AuthInterceptor reads these keys to inject the Authorization
+  /// header and to obtain the refresh token when a 401 is received.
+  Future<void> _saveActiveTokens(AuthTokens tokens) async {
+    await _secureStorage.write(
+      key: _activeAccessTokenKey,
+      value: tokens.accessToken,
+    );
+    await _secureStorage.write(
+      key: _activeRefreshTokenKey,
+      value: tokens.refreshToken,
+    );
+  }
+
   /// Clear the current session from secure storage.
   Future<void> _clearSession() async {
     _currentPhoneNumber = null;
     await _secureStorage.delete(key: _currentUserPhoneKey);
+    await _secureStorage.delete(key: _activeAccessTokenKey);
+    await _secureStorage.delete(key: _activeRefreshTokenKey);
   }
 
   /// Check if user is already authenticated.
@@ -126,6 +145,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       // Offline-first: let user in even with expired tokens.
       // Token refresh happens lazily on API calls.
+      await _saveActiveTokens(tokens);
       emit(
         AuthAuthenticated(
           userId: user.userId,
@@ -240,6 +260,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       if (loginResult.isSuccess) {
         await _saveSession(event.phoneNumber);
+        await _saveActiveTokens(loginResult.tokens!);
         final user = await _offlineCache.getCachedUser(event.phoneNumber);
         // Read _pendingRole BEFORE clearing — it's our fallback if cache
         // hasn't written yet.
@@ -335,6 +356,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
+      await _saveActiveTokens(result.tokens!);
 
       final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
@@ -374,6 +396,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
+      await _saveActiveTokens(result.tokens!);
 
       final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
@@ -411,6 +434,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
+      await _saveActiveTokens(result.tokens!);
 
       final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
@@ -448,6 +472,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (result.isSuccess) {
       // Update tokens in current authenticated state
       if (currentState is AuthAuthenticated) {
+        await _saveActiveTokens(result.tokens!);
+
         // Update cached tokens
         if (_currentPhoneNumber != null) {
           await _offlineCache.updateTokens(
@@ -531,16 +557,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
   }
 
-  /// Delete business data belonging to [userId] from the local cache.
+  /// Delete **private** business data belonging to [userId] from the local cache.
   ///
-  /// Clears: crop listings, deliveries, payments where user is a participant.
-  /// Keeps other users' data intact for multi-account devices.
+  /// Clears: deliveries, payments where user is a participant.
+  /// Preserves: crop listings and trip listings (public marketplace data that
+  /// other users on this device should still be able to browse).
   Future<void> _clearUserBusinessData(Isar isar, String userId) async {
     await isar.writeTxn(() async {
-      // Delete user's crop listings
-      final listings =
-          await isar.cropListings.filter().farmerIdEqualTo(userId).findAll();
-      await isar.cropListings.deleteAll(listings.map((l) => l.id).toList());
+      // NOTE: Crop listings and trip listings are intentionally NOT cleared.
+      // They are public marketplace data visible to all users. Clearing them
+      // would prevent other users on the same device from browsing listings
+      // (especially important in offline/mock mode where data is local-only).
 
       // Delete deliveries where user is a participant
       final asFarmer =

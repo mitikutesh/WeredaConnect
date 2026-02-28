@@ -27,6 +27,8 @@ public class VerifyOtpFunction
     {
         var clientId = Environment.GetEnvironmentVariable("COGNITO_CLIENT_ID")
                        ?? throw new InvalidOperationException("COGNITO_CLIENT_ID is not set.");
+        var userPoolId = Environment.GetEnvironmentVariable("COGNITO_USER_POOL_ID")
+                         ?? throw new InvalidOperationException("COGNITO_USER_POOL_ID is not set.");
         var tableName = Environment.GetEnvironmentVariable("USERS_TABLE")
                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
         var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
@@ -35,7 +37,7 @@ public class VerifyOtpFunction
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();
 
-        _authService = new CognitoAuthService(cognito, clientId);
+        _authService = new CognitoAuthService(cognito, clientId, userPoolId);
         _userRepository = new UserRepository(dynamoDb, tableName);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
     }

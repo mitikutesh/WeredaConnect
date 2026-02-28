@@ -82,49 +82,67 @@ class OfflineAuthCache {
     required String woreda,
     required AuthTokens tokens,
   }) async {
-    try {
-      // Generate device-specific salt (or retrieve existing)
-      final salt = await _getSalt(phoneNumber);
+    // Store user profile in Isar first — required for profile screen.
+    await saveUserToIsar(
+      userId: userId,
+      phoneNumber: phoneNumber,
+      name: name,
+      role: role,
+      woreda: woreda,
+    );
 
-      // Hash password with PBKDF2
+    // Cache password hash and tokens in secure storage for offline auth.
+    // If this fails, the user is still logged in and profile works;
+    // only offline login will be unavailable.
+    try {
+      final salt = await _getSalt(phoneNumber);
       final passwordHash = await _hashPassword(password, salt);
 
-      // Store password hash in secure storage
       await _secureStorage.write(
         key: _passwordHashKey(phoneNumber),
         value: passwordHash,
       );
-
-      // Store tokens in secure storage
       await _secureStorage.write(
         key: _tokensKey(phoneNumber),
         value: jsonEncode(tokens.toJson()),
       );
-
-      // Store offline session timestamp for TTL enforcement
       await _secureStorage.write(
         key: _sessionTimestampKey(phoneNumber),
         value: DateTime.now().toUtc().toIso8601String(),
       );
-
-      // Store user profile in encrypted Isar database
-      final isar = IsarService.instance.db;
-      await isar.writeTxn(() async {
-        final user = User()
-          ..userId = userId
-          ..phoneNumber = phoneNumber
-          ..name = name
-          ..role = role
-          ..woreda = woreda
-          ..createdAt = DateTime.now().toUtc()
-          ..updatedAt = DateTime.now().toUtc()
-          ..version = 1;
-
-        await isar.users.put(user);
-      });
     } catch (e) {
       throw Exception('Failed to cache credentials: $e');
     }
+  }
+
+  /// Save user profile to Isar database.
+  ///
+  /// Separated from [cacheCredentials] so the user profile is always
+  /// available for display even if secure storage operations fail.
+  Future<void> saveUserToIsar({
+    required String userId,
+    required String phoneNumber,
+    required String name,
+    required UserRole role,
+    required String woreda,
+  }) async {
+    final isar = IsarService.instance.db;
+    await isar.writeTxn(() async {
+      // Preserve existing createdAt if user already exists
+      final existing =
+          await isar.users.where().userIdEqualTo(userId).findFirst();
+      final user = User()
+        ..userId = userId
+        ..phoneNumber = phoneNumber
+        ..name = name
+        ..role = role
+        ..woreda = woreda
+        ..createdAt = existing?.createdAt ?? DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
+        ..version = (existing?.version ?? 0) + 1;
+
+      await isar.users.put(user);
+    });
   }
 
   /// Verify password against cached hash for offline login.
