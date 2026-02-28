@@ -63,9 +63,11 @@ WeredaConnect is a mobile-first platform connecting Ethiopian farmers, truckers,
 
 ### 3.1 Who Starts the Transaction?
 
-**The Buyer initiates.** The buyer has the money, the demand, and the sophistication to navigate a multi-step process. The farmer's role is simplified to listing and confirming.
+**Current MVP:** The **Trucker** creates deliveries by matching their trips to farmer crop listings, then the buyer pays via escrow. This works for the initial marketplace where truckers actively coordinate logistics.
 
-### 3.2 The Seven-Step Flow
+**Target redesign:** The **Buyer** initiates by placing an order and depositing escrow upfront, then farmer and trucker accept. This is the long-term vision described below and will be implemented when the marketplace has enough liquidity for buyer-driven demand.
+
+### 3.2 The Seven-Step Flow (Target Design)
 
 ```
 Step 1: LISTING (Farmer + Trucker)
@@ -82,6 +84,8 @@ Step 6: DELIVERY VERIFICATION (QR + GPS + Photo)
   |
 Step 7: ESCROW RELEASE (Split payment)
 ```
+
+> Steps 4-7 are implemented in the current MVP. Steps 2-3 (buyer-initiated ordering with acceptance workflow) are the redesign target.
 
 ### Step 1 — Listing
 
@@ -100,7 +104,7 @@ Step 7: ESCROW RELEASE (Split payment)
 - Available date range
 - Price per quintal
 
-### Step 2 — Buyer Places Order
+### Step 2 — Buyer Places Order (Target Redesign)
 
 - Buyer browses crop listings (filtered by crop type, woreda, price)
 - Selects a crop listing
@@ -111,11 +115,15 @@ Step 7: ESCROW RELEASE (Split payment)
 
 > **No money, no order. Period.** If the buyer can't afford the full amount, they shouldn't be placing the order. This protects the farmer and trucker from wasted effort.
 
-### Step 3 — Farmer + Trucker Accept
+> **Current MVP:** Trucker creates a delivery record linking trip, crop listing, farmer, and buyer. Buyer then pays into escrow. See `specs/transaction-flow.md` for the current implementation details.
+
+### Step 3 — Farmer + Trucker Accept (Target Redesign)
 
 - Farmer and trucker each receive a notification
 - Both must accept within 24 hours or order auto-cancels with full escrow refund
 - Order status: `ACCEPTED` → `AWAITING PICKUP`
+
+> **Current MVP:** No explicit acceptance step — the trucker creates the delivery and the buyer pays. Acceptance workflow is a redesign target.
 
 ### Step 4 — Pickup Verification
 
@@ -159,7 +167,7 @@ Step 7: ESCROW RELEASE (Split payment)
 **Happy path (no dispute within 48 hours):**
 - Farmer paid for confirmed weight, minus platform commission
 - Trucker paid transport fee, minus platform commission
-- Platform fee retained (2-5%, configurable)
+- Platform fee retained (currently 2.5%; target range 2-5% once configurable)
 - Payments disbursed via Telebirr
 - Both parties prompted to rate each other
 
@@ -169,6 +177,10 @@ Step 7: ESCROW RELEASE (Split payment)
 - Admin reviews evidence and resolves
 
 ### 3.3 Cancellation Policy
+
+**Current MVP:** Cancellation is available when delivery is `pending` or `pickedUp`. Full refund if escrow is in `initiated` state. No penalty system.
+
+**Target redesign — staged penalties:**
 
 | Stage | Buyer Cancels | Refund |
 |-------|---------------|--------|
@@ -307,7 +319,7 @@ STEP 6: Delivery confirmed by buyer (QR + GPS + photo)
 STEP 7: Escrow releases
         Farmer receives: crop payment minus commission
         Trucker receives: transport fee minus commission
-        Platform keeps: 2-5% commission
+        Platform keeps: 2.5% commission (target: 2-5% configurable)
 ```
 
 ### 5.5 Escrow State Machine (Implemented)
@@ -509,7 +521,7 @@ Existing middlemen will actively resist the platform. Expected actions:
 
 | Revenue Stream | Rate | Description |
 |---|---|---|
-| Transaction fee | 2-5% per transaction | Configurable; split between platform commission |
+| Transaction fee | 2.5% per transaction (target: 2-5% configurable) | Deducted from overall transaction; min 5 ETB |
 | Premium listings | Fixed fee | Farmer/trucker can boost listing visibility |
 | Data/analytics | Subscription | Market price data for institutions |
 | Micro-credit interest | TBD | Interest on farmer advances (Phase 3) |
