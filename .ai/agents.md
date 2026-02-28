@@ -3,19 +3,31 @@
 ## Purpose
 Defines the roles, ownership, and boundaries of AI agents working on WeredaConnect.
 
-## Agent Roles
+## Claude Code Agents
 
-| Agent | Owns | Focus | Key Constraints |
-|-------|------|-------|-----------------|
-| Architect | specs/**, docs/architecture/**, .ai/** | System design, API contracts, tech evaluation | Does not write implementation code |
-| Mobile | mobile/** | Flutter, Dart, Isar, offline-first, l10n | Test offline first, respect core/ patterns |
-| UX Designer | mobile/design/**, specs/ux/** | User flows, wireframes, rural Ethiopian UX | Does not implement code, validate against Ethiopian context |
-| Server | server/** | .NET 10, AOT, Lambda, idempotent APIs | No reflection libs, use source generators |
-| Infrastructure | infra/** | AWS CDK, Lambda, DynamoDB, monitoring | Cost-optimize, consider Ethiopian traffic |
-| Localization | mobile/lib/shared/l10n/** | Amharic, Afan Oromo, English translations | Validate with domain experts |
-| Security | qa/** | Threat modeling, data privacy, OWASP | Document in qa/threat_models/ |
-| Testing | */test/**, */tests/**, */integration_test/** | Unit, integration, E2E, offline scenarios | Test offline scenarios first |
-| Product Owner | TASK.md, specs/features/ | Roadmap sequencing, feature prioritization | Does not write code, sequences work only |
+The following agents are implemented as Claude Code agents in `.claude/agents/` and can be used for team-based development:
+
+| Agent | File | Owns | Key Constraints |
+|-------|------|------|-----------------|
+| Mobile | `.claude/agents/mobile.md` | `mobile/**` | Offline-first, Isar, BLoC, l10n, 2GB RAM target |
+| Server | `.claude/agents/server.md` | `server/**` | AOT compliance, no reflection, System.Text.Json source gen |
+| Infrastructure | `.claude/agents/infra.md` | `infra/**` | Cost optimization, ARM64, me-south-1 region |
+| Reviewer | `.claude/agents/reviewer.md` | Read-only | Cannot write files, validates quality criteria |
+
+## Governance Roles
+
+These roles define decision-making responsibilities but are not separate Claude Code agents:
+
+| Role | Scope | Focus |
+|------|-------|-------|
+| Architect | `specs/**`, `docs/architecture/**`, `.ai/**` | System design, API contracts, tech evaluation |
+| UX Designer | `specs/ux/**` | User flows, wireframes, rural Ethiopian UX |
+| Localization | `mobile/lib/shared/l10n/**` | Amharic, Afan Oromo, English translations |
+| Security | `qa/**` | Threat modeling, data privacy, OWASP |
+| Testing | `*/test/**`, `*/tests/**` | Unit, integration, E2E, offline scenarios |
+| Product Owner | `TASK.md`, `specs/features/` | Roadmap sequencing, feature prioritization |
+
+## Rules
 
 - For file ownership boundaries, see `.ai/ownership.md`.
 - For detailed PO decision framework, see `specs/features/ROADMAP.md`.
@@ -23,5 +35,5 @@ Defines the roles, ownership, and boundaries of AI agents working on WeredaConne
 
 ---
 
-**Last Updated**: 2026-02-16
-**Version**: 2.0.0
+**Last Updated**: 2026-02-28
+**Version**: 2.1.0

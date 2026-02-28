@@ -128,6 +128,41 @@ When faced with technical choices, prioritize in this order:
 ❌ **Never** commit/deploy without user approval  
 ❌ **Never** ignore localization requirements  
 
+## Claude Code Infrastructure
+
+### Agents (`.claude/agents/`)
+
+Specialized agents for team-based development:
+
+| Agent | Scope | Use When |
+|---|---|---|
+| `mobile` | `mobile/**` | Flutter/Dart work — offline-first repos, BLoC, l10n, Isar |
+| `server` | `server/**` | .NET AOT work — Lambda handlers, DynamoDB, JSON source gen |
+| `infra` | `infra/**` | AWS CDK work — stacks, constructs, cost optimization |
+| `reviewer` | Read-only | QA review — validates offline-first, AOT, l10n, security |
+
+### Slash Commands (`.claude/commands/`)
+
+| Command | What It Does |
+|---|---|
+| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
+| `/validate` | Run build checks for changed modules only |
+| `/review` | Review recent changes against quality criteria |
+| `/plan` | Create implementation spec in `specs/features/` before building |
+
+### Hook-Enforced Guardrails
+
+These are enforced automatically — you don't need to remember them:
+
+**PreToolUse** (all tools):
+- Blocks `rm -rf` on critical directories (`mobile/`, `server/`, `infra/`, `.ai/`, `specs/`, `.claude/`)
+- Blocks writing to `.env` files (use `.env.example`)
+- Blocks `git push --force` to `main`/`master`
+
+**PostToolUse** (Edit/Write):
+- Auto-formats `.dart` and `.cs` files after every edit
+- Validates `.cs` files for AOT compliance — blocks Newtonsoft.Json, Moq, EF Core, reflection APIs (exit code 2 forces self-correction)
+
 ## Success Metrics
 
 A feature is "done" when:
@@ -137,6 +172,6 @@ A feature is "done" when:
 - ✅ Documented in `specs/` with context
 - ✅ Passes security threat model review
 
-**Last Updated**: 2026-02-16
-**Version**: 2.0.0
+**Last Updated**: 2026-02-28
+**Version**: 2.1.0
 
