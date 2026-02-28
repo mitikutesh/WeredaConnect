@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -9,7 +10,10 @@ import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/conflict_resolver.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/core/sync/sync_worker.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
@@ -32,6 +36,7 @@ import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,12 +64,27 @@ Future<void> main() async {
   const secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+
+  // Separate Dio for token refresh — must NOT share the AuthInterceptor.
+  // AuthInterceptor uses QueuedInterceptor which serializes all calls.
+  // If the refresh callback used ApiClient().dio, the refresh POST would
+  // queue behind the still-running onError handler → deadlock → timeout
+  // → "Authentication failed" on every sync attempt.
+  final refreshDio = Dio(
+    BaseOptions(
+      baseUrl: ApiClient().dio.options.baseUrl,
+      connectTimeout: ApiClient().dio.options.connectTimeout,
+      receiveTimeout: ApiClient().dio.options.receiveTimeout,
+      headers: Map<String, dynamic>.from(ApiClient().dio.options.headers),
+    ),
+  );
+
   final authInterceptor = AuthInterceptor(
     storage: secureStorage,
     dio: ApiClient().dio,
     refreshTokenCallback: (refreshToken) async {
       try {
-        final response = await ApiClient().dio.post<Map<String, dynamic>>(
+        final response = await refreshDio.post<Map<String, dynamic>>(
           '/auth/refresh',
           data: {'refreshToken': refreshToken},
         );
@@ -122,6 +142,24 @@ Future<void> main() async {
   // Create conflict notification service for sync conflict UI
   final conflictNotificationService = ConflictNotificationService();
 
+  // Create global SyncExecutor and SyncWorker for offline-first sync.
+  // The executor auto-syncs on connectivity changes; the worker adds
+  // periodic 15-minute sync and daily purge of old operations.
+  final syncQueue = SyncQueue(IsarService.instance.db);
+  final syncExecutor = SyncExecutor(
+    syncQueue: syncQueue,
+    connectivityMonitor: connectivityMonitor,
+    dio: ApiClient().dio,
+    clientId: 'mobile-${DateTime.now().millisecondsSinceEpoch}',
+    conflictResolver: ConflictResolver(IsarService.instance.db),
+    conflictNotificationService: conflictNotificationService,
+  );
+  final syncWorker = SyncWorker(
+    executor: syncExecutor,
+    syncQueue: syncQueue,
+  );
+  syncWorker.start();
+
   // Initialize language provider and load saved language preference
   final languageProvider = LanguageProvider();
   await languageProvider.initialize();
@@ -155,8 +193,9 @@ Future<void> main() async {
   )..add(const AuthCheckRequested());
 
   // Add lifecycle observer for resource cleanup and sensitive data clearing
-  WidgetsBinding.instance
-      .addObserver(_AppLifecycleObserver(authBloc: authBloc));
+  WidgetsBinding.instance.addObserver(
+    _AppLifecycleObserver(authBloc: authBloc, syncWorker: syncWorker),
+  );
 
   runApp(
     MultiProvider(
@@ -170,6 +209,8 @@ Future<void> main() async {
         connectivityMonitor: connectivityMonitor,
         escrowSyncService: escrowSyncService,
         conflictNotificationService: conflictNotificationService,
+        syncExecutor: syncExecutor,
+        syncWorker: syncWorker,
       ),
     ),
   );
@@ -178,9 +219,10 @@ Future<void> main() async {
 /// Manages app lifecycle to optimize memory usage on low-end devices
 /// and clear sensitive in-memory data when the app is backgrounded.
 class _AppLifecycleObserver extends WidgetsBindingObserver {
-  _AppLifecycleObserver({required this.authBloc});
+  _AppLifecycleObserver({required this.authBloc, required this.syncWorker});
 
   final AuthBloc authBloc;
+  final SyncWorker syncWorker;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -194,6 +236,9 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
       // On shared devices (common in Ethiopia), this prevents password exposure
       // via memory inspection tools when the app is backgrounded.
       authBloc.clearSensitiveData();
+    } else if (state == AppLifecycleState.resumed) {
+      // App returned to foreground — trigger immediate sync attempt
+      syncWorker.onAppResumed();
     }
   }
 }
@@ -203,12 +248,16 @@ class WeredaConnectApp extends StatelessWidget {
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
   final ConflictNotificationService conflictNotificationService;
+  final SyncExecutor syncExecutor;
+  final SyncWorker syncWorker;
 
   const WeredaConnectApp({
     required this.authBloc,
     required this.connectivityMonitor,
     required this.escrowSyncService,
     required this.conflictNotificationService,
+    required this.syncExecutor,
+    required this.syncWorker,
     super.key,
   });
 
@@ -227,6 +276,14 @@ class WeredaConnectApp extends StatelessWidget {
         Provider<ConflictNotificationService>(
           create: (_) => conflictNotificationService,
           dispose: (_, service) => service.dispose(),
+        ),
+        Provider<SyncExecutor>(
+          create: (_) => syncExecutor,
+          dispose: (_, executor) => executor.dispose(),
+        ),
+        Provider<SyncWorker>(
+          create: (_) => syncWorker,
+          dispose: (_, worker) => worker.dispose(),
         ),
       ],
       child: MultiBlocProvider(
@@ -298,12 +355,7 @@ class WeredaConnectApp extends StatelessWidget {
               ],
 
               // Theme
-              theme: ThemeData(
-                colorScheme: ColorScheme.fromSeed(
-                  seedColor: Colors.green,
-                ),
-                useMaterial3: true,
-              ),
+              theme: AppTheme.light(),
 
               // Auth gate handles routing based on authentication state
               home: const AuthGate(),
