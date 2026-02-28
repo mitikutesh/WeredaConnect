@@ -1,5 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
@@ -224,25 +225,33 @@ class AuthService {
       );
 
       final user = data['user'] as Map<String, dynamic>;
+      final userId = user['userId'] as String;
 
-      // Cache credentials for offline use
-      await _offlineCache.cacheCredentials(
-        phoneNumber: phoneNumber,
-        password: password,
-        userId: user['userId'] as String,
-        role: UserRole.values.firstWhere(
-          (r) => r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
-          orElse: () => UserRole.farmer,
-        ),
-        name: (user['displayName'] as String?) ?? '',
-        woreda: user['woreda'] as String,
-        tokens: tokens,
-      );
+      // Cache credentials for offline use (best-effort — don't block login)
+      try {
+        await _offlineCache.cacheCredentials(
+          phoneNumber: phoneNumber,
+          password: password,
+          userId: userId,
+          role: UserRole.values.firstWhere(
+            (r) =>
+                r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
+            orElse: () => UserRole.farmer,
+          ),
+          name: (user['displayName'] as String?) ?? '',
+          woreda: user['woreda'] as String,
+          tokens: tokens,
+        );
+      } on Exception catch (e) {
+        debugPrint('[AuthService] Failed to cache credentials: $e');
+      }
 
-      return AuthResult.success(tokens, userId: user['userId'] as String);
+      return AuthResult.success(tokens, userId: userId);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception {
+    } on Exception catch (e, stackTrace) {
+      debugPrint('[AuthService] loginOnline exception: $e');
+      debugPrint('[AuthService] stackTrace: $stackTrace');
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         'Something went wrong. Please try again.',
