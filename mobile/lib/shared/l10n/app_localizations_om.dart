@@ -49,6 +49,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get retry => 'Irra Deebi\'ii Yaali';
 
   @override
+  String get syncNow => 'Amma Walsimsisi';
+
+  @override
   String get selectLanguagePrompt => 'Afaan Kee Filadhu';
 
   @override
@@ -340,6 +343,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get browseListings => 'Tarree Barbaadi';
+
+  @override
+  String get market => 'Gabaa';
+
+  @override
+  String get orders => 'Ajaja';
 
   @override
   String get myOrders => 'Ajaja Koo';
@@ -1464,4 +1473,243 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get pleaseWait => 'Maaloo eegaa...';
+
+  @override
+  String get greeting => 'Nagaa';
+
+  @override
+  String get homeSubtitle => 'Har\'a maal gochuu barbaaddu?';
+
+  @override
+  String get bannerHeadline => 'DALLAALAAN HIN BARBAACHISU';
+
+  @override
+  String get bannerSubtitle => 'Qonnaan bultoota\'f gatii haqa qabu kallattiin';
+
+  @override
+  String get quickActions => 'Tarkaanfiiwwan Ariifataa';
+
+  @override
+  String get overview => 'Waliigala';
+
+  @override
+  String get recentActivity => 'Dhiyoo';
+
+  @override
+  String get noRecentActivity => 'Sochiin dhiyoo hin jiru';
+
+  @override
+  String get sell => 'Gurguri';
+
+  @override
+  String get buy => 'Biti';
+
+  @override
+  String get truckers => 'Konkolaachiftoonni';
+
+  @override
+  String get escrow => 'Eeskiroo';
+
+  @override
+  String get availableLoads => 'Fe\'annoo';
+
+  @override
+  String get activeFarmers => 'Qonnaan Bultoota';
+
+  @override
+  String get inTransit => 'Geejjibamaa jira';
+
+  @override
+  String get matchedLoads => 'Walsimatan';
+
+  @override
+  String get farmersBrowsed => 'Ilaalaman';
+
+  @override
+  String get marketplace => 'Gabaa';
+
+  @override
+  String get browseVerifiedFarmers => 'Qonnaan bultoota mirkanaa\'an ilaali';
+
+  @override
+  String get manageYourListings => 'Tarreeffama kee bulchi';
+
+  @override
+  String get searchListings => 'Midhaan, qonnaan bultoota barbaadi...';
+
+  @override
+  String get trackTradesEscrow => 'Daldalaa fi eeskiroo hordofi';
+
+  @override
+  String get active => 'Hojjatamaa';
+
+  @override
+  String get done => 'Xumurameera';
+
+  @override
+  String get all => 'Hundaa';
+
+  @override
+  String get noOrders => 'Ajajni hin jiru';
+
+  @override
+  String get ordersWillAppear => 'Daldalaan kee as ni mul\'ata';
+
+  @override
+  String get trades => 'Daldalaa';
+
+  @override
+  String get rating => 'Sadarkaa';
+
+  @override
+  String get escrowPercent => 'Eeskiroo %';
+
+  @override
+  String get wallet => 'Waaleetii';
+
+  @override
+  String get escrowHistory => 'Seenaa Eeskiroo';
+
+  @override
+  String get ratings => 'Sadarkaalee';
+
+  @override
+  String get documents => 'Sanadoota';
+
+  @override
+  String get idAndCerts => 'Eenyummaa, Ragaalee';
+
+  @override
+  String get languageAndAlerts => 'Afaan, Beeksisa';
+
+  @override
+  String get help => 'Gargaarsa';
+
+  @override
+  String get faqAndSupport => 'Gaaffilee, Deeggarsa';
+
+  @override
+  String get continueButton => 'Itti fufi';
+
+  @override
+  String get selectRoleDescription =>
+      'WeredaConnect akkamitti fayyadamtu filadhu';
+
+  @override
+  String get farmerDescription =>
+      'Midhaan gabaa\'f tarreessi konkolaachiftoota argadhu';
+
+  @override
+  String get truckerDescription => 'Geejjiba dhiyeessi meeshaalee geejjibsi';
+
+  @override
+  String get buyerDescription =>
+      'Qonnaan bultoota irraa midhaan ilaali bitadhu';
+
+  @override
+  String get faydaIdVerification => 'Mirkaneessa Eenyummaa Faayidaa';
+
+  @override
+  String get faydaIdInstructions =>
+      'Kaardii eenyummaa Faayidaa kee iskaani ykn lakkoofsa galchi';
+
+  @override
+  String get scanFront => 'Fuuldura Iskaani';
+
+  @override
+  String get scanBack => 'Duuba Iskaani';
+
+  @override
+  String get enterManually => 'Lakkoofsa eenyummaa galchi';
+
+  @override
+  String get faydaIdNumber => 'Lakkoofsa Eenyummaa Faayidaa';
+
+  @override
+  String get drivingLicense => 'Hayyama Konkolaachisaa';
+
+  @override
+  String get drivingLicenseInstructions =>
+      'Eenyummaa kee mirkaneessuuf hayyama konkolaachisaa iskaani';
+
+  @override
+  String get buyerType => 'Gosa Bitaa';
+
+  @override
+  String get buyerTypeDescription =>
+      'Akka dhuunfaa ykn dhaabbataatti ni bitattu?';
+
+  @override
+  String get privateBuyer => 'Bitaa Dhuunfaa';
+
+  @override
+  String get companyBuyer => 'Dhaabbata';
+
+  @override
+  String get companyName => 'Maqaa Dhaabbataa';
+
+  @override
+  String get personalInfo => 'Odeeffannoo Dhuunfaa';
+
+  @override
+  String get personalInfoDescription => 'Herrega uumuuf odeeffannoo kee galchi';
+
+  @override
+  String get verified => 'Mirkanaa\'e';
+
+  @override
+  String get scanLicense => 'Hayyama Iskaani';
+
+  @override
+  String get statusFunded => 'Maallaqi Galmeera';
+
+  @override
+  String get statusPlaced => 'Ajajamame';
+
+  @override
+  String get statusAssigned => 'Ramadame';
+
+  @override
+  String get statusTransit => 'Daandii Irra';
+
+  @override
+  String get statusDisputed => 'Waldhabdee';
+
+  @override
+  String deliveryTitle(int id) {
+    return 'Geejjiba #$id';
+  }
+
+  @override
+  String paymentTitle(int id) {
+    return 'Kaffaltii #$id';
+  }
+
+  @override
+  String listingCreatedActivity(String cropType) {
+    return '$cropType tarreeffamni uumame';
+  }
+
+  @override
+  String deliveryStatusActivity(String status) {
+    return 'Geejjiba $status';
+  }
+
+  @override
+  String minutesAgo(int count) {
+    return 'Daqiiqaa $count dura';
+  }
+
+  @override
+  String hoursAgo(int count) {
+    return 'Sa\'aatii $count dura';
+  }
+
+  @override
+  String daysAgo(int count) {
+    return 'Guyyaa $count dura';
+  }
+
+  @override
+  String get fieldRequired => 'Dirreen kun dirqama';
 }

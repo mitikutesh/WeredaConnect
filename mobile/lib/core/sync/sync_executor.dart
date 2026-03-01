@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
@@ -281,15 +282,19 @@ class SyncExecutor {
   /// Returns an aggregated [SyncBatchResult] across all batches processed.
   Future<SyncBatchResult> syncNow() async {
     if (_isSyncing) {
+      debugPrint('[SYNC] skipped — already syncing');
       return const SyncBatchResult.skipped();
     }
 
     _isSyncing = true;
     var aggregated = const SyncBatchResult.empty();
+    debugPrint('[SYNC] syncNow() started');
 
     try {
       // Quick check: if OS reports no network, skip the expensive HTTP call
-      if (!await _connectivityMonitor.isConnected()) {
+      final connected = await _connectivityMonitor.isConnected();
+      debugPrint('[SYNC] OS connectivity: $connected');
+      if (!connected) {
         const result = SyncBatchResult.noInternet();
         _resultController.add(result);
         return result;
@@ -297,6 +302,7 @@ class SyncExecutor {
 
       // Verify actual internet access (ping /health)
       final hasInternet = await _connectivityMonitor.hasInternetAccess();
+      debugPrint('[SYNC] health check: $hasInternet');
       if (!hasInternet) {
         const result = SyncBatchResult.noInternet();
         _resultController.add(result);
@@ -308,6 +314,12 @@ class SyncExecutor {
       // Process batches until queue is empty or max retries exceeded
       while (consecutiveFailures < retryDelays.length) {
         final result = await executeBatch();
+        debugPrint('[SYNC] batch result: ${result.status} (${result.succeeded}/${result.total} ok, ${result.failed} failed, err: ${result.errorMessage})');
+        if (result.operationErrors.isNotEmpty) {
+          for (final entry in result.operationErrors.entries) {
+            debugPrint('[SYNC] op ${entry.key} failed: ${entry.value}');
+          }
+        }
         aggregated = aggregated.merge(result);
 
         if (!_resultController.isClosed) {
@@ -391,6 +403,7 @@ class SyncExecutor {
         );
       }
 
+      debugPrint('[SYNC] server response: ${response.data}');
       return await _processResponse(pending, response.data!);
     } on DioException catch (e) {
       return await _handleDioError(e, pending);

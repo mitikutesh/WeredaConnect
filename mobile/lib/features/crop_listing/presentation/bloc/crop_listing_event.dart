@@ -29,6 +29,7 @@ class CreateCropListing extends CropListingEvent {
   final String locationName;
   final String description;
   final String? audioNoteRef;
+  final String? woreda;
 
   const CreateCropListing({
     required this.farmerId,
@@ -40,6 +41,7 @@ class CreateCropListing extends CropListingEvent {
     required this.locationName,
     required this.description,
     this.audioNoteRef,
+    this.woreda,
   });
 
   @override
@@ -53,6 +55,7 @@ class CreateCropListing extends CropListingEvent {
         locationName,
         description,
         audioNoteRef,
+        woreda,
       ];
 }
 

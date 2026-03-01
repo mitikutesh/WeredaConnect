@@ -52,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "syncNow": "Amma Walsimsisi",
+  "@syncNow": {
+    "description": "Button to trigger an immediate sync"
+  },
   "selectLanguagePrompt": "Afaan Kee Filadhu",
   "@selectLanguagePrompt": {
     "description": "Language selection prompt on welcome screen"
@@ -422,6 +426,14 @@
   "browseListings": "Tarree Barbaadi",
   "@browseListings": {
     "description": "Browse listings tab label for non-farmer roles"
+  },
+  "market": "Gabaa",
+  "@market": {
+    "description": "Market bottom nav tab label"
+  },
+  "orders": "Ajaja",
+  "@orders": {
+    "description": "Orders bottom nav tab label"
   },
   "myOrders": "Ajaja Koo",
   "@myOrders": {
@@ -1917,5 +1929,130 @@
   "pleaseWait": "Maaloo eegaa...",
   "@pleaseWait": {
     "description": "Loading indicator text shown during auth operations on slow networks"
-  }
+  },
+
+  "@@uiRedesign": "=== UI Redesign Strings ===",
+
+  "greeting": "Nagaa",
+  "homeSubtitle": "Har'a maal gochuu barbaaddu?",
+  "bannerHeadline": "DALLAALAAN HIN BARBAACHISU",
+  "bannerSubtitle": "Qonnaan bultoota'f gatii haqa qabu kallattiin",
+  "quickActions": "Tarkaanfiiwwan Ariifataa",
+  "overview": "Waliigala",
+  "recentActivity": "Dhiyoo",
+  "noRecentActivity": "Sochiin dhiyoo hin jiru",
+  "sell": "Gurguri",
+  "buy": "Biti",
+  "truckers": "Konkolaachiftoonni",
+  "escrow": "Eeskiroo",
+  "availableLoads": "Fe'annoo",
+  "activeFarmers": "Qonnaan Bultoota",
+  "inTransit": "Geejjibamaa jira",
+  "matchedLoads": "Walsimatan",
+  "farmersBrowsed": "Ilaalaman",
+  "marketplace": "Gabaa",
+  "browseVerifiedFarmers": "Qonnaan bultoota mirkanaa'an ilaali",
+  "manageYourListings": "Tarreeffama kee bulchi",
+  "searchListings": "Midhaan, qonnaan bultoota barbaadi...",
+  "trackTradesEscrow": "Daldalaa fi eeskiroo hordofi",
+  "active": "Hojjatamaa",
+  "done": "Xumurameera",
+  "all": "Hundaa",
+  "noOrders": "Ajajni hin jiru",
+  "ordersWillAppear": "Daldalaan kee as ni mul'ata",
+  "trades": "Daldalaa",
+  "rating": "Sadarkaa",
+  "escrowPercent": "Eeskiroo %",
+  "wallet": "Waaleetii",
+  "escrowHistory": "Seenaa Eeskiroo",
+  "ratings": "Sadarkaalee",
+  "documents": "Sanadoota",
+  "idAndCerts": "Eenyummaa, Ragaalee",
+  "languageAndAlerts": "Afaan, Beeksisa",
+  "help": "Gargaarsa",
+  "faqAndSupport": "Gaaffilee, Deeggarsa",
+  "continueButton": "Itti fufi",
+  "selectRoleDescription": "WeredaConnect akkamitti fayyadamtu filadhu",
+  "farmerDescription": "Midhaan gabaa'f tarreessi konkolaachiftoota argadhu",
+  "truckerDescription": "Geejjiba dhiyeessi meeshaalee geejjibsi",
+  "buyerDescription": "Qonnaan bultoota irraa midhaan ilaali bitadhu",
+  "faydaIdVerification": "Mirkaneessa Eenyummaa Faayidaa",
+  "faydaIdInstructions": "Kaardii eenyummaa Faayidaa kee iskaani ykn lakkoofsa galchi",
+  "scanFront": "Fuuldura Iskaani",
+  "scanBack": "Duuba Iskaani",
+  "enterManually": "Lakkoofsa eenyummaa galchi",
+  "faydaIdNumber": "Lakkoofsa Eenyummaa Faayidaa",
+  "drivingLicense": "Hayyama Konkolaachisaa",
+  "drivingLicenseInstructions": "Eenyummaa kee mirkaneessuuf hayyama konkolaachisaa iskaani",
+  "buyerType": "Gosa Bitaa",
+  "buyerTypeDescription": "Akka dhuunfaa ykn dhaabbataatti ni bitattu?",
+  "privateBuyer": "Bitaa Dhuunfaa",
+  "companyBuyer": "Dhaabbata",
+  "companyName": "Maqaa Dhaabbataa",
+  "personalInfo": "Odeeffannoo Dhuunfaa",
+  "personalInfoDescription": "Herrega uumuuf odeeffannoo kee galchi",
+  "verified": "Mirkanaa'e",
+  "scanLicense": "Hayyama Iskaani",
+  "statusFunded": "Maallaqi Galmeera",
+  "statusPlaced": "Ajajamame",
+  "statusAssigned": "Ramadame",
+  "statusTransit": "Daandii Irra",
+  "statusDisputed": "Waldhabdee",
+  "deliveryTitle": "Geejjiba #{id}",
+  "@deliveryTitle": {
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "paymentTitle": "Kaffaltii #{id}",
+  "@paymentTitle": {
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "listingCreatedActivity": "{cropType} tarreeffamni uumame",
+  "@listingCreatedActivity": {
+    "placeholders": {
+      "cropType": {
+        "type": "String"
+      }
+    }
+  },
+  "deliveryStatusActivity": "Geejjiba {status}",
+  "@deliveryStatusActivity": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "minutesAgo": "Daqiiqaa {count} dura",
+  "@minutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursAgo": "Sa'aatii {count} dura",
+  "@hoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "daysAgo": "Guyyaa {count} dura",
+  "@daysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fieldRequired": "Dirreen kun dirqama"
 }

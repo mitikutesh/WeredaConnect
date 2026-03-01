@@ -76,6 +76,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         locationName: event.locationName,
         description: event.description,
         audioNoteRef: event.audioNoteRef,
+        woreda: event.woreda,
       );
       emit(CropListingCreated(listing: listing));
     } on Exception catch (e) {

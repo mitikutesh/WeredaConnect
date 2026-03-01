@@ -52,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "syncNow": "Sync Now",
+  "@syncNow": {
+    "description": "Button to trigger an immediate sync"
+  },
   "selectLanguagePrompt": "Select Your Language",
   "@selectLanguagePrompt": {
     "description": "Language selection prompt on welcome screen"
@@ -422,6 +426,14 @@
   "browseListings": "Browse Listings",
   "@browseListings": {
     "description": "Browse listings tab label for non-farmer roles"
+  },
+  "market": "Market",
+  "@market": {
+    "description": "Market bottom nav tab label"
+  },
+  "orders": "Orders",
+  "@orders": {
+    "description": "Orders bottom nav tab label"
   },
   "myOrders": "My Orders",
   "@myOrders": {
@@ -1980,5 +1992,335 @@
   "pleaseWait": "Please wait...",
   "@pleaseWait": {
     "description": "Loading indicator text shown during auth operations on slow networks"
+  },
+
+  "@@uiRedesign": "=== UI Redesign Strings ===",
+
+  "greeting": "Selam",
+  "@greeting": {
+    "description": "Greeting word used in home header"
+  },
+  "homeSubtitle": "What would you like to do today?",
+  "@homeSubtitle": {
+    "description": "Subtitle under greeting on home screen"
+  },
+  "bannerHeadline": "NO MORE DALLALA",
+  "@bannerHeadline": {
+    "description": "Main headline on home banner card"
+  },
+  "bannerSubtitle": "Fair prices directly to farmers",
+  "@bannerSubtitle": {
+    "description": "Subtitle on home banner card"
+  },
+  "quickActions": "Quick Actions",
+  "@quickActions": {
+    "description": "Section header for quick action grid"
+  },
+  "overview": "Overview",
+  "@overview": {
+    "description": "Section header for overview stats"
+  },
+  "recentActivity": "Recent",
+  "@recentActivity": {
+    "description": "Section header for activity feed"
+  },
+  "noRecentActivity": "No recent activity",
+  "@noRecentActivity": {
+    "description": "Empty state for activity feed"
+  },
+  "sell": "Sell",
+  "@sell": {
+    "description": "Quick action label for selling"
+  },
+  "buy": "Buy",
+  "@buy": {
+    "description": "Quick action label for buying"
+  },
+  "truckers": "Truckers",
+  "@truckers": {
+    "description": "Quick action label for truckers"
+  },
+  "escrow": "Escrow",
+  "@escrow": {
+    "description": "Quick action label for escrow"
+  },
+  "availableLoads": "Loads",
+  "@availableLoads": {
+    "description": "Quick action label for available loads"
+  },
+  "activeFarmers": "Active Farmers",
+  "@activeFarmers": {
+    "description": "Stat label for active farmers count"
+  },
+  "inTransit": "In Transit",
+  "@inTransit": {
+    "description": "Stat label for items in transit"
+  },
+  "matchedLoads": "Matched",
+  "@matchedLoads": {
+    "description": "Stat label for matched loads"
+  },
+  "farmersBrowsed": "Browsed",
+  "@farmersBrowsed": {
+    "description": "Stat label for browsed farmers"
+  },
+  "marketplace": "Marketplace",
+  "@marketplace": {
+    "description": "Title for marketplace/browse screen"
+  },
+  "browseVerifiedFarmers": "Browse verified farmers",
+  "@browseVerifiedFarmers": {
+    "description": "Subtitle for marketplace screen"
+  },
+  "manageYourListings": "Manage your listings",
+  "@manageYourListings": {
+    "description": "Subtitle for farmer's listing screen"
+  },
+  "searchListings": "Search crops, farmers...",
+  "@searchListings": {
+    "description": "Placeholder text for marketplace search bar"
+  },
+  "trackTradesEscrow": "Track trades & escrow",
+  "@trackTradesEscrow": {
+    "description": "Subtitle for orders screen header"
+  },
+  "active": "Active",
+  "@active": {
+    "description": "Tab label for active orders"
+  },
+  "done": "Done",
+  "@done": {
+    "description": "Tab label for completed orders"
+  },
+  "all": "All",
+  "@all": {
+    "description": "Tab label for all orders"
+  },
+  "noOrders": "No orders yet",
+  "@noOrders": {
+    "description": "Empty state title for orders"
+  },
+  "ordersWillAppear": "Your trades will appear here",
+  "@ordersWillAppear": {
+    "description": "Empty state description for orders"
+  },
+  "trades": "Trades",
+  "@trades": {
+    "description": "Stat label for trade count"
+  },
+  "rating": "Rating",
+  "@rating": {
+    "description": "Stat label for user rating"
+  },
+  "escrowPercent": "Escrow %",
+  "@escrowPercent": {
+    "description": "Stat label for escrow percentage"
+  },
+  "wallet": "Wallet",
+  "@wallet": {
+    "description": "Profile menu item for wallet"
+  },
+  "escrowHistory": "Escrow History",
+  "@escrowHistory": {
+    "description": "Profile menu item for escrow history"
+  },
+  "ratings": "Ratings",
+  "@ratings": {
+    "description": "Profile menu item for ratings"
+  },
+  "documents": "Documents",
+  "@documents": {
+    "description": "Profile menu item for documents"
+  },
+  "idAndCerts": "ID, Certificates",
+  "@idAndCerts": {
+    "description": "Subtitle for documents menu item"
+  },
+  "languageAndAlerts": "Language, Alerts",
+  "@languageAndAlerts": {
+    "description": "Subtitle for settings menu item"
+  },
+  "help": "Help",
+  "@help": {
+    "description": "Profile menu item for help"
+  },
+  "faqAndSupport": "FAQ, Support",
+  "@faqAndSupport": {
+    "description": "Subtitle for help menu item"
+  },
+  "continueButton": "Continue",
+  "@continueButton": {
+    "description": "Continue button label in registration flow"
+  },
+  "selectRoleDescription": "Choose how you'll use WeredaConnect",
+  "@selectRoleDescription": {
+    "description": "Subtitle for role selection step"
+  },
+  "farmerDescription": "List crops for sale and find truckers",
+  "@farmerDescription": {
+    "description": "Description for farmer role card"
+  },
+  "truckerDescription": "Offer transport and deliver goods",
+  "@truckerDescription": {
+    "description": "Description for trucker role card"
+  },
+  "buyerDescription": "Browse and purchase crops from farmers",
+  "@buyerDescription": {
+    "description": "Description for buyer role card"
+  },
+  "faydaIdVerification": "Fayida ID Verification",
+  "@faydaIdVerification": {
+    "description": "Title for Fayida ID step"
+  },
+  "faydaIdInstructions": "Scan your Fayida ID card or enter the number manually",
+  "@faydaIdInstructions": {
+    "description": "Instructions for Fayida ID step"
+  },
+  "scanFront": "Scan Front",
+  "@scanFront": {
+    "description": "Label for scan front button"
+  },
+  "scanBack": "Scan Back",
+  "@scanBack": {
+    "description": "Label for scan back button"
+  },
+  "enterManually": "Enter ID manually",
+  "@enterManually": {
+    "description": "Toggle for manual ID entry"
+  },
+  "faydaIdNumber": "Fayida ID Number",
+  "@faydaIdNumber": {
+    "description": "Label for Fayida ID text field"
+  },
+  "drivingLicense": "Driving License",
+  "@drivingLicense": {
+    "description": "Title for driving license step"
+  },
+  "drivingLicenseInstructions": "Scan your driving license to verify your identity",
+  "@drivingLicenseInstructions": {
+    "description": "Instructions for driving license step"
+  },
+  "buyerType": "Buyer Type",
+  "@buyerType": {
+    "description": "Title for buyer type selection"
+  },
+  "buyerTypeDescription": "Are you buying as an individual or company?",
+  "@buyerTypeDescription": {
+    "description": "Subtitle for buyer type step"
+  },
+  "privateBuyer": "Private Buyer",
+  "@privateBuyer": {
+    "description": "Option for individual buyer"
+  },
+  "companyBuyer": "Company",
+  "@companyBuyer": {
+    "description": "Option for company buyer"
+  },
+  "companyName": "Company Name",
+  "@companyName": {
+    "description": "Label for company name field"
+  },
+  "personalInfo": "Personal Info",
+  "@personalInfo": {
+    "description": "Title for personal info step"
+  },
+  "personalInfoDescription": "Enter your details to create an account",
+  "@personalInfoDescription": {
+    "description": "Subtitle for personal info step"
+  },
+  "verified": "Verified",
+  "@verified": {
+    "description": "Badge label for verified users"
+  },
+  "scanLicense": "Scan License",
+  "@scanLicense": {
+    "description": "Button label for scanning driving license"
+  },
+  "statusFunded": "Funded",
+  "@statusFunded": {
+    "description": "Order status label for funded/escrowed"
+  },
+  "statusPlaced": "Placed",
+  "@statusPlaced": {
+    "description": "Order step label for placed"
+  },
+  "statusAssigned": "Assigned",
+  "@statusAssigned": {
+    "description": "Order step label for trucker assigned"
+  },
+  "statusTransit": "Transit",
+  "@statusTransit": {
+    "description": "Order step label for in transit (short)"
+  },
+  "statusDisputed": "Disputed",
+  "@statusDisputed": {
+    "description": "Order status label for disputed"
+  },
+  "deliveryTitle": "Delivery #{id}",
+  "@deliveryTitle": {
+    "description": "Title for a delivery order card",
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "paymentTitle": "Payment #{id}",
+  "@paymentTitle": {
+    "description": "Title for a payment order card",
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "listingCreatedActivity": "{cropType} listing created",
+  "@listingCreatedActivity": {
+    "description": "Activity feed description for a new listing",
+    "placeholders": {
+      "cropType": {
+        "type": "String"
+      }
+    }
+  },
+  "deliveryStatusActivity": "Delivery {status}",
+  "@deliveryStatusActivity": {
+    "description": "Activity feed description for delivery status",
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "minutesAgo": "{count}m ago",
+  "@minutesAgo": {
+    "description": "Relative time label for minutes",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursAgo": "{count}h ago",
+  "@hoursAgo": {
+    "description": "Relative time label for hours",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "daysAgo": "{count}d ago",
+  "@daysAgo": {
+    "description": "Relative time label for days",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fieldRequired": "This field is required",
+  "@fieldRequired": {
+    "description": "Generic validation error for empty required fields"
   }
 }

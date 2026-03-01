@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
@@ -85,34 +86,68 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Splash screen shown during initial auth check.
+/// Branded splash screen shown during initial auth check.
+///
+/// Full-screen dark green background with centered logo,
+/// app name, tagline, and gold progress indicator.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
+      backgroundColor: AppTheme.primaryGreen,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.agriculture,
-              size: 96,
-              color: theme.primaryColor,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              AppLocalizations.of(context)?.appName ?? 'WeredaConnect',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.primaryColor,
+            // Logo icon
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(30),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.agriculture,
+                size: 56,
+                color: Colors.white,
               ),
             ),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(),
+            const SizedBox(height: 24),
+            // App name
+            Text(
+              l10n?.appName ?? 'WeredaConnect',
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Tagline
+            Text(
+              l10n?.taglineShort ?? 'Connecting Farmers, Truckers & Buyers',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withAlpha(200),
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            const SizedBox(height: 48),
+            // Gold progress indicator
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
+              ),
+            ),
           ],
         ),
       ),

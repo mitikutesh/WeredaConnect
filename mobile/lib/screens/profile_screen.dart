@@ -1,26 +1,37 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:isar/isar.dart';
+
 import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/screens/settings_screen.dart';
 
-/// Profile screen - user profile and account settings
+/// Profile screen with green header, stats bar, and menu items.
+///
+/// Absorbs settings/about/logout that were previously in the drawer.
 class ProfileScreen extends StatefulWidget {
-  final ValueChanged<int>? onNavigateToTab;
-
-  const ProfileScreen({super.key, this.onNavigateToTab});
+  const ProfileScreen({super.key});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  /// Key to force FutureBuilder rebuild after edit
-  int _rebuildKey = 0;
+  final int _rebuildKey = 0;
+  Future<Map<String, String>>? _statsFuture;
+  String? _statsUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -28,160 +39,249 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, authState) {
-        // User is authenticated - show profile
         if (authState is AuthAuthenticated) {
-          return _buildAuthenticatedProfile(
-            context,
-            authState.userId,
-            l10n,
-          );
+          return _buildProfile(context, authState, l10n);
         }
-
-        // User not authenticated - show login prompt
-        return _buildUnauthenticatedPrompt(context, l10n);
+        return _buildUnauthenticated(context, l10n);
       },
     );
   }
 
-  Widget _buildAuthenticatedProfile(
+  Widget _buildProfile(
     BuildContext context,
-    String userId,
+    AuthAuthenticated authState,
     AppLocalizations l10n,
   ) {
     return FutureBuilder<User?>(
       key: ValueKey(_rebuildKey),
-      future: _getUserFromDatabase(userId),
+      future: _getUser(authState.userId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
         final user = snapshot.data;
-        if (user == null) {
-          return _buildErrorState(context, l10n);
-        }
+        final name = user?.name ?? authState.userName;
+        final role = user?.role ?? authState.role;
+        final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
           child: Column(
             children: [
-              // User avatar
-              const SizedBox(height: 32),
-              CircleAvatar(
-                radius: 60,
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: Text(
-                  user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+              // ── Green header with avatar ─────────────────────────────
+              GreenHeader(
+                height: 200,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 16),
+                    // Avatar
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: AppTheme.accentGold,
+                      child: Text(
+                        initials,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Name
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Role + verified badge
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _getRoleLabel(role, l10n),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.white.withAlpha(200),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentGold,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.verified,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                l10n.verified,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── Stats bar (overlapping card) ─────────────────────────
+              Transform.translate(
+                offset: const Offset(0, -16),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.borderLight),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0D000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: FutureBuilder<Map<String, String>>(
+                    future: _getStatsFuture(authState.userId),
+                    builder: (context, snap) {
+                      final stats = snap.data ??
+                          {'trades': '0', 'rating': '0.0', 'escrow': '0%'};
+                      return Row(
+                        children: [
+                          _StatColumn(
+                            value: stats['trades']!,
+                            label: l10n.trades,
+                          ),
+                          _verticalDivider(),
+                          _StatColumn(
+                            value: stats['rating']!,
+                            label: l10n.rating,
+                          ),
+                          _verticalDivider(),
+                          _StatColumn(
+                            value: stats['escrow']!,
+                            label: l10n.escrowPercent,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
 
-              const SizedBox(height: 24),
-
-              // User name
-              Text(
-                user.name,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+              // ── Menu items ───────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    _ProfileMenuItem(
+                      icon: Icons.account_balance_wallet_outlined,
+                      title: l10n.wallet,
+                      subtitle: '0 ${l10n.etbCurrency}',
+                      onTap: () {},
                     ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 8),
-
-              // Phone number
-              Text(
-                user.phoneNumber,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.6),
+                    const SizedBox(height: 8),
+                    _ProfileMenuItem(
+                      icon: Icons.history,
+                      title: l10n.escrowHistory,
+                      subtitle: '0 ${l10n.trades}',
+                      onTap: () {},
                     ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // Role chip
-              Chip(
-                avatar: Icon(
-                  _getRoleIcon(user.role),
-                  size: 18,
-                ),
-                label: Text(_getRoleLabel(user.role, l10n)),
-                backgroundColor:
-                    Theme.of(context).colorScheme.secondaryContainer,
-              ),
-
-              const SizedBox(height: 48),
-
-              // Profile actions
-              _ProfileActionCard(
-                icon: Icons.person_outline,
-                title: l10n.edit,
-                subtitle: l10n.updateDetails,
-                onTap: () => _showEditProfileSheet(context, user, l10n),
-              ),
-
-              const SizedBox(height: 12),
-
-              _ProfileActionCard(
-                icon: Icons.agriculture_outlined,
-                title: l10n.listings,
-                subtitle: l10n.viewCropListings,
-                onTap: () {
-                  widget.onNavigateToTab?.call(1);
-                },
-              ),
-
-              const SizedBox(height: 12),
-
-              _ProfileActionCard(
-                icon: Icons.receipt_long_outlined,
-                title: l10n.myOrders,
-                subtitle: l10n.viewOrderHistory,
-                onTap: () {
-                  widget.onNavigateToTab?.call(3);
-                },
-              ),
-
-              const SizedBox(height: 12),
-
-              _ProfileActionCard(
-                icon: Icons.notifications_outlined,
-                title: l10n.notifications,
-                subtitle: l10n.manageAlerts,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => _NotificationsScreen(l10n: l10n),
+                    const SizedBox(height: 8),
+                    _ProfileMenuItem(
+                      icon: Icons.star_outline,
+                      title: l10n.ratings,
+                      subtitle: '0.0',
+                      onTap: () {},
                     ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 32),
-
-              // Logout button
-              OutlinedButton.icon(
-                onPressed: () => _showLogoutConfirmation(context, l10n),
-                icon: const Icon(Icons.logout, color: Colors.red),
-                label: Text(
-                  l10n.logout,
-                  style: const TextStyle(color: Colors.red),
-                ),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  side: const BorderSide(color: Colors.red, width: 1.5),
+                    const SizedBox(height: 8),
+                    _ProfileMenuItem(
+                      icon: Icons.description_outlined,
+                      title: l10n.documents,
+                      subtitle: l10n.idAndCerts,
+                      onTap: () {},
+                    ),
+                    const SizedBox(height: 8),
+                    _ProfileMenuItem(
+                      icon: Icons.settings_outlined,
+                      title: l10n.settings,
+                      subtitle: l10n.languageAndAlerts,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _ProfileMenuItem(
+                      icon: Icons.help_outline,
+                      title: l10n.help,
+                      subtitle: l10n.faqAndSupport,
+                      onTap: () {},
+                    ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 8),
+                      _ProfileMenuItem(
+                        icon: Icons.delete_sweep,
+                        title: 'Reset Test Data',
+                        subtitle: 'Clear all business data',
+                        iconColor: Colors.orange,
+                        onTap: () => _showResetTestData(context),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    // Log out button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showLogoutConfirmation(context, l10n),
+                        icon: const Icon(
+                          Icons.logout,
+                          color: AppTheme.statusError,
+                          size: 18,
+                        ),
+                        label: Text(
+                          l10n.logout,
+                          style: const TextStyle(
+                            color: AppTheme.statusError,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppTheme.statusError),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
                 ),
               ),
-
-              const SizedBox(height: 32),
             ],
           ),
         );
@@ -189,234 +289,99 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditProfileSheet(
-    BuildContext context,
-    User user,
-    AppLocalizations l10n,
-  ) {
-    final nameController = TextEditingController(text: user.name);
-    final weredaController = TextEditingController(text: user.woreda);
-    final formKey = GlobalKey<FormState>();
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
-          ),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Handle bar
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Theme.of(sheetContext)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                Text(
-                  l10n.editProfile,
-                  style: Theme.of(sheetContext).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 24),
-
-                TextFormField(
-                  controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: l10n.fullName,
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.person_outline),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return l10n.fullName;
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                TextFormField(
-                  controller: weredaController,
-                  decoration: InputDecoration(
-                    labelText: l10n.wereda,
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.location_on_outlined),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(sheetContext),
-                        child: Text(l10n.cancel),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () async {
-                          if (!formKey.currentState!.validate()) return;
-
-                          await _saveProfile(
-                            user,
-                            nameController.text.trim(),
-                            weredaController.text.trim(),
-                          );
-
-                          if (!sheetContext.mounted) return;
-                          Navigator.pop(sheetContext);
-                          if (!context.mounted) return;
-                          setState(() => _rebuildKey++);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.profileSaved)),
-                          );
-                        },
-                        child: Text(l10n.save),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+  Widget _verticalDivider() {
+    return Container(
+      width: 1,
+      height: 32,
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      color: AppTheme.borderLight,
     );
   }
 
-  Future<void> _saveProfile(
-    User user,
-    String name,
-    String woreda,
-  ) async {
-    final isar = IsarService.instance.db;
-    await isar.writeTxn(() async {
-      user.name = name;
-      if (woreda.isNotEmpty) {
-        user.woreda = woreda;
-      }
-      user.updatedAt = DateTime.now().toUtc();
-      await isar.users.put(user);
-    });
-  }
-
-  Widget _buildUnauthenticatedPrompt(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
+  Widget _buildUnauthenticated(BuildContext context, AppLocalizations l10n) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
+          const Icon(
             Icons.person_off_outlined,
             size: 80,
-            color:
-                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+            color: AppTheme.textMuted,
           ),
           const SizedBox(height: 24),
           Text(
             l10n.notLoggedIn,
-            style: Theme.of(context).textTheme.titleLarge,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textDark,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Text(
             l10n.profileRestartApp,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.6),
-                ),
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppTheme.textMuted,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState(BuildContext context, AppLocalizations l10n) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 80,
-            color: Theme.of(context).colorScheme.error.withValues(alpha: 0.5),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            l10n.errorOccurred,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l10n.profileLoadError,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.6),
-                ),
-          ),
-        ],
-      ),
-    );
+  Future<Map<String, String>> _getStatsFuture(String userId) {
+    if (_statsFuture == null || _statsUserId != userId) {
+      _statsUserId = userId;
+      _statsFuture = _loadProfileStats(userId);
+    }
+    return _statsFuture!;
   }
 
-  Future<User?> _getUserFromDatabase(String userId) async {
+  Future<User?> _getUser(String userId) async {
     try {
       final isar = IsarService.instance.db;
-      final user = await isar.users.where().userIdEqualTo(userId).findFirst();
-      return user;
-    } on Exception {
+      return await isar.users.where().userIdEqualTo(userId).findFirst();
+    } on Object {
       return null;
     }
   }
 
-  IconData _getRoleIcon(UserRole role) {
-    switch (role) {
-      case UserRole.farmer:
-        return Icons.agriculture;
-      case UserRole.trucker:
-        return Icons.local_shipping;
-      case UserRole.buyer:
-        return Icons.shopping_bag;
+  Future<Map<String, String>> _loadProfileStats(String userId) async {
+    try {
+      final isar = IsarService.instance.db;
+      final deliveries = await isar.deliverys
+          .where()
+          .filter()
+          .farmerIdEqualTo(userId)
+          .or()
+          .buyerIdEqualTo(userId)
+          .count();
+      final payments = await isar.payments
+          .where()
+          .filter()
+          .farmerIdEqualTo(userId)
+          .or()
+          .buyerIdEqualTo(userId)
+          .count();
+      final total = deliveries + payments;
+      final escrowPct = total > 0 ? ((payments / total) * 100).round() : 0;
+      return {
+        'trades': '$total',
+        'rating': '4.5',
+        'escrow': '$escrowPct%',
+      };
+    } on Object {
+      return {'trades': '0', 'rating': '0.0', 'escrow': '0%'};
     }
   }
 
   String _getRoleLabel(UserRole role, AppLocalizations l10n) {
-    switch (role) {
-      case UserRole.farmer:
-        return l10n.farmer;
-      case UserRole.trucker:
-        return l10n.trucker;
-      case UserRole.buyer:
-        return l10n.buyer;
-    }
+    return switch (role) {
+      UserRole.farmer => l10n.farmer,
+      UserRole.trucker => l10n.trucker,
+      UserRole.buyer => l10n.buyer,
+    };
   }
 
   void _showLogoutConfirmation(BuildContext context, AppLocalizations l10n) {
@@ -438,8 +403,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const AuthLogoutRequested(clearCache: false),
                     );
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.statusError,
+              ),
               child: Text(l10n.logout),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showResetTestData(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Test Data?'),
+          content: const Text(
+            'This will delete all listings, trips, deliveries, and payments. '
+            'Your registered accounts will be preserved.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final isar = IsarService.instance.db;
+                  await isar.writeTxn(() async {
+                    await isar.cropListings.clear();
+                    await isar.trips.clear();
+                    await isar.deliverys.clear();
+                    await isar.payments.clear();
+                    await isar.paymentIntents.clear();
+                  });
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('Test data cleared successfully'),
+                      ),
+                    );
+                  }
+                } on Exception catch (e) {
+                  if (mounted) {
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Reset failed: $e'),
+                        backgroundColor: AppTheme.statusError,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              child: const Text('Reset'),
             ),
           ],
         );
@@ -448,109 +470,114 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// Helper widget for profile action cards
-class _ProfileActionCard extends StatelessWidget {
+class _StatColumn extends StatelessWidget {
+  final String value;
+  final String label;
+
+  const _StatColumn({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textDark,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileMenuItem extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final Color? iconColor;
 
-  const _ProfileActionCard({
+  const _ProfileMenuItem({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.iconColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
-        ),
-      ),
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceWhite,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.borderLight),
+          ),
           child: Row(
             children: [
-              Icon(icon, size: 28),
-              const SizedBox(width: 16),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: (iconColor ?? AppTheme.primaryGreen).withAlpha(25),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: iconColor ?? AppTheme.primaryGreen,
+                ),
+              ),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textDark,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6),
-                          ),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textMuted,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right),
+              const Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: AppTheme.textMuted,
+              ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Simple notifications screen with empty state placeholder
-class _NotificationsScreen extends StatelessWidget {
-  final AppLocalizations l10n;
-
-  const _NotificationsScreen({required this.l10n});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.notifications),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.notifications_none_outlined,
-              size: 80,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              l10n.noNotificationsYet,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.noNotificationsDescription,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.6),
-                  ),
-            ),
-          ],
         ),
       ),
     );

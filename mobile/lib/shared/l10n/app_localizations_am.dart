@@ -48,6 +48,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get retry => 'እንደገና ሞክር';
 
   @override
+  String get syncNow => 'አሁን አመሳስል';
+
+  @override
   String get selectLanguagePrompt => 'ቋንቋዎን ይምረጡ';
 
   @override
@@ -325,6 +328,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get browseListings => 'ዝርዝሮችን ያስሱ';
+
+  @override
+  String get market => 'ገበያ';
+
+  @override
+  String get orders => 'ትዕዛዞች';
 
   @override
   String get myOrders => 'የእኔ ትዕዛዞች';
@@ -1418,4 +1427,237 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get pleaseWait => 'እባክዎ ይጠብቁ...';
+
+  @override
+  String get greeting => 'ሰላም';
+
+  @override
+  String get homeSubtitle => 'ዛሬ ምን ማድረግ ይፈልጋሉ?';
+
+  @override
+  String get bannerHeadline => 'ደላላ አያስፈልግም';
+
+  @override
+  String get bannerSubtitle => 'ለገበሬዎች ፍትሃዊ ዋጋ በቀጥታ';
+
+  @override
+  String get quickActions => 'ፈጣን ተግባራት';
+
+  @override
+  String get overview => 'አጠቃላይ';
+
+  @override
+  String get recentActivity => 'የቅርብ ጊዜ';
+
+  @override
+  String get noRecentActivity => 'የቅርብ ጊዜ እንቅስቃሴ የለም';
+
+  @override
+  String get sell => 'ሸጥ';
+
+  @override
+  String get buy => 'ግዛ';
+
+  @override
+  String get truckers => 'አጓጓዦች';
+
+  @override
+  String get escrow => 'ኢስክሮ';
+
+  @override
+  String get availableLoads => 'ጭነቶች';
+
+  @override
+  String get activeFarmers => 'ንቁ ገበሬዎች';
+
+  @override
+  String get inTransit => 'በመጓጓዝ ላይ';
+
+  @override
+  String get matchedLoads => 'ተዛምደው';
+
+  @override
+  String get farmersBrowsed => 'ተቃኝተው';
+
+  @override
+  String get marketplace => 'የገበያ ቦታ';
+
+  @override
+  String get browseVerifiedFarmers => 'የተረጋገጡ ገበሬዎችን ያስሱ';
+
+  @override
+  String get manageYourListings => 'ዝርዝሮችዎን ያስተዳድሩ';
+
+  @override
+  String get searchListings => 'ሰብሎችን፣ ገበሬዎችን ይፈልጉ...';
+
+  @override
+  String get trackTradesEscrow => 'ንግዶች እና ኢስክሮ ይከታተሉ';
+
+  @override
+  String get active => 'ንቁ';
+
+  @override
+  String get done => 'ተጠናቅቋል';
+
+  @override
+  String get all => 'ሁሉም';
+
+  @override
+  String get noOrders => 'ገና ማዘዣዎች የሉም';
+
+  @override
+  String get ordersWillAppear => 'ንግዶችዎ እዚህ ይታያሉ';
+
+  @override
+  String get trades => 'ንግዶች';
+
+  @override
+  String get rating => 'ደረጃ';
+
+  @override
+  String get escrowPercent => 'ኢስክሮ %';
+
+  @override
+  String get wallet => 'ዋሌት';
+
+  @override
+  String get escrowHistory => 'የኢስክሮ ታሪክ';
+
+  @override
+  String get ratings => 'ደረጃዎች';
+
+  @override
+  String get documents => 'ሰነዶች';
+
+  @override
+  String get idAndCerts => 'መታወቂያ፣ ምስክር ወረቀቶች';
+
+  @override
+  String get languageAndAlerts => 'ቋንቋ፣ ማሳወቂያዎች';
+
+  @override
+  String get help => 'እርዳታ';
+
+  @override
+  String get faqAndSupport => 'ጥያቄዎች፣ ድጋፍ';
+
+  @override
+  String get continueButton => 'ቀጥል';
+
+  @override
+  String get selectRoleDescription => 'WeredaConnect ን እንዴት እንደሚጠቀሙ ይምረጡ';
+
+  @override
+  String get farmerDescription => 'ሰብሎችን ለሽያጭ ይዘርዝሩ እና አጓጓዦችን ያግኙ';
+
+  @override
+  String get truckerDescription => 'ትራንስፖርት ያቅርቡ እና ዕቃዎችን ያድርሱ';
+
+  @override
+  String get buyerDescription => 'ከገበሬዎች ሰብሎችን ያስሱ እና ይግዙ';
+
+  @override
+  String get faydaIdVerification => 'ፋይዳ መታወቂያ ማረጋገጫ';
+
+  @override
+  String get faydaIdInstructions => 'የፋይዳ መታወቂያ ካርድዎን ይቃኙ ወይም ቁጥሩን ያስገቡ';
+
+  @override
+  String get scanFront => 'ፊት ቃኝ';
+
+  @override
+  String get scanBack => 'ጀርባ ቃኝ';
+
+  @override
+  String get enterManually => 'መታወቂያ ቁጥር ያስገቡ';
+
+  @override
+  String get faydaIdNumber => 'ፋይዳ መታወቂያ ቁጥር';
+
+  @override
+  String get drivingLicense => 'የመንጃ ፈቃድ';
+
+  @override
+  String get drivingLicenseInstructions => 'ማንነትዎን ለማረጋገጥ የመንጃ ፈቃድዎን ይቃኙ';
+
+  @override
+  String get buyerType => 'የገዥ ዓይነት';
+
+  @override
+  String get buyerTypeDescription => 'እንደ ግለሰብ ወይም ኩባንያ ይገዛሉ?';
+
+  @override
+  String get privateBuyer => 'የግል ገዥ';
+
+  @override
+  String get companyBuyer => 'ኩባንያ';
+
+  @override
+  String get companyName => 'የኩባንያ ስም';
+
+  @override
+  String get personalInfo => 'የግል መረጃ';
+
+  @override
+  String get personalInfoDescription => 'መለያ ለመፍጠር ዝርዝሮችዎን ያስገቡ';
+
+  @override
+  String get verified => 'የተረጋገጠ';
+
+  @override
+  String get scanLicense => 'ፈቃድ ቃኝ';
+
+  @override
+  String get statusFunded => 'ገንዘብ ገብቷል';
+
+  @override
+  String get statusPlaced => 'ታዝዟል';
+
+  @override
+  String get statusAssigned => 'ተመድቧል';
+
+  @override
+  String get statusTransit => 'በመንገድ ላይ';
+
+  @override
+  String get statusDisputed => 'አለመግባባት';
+
+  @override
+  String deliveryTitle(int id) {
+    return 'ማድረሻ #$id';
+  }
+
+  @override
+  String paymentTitle(int id) {
+    return 'ክፍያ #$id';
+  }
+
+  @override
+  String listingCreatedActivity(String cropType) {
+    return '$cropType ዝርዝር ተፈጥሯል';
+  }
+
+  @override
+  String deliveryStatusActivity(String status) {
+    return 'ማድረሻ $status';
+  }
+
+  @override
+  String minutesAgo(int count) {
+    return 'ከ$count ደቂቃ በፊት';
+  }
+
+  @override
+  String hoursAgo(int count) {
+    return 'ከ$count ሰዓት በፊት';
+  }
+
+  @override
+  String daysAgo(int count) {
+    return 'ከ$count ቀን በፊት';
+  }
+
+  @override
+  String get fieldRequired => 'ይህ መስክ ያስፈልጋል';
 }

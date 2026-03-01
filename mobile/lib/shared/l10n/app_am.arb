@@ -52,6 +52,10 @@
   "@retry": {
     "description": "Button to retry a failed operation"
   },
+  "syncNow": "አሁን አመሳስል",
+  "@syncNow": {
+    "description": "Button to trigger an immediate sync"
+  },
   "selectLanguagePrompt": "ቋንቋዎን ይምረጡ",
   "@selectLanguagePrompt": {
     "description": "Language selection prompt on welcome screen"
@@ -422,6 +426,14 @@
   "browseListings": "ዝርዝሮችን ያስሱ",
   "@browseListings": {
     "description": "Browse listings tab label for non-farmer roles"
+  },
+  "market": "ገበያ",
+  "@market": {
+    "description": "Market bottom nav tab label"
+  },
+  "orders": "ትዕዛዞች",
+  "@orders": {
+    "description": "Orders bottom nav tab label"
   },
   "myOrders": "የእኔ ትዕዛዞች",
   "@myOrders": {
@@ -1917,5 +1929,130 @@
   "pleaseWait": "እባክዎ ይጠብቁ...",
   "@pleaseWait": {
     "description": "Loading indicator text shown during auth operations on slow networks"
-  }
+  },
+
+  "@@uiRedesign": "=== UI Redesign Strings ===",
+
+  "greeting": "ሰላም",
+  "homeSubtitle": "ዛሬ ምን ማድረግ ይፈልጋሉ?",
+  "bannerHeadline": "ደላላ አያስፈልግም",
+  "bannerSubtitle": "ለገበሬዎች ፍትሃዊ ዋጋ በቀጥታ",
+  "quickActions": "ፈጣን ተግባራት",
+  "overview": "አጠቃላይ",
+  "recentActivity": "የቅርብ ጊዜ",
+  "noRecentActivity": "የቅርብ ጊዜ እንቅስቃሴ የለም",
+  "sell": "ሸጥ",
+  "buy": "ግዛ",
+  "truckers": "አጓጓዦች",
+  "escrow": "ኢስክሮ",
+  "availableLoads": "ጭነቶች",
+  "activeFarmers": "ንቁ ገበሬዎች",
+  "inTransit": "በመጓጓዝ ላይ",
+  "matchedLoads": "ተዛምደው",
+  "farmersBrowsed": "ተቃኝተው",
+  "marketplace": "የገበያ ቦታ",
+  "browseVerifiedFarmers": "የተረጋገጡ ገበሬዎችን ያስሱ",
+  "manageYourListings": "ዝርዝሮችዎን ያስተዳድሩ",
+  "searchListings": "ሰብሎችን፣ ገበሬዎችን ይፈልጉ...",
+  "trackTradesEscrow": "ንግዶች እና ኢስክሮ ይከታተሉ",
+  "active": "ንቁ",
+  "done": "ተጠናቅቋል",
+  "all": "ሁሉም",
+  "noOrders": "ገና ማዘዣዎች የሉም",
+  "ordersWillAppear": "ንግዶችዎ እዚህ ይታያሉ",
+  "trades": "ንግዶች",
+  "rating": "ደረጃ",
+  "escrowPercent": "ኢስክሮ %",
+  "wallet": "ዋሌት",
+  "escrowHistory": "የኢስክሮ ታሪክ",
+  "ratings": "ደረጃዎች",
+  "documents": "ሰነዶች",
+  "idAndCerts": "መታወቂያ፣ ምስክር ወረቀቶች",
+  "languageAndAlerts": "ቋንቋ፣ ማሳወቂያዎች",
+  "help": "እርዳታ",
+  "faqAndSupport": "ጥያቄዎች፣ ድጋፍ",
+  "continueButton": "ቀጥል",
+  "selectRoleDescription": "WeredaConnect ን እንዴት እንደሚጠቀሙ ይምረጡ",
+  "farmerDescription": "ሰብሎችን ለሽያጭ ይዘርዝሩ እና አጓጓዦችን ያግኙ",
+  "truckerDescription": "ትራንስፖርት ያቅርቡ እና ዕቃዎችን ያድርሱ",
+  "buyerDescription": "ከገበሬዎች ሰብሎችን ያስሱ እና ይግዙ",
+  "faydaIdVerification": "ፋይዳ መታወቂያ ማረጋገጫ",
+  "faydaIdInstructions": "የፋይዳ መታወቂያ ካርድዎን ይቃኙ ወይም ቁጥሩን ያስገቡ",
+  "scanFront": "ፊት ቃኝ",
+  "scanBack": "ጀርባ ቃኝ",
+  "enterManually": "መታወቂያ ቁጥር ያስገቡ",
+  "faydaIdNumber": "ፋይዳ መታወቂያ ቁጥር",
+  "drivingLicense": "የመንጃ ፈቃድ",
+  "drivingLicenseInstructions": "ማንነትዎን ለማረጋገጥ የመንጃ ፈቃድዎን ይቃኙ",
+  "buyerType": "የገዥ ዓይነት",
+  "buyerTypeDescription": "እንደ ግለሰብ ወይም ኩባንያ ይገዛሉ?",
+  "privateBuyer": "የግል ገዥ",
+  "companyBuyer": "ኩባንያ",
+  "companyName": "የኩባንያ ስም",
+  "personalInfo": "የግል መረጃ",
+  "personalInfoDescription": "መለያ ለመፍጠር ዝርዝሮችዎን ያስገቡ",
+  "verified": "የተረጋገጠ",
+  "scanLicense": "ፈቃድ ቃኝ",
+  "statusFunded": "ገንዘብ ገብቷል",
+  "statusPlaced": "ታዝዟል",
+  "statusAssigned": "ተመድቧል",
+  "statusTransit": "በመንገድ ላይ",
+  "statusDisputed": "አለመግባባት",
+  "deliveryTitle": "ማድረሻ #{id}",
+  "@deliveryTitle": {
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "paymentTitle": "ክፍያ #{id}",
+  "@paymentTitle": {
+    "placeholders": {
+      "id": {
+        "type": "int"
+      }
+    }
+  },
+  "listingCreatedActivity": "{cropType} ዝርዝር ተፈጥሯል",
+  "@listingCreatedActivity": {
+    "placeholders": {
+      "cropType": {
+        "type": "String"
+      }
+    }
+  },
+  "deliveryStatusActivity": "ማድረሻ {status}",
+  "@deliveryStatusActivity": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "minutesAgo": "ከ{count} ደቂቃ በፊት",
+  "@minutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursAgo": "ከ{count} ሰዓት በፊት",
+  "@hoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "daysAgo": "ከ{count} ቀን በፊት",
+  "@daysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fieldRequired": "ይህ መስክ ያስፈልጋል"
 }

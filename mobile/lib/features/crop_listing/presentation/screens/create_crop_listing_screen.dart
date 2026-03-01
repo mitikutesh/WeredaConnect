@@ -112,6 +112,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             locationName: _locationController.text.trim(),
             description: _descriptionController.text.trim(),
             audioNoteRef: _audioNoteRef,
+            woreda: authState.woreda,
           ),
         );
   }
