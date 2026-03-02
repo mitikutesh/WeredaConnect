@@ -198,6 +198,7 @@ class SyncExecutor {
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _enqueueSubscription;
+  Timer? _enqueueDebounce;
   bool _isSyncing = false;
 
   /// Stream controller for sync batch results (for UI observation).
@@ -214,6 +215,11 @@ class SyncExecutor {
   /// Brief delay between consecutive batch processing within a single
   /// syncNow() call, to avoid overwhelming the server.
   static const Duration batchDelay = Duration(seconds: 1);
+
+  /// Debounce window for enqueue-triggered sync.
+  /// Coalesces rapid enqueues (e.g., user creates multiple listings) into
+  /// a single sync call, avoiding unnecessary server round-trips.
+  static const Duration enqueueDebounceDuration = Duration(seconds: 3);
 
   /// Retry delays for exponential backoff within a single syncNow() call.
   /// After each batch-level failure, wait progressively longer before retrying.
@@ -265,12 +271,27 @@ class SyncExecutor {
     _connectivitySubscription?.cancel();
     _connectivitySubscription =
         _connectivityMonitor.onConnectivityChanged.listen(
-      (results) {
+      (results) async {
         if (_connectivityMonitor.isConnectedFromResults(results)) {
+          // Reset permanently failed operations so they get retried
+          final resetCount = await _syncQueue.retryFailed();
+          if (resetCount > 0) {
+            debugPrint('[SYNC] reset $resetCount failed ops on reconnect');
+          }
           syncNow();
         }
       },
     );
+
+    // Trigger sync when a new operation is enqueued (debounced).
+    // Rapid enqueues (e.g., 5 listings in a row) coalesce into one sync call.
+    _enqueueSubscription?.cancel();
+    _enqueueSubscription = _syncQueue.onEnqueued.listen((_) {
+      _enqueueDebounce?.cancel();
+      _enqueueDebounce = Timer(enqueueDebounceDuration, () {
+        syncNow();
+      });
+    });
   }
 
   /// Trigger an immediate sync attempt.
@@ -534,7 +555,13 @@ class SyncExecutor {
           if (message != null) {
             operationErrors[operationId] = message;
           }
-          await _syncQueue.markAsFailed(operationId);
+          // Permanent server rejections (fraud, validation) will never
+          // succeed on retry — mark as rejected so retryFailed() skips them.
+          if (_isPermanentRejection(message)) {
+            await _syncQueue.markAsRejected(operationId);
+          } else {
+            await _syncQueue.markAsFailed(operationId);
+          }
           failed++;
       }
     }
@@ -591,7 +618,8 @@ class SyncExecutor {
         if (statusCode == 401 || statusCode == 403) {
           // AuthInterceptor should have handled refresh.
           // If we still got 401, the refresh failed.
-          await _markBatchFailed(operations);
+          // Revert to pending (don't burn retry count — auth is transient).
+          await _revertBatchToPending(operations);
           return SyncBatchResult(
             total: operations.length,
             failed: operations.length,
@@ -601,7 +629,8 @@ class SyncExecutor {
         }
 
         if (statusCode == 429) {
-          await _markBatchFailed(operations);
+          // Rate limited — revert without burning retry count.
+          await _revertBatchToPending(operations);
           return SyncBatchResult(
             total: operations.length,
             failed: operations.length,
@@ -630,10 +659,28 @@ class SyncExecutor {
     }
   }
 
+  /// Whether a server error message indicates a permanent rejection.
+  ///
+  /// Permanent rejections (fraud detection, validation) will never succeed
+  /// on retry, so these operations should not be retried on reconnect.
+  static bool _isPermanentRejection(String? message) {
+    if (message == null) return false;
+    return message.startsWith('FRAUD_') ||
+        message.startsWith('SYNC_VALIDATION');
+  }
+
   /// Mark all operations in a batch as failed (increments retry count).
   Future<void> _markBatchFailed(List<SyncOperation> operations) async {
     for (final op in operations) {
       await _syncQueue.markAsFailed(op.operationId);
+    }
+  }
+
+  /// Revert all operations in a batch to pending without incrementing retry count.
+  /// Used for transient errors (auth, rate limit) where the operations are valid.
+  Future<void> _revertBatchToPending(List<SyncOperation> operations) async {
+    for (final op in operations) {
+      await _syncQueue.revertToPending(op.operationId);
     }
   }
 
@@ -663,6 +710,8 @@ class SyncExecutor {
     _connectivitySubscription = null;
     _enqueueSubscription?.cancel();
     _enqueueSubscription = null;
+    _enqueueDebounce?.cancel();
+    _enqueueDebounce = null;
   }
 
   /// Release all resources held by this executor.

@@ -71,8 +71,9 @@ class AuthInterceptor extends QueuedInterceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    // Skip auth injection for refresh endpoint (prevent infinite loop)
-    if (options.path.contains('/auth/refresh')) {
+    // Skip auth injection for public endpoints
+    if (options.path.contains('/auth/refresh') ||
+        options.path.contains('/health')) {
       return handler.next(options);
     }
 
@@ -95,8 +96,9 @@ class AuthInterceptor extends QueuedInterceptor {
       return handler.next(err);
     }
 
-    // Skip refresh for the refresh endpoint itself (prevent infinite loop)
-    if (err.requestOptions.path.contains('/auth/refresh')) {
+    // Skip refresh for public endpoints (prevent infinite loop / unnecessary refresh)
+    if (err.requestOptions.path.contains('/auth/refresh') ||
+        err.requestOptions.path.contains('/health')) {
       return handler.next(err);
     }
 
@@ -143,8 +145,10 @@ class AuthInterceptor extends QueuedInterceptor {
       // Retry all pending requests
       await _retryPendingRequests(newAccessToken);
     } on Object {
-      // Refresh failed - clear tokens
-      await _clearTokens();
+      // Transient error (timeout, network) — keep refresh token intact.
+      // The callback only returns null for server rejections (400/401),
+      // which is handled above with _clearTokens(). Rethrown exceptions
+      // are transient — the refresh token is likely still valid.
       _rejectPendingRequests(err);
       handler.next(err);
     } finally {

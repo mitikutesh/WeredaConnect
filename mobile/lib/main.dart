@@ -116,8 +116,16 @@ Future<void> main() async {
         }
 
         return newAccessToken;
-      } on Object {
-        return null;
+      } on DioException catch (e) {
+        // Server explicitly rejected the refresh token (400/401) — return null
+        // to signal that tokens should be cleared and user must re-login.
+        // Transient errors (timeout, network) — rethrow so AuthInterceptor
+        // keeps the refresh token intact for the next attempt.
+        final statusCode = e.response?.statusCode;
+        if (statusCode != null && (statusCode == 400 || statusCode == 401)) {
+          return null;
+        }
+        rethrow;
       }
     },
   );
