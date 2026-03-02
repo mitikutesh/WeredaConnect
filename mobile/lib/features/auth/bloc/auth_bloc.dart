@@ -152,6 +152,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           tokens: tokens,
           isOfflineAuth: tokens.isExpired,
           role: user.role,
+          userName: user.name,
+          woreda: user.woreda,
         ),
       );
     } on Exception {
@@ -265,6 +267,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         // Read _pendingRole BEFORE clearing — it's our fallback if cache
         // hasn't written yet.
         final role = user?.role ?? _pendingRole ?? UserRole.farmer;
+        final name = user?.name ?? _pendingName ?? '';
+        final woreda = user?.woreda ?? _pendingWoreda;
         _clearPendingRegistrationData();
 
         emit(
@@ -272,6 +276,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             userId: loginResult.userId!,
             tokens: loginResult.tokens!,
             role: role,
+            userName: name,
+            woreda: woreda,
           ),
         );
         return;
@@ -366,6 +372,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           tokens: result.tokens!,
           isOfflineAuth: result.isOfflineAuth,
           role: user?.role ?? UserRole.farmer,
+          userName: user?.name ?? '',
+          woreda: user?.woreda,
         ),
       );
     } else {
@@ -405,6 +413,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           userId: result.userId!,
           tokens: result.tokens!,
           role: user?.role ?? UserRole.farmer,
+          userName: user?.name ?? '',
+          woreda: user?.woreda,
         ),
       );
     } else {
@@ -444,6 +454,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           tokens: result.tokens!,
           isOfflineAuth: true,
           role: user?.role ?? UserRole.farmer,
+          userName: user?.name ?? '',
+          woreda: user?.woreda,
         ),
       );
     } else {
@@ -488,6 +500,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             tokens: result.tokens!,
             isOfflineAuth: currentState.isOfflineAuth,
             role: currentState.role,
+            userName: currentState.userName,
+            woreda: currentState.woreda,
           ),
         );
       }

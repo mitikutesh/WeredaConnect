@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Card displaying a single crop listing.
@@ -104,7 +105,7 @@ class CropListingCard extends StatelessWidget {
                   icon: const Icon(Icons.delete_outline),
                   onPressed: onDelete,
                   iconSize: 20,
-                  color: Colors.red.shade400,
+                  color: AppTheme.statusError,
                 ),
               ],
             ],
@@ -124,11 +125,11 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
-      ListingStatus.active => (Colors.green, l10n.listingStatusActive),
-      ListingStatus.reserved => (Colors.orange, l10n.listingStatusReserved),
-      ListingStatus.draft => (Colors.grey, l10n.listingStatusDraft),
-      ListingStatus.sold => (Colors.blue, l10n.listingStatusSold),
-      ListingStatus.expired => (Colors.red, l10n.listingStatusExpired),
+      ListingStatus.active => (AppTheme.statusSuccess, l10n.listingStatusActive),
+      ListingStatus.reserved => (AppTheme.statusWarning, l10n.listingStatusReserved),
+      ListingStatus.draft => (AppTheme.textMuted, l10n.listingStatusDraft),
+      ListingStatus.sold => (AppTheme.statusInfo, l10n.listingStatusSold),
+      ListingStatus.expired => (AppTheme.statusError, l10n.listingStatusExpired),
     };
 
     return Container(

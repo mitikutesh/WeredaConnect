@@ -43,7 +43,7 @@ class WelcomeScreen extends StatelessWidget {
               Icon(
                 Icons.agriculture,
                 size: 120,
-                color: theme.primaryColor,
+                color: theme.colorScheme.primary,
               ),
               const SizedBox(height: 16),
 

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_field_diff.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Card showing entity header + field diffs + result badge for one conflict.
 ///
@@ -68,24 +69,24 @@ class ConflictDetailCard extends StatelessWidget {
               width: double.infinity,
               height: 32,
               decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                border: Border.all(color: Colors.green.shade700),
+                color: AppTheme.statusSuccess.withAlpha(25),
+                border: Border.all(color: AppTheme.statusSuccess),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.check_circle,
                     size: 16,
-                    color: Colors.green.shade700,
+                    color: AppTheme.statusSuccess,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     l10n.conflictServerApplied,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
-                      color: Colors.green.shade800,
+                      color: AppTheme.statusSuccess,
                     ),
                   ),
                 ],

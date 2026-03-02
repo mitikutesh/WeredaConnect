@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen that shows how much data the app has sent and received,
 /// with an option to reset the counters.
@@ -26,21 +27,21 @@ class DataUsageScreen extends StatelessWidget {
             icon: Icons.download_rounded,
             label: l10n.dataUsageDownloaded,
             value: DataUsageTracker.formatBytes(tracker.bytesDownloaded),
-            color: Colors.blue,
+            color: AppTheme.statusInfo,
           ),
           const SizedBox(height: 12),
           _StatCard(
             icon: Icons.upload_rounded,
             label: l10n.dataUsageUploaded,
             value: DataUsageTracker.formatBytes(tracker.bytesUploaded),
-            color: Colors.orange,
+            color: AppTheme.accentGold,
           ),
           const SizedBox(height: 12),
           _StatCard(
             icon: Icons.data_usage,
             label: l10n.dataUsageTotal,
             value: DataUsageTracker.formatBytes(tracker.totalBytes),
-            color: Colors.green,
+            color: AppTheme.statusSuccess,
           ),
           if (tracker.trackingSince != null) ...[
             const SizedBox(height: 16),
@@ -48,7 +49,7 @@ class DataUsageScreen extends StatelessWidget {
               '${l10n.dataUsageTrackingSince} '
               '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey[600],
+                    color: AppTheme.textMuted,
                   ),
               textAlign: TextAlign.center,
             ),
@@ -58,8 +59,8 @@ class DataUsageScreen extends StatelessWidget {
             icon: const Icon(Icons.restart_alt),
             label: Text(l10n.dataUsageReset),
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
+              foregroundColor: AppTheme.statusError,
+              side: const BorderSide(color: AppTheme.statusError),
             ),
             onPressed: () => _confirmReset(context, l10n, tracker),
           ),
@@ -90,7 +91,7 @@ class DataUsageScreen extends StatelessWidget {
             },
             child: Text(
               l10n.dataUsageReset,
-              style: const TextStyle(color: Colors.red),
+              style: const TextStyle(color: AppTheme.statusError),
             ),
           ),
         ],
@@ -117,7 +118,7 @@ class _StatCard extends StatelessWidget {
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.15),
+          backgroundColor: color.withAlpha(38),
           child: Icon(icon, color: color),
         ),
         title: Text(label),

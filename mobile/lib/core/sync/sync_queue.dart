@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
@@ -17,6 +19,14 @@ import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 /// See: `specs/contracts/sync-protocol.md`
 class SyncQueue {
   final Isar _isar;
+
+  /// Notifies listeners whenever a new operation is enqueued.
+  /// SyncExecutor subscribes to this to trigger immediate sync.
+  final StreamController<void> _enqueueController =
+      StreamController<void>.broadcast();
+
+  /// Stream that fires whenever a new operation is enqueued.
+  Stream<void> get onEnqueued => _enqueueController.stream;
 
   /// Maximum operations in the queue before rejecting new ones.
   /// Prevents unbounded growth when offline for extended periods.
@@ -103,6 +113,10 @@ class SyncQueue {
       await _isar.syncOperations.put(operation);
     });
 
+    if (!_enqueueController.isClosed) {
+      _enqueueController.add(null);
+    }
+
     return operation;
   }
 
@@ -135,6 +149,14 @@ class SyncQueue {
     await _updateStatus(operationId, SyncStatus.synced);
   }
 
+  /// Revert an operation from syncing back to pending without incrementing retry count.
+  ///
+  /// Use for transient failures unrelated to the operation itself
+  /// (e.g., auth errors, rate limiting) so they don't burn retry attempts.
+  Future<void> revertToPending(String operationId) async {
+    await _updateStatus(operationId, SyncStatus.pending);
+  }
+
   /// Mark an operation as failed and increment retry count.
   ///
   /// If [retryCount] reaches [maxRetries], the operation is marked
@@ -154,16 +176,34 @@ class SyncQueue {
     });
   }
 
+  /// Mark an operation as permanently rejected by the server.
+  ///
+  /// Used for permanent server rejections (fraud detection, validation errors)
+  /// that will never succeed on retry. Sets [retryCount] above [maxRetries]
+  /// so [retryFailed] skips these operations.
+  Future<void> markAsRejected(String operationId) async {
+    final operation = await _findByOperationId(operationId);
+    if (operation == null) return;
+
+    await _isar.writeTxn(() async {
+      operation.retryCount = maxRetries + 1;
+      operation.status = SyncStatus.failed;
+      await _isar.syncOperations.put(operation);
+    });
+  }
+
   /// Reset permanently failed operations back to pending for retry.
   ///
-  /// Resets [retryCount] to 0 and status to [SyncStatus.pending].
-  /// Use when connectivity improves or after fixing known issues.
+  /// Only resets operations that failed due to transient errors (retry
+  /// exhaustion). Operations rejected by the server (fraud, validation)
+  /// have [retryCount] > [maxRetries] and are skipped.
   ///
   /// Returns the number of operations reset.
   Future<int> retryFailed() async {
     final failedOps = await _isar.syncOperations
         .filter()
         .statusEqualTo(SyncStatus.failed)
+        .retryCountLessThan(maxRetries, include: true)
         .findAll();
 
     if (failedOps.isEmpty) return 0;
@@ -229,6 +269,11 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// Release resources held by this queue.
+  void dispose() {
+    _enqueueController.close();
   }
 
   // -- Private helpers --

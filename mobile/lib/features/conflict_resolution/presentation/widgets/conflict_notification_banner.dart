@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// MaterialBanner shown after sync resolves conflicts.
 ///
@@ -29,11 +30,11 @@ class ConflictNotificationBanner extends StatelessWidget {
         : l10n.conflictBannerSingle(entityType);
 
     return MaterialBanner(
-      backgroundColor: Colors.amber.shade50,
-      leading: Icon(Icons.sync, size: 24, color: Colors.amber.shade700),
+      backgroundColor: AppTheme.statusWarning.withAlpha(25),
+      leading: const Icon(Icons.sync, size: 24, color: AppTheme.statusWarning),
       content: Text(
         message,
-        style: const TextStyle(fontSize: 16),
+        style: Theme.of(context).textTheme.bodyLarge,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),

@@ -357,8 +357,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Each missing field renders as '-'
-      expect(find.text('-'),
-          findsNWidgets(4)); // cropType, quantity, pricePerKg, status
+      expect(
+        find.text('-'),
+        findsNWidgets(4),
+      ); // cropType, quantity, pricePerKg, status
     });
   });
 }

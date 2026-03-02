@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
@@ -11,6 +12,7 @@ import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
 import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
 import 'package:wereda_connect/screens/main_navigation.dart';
+import 'package:wereda_connect/screens/splash_screen.dart';
 
 /// Root routing widget that declaratively switches screens based on auth state.
 ///
@@ -58,22 +60,28 @@ class _AuthGateState extends State<AuthGate> {
           return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
-        // If initial auth check still in progress, show splash
+        // If initial auth check still in progress, show loading splash
         if (authState is AuthInitial) {
-          return const _SplashScreen();
+          return const _LoadingSplash();
         }
 
         // AuthUnauthenticated or AuthError — check onboarding state
         return BlocBuilder<OnboardingBloc, OnboardingState>(
           builder: (context, onboardingState) {
-            // If first launch, show welcome screen
+            // First launch: show branded splash landing, then welcome screen
             if (onboardingState is FirstLaunch) {
+              if (!onboardingState.splashDismissed) {
+                return SplashScreen(
+                  onGetStarted: () =>
+                      context.read<OnboardingBloc>().add(const DismissSplash()),
+                );
+              }
               return const WelcomeScreen();
             }
 
-            // If onboarding state still initial, show splash while checking
+            // If onboarding state still initial, show loading splash
             if (onboardingState is OnboardingInitial) {
-              return const _SplashScreen();
+              return const _LoadingSplash();
             }
 
             // Returning user - show login directly
@@ -85,34 +93,60 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Splash screen shown during initial auth check.
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
+/// Loading splash shown during initial auth check.
+///
+/// Full-screen dark green background with centered logo,
+/// app name, tagline, and gold progress indicator.
+class _LoadingSplash extends StatelessWidget {
+  const _LoadingSplash();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
+      backgroundColor: AppTheme.primaryGreen,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            // Agriculture icon
+            const Icon(
               Icons.agriculture,
-              size: 96,
-              color: theme.primaryColor,
+              size: 80,
+              color: Colors.white,
             ),
             const SizedBox(height: 24),
+            // App name
             Text(
-              AppLocalizations.of(context)?.appName ?? 'WeredaConnect',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.primaryColor,
+              l10n?.appName ?? 'WeredaConnect',
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(),
+            const SizedBox(height: 8),
+            // Tagline
+            Text(
+              l10n?.taglineShort ?? 'Connecting Farmers, Truckers & Buyers',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withAlpha(200),
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+            const SizedBox(height: 48),
+            // Gold progress indicator
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
+              ),
+            ),
           ],
         ),
       ),

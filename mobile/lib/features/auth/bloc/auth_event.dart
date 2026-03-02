@@ -24,6 +24,14 @@ class AuthRegisterRequested extends AuthEvent {
   final String woreda;
   final String preferredLanguage;
 
+  // Optional fields from multi-step registration flow
+  final String? faydaId;
+  final String? faydaIdFrontPath;
+  final String? faydaIdBackPath;
+  final String? drivingLicensePath;
+  final String? buyerType;
+  final String? companyName;
+
   const AuthRegisterRequested({
     required this.phoneNumber,
     required this.password,
@@ -31,11 +39,29 @@ class AuthRegisterRequested extends AuthEvent {
     required this.role,
     required this.woreda,
     this.preferredLanguage = 'am',
+    this.faydaId,
+    this.faydaIdFrontPath,
+    this.faydaIdBackPath,
+    this.drivingLicensePath,
+    this.buyerType,
+    this.companyName,
   });
 
   @override
-  List<Object?> get props =>
-      [phoneNumber, password, name, role, woreda, preferredLanguage];
+  List<Object?> get props => [
+        phoneNumber,
+        password,
+        name,
+        role,
+        woreda,
+        preferredLanguage,
+        faydaId,
+        faydaIdFrontPath,
+        faydaIdBackPath,
+        drivingLicensePath,
+        buyerType,
+        companyName,
+      ];
 }
 
 /// Event to verify OTP after registration.

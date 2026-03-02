@@ -277,6 +277,27 @@ These are pre-production requirements. MVP can demo without them, but cannot han
 
 ---
 
+### FUTURE SPRINT — VeriFayda 2.0 Identity Verification
+
+#### T-FUTURE-01: Integrate VeriFayda 2.0 OIDC for Registration
+**Scope:** `@server` `@mobile` `@infra`
+**Effort:** ~2-3 weeks
+**Spec:** `specs/features/verifayda-integration.md`
+**Why:** NBE mandates VeriFayda 2.0 for transactions >10,000 ETB. Current system stores Fayda ID as unverified string. Real OIDC verification needed for compliance and trust.
+**Approach:** Fayda eSignet OIDC flow during registration with two-tier verification (full biometric vs manual entry fallback).
+**Prerequisite:** Apply for Fayda API access at https://id.gov.et/api (2 working day turnaround).
+**Tasks:**
+- Server: `FaydaVerifyFunction` Lambda + `FaydaOidcService` (AOT-safe OIDC token exchange)
+- Server: Update `RegisterFunction` to accept verification token, update `UserDto` + `EscrowService`
+- Mobile: Rewrite `FayidaIdScreen` with OIDC button + manual fallback
+- Mobile: `FaydaOidcService`, deep link config, `url_launcher` package
+- Mobile: Update auth BLoC + Isar user schema (`faydaVerified`, `faydaVerifiedAt`)
+- Infra: SSM/Secrets Manager for Fayda credentials, API Gateway route, Lambda
+- Localization: 10 new l10n keys (en/am/om)
+- Tests: Unit + widget + integration (18 test cases specified in plan)
+
+---
+
 ## Completed Features (All Phases)
 
 ### R1: Security Foundation ✅

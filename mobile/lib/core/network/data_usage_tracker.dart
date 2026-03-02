@@ -94,7 +94,7 @@ int estimateBodyBytes(dynamic data) {
   if (data == null) return 0;
   try {
     return utf8.encode(jsonEncode(data)).length;
-  } catch (_) {
+  } on Object catch (_) {
     return 0;
   }
 }

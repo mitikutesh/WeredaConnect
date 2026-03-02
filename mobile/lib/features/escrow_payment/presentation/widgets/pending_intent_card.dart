@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Card showing a queued payment intent with cancel button.
 ///
@@ -34,10 +35,10 @@ class PendingIntentCard extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
+                color: AppTheme.statusWarning.withAlpha(25),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.sync, color: Colors.orange, size: 20),
+              child: const Icon(Icons.sync, color: AppTheme.statusWarning, size: 20),
             ),
             const SizedBox(width: 12),
             // Details
@@ -57,7 +58,7 @@ class PendingIntentCard extends StatelessWidget {
                     Text(
                       intent.lastError!,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.red.shade700,
+                        color: AppTheme.statusError,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -70,7 +71,7 @@ class PendingIntentCard extends StatelessWidget {
               TextButton(
                 onPressed: onCancel,
                 style: TextButton.styleFrom(
-                  foregroundColor: Colors.red,
+                  foregroundColor: AppTheme.statusError,
                   minimumSize: const Size(48, 48),
                 ),
                 child: Text(AppLocalizations.of(context)!.escrowCancelIntent),

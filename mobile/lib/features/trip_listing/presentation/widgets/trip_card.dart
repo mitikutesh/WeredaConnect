@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Card displaying a single trip listing.
 ///
@@ -102,7 +103,7 @@ class TripCard extends StatelessWidget {
                   icon: const Icon(Icons.cancel_outlined),
                   onPressed: onCancel,
                   iconSize: 20,
-                  color: Colors.red.shade400,
+                  color: AppTheme.statusError,
                 ),
               ],
             ],
@@ -122,11 +123,11 @@ class _TripStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
-      TripStatus.open => (Colors.green, l10n.tripStatusOpen),
-      TripStatus.matched => (Colors.blue, l10n.tripStatusMatched),
-      TripStatus.inTransit => (Colors.orange, l10n.tripStatusInTransit),
-      TripStatus.delivered => (Colors.green, l10n.tripStatusDelivered),
-      TripStatus.cancelled => (Colors.red, l10n.tripStatusCancelled),
+      TripStatus.open => (AppTheme.statusSuccess, l10n.tripStatusOpen),
+      TripStatus.matched => (AppTheme.statusInfo, l10n.tripStatusMatched),
+      TripStatus.inTransit => (AppTheme.statusWarning, l10n.tripStatusInTransit),
+      TripStatus.delivered => (AppTheme.statusSuccess, l10n.tripStatusDelivered),
+      TripStatus.cancelled => (AppTheme.statusError, l10n.tripStatusCancelled),
     };
 
     return Container(

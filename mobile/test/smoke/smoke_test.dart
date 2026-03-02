@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/core/sync/sync_worker.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -14,6 +17,12 @@ import 'package:wereda_connect/main.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 class _MockEscrowSyncService extends Mock implements EscrowSyncService {}
+
+class _MockSyncQueue extends Mock implements SyncQueue {}
+
+class _MockSyncExecutor extends Mock implements SyncExecutor {}
+
+class _MockSyncWorker extends Mock implements SyncWorker {}
 
 /// Smoke tests verify that the app can start and basic functionality works.
 /// These are quick sanity checks that run before more comprehensive tests.
@@ -27,6 +36,10 @@ void main() {
 
   /// Helper to wrap WeredaConnectApp with required LanguageProvider
   Widget buildApp() {
+    final mockExecutor = _MockSyncExecutor();
+    when(() => mockExecutor.isSyncing).thenReturn(false);
+    when(() => mockExecutor.onSyncResult)
+        .thenAnswer((_) => const Stream.empty());
     return ChangeNotifierProvider(
       create: (_) => LanguageProvider(),
       child: WeredaConnectApp(
@@ -34,6 +47,9 @@ void main() {
         connectivityMonitor: ConnectivityMonitor(dio: Dio()),
         escrowSyncService: _MockEscrowSyncService(),
         conflictNotificationService: ConflictNotificationService(),
+        syncQueue: _MockSyncQueue(),
+        syncExecutor: mockExecutor,
+        syncWorker: _MockSyncWorker(),
       ),
     );
   }

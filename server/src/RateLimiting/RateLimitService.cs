@@ -21,7 +21,7 @@ public sealed class RateLimitService : IRateLimitService
     internal const int RegistrationWindowSeconds = 86400; // 24 hours
     internal const int MaxOtpAttempts = 3;
     internal const int OtpWindowSeconds = 300; // 5 minutes (matches OTP expiry)
-    internal const int MaxSyncPerMinute = 10;
+    internal const int MaxSyncPerMinute = 30;
     internal const int SyncWindowSeconds = 60; // 1 minute
 
     public RateLimitService(IRateLimitRepository repository)

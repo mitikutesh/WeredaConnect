@@ -48,6 +48,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get retry => 'Retry';
 
   @override
+  String get syncNow => 'Sync Now';
+
+  @override
   String get selectLanguagePrompt => 'Select Your Language';
 
   @override
@@ -336,6 +339,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get browseListings => 'Browse Listings';
+
+  @override
+  String get market => 'Market';
+
+  @override
+  String get orders => 'Orders';
 
   @override
   String get myOrders => 'My Orders';
@@ -1451,4 +1460,311 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pleaseWait => 'Please wait...';
+
+  @override
+  String get greeting => 'Selam';
+
+  @override
+  String get homeSubtitle => 'What would you like to do today?';
+
+  @override
+  String get bannerHeadline => 'NO MORE DALLALA';
+
+  @override
+  String get bannerSubtitle => 'Fair prices directly to farmers';
+
+  @override
+  String get quickActions => 'Quick Actions';
+
+  @override
+  String get overview => 'Overview';
+
+  @override
+  String get recentActivity => 'Recent';
+
+  @override
+  String get noRecentActivity => 'No recent activity';
+
+  @override
+  String get sell => 'Sell';
+
+  @override
+  String get buy => 'Buy';
+
+  @override
+  String get truckers => 'Truckers';
+
+  @override
+  String get escrow => 'Escrow';
+
+  @override
+  String get availableLoads => 'Loads';
+
+  @override
+  String get activeFarmers => 'Active Farmers';
+
+  @override
+  String get inTransit => 'In Transit';
+
+  @override
+  String get matchedLoads => 'Matched';
+
+  @override
+  String get farmersBrowsed => 'Browsed';
+
+  @override
+  String get marketplace => 'Marketplace';
+
+  @override
+  String get browseVerifiedFarmers => 'Browse verified farmers';
+
+  @override
+  String get manageYourListings => 'Manage your listings';
+
+  @override
+  String get searchListings => 'Search crops, farmers...';
+
+  @override
+  String get trackTradesEscrow => 'Track trades & escrow';
+
+  @override
+  String get active => 'Active';
+
+  @override
+  String get done => 'Done';
+
+  @override
+  String get all => 'All';
+
+  @override
+  String get noOrders => 'No orders yet';
+
+  @override
+  String get ordersWillAppear => 'Your trades will appear here';
+
+  @override
+  String get trades => 'Trades';
+
+  @override
+  String get rating => 'Rating';
+
+  @override
+  String get escrowPercent => 'Escrow %';
+
+  @override
+  String get wallet => 'Wallet';
+
+  @override
+  String get escrowHistory => 'Escrow History';
+
+  @override
+  String get ratings => 'Ratings';
+
+  @override
+  String get documents => 'Documents';
+
+  @override
+  String get idAndCerts => 'ID, Certificates';
+
+  @override
+  String get languageAndAlerts => 'Language, Alerts';
+
+  @override
+  String get help => 'Help';
+
+  @override
+  String get faqAndSupport => 'FAQ, Support';
+
+  @override
+  String get continueButton => 'Continue';
+
+  @override
+  String get selectRoleDescription => 'Choose how you\'ll use WeredaConnect';
+
+  @override
+  String get farmerDescription => 'List crops for sale and find truckers';
+
+  @override
+  String get truckerDescription => 'Offer transport and deliver goods';
+
+  @override
+  String get buyerDescription => 'Browse and purchase crops from farmers';
+
+  @override
+  String get faydaIdVerification => 'Fayida ID Verification';
+
+  @override
+  String get faydaIdInstructions =>
+      'Scan your Fayida ID card or enter the number manually';
+
+  @override
+  String get scanFront => 'Scan Front';
+
+  @override
+  String get scanBack => 'Scan Back';
+
+  @override
+  String get enterManually => 'Enter ID manually';
+
+  @override
+  String get faydaIdNumber => 'Fayida ID Number';
+
+  @override
+  String get drivingLicense => 'Driving License';
+
+  @override
+  String get drivingLicenseInstructions =>
+      'Scan your driving license to verify your identity';
+
+  @override
+  String get buyerType => 'Buyer Type';
+
+  @override
+  String get buyerTypeDescription =>
+      'Are you buying as an individual or company?';
+
+  @override
+  String get privateBuyer => 'Private Buyer';
+
+  @override
+  String get companyBuyer => 'Company';
+
+  @override
+  String get companyName => 'Company Name';
+
+  @override
+  String get personalInfo => 'Personal Info';
+
+  @override
+  String get personalInfoDescription =>
+      'Enter your details to create an account';
+
+  @override
+  String get verified => 'Verified';
+
+  @override
+  String get scanLicense => 'Scan License';
+
+  @override
+  String get statusFunded => 'Funded';
+
+  @override
+  String get statusPlaced => 'Placed';
+
+  @override
+  String get statusAssigned => 'Assigned';
+
+  @override
+  String get statusTransit => 'Transit';
+
+  @override
+  String get statusDisputed => 'Disputed';
+
+  @override
+  String deliveryTitle(int id) {
+    return 'Delivery #$id';
+  }
+
+  @override
+  String paymentTitle(int id) {
+    return 'Payment #$id';
+  }
+
+  @override
+  String listingCreatedActivity(String cropType) {
+    return '$cropType listing created';
+  }
+
+  @override
+  String deliveryStatusActivity(String status) {
+    return 'Delivery $status';
+  }
+
+  @override
+  String minutesAgo(int count) {
+    return '${count}m ago';
+  }
+
+  @override
+  String hoursAgo(int count) {
+    return '${count}h ago';
+  }
+
+  @override
+  String daysAgo(int count) {
+    return '${count}d ago';
+  }
+
+  @override
+  String get fieldRequired => 'This field is required';
+
+  @override
+  String get clearAll => 'Clear all';
+
+  @override
+  String get myDeliveries => 'My Deliveries';
+
+  @override
+  String get myPayments => 'My Payments';
+
+  @override
+  String get trackDeliveries => 'Track your crop pickups & deliveries';
+
+  @override
+  String get trackPayments => 'Track your earnings & escrow';
+
+  @override
+  String get noDeliveries => 'No deliveries yet';
+
+  @override
+  String get noPayments => 'No payments yet';
+
+  @override
+  String get postTrip => 'Post Trip';
+
+  @override
+  String get browseMarket => 'Browse';
+
+  @override
+  String get yourCropListings => 'Your crop listings';
+
+  @override
+  String get payments => 'Payments';
+
+  @override
+  String get trackDelivery => 'Track Delivery';
+
+  @override
+  String get checkBalance => 'Check Balance';
+
+  @override
+  String get manageOrders => 'Manage incoming orders';
+
+  @override
+  String get orderPending => 'Pending';
+
+  @override
+  String get orderAccepted => 'Accepted';
+
+  @override
+  String get orderRejected => 'Rejected';
+
+  @override
+  String get acceptOrder => 'Accept';
+
+  @override
+  String get rejectOrder => 'Reject';
+
+  @override
+  String get splashHeadline => 'Grow it. Move it.\nBuy it. Done.';
+
+  @override
+  String get splashSubtitle =>
+      'One platform for farmers, truckers, and buyers — with secure escrow.';
+
+  @override
+  String get orderCancelled => 'Cancelled';
+
+  @override
+  String get orderCompleted => 'Completed';
 }

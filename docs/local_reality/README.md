@@ -126,15 +126,17 @@ This directory documents the **real-world constraints and cultural context** of 
 ## Regulatory Environment
 
 ### Data Privacy
-- **No comprehensive data protection law** (as of 2026)
+- **Proclamation 1284/2023** establishes data protection framework for Fayda digital ID
+- **Disclosing resident data without consent** is punishable by up to 8 years imprisonment
 - **Government access**: Possible under national security laws
-- **User expectations**: Minimal legal protections
+- **NBE mandate**: VeriFayda 2.0 mandatory for digital financial transactions >10,000 ETB since Jan 2026
 
 **Implications**:
-- ✅ Minimize data collection
-- ✅ Store sensitive data locally, not on server
+- ✅ Minimize data collection (data minimization principle)
+- ✅ Do NOT store biometric data — Fayda handles all biometrics
+- ✅ Store only Fayda ID number and verification status
 - ✅ Provide data export/deletion features
-- ✅ Be transparent about government access risks
+- ✅ Register as Relying Party with NIDP for Fayda OIDC API access
 
 ### Content Moderation
 - **Hate speech laws**: Enforced, especially ethnic/religious content
@@ -164,14 +166,15 @@ This directory documents the **real-world constraints and cultural context** of 
 
 ### Payment Methods
 - **Cash-based economy**: Still dominant
-- **Mobile money**: Growing — **Telebirr** (dominant, used for escrow in WeredaConnect), M-Pesa, HelloCash
-- **Bank accounts**: Low penetration in rural areas
+- **Mobile money**: Growing — **Telebirr** (52.5M+ users), M-Pesa, HelloCash
+- **Bank accounts**: CBE has most rural coverage; EthSwitch enables inter-bank transfers
+- **Agricultural transactions**: Typically 50K-500K+ ETB — exceeds Telebirr balance limits
 
 **Implications**:
-- ✅ Telebirr is the primary payment integration (escrow for deliveries)
-- ✅ Support mobile money as primary digital payment
-- ✅ Avoid credit card requirements
-- ✅ Consider offline payment verification
+- ✅ CBE bank transfer is the primary payment integration (escrow for deliveries)
+- ✅ Direct bank transfer handles agricultural-scale amounts without mobile money limits
+- ✅ Farmers/truckers can have accounts at any Ethiopian bank
+- ✅ Consider Telebirr as supplementary channel for smaller transactions
 
 ---
 

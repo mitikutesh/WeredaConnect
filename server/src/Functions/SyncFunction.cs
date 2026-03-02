@@ -44,7 +44,8 @@ public partial class SyncFunction
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "cropType", "quantity", "pricePerKg",
-        "latitude", "longitude", "description", "status", "woreda"
+        "latitude", "longitude", "locationName", "description",
+        "status", "woreda", "listingId", "audioNoteRef", "createdAt"
     };
 
     private static readonly HashSet<string> AllowedTripFields = new()
@@ -203,22 +204,11 @@ public partial class SyncFunction
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Maximum 50 operations per batch.");
         }
 
-        // Extract authenticated user ID from API Gateway authorizer context
-        // JWT authorizer: Cognito `sub` claim is spread into authorizer dict
-        string? authenticatedUserId = null;
-        var authorizer = request.RequestContext?.Authorizer;
-        if (authorizer != null)
-        {
-            if (authorizer.ContainsKey("sub"))
-            {
-                authenticatedUserId = authorizer["sub"]?.ToString();
-            }
-            else if (authorizer.ContainsKey("userId"))
-            {
-                authenticatedUserId = authorizer["userId"]?.ToString();
-            }
-        }
-
+        // Extract authenticated user ID from API Gateway authorizer context.
+        // Uses shared AuthHelper to handle both HTTP API v2 JWT authorizer
+        // (claims nested under "claims" key) and flat test dictionaries.
+        var authenticatedUserId = AuthHelper.GetUserId(request);
+        context.Logger.LogInformation($"Authenticated user: {authenticatedUserId ?? "NULL"}");
         if (string.IsNullOrEmpty(authenticatedUserId))
         {
             return LambdaResponse.Error(401, "UNAUTHORIZED", "Authentication required.");
@@ -243,6 +233,8 @@ public partial class SyncFunction
         foreach (var operation in syncRequest.Operations)
         {
             var result = await ProcessOperationAsync(operation, authenticatedUserId, context);
+            context.Logger.LogInformation(
+                $"Op {result.OperationId}: status={result.Status}, msg={result.Message ?? "none"}");
             results.Add(result);
         }
 

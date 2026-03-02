@@ -35,6 +35,7 @@ class CropListingRepository {
     required String locationName,
     required String description,
     String? audioNoteRef,
+    String? woreda,
   }) async {
     final listingId = _uuid.v4();
     final now = DateTime.now().toUtc();
@@ -74,6 +75,7 @@ class CropListingRepository {
       'locationName': locationName,
       'description': description,
       'audioNoteRef': audioNoteRef,
+      'woreda': woreda ?? '',
       'status': listing.status.name,
       'createdAt': now.toIso8601String(),
       'version': 1,

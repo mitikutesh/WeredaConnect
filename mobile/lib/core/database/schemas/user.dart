@@ -30,6 +30,24 @@ class User {
   /// Null if user hasn't linked Fayda account
   String? faydaId;
 
+  /// Local file path for Fayida ID front scan image
+  String? faydaIdFrontImagePath;
+
+  /// Local file path for Fayida ID back scan image
+  String? faydaIdBackImagePath;
+
+  /// Local file path for driving license scan (trucker only)
+  String? drivingLicensePath;
+
+  /// Buyer type: "private" or "company" (buyer only)
+  String? buyerType;
+
+  /// Company name when buyerType is "company"
+  String? companyName;
+
+  /// Whether user has been verified (ID + OTP)
+  bool isVerified = false;
+
   /// User role in the marketplace
   /// Values: 'farmer', 'trucker', 'buyer'
   @Index()

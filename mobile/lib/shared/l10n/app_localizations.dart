@@ -178,6 +178,12 @@ abstract class AppLocalizations {
   /// **'Retry'**
   String get retry;
 
+  /// Button to trigger an immediate sync
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Now'**
+  String get syncNow;
+
   /// Language selection prompt on welcome screen
   ///
   /// In en, this message translates to:
@@ -448,7 +454,7 @@ abstract class AppLocalizations {
   /// **'Select Role'**
   String get selectRole;
 
-  /// Farmer role
+  /// Label for farmer name in order card
   ///
   /// In en, this message translates to:
   /// **'Farmer'**
@@ -466,7 +472,7 @@ abstract class AppLocalizations {
   /// **'Update your name and details'**
   String get updateDetails;
 
-  /// Buyer/wholesaler role
+  /// Label for buyer name in order card
   ///
   /// In en, this message translates to:
   /// **'Buyer'**
@@ -711,6 +717,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Browse Listings'**
   String get browseListings;
+
+  /// Market bottom nav tab label
+  ///
+  /// In en, this message translates to:
+  /// **'Market'**
+  String get market;
+
+  /// Orders bottom nav tab label
+  ///
+  /// In en, this message translates to:
+  /// **'Orders'**
+  String get orders;
 
   /// My orders menu item
   ///
@@ -2787,6 +2805,582 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please wait...'**
   String get pleaseWait;
+
+  /// Greeting word used in home header
+  ///
+  /// In en, this message translates to:
+  /// **'Selam'**
+  String get greeting;
+
+  /// Subtitle under greeting on home screen
+  ///
+  /// In en, this message translates to:
+  /// **'What would you like to do today?'**
+  String get homeSubtitle;
+
+  /// Main headline on home banner card
+  ///
+  /// In en, this message translates to:
+  /// **'NO MORE DALLALA'**
+  String get bannerHeadline;
+
+  /// Subtitle on home banner card
+  ///
+  /// In en, this message translates to:
+  /// **'Fair prices directly to farmers'**
+  String get bannerSubtitle;
+
+  /// Section header for quick action grid
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Actions'**
+  String get quickActions;
+
+  /// Section header for overview stats
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get overview;
+
+  /// Section header for activity feed
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get recentActivity;
+
+  /// Empty state for activity feed
+  ///
+  /// In en, this message translates to:
+  /// **'No recent activity'**
+  String get noRecentActivity;
+
+  /// Quick action label for selling
+  ///
+  /// In en, this message translates to:
+  /// **'Sell'**
+  String get sell;
+
+  /// Quick action label for buying
+  ///
+  /// In en, this message translates to:
+  /// **'Buy'**
+  String get buy;
+
+  /// Quick action label for truckers
+  ///
+  /// In en, this message translates to:
+  /// **'Truckers'**
+  String get truckers;
+
+  /// Quick action label for escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Escrow'**
+  String get escrow;
+
+  /// Quick action label for available loads
+  ///
+  /// In en, this message translates to:
+  /// **'Loads'**
+  String get availableLoads;
+
+  /// Stat label for active farmers count
+  ///
+  /// In en, this message translates to:
+  /// **'Active Farmers'**
+  String get activeFarmers;
+
+  /// Stat label for items in transit
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get inTransit;
+
+  /// Stat label for matched loads
+  ///
+  /// In en, this message translates to:
+  /// **'Matched'**
+  String get matchedLoads;
+
+  /// Stat label for browsed farmers
+  ///
+  /// In en, this message translates to:
+  /// **'Browsed'**
+  String get farmersBrowsed;
+
+  /// Title for marketplace/browse screen
+  ///
+  /// In en, this message translates to:
+  /// **'Marketplace'**
+  String get marketplace;
+
+  /// Subtitle for marketplace screen
+  ///
+  /// In en, this message translates to:
+  /// **'Browse verified farmers'**
+  String get browseVerifiedFarmers;
+
+  /// Subtitle for farmer's listing screen
+  ///
+  /// In en, this message translates to:
+  /// **'Manage your listings'**
+  String get manageYourListings;
+
+  /// Placeholder text for marketplace search bar
+  ///
+  /// In en, this message translates to:
+  /// **'Search crops, farmers...'**
+  String get searchListings;
+
+  /// Subtitle for orders screen header
+  ///
+  /// In en, this message translates to:
+  /// **'Track trades & escrow'**
+  String get trackTradesEscrow;
+
+  /// Tab label for active orders
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get active;
+
+  /// Tab label for completed orders
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get done;
+
+  /// Tab label for all orders
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get all;
+
+  /// Empty state title for orders
+  ///
+  /// In en, this message translates to:
+  /// **'No orders yet'**
+  String get noOrders;
+
+  /// Empty state description for orders
+  ///
+  /// In en, this message translates to:
+  /// **'Your trades will appear here'**
+  String get ordersWillAppear;
+
+  /// Stat label for trade count
+  ///
+  /// In en, this message translates to:
+  /// **'Trades'**
+  String get trades;
+
+  /// Stat label for user rating
+  ///
+  /// In en, this message translates to:
+  /// **'Rating'**
+  String get rating;
+
+  /// Stat label for escrow percentage
+  ///
+  /// In en, this message translates to:
+  /// **'Escrow %'**
+  String get escrowPercent;
+
+  /// Profile menu item for wallet
+  ///
+  /// In en, this message translates to:
+  /// **'Wallet'**
+  String get wallet;
+
+  /// Profile menu item for escrow history
+  ///
+  /// In en, this message translates to:
+  /// **'Escrow History'**
+  String get escrowHistory;
+
+  /// Profile menu item for ratings
+  ///
+  /// In en, this message translates to:
+  /// **'Ratings'**
+  String get ratings;
+
+  /// Profile menu item for documents
+  ///
+  /// In en, this message translates to:
+  /// **'Documents'**
+  String get documents;
+
+  /// Subtitle for documents menu item
+  ///
+  /// In en, this message translates to:
+  /// **'ID, Certificates'**
+  String get idAndCerts;
+
+  /// Subtitle for settings menu item
+  ///
+  /// In en, this message translates to:
+  /// **'Language, Alerts'**
+  String get languageAndAlerts;
+
+  /// Profile menu item for help
+  ///
+  /// In en, this message translates to:
+  /// **'Help'**
+  String get help;
+
+  /// Subtitle for help menu item
+  ///
+  /// In en, this message translates to:
+  /// **'FAQ, Support'**
+  String get faqAndSupport;
+
+  /// Continue button label in registration flow
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get continueButton;
+
+  /// Subtitle for role selection step
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how you\'ll use WeredaConnect'**
+  String get selectRoleDescription;
+
+  /// Description for farmer role card
+  ///
+  /// In en, this message translates to:
+  /// **'List crops for sale and find truckers'**
+  String get farmerDescription;
+
+  /// Description for trucker role card
+  ///
+  /// In en, this message translates to:
+  /// **'Offer transport and deliver goods'**
+  String get truckerDescription;
+
+  /// Description for buyer role card
+  ///
+  /// In en, this message translates to:
+  /// **'Browse and purchase crops from farmers'**
+  String get buyerDescription;
+
+  /// Title for Fayida ID step
+  ///
+  /// In en, this message translates to:
+  /// **'Fayida ID Verification'**
+  String get faydaIdVerification;
+
+  /// Instructions for Fayida ID step
+  ///
+  /// In en, this message translates to:
+  /// **'Scan your Fayida ID card or enter the number manually'**
+  String get faydaIdInstructions;
+
+  /// Label for scan front button
+  ///
+  /// In en, this message translates to:
+  /// **'Scan Front'**
+  String get scanFront;
+
+  /// Label for scan back button
+  ///
+  /// In en, this message translates to:
+  /// **'Scan Back'**
+  String get scanBack;
+
+  /// Toggle for manual ID entry
+  ///
+  /// In en, this message translates to:
+  /// **'Enter ID manually'**
+  String get enterManually;
+
+  /// Label for Fayida ID text field
+  ///
+  /// In en, this message translates to:
+  /// **'Fayida ID Number'**
+  String get faydaIdNumber;
+
+  /// Title for driving license step
+  ///
+  /// In en, this message translates to:
+  /// **'Driving License'**
+  String get drivingLicense;
+
+  /// Instructions for driving license step
+  ///
+  /// In en, this message translates to:
+  /// **'Scan your driving license to verify your identity'**
+  String get drivingLicenseInstructions;
+
+  /// Title for buyer type selection
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer Type'**
+  String get buyerType;
+
+  /// Subtitle for buyer type step
+  ///
+  /// In en, this message translates to:
+  /// **'Are you buying as an individual or company?'**
+  String get buyerTypeDescription;
+
+  /// Option for individual buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Private Buyer'**
+  String get privateBuyer;
+
+  /// Option for company buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Company'**
+  String get companyBuyer;
+
+  /// Label for company name field
+  ///
+  /// In en, this message translates to:
+  /// **'Company Name'**
+  String get companyName;
+
+  /// Title for personal info step
+  ///
+  /// In en, this message translates to:
+  /// **'Personal Info'**
+  String get personalInfo;
+
+  /// Subtitle for personal info step
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your details to create an account'**
+  String get personalInfoDescription;
+
+  /// Badge label for verified users
+  ///
+  /// In en, this message translates to:
+  /// **'Verified'**
+  String get verified;
+
+  /// Button label for scanning driving license
+  ///
+  /// In en, this message translates to:
+  /// **'Scan License'**
+  String get scanLicense;
+
+  /// Order status label for funded/escrowed
+  ///
+  /// In en, this message translates to:
+  /// **'Funded'**
+  String get statusFunded;
+
+  /// Order step label for placed
+  ///
+  /// In en, this message translates to:
+  /// **'Placed'**
+  String get statusPlaced;
+
+  /// Order step label for trucker assigned
+  ///
+  /// In en, this message translates to:
+  /// **'Assigned'**
+  String get statusAssigned;
+
+  /// Order step label for in transit (short)
+  ///
+  /// In en, this message translates to:
+  /// **'Transit'**
+  String get statusTransit;
+
+  /// Order status label for disputed
+  ///
+  /// In en, this message translates to:
+  /// **'Disputed'**
+  String get statusDisputed;
+
+  /// Title for a delivery order card
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery #{id}'**
+  String deliveryTitle(int id);
+
+  /// Title for a payment order card
+  ///
+  /// In en, this message translates to:
+  /// **'Payment #{id}'**
+  String paymentTitle(int id);
+
+  /// Activity feed description for a new listing
+  ///
+  /// In en, this message translates to:
+  /// **'{cropType} listing created'**
+  String listingCreatedActivity(String cropType);
+
+  /// Activity feed description for delivery status
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery {status}'**
+  String deliveryStatusActivity(String status);
+
+  /// Relative time label for minutes
+  ///
+  /// In en, this message translates to:
+  /// **'{count}m ago'**
+  String minutesAgo(int count);
+
+  /// Relative time label for hours
+  ///
+  /// In en, this message translates to:
+  /// **'{count}h ago'**
+  String hoursAgo(int count);
+
+  /// Relative time label for days
+  ///
+  /// In en, this message translates to:
+  /// **'{count}d ago'**
+  String daysAgo(int count);
+
+  /// Generic validation error for empty required fields
+  ///
+  /// In en, this message translates to:
+  /// **'This field is required'**
+  String get fieldRequired;
+
+  /// Button label to clear all notifications
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all'**
+  String get clearAll;
+
+  /// Title for the deliveries tab screen
+  ///
+  /// In en, this message translates to:
+  /// **'My Deliveries'**
+  String get myDeliveries;
+
+  /// Title for the payments tab screen
+  ///
+  /// In en, this message translates to:
+  /// **'My Payments'**
+  String get myPayments;
+
+  /// Subtitle for the deliveries tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Track your crop pickups & deliveries'**
+  String get trackDeliveries;
+
+  /// Subtitle for the payments tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Track your earnings & escrow'**
+  String get trackPayments;
+
+  /// Empty state message when no deliveries exist
+  ///
+  /// In en, this message translates to:
+  /// **'No deliveries yet'**
+  String get noDeliveries;
+
+  /// Empty state message when no payments exist
+  ///
+  /// In en, this message translates to:
+  /// **'No payments yet'**
+  String get noPayments;
+
+  /// Quick action label for truckers to post a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Post Trip'**
+  String get postTrip;
+
+  /// Quick action label for buyers to browse the market
+  ///
+  /// In en, this message translates to:
+  /// **'Browse'**
+  String get browseMarket;
+
+  /// Subtitle for farmer's listings screen header
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listings'**
+  String get yourCropListings;
+
+  /// Bottom navigation label for the payments tab
+  ///
+  /// In en, this message translates to:
+  /// **'Payments'**
+  String get payments;
+
+  /// Quick action label to track deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Track Delivery'**
+  String get trackDelivery;
+
+  /// Quick action label to check payment balance
+  ///
+  /// In en, this message translates to:
+  /// **'Check Balance'**
+  String get checkBalance;
+
+  /// Subtitle for orders tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Manage incoming orders'**
+  String get manageOrders;
+
+  /// Order status label for pending orders
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get orderPending;
+
+  /// Order status label for accepted orders
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted'**
+  String get orderAccepted;
+
+  /// Order status label for rejected orders
+  ///
+  /// In en, this message translates to:
+  /// **'Rejected'**
+  String get orderRejected;
+
+  /// Button label to accept an order
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get acceptOrder;
+
+  /// Button label to reject an order
+  ///
+  /// In en, this message translates to:
+  /// **'Reject'**
+  String get rejectOrder;
+
+  /// Main headline on splash/landing screen
+  ///
+  /// In en, this message translates to:
+  /// **'Grow it. Move it.\nBuy it. Done.'**
+  String get splashHeadline;
+
+  /// Subtitle on splash/landing screen
+  ///
+  /// In en, this message translates to:
+  /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
+  String get splashSubtitle;
+
+  /// Order status label for cancelled orders
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get orderCancelled;
+
+  /// Order status label for completed orders
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get orderCompleted;
 }
 
 class _AppLocalizationsDelegate

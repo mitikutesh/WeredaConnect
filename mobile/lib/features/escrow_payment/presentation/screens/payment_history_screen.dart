@@ -23,7 +23,10 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// - Pull-to-refresh
 /// - Debug seed button for mock data
 class PaymentHistoryScreen extends StatefulWidget {
-  const PaymentHistoryScreen({super.key});
+  /// When true, skips Scaffold/AppBar for use as embedded tab content.
+  final bool embedded;
+
+  const PaymentHistoryScreen({this.embedded = false, super.key});
 
   @override
   State<PaymentHistoryScreen> createState() => _PaymentHistoryScreenState();
@@ -54,123 +57,127 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.escrowPaymentHistory)),
-      body: BlocListener<EscrowBloc, EscrowState>(
-        listener: (context, state) {
-          if (state is IntentCancelled) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(l10n.escrowIntentCancelled)),
-            );
-            // Reload history after cancellation
-            final userId = _getUserId();
-            if (userId != null) {
-              context.read<EscrowBloc>().add(
-                    LoadPaymentHistory(
-                      userId: userId,
-                      statusFilter: _statusFilter,
+    final content = BlocListener<EscrowBloc, EscrowState>(
+      listener: (context, state) {
+        if (state is IntentCancelled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.escrowIntentCancelled)),
+          );
+          // Reload history after cancellation
+          final userId = _getUserId();
+          if (userId != null) {
+            context.read<EscrowBloc>().add(
+                  LoadPaymentHistory(
+                    userId: userId,
+                    statusFilter: _statusFilter,
+                  ),
+                );
+          }
+        }
+      },
+      child: Column(
+        children: [
+          // Status filter chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                _FilterChip(
+                  label: l10n.escrowFilterAll,
+                  selected: _statusFilter == null,
+                  onSelected: () => _applyStatusFilter(null),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: l10n.escrowStatusEscrowed,
+                  selected: _statusFilter == 'escrowed',
+                  onSelected: () => _applyStatusFilter('escrowed'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: l10n.escrowStatusReleased,
+                  selected: _statusFilter == 'released',
+                  onSelected: () => _applyStatusFilter('released'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: l10n.escrowStatusDisputed,
+                  selected: _statusFilter == 'disputed',
+                  onSelected: () => _applyStatusFilter('disputed'),
+                ),
+                const SizedBox(width: 8),
+                _FilterChip(
+                  label: l10n.escrowStatusRefunded,
+                  selected: _statusFilter == 'refunded',
+                  onSelected: () => _applyStatusFilter('refunded'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Content
+          Expanded(
+            child: BlocBuilder<EscrowBloc, EscrowState>(
+              builder: (context, state) {
+                if (state is EscrowLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (state is EscrowError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: Colors.red,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          localizeEscrowError(
+                            AppLocalizations.of(context)!,
+                            state.code,
+                            state.message,
+                          ),
+                        ),
+                      ],
                     ),
                   );
-            }
-          }
-        },
-        child: Column(
-          children: [
-            // Status filter chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  _FilterChip(
-                    label: l10n.escrowFilterAll,
-                    selected: _statusFilter == null,
-                    onSelected: () => _applyStatusFilter(null),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowStatusEscrowed,
-                    selected: _statusFilter == 'escrowed',
-                    onSelected: () => _applyStatusFilter('escrowed'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowStatusReleased,
-                    selected: _statusFilter == 'released',
-                    onSelected: () => _applyStatusFilter('released'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowStatusDisputed,
-                    selected: _statusFilter == 'disputed',
-                    onSelected: () => _applyStatusFilter('disputed'),
-                  ),
-                  const SizedBox(width: 8),
-                  _FilterChip(
-                    label: l10n.escrowStatusRefunded,
-                    selected: _statusFilter == 'refunded',
-                    onSelected: () => _applyStatusFilter('refunded'),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Content
-            Expanded(
-              child: BlocBuilder<EscrowBloc, EscrowState>(
-                builder: (context, state) {
-                  if (state is EscrowLoading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                }
 
-                  if (state is EscrowError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            localizeEscrowError(
-                              AppLocalizations.of(context)!,
-                              state.code,
-                              state.message,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
+                if (state is! PaymentHistoryLoaded) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                  if (state is! PaymentHistoryLoaded) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                final hasContent = state.payments.isNotEmpty ||
+                    state.pendingIntents.isNotEmpty;
 
-                  final hasContent = state.payments.isNotEmpty ||
-                      state.pendingIntents.isNotEmpty;
-
-                  if (!hasContent) {
-                    return _EmptyState(
-                      hasFilter: _statusFilter != null,
-                      theme: theme,
-                    );
-                  }
-
-                  return _HistoryContent(
-                    state: state,
-                    statusFilter: _statusFilter,
-                    onCancelIntent: _showCancelConfirmation,
+                if (!hasContent) {
+                  return _EmptyState(
+                    hasFilter: _statusFilter != null,
+                    theme: theme,
                   );
-                },
-              ),
+                }
+
+                return _HistoryContent(
+                  state: state,
+                  statusFilter: _statusFilter,
+                  onCancelIntent: _showCancelConfirmation,
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+
+    if (widget.embedded) return content;
+
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.escrowPaymentHistory)),
+      body: content,
     );
   }
 

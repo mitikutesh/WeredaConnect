@@ -377,6 +377,7 @@ void main() {
           status: IntentStatus.completed,
         );
 
+        // ignore: deprecated_member_use_from_same_package
         await syncService.cancelAllPendingIntents();
 
         final all = await isar.paymentIntents.where().findAll();
