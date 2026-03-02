@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Icon-based status indicator for deliveries.
 ///
@@ -20,12 +21,12 @@ class DeliveryStatusIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, color) = switch (status) {
-      DeliveryStatus.pending => (Icons.inventory_2, Colors.orange),
-      DeliveryStatus.pickedUp => (Icons.local_shipping, Colors.blue),
-      DeliveryStatus.inTransit => (Icons.route, Colors.indigo),
-      DeliveryStatus.delivered => (Icons.check_circle, Colors.green),
-      DeliveryStatus.disputed => (Icons.warning, Colors.red),
-      DeliveryStatus.cancelled => (Icons.cancel, Colors.grey),
+      DeliveryStatus.pending => (Icons.inventory_2, AppTheme.statusWarning),
+      DeliveryStatus.pickedUp => (Icons.local_shipping, AppTheme.statusInfo),
+      DeliveryStatus.inTransit => (Icons.route, AppTheme.statusTransit),
+      DeliveryStatus.delivered => (Icons.check_circle, AppTheme.statusSuccess),
+      DeliveryStatus.disputed => (Icons.warning, AppTheme.statusError),
+      DeliveryStatus.cancelled => (Icons.cancel, AppTheme.textMuted),
     };
 
     return Container(

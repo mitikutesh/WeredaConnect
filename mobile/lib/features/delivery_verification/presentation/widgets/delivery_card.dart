@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Card displaying a single delivery in a list.
 ///
@@ -83,12 +84,12 @@ class _DeliveryStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
-      DeliveryStatus.pending => (Colors.orange, l10n.deliveryStatusPending),
-      DeliveryStatus.pickedUp => (Colors.blue, l10n.deliveryStatusPickedUp),
-      DeliveryStatus.inTransit => (Colors.indigo, l10n.deliveryStatusInTransit),
-      DeliveryStatus.delivered => (Colors.green, l10n.deliveryStatusDelivered),
-      DeliveryStatus.disputed => (Colors.red, l10n.deliveryStatusDisputed),
-      DeliveryStatus.cancelled => (Colors.grey, l10n.deliveryStatusCancelled),
+      DeliveryStatus.pending => (AppTheme.statusWarning, l10n.deliveryStatusPending),
+      DeliveryStatus.pickedUp => (AppTheme.statusInfo, l10n.deliveryStatusPickedUp),
+      DeliveryStatus.inTransit => (AppTheme.statusTransit, l10n.deliveryStatusInTransit),
+      DeliveryStatus.delivered => (AppTheme.statusSuccess, l10n.deliveryStatusDelivered),
+      DeliveryStatus.disputed => (AppTheme.statusError, l10n.deliveryStatusDisputed),
+      DeliveryStatus.cancelled => (AppTheme.textMuted, l10n.deliveryStatusCancelled),
     };
 
     return Container(

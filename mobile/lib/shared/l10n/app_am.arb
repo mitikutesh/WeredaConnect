@@ -2054,5 +2054,30 @@
       }
     }
   },
-  "fieldRequired": "ይህ መስክ ያስፈልጋል"
+  "fieldRequired": "ይህ መስክ ያስፈልጋል",
+  "clearAll": "ሁሉንም አጽዳ",
+  "myDeliveries": "ማድረሻዎቼ",
+  "myPayments": "ክፍያዎቼ",
+  "trackDeliveries": "የሰብል ማጓጓዣዎን ይከታተሉ",
+  "trackPayments": "ገቢዎን እና ኤስክሮ ይከታተሉ",
+  "noDeliveries": "ገና ማድረሻ የለም",
+  "noPayments": "ገና ክፍያ የለም",
+  "postTrip": "ጉዞ ያስገቡ",
+  "browseMarket": "ያስሱ",
+  "yourCropListings": "የእርስዎ ሰብል ዝርዝሮች",
+  "payments": "ክፍያዎች",
+  "trackDelivery": "ማድረሻ ተከታተል",
+  "checkBalance": "ቀሪ ሂሳብ",
+  "manageOrders": "ገቢ ትዕዛዞችን ያስተዳድሩ",
+  "orderPending": "በመጠባበቅ",
+  "orderAccepted": "ተቀብለዋል",
+  "orderRejected": "ውድቅ ተደርጓል",
+  "acceptOrder": "ተቀበል",
+  "rejectOrder": "ውድቅ አድርግ",
+  "buyer": "ገዢ",
+  "farmer": "ገበሬ",
+  "splashHeadline": "አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።",
+  "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።",
+  "orderCancelled": "ተሰርዟል",
+  "orderCompleted": "ተጠናቅቋል"
 }

@@ -454,7 +454,7 @@ abstract class AppLocalizations {
   /// **'Select Role'**
   String get selectRole;
 
-  /// Farmer role
+  /// Label for farmer name in order card
   ///
   /// In en, this message translates to:
   /// **'Farmer'**
@@ -472,7 +472,7 @@ abstract class AppLocalizations {
   /// **'Update your name and details'**
   String get updateDetails;
 
-  /// Buyer/wholesaler role
+  /// Label for buyer name in order card
   ///
   /// In en, this message translates to:
   /// **'Buyer'**
@@ -3243,6 +3243,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This field is required'**
   String get fieldRequired;
+
+  /// Button label to clear all notifications
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all'**
+  String get clearAll;
+
+  /// Title for the deliveries tab screen
+  ///
+  /// In en, this message translates to:
+  /// **'My Deliveries'**
+  String get myDeliveries;
+
+  /// Title for the payments tab screen
+  ///
+  /// In en, this message translates to:
+  /// **'My Payments'**
+  String get myPayments;
+
+  /// Subtitle for the deliveries tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Track your crop pickups & deliveries'**
+  String get trackDeliveries;
+
+  /// Subtitle for the payments tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Track your earnings & escrow'**
+  String get trackPayments;
+
+  /// Empty state message when no deliveries exist
+  ///
+  /// In en, this message translates to:
+  /// **'No deliveries yet'**
+  String get noDeliveries;
+
+  /// Empty state message when no payments exist
+  ///
+  /// In en, this message translates to:
+  /// **'No payments yet'**
+  String get noPayments;
+
+  /// Quick action label for truckers to post a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Post Trip'**
+  String get postTrip;
+
+  /// Quick action label for buyers to browse the market
+  ///
+  /// In en, this message translates to:
+  /// **'Browse'**
+  String get browseMarket;
+
+  /// Subtitle for farmer's listings screen header
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listings'**
+  String get yourCropListings;
+
+  /// Bottom navigation label for the payments tab
+  ///
+  /// In en, this message translates to:
+  /// **'Payments'**
+  String get payments;
+
+  /// Quick action label to track deliveries
+  ///
+  /// In en, this message translates to:
+  /// **'Track Delivery'**
+  String get trackDelivery;
+
+  /// Quick action label to check payment balance
+  ///
+  /// In en, this message translates to:
+  /// **'Check Balance'**
+  String get checkBalance;
+
+  /// Subtitle for orders tab header
+  ///
+  /// In en, this message translates to:
+  /// **'Manage incoming orders'**
+  String get manageOrders;
+
+  /// Order status label for pending orders
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get orderPending;
+
+  /// Order status label for accepted orders
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted'**
+  String get orderAccepted;
+
+  /// Order status label for rejected orders
+  ///
+  /// In en, this message translates to:
+  /// **'Rejected'**
+  String get orderRejected;
+
+  /// Button label to accept an order
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get acceptOrder;
+
+  /// Button label to reject an order
+  ///
+  /// In en, this message translates to:
+  /// **'Reject'**
+  String get rejectOrder;
+
+  /// Main headline on splash/landing screen
+  ///
+  /// In en, this message translates to:
+  /// **'Grow it. Move it.\nBuy it. Done.'**
+  String get splashHeadline;
+
+  /// Subtitle on splash/landing screen
+  ///
+  /// In en, this message translates to:
+  /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
+  String get splashSubtitle;
+
+  /// Order status label for cancelled orders
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get orderCancelled;
+
+  /// Order status label for completed orders
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get orderCompleted;
 }
 
 class _AppLocalizationsDelegate

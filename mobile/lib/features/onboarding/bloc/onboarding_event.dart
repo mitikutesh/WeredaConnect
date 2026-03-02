@@ -18,6 +18,11 @@ class MarkWelcomeSeen extends OnboardingEvent {
   const MarkWelcomeSeen();
 }
 
+/// Event to dismiss the branded splash and proceed to the welcome screen.
+class DismissSplash extends OnboardingEvent {
+  const DismissSplash();
+}
+
 /// Event to navigate back to the welcome screen (without clearing persisted state).
 class ShowWelcomeScreen extends OnboardingEvent {
   const ShowWelcomeScreen();

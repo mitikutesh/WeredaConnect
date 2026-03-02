@@ -88,7 +88,7 @@ cdk deploy --context env=dev
 
 - **Voice-to-Text Crop Listings** — Record in Amharic, Afan Oromo, or English; auto-categorized into searchable map
 - **Offline-First Logistics** — List crops, find transport, connect with buyers without connectivity; auto-sync when online
-- **Telebirr Escrow** — Funds locked on trip acceptance, released on verified delivery (GPS + photo + QR)
+- **CBE Bank Escrow** — Funds held via CBE bank transfer, released on verified delivery (GPS + photo + QR)
 - **Fayda ID Verification** — Biometric identity verification for all financial transactions
 - **Multi-Language** — Amharic (አማርኛ), Afan Oromo (Afaan Oromoo), English
 - **Low-End Device Optimized** — Android 8+ (API 26), 2GB RAM, <50MB APK, <100MB memory
@@ -115,5 +115,5 @@ Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then 
 ---
 
 **Developer**: Mitiku Teshome | **Email**: mitikutes@gmail.com
-**Last Updated**: 2026-02-16 | **Version**: 0.1.0 (pre-alpha)
+**Last Updated**: 2026-03-02 | **Version**: 0.2.0 (pre-alpha)
 

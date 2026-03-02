@@ -15,6 +15,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   OnboardingBloc() : super(const OnboardingInitial()) {
     on<CheckFirstLaunch>(_onCheckFirstLaunch);
     on<MarkWelcomeSeen>(_onMarkWelcomeSeen);
+    on<DismissSplash>(_onDismissSplash);
     on<ShowWelcomeScreen>(_onShowWelcomeScreen);
   }
 
@@ -39,6 +40,14 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hasSeenWelcomeKey, true);
     emit(const ReturningUser());
+  }
+
+  /// Dismiss the branded splash landing and show the welcome screen.
+  void _onDismissSplash(
+    DismissSplash event,
+    Emitter<OnboardingState> emit,
+  ) {
+    emit(const FirstLaunch(splashDismissed: true));
   }
 
   /// Show the welcome screen without clearing the persisted "has seen" flag.

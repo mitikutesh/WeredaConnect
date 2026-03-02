@@ -2054,5 +2054,30 @@
       }
     }
   },
-  "fieldRequired": "Dirreen kun dirqama"
+  "fieldRequired": "Dirreen kun dirqama",
+  "clearAll": "Hunda haqi",
+  "myDeliveries": "Geejjiba Koo",
+  "myPayments": "Kaffaltii Koo",
+  "trackDeliveries": "Geejjiba midhaanii kee hordofi",
+  "trackPayments": "Galii fi eesciroo kee hordofi",
+  "noDeliveries": "Hanga ammaatti geejjibni hin jiru",
+  "noPayments": "Hanga ammaatti kaffaltiin hin jiru",
+  "postTrip": "Imala Galmeessi",
+  "browseMarket": "Ilaali",
+  "yourCropListings": "Tarree midhaanii kee",
+  "payments": "Kaffaltiilee",
+  "trackDelivery": "Geejjiba Hordofi",
+  "checkBalance": "Herrega Ilaali",
+  "manageOrders": "Ajaja dhufu bulchi",
+  "orderPending": "Eeggachaa",
+  "orderAccepted": "Fudhatame",
+  "orderRejected": "Didame",
+  "acceptOrder": "Fudhuu",
+  "rejectOrder": "Diduu",
+  "buyer": "Bitaa",
+  "farmer": "Qotee Bulaa",
+  "splashHeadline": "Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.",
+  "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.",
+  "orderCancelled": "Haqame",
+  "orderCompleted": "Xumurameera"
 }

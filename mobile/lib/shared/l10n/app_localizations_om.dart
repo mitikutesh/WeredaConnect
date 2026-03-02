@@ -189,7 +189,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get selectRole => 'Ga\'ee Filadhu';
 
   @override
-  String get farmer => 'Qonnaan Bultaa';
+  String get farmer => 'Qotee Bulaa';
 
   @override
   String get trucker => 'Konkolaataa Fe\'aa';
@@ -1712,4 +1712,75 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get fieldRequired => 'Dirreen kun dirqama';
+
+  @override
+  String get clearAll => 'Hunda haqi';
+
+  @override
+  String get myDeliveries => 'Geejjiba Koo';
+
+  @override
+  String get myPayments => 'Kaffaltii Koo';
+
+  @override
+  String get trackDeliveries => 'Geejjiba midhaanii kee hordofi';
+
+  @override
+  String get trackPayments => 'Galii fi eesciroo kee hordofi';
+
+  @override
+  String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';
+
+  @override
+  String get noPayments => 'Hanga ammaatti kaffaltiin hin jiru';
+
+  @override
+  String get postTrip => 'Imala Galmeessi';
+
+  @override
+  String get browseMarket => 'Ilaali';
+
+  @override
+  String get yourCropListings => 'Tarree midhaanii kee';
+
+  @override
+  String get payments => 'Kaffaltiilee';
+
+  @override
+  String get trackDelivery => 'Geejjiba Hordofi';
+
+  @override
+  String get checkBalance => 'Herrega Ilaali';
+
+  @override
+  String get manageOrders => 'Ajaja dhufu bulchi';
+
+  @override
+  String get orderPending => 'Eeggachaa';
+
+  @override
+  String get orderAccepted => 'Fudhatame';
+
+  @override
+  String get orderRejected => 'Didame';
+
+  @override
+  String get acceptOrder => 'Fudhuu';
+
+  @override
+  String get rejectOrder => 'Diduu';
+
+  @override
+  String get splashHeadline =>
+      'Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.';
+
+  @override
+  String get splashSubtitle =>
+      'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.';
+
+  @override
+  String get orderCancelled => 'Haqame';
+
+  @override
+  String get orderCompleted => 'Xumurameera';
 }

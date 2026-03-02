@@ -2322,5 +2322,105 @@
   "fieldRequired": "This field is required",
   "@fieldRequired": {
     "description": "Generic validation error for empty required fields"
+  },
+  "clearAll": "Clear all",
+  "@clearAll": {
+    "description": "Button label to clear all notifications"
+  },
+  "myDeliveries": "My Deliveries",
+  "@myDeliveries": {
+    "description": "Title for the deliveries tab screen"
+  },
+  "myPayments": "My Payments",
+  "@myPayments": {
+    "description": "Title for the payments tab screen"
+  },
+  "trackDeliveries": "Track your crop pickups & deliveries",
+  "@trackDeliveries": {
+    "description": "Subtitle for the deliveries tab header"
+  },
+  "trackPayments": "Track your earnings & escrow",
+  "@trackPayments": {
+    "description": "Subtitle for the payments tab header"
+  },
+  "noDeliveries": "No deliveries yet",
+  "@noDeliveries": {
+    "description": "Empty state message when no deliveries exist"
+  },
+  "noPayments": "No payments yet",
+  "@noPayments": {
+    "description": "Empty state message when no payments exist"
+  },
+  "postTrip": "Post Trip",
+  "@postTrip": {
+    "description": "Quick action label for truckers to post a trip"
+  },
+  "browseMarket": "Browse",
+  "@browseMarket": {
+    "description": "Quick action label for buyers to browse the market"
+  },
+  "yourCropListings": "Your crop listings",
+  "@yourCropListings": {
+    "description": "Subtitle for farmer's listings screen header"
+  },
+  "payments": "Payments",
+  "@payments": {
+    "description": "Bottom navigation label for the payments tab"
+  },
+  "trackDelivery": "Track Delivery",
+  "@trackDelivery": {
+    "description": "Quick action label to track deliveries"
+  },
+  "checkBalance": "Check Balance",
+  "@checkBalance": {
+    "description": "Quick action label to check payment balance"
+  },
+  "manageOrders": "Manage incoming orders",
+  "@manageOrders": {
+    "description": "Subtitle for orders tab header"
+  },
+  "orderPending": "Pending",
+  "@orderPending": {
+    "description": "Order status label for pending orders"
+  },
+  "orderAccepted": "Accepted",
+  "@orderAccepted": {
+    "description": "Order status label for accepted orders"
+  },
+  "orderRejected": "Rejected",
+  "@orderRejected": {
+    "description": "Order status label for rejected orders"
+  },
+  "acceptOrder": "Accept",
+  "@acceptOrder": {
+    "description": "Button label to accept an order"
+  },
+  "rejectOrder": "Reject",
+  "@rejectOrder": {
+    "description": "Button label to reject an order"
+  },
+  "buyer": "Buyer",
+  "@buyer": {
+    "description": "Label for buyer name in order card"
+  },
+  "farmer": "Farmer",
+  "@farmer": {
+    "description": "Label for farmer name in order card"
+  },
+  "splashHeadline": "Grow it. Move it.\nBuy it. Done.",
+  "@splashHeadline": {
+    "description": "Main headline on splash/landing screen"
+  },
+  "splashSubtitle": "One platform for farmers, truckers, and buyers — with secure escrow.",
+  "@splashSubtitle": {
+    "description": "Subtitle on splash/landing screen"
+  },
+  "orderCancelled": "Cancelled",
+  "@orderCancelled": {
+    "description": "Order status label for cancelled orders"
+  },
+  "orderCompleted": "Completed",
+  "@orderCompleted": {
+    "description": "Order status label for completed orders"
   }
 }

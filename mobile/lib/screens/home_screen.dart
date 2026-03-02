@@ -14,8 +14,9 @@ import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/stat_tile.dart';
@@ -68,11 +69,13 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // ── Green header with banner ──────────────────────────────
           _HomeHeaderWithBanner(
+            key: ValueKey('header_$_refreshKey'),
             userName: userName,
             userId: userId,
             woreda: woreda,
             isOnline: widget.isOnline,
             l10n: l10n,
+            onNavigateToTab: widget.onNavigateToTab,
           ),
 
           // ── Quick actions (no section title, like mockup) ────────
@@ -82,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
               role: role,
               l10n: l10n,
               onNavigateToTab: widget.onNavigateToTab,
-              context: context,
               onRefresh: _refreshData,
             ),
           ),
@@ -145,6 +147,7 @@ class _HomeHeaderWithBanner extends StatelessWidget {
   final String woreda;
   final bool isOnline;
   final AppLocalizations l10n;
+  final ValueChanged<int>? onNavigateToTab;
 
   const _HomeHeaderWithBanner({
     required this.userName,
@@ -152,6 +155,8 @@ class _HomeHeaderWithBanner extends StatelessWidget {
     required this.woreda,
     required this.isOnline,
     required this.l10n,
+    this.onNavigateToTab,
+    super.key,
   });
 
   @override
@@ -206,7 +211,31 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                       _SyncStatusIcon(isOnline: isOnline),
                       const SizedBox(width: 14),
                       // Notification bell (functional)
-                      _NotificationIcon(userId: userId, l10n: l10n),
+                      _NotificationIcon(
+                        userId: userId,
+                        l10n: l10n,
+                        isOnline: isOnline,
+                        onNavigateToTab: onNavigateToTab,
+                      ),
+                      const SizedBox(width: 10),
+                      // Profile icon
+                      GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ProfileScreen(),
+                          ),
+                        ),
+                        child: const CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.white24,
+                          child: Icon(
+                            Icons.person,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -283,23 +312,21 @@ class _QuickActionsGrid extends StatelessWidget {
   final UserRole role;
   final AppLocalizations l10n;
   final ValueChanged<int>? onNavigateToTab;
-  final BuildContext context;
   final VoidCallback? onRefresh;
 
   const _QuickActionsGrid({
     required this.role,
     required this.l10n,
     required this.onNavigateToTab,
-    required this.context,
     this.onRefresh,
   });
 
   @override
-  Widget build(BuildContext outerContext) {
-    final actions = _actionsForRole(role);
+  Widget build(BuildContext context) {
+    final actions = _actionsForRole(role, context);
 
     return GridView.count(
-      crossAxisCount: actions.length >= 4 ? 4 : 3,
+      crossAxisCount: 3,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 10,
@@ -309,91 +336,93 @@ class _QuickActionsGrid extends StatelessWidget {
     );
   }
 
-  List<Widget> _actionsForRole(UserRole role) {
+  List<Widget> _actionsForRole(UserRole role, BuildContext context) {
     switch (role) {
       case UserRole.farmer:
         return [
           _QuickActionTile(
-            icon: Icons.sell,
-            label: l10n.sell,
+            icon: Icons.list_alt,
+            label: l10n.myListings,
             color: AppTheme.primaryGreen,
             onTap: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const CreateCropListingScreen(),
+                  builder: (_) => const BrowseListingsScreen(ownerMode: true),
                 ),
               );
               onRefresh?.call();
             },
           ),
           _QuickActionTile(
-            icon: Icons.list_alt,
-            label: l10n.myListings,
-            color: AppTheme.statusInfo,
-            onTap: () => onNavigateToTab?.call(1),
+            icon: Icons.local_shipping_outlined,
+            label: l10n.trackDelivery,
+            color: AppTheme.statusTransit,
+            onTap: () => onNavigateToTab?.call(2),
           ),
           _QuickActionTile(
-            icon: Icons.receipt_long_outlined,
-            label: l10n.orders,
+            icon: Icons.account_balance_wallet_outlined,
+            label: l10n.checkBalance,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => onNavigateToTab?.call(3),
           ),
         ];
       case UserRole.trucker:
         return [
           _QuickActionTile(
-            icon: Icons.local_shipping,
+            icon: Icons.route,
             label: l10n.myTrips,
             color: AppTheme.primaryGreen,
             onTap: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const CreateTripScreen(),
+                  builder: (_) => const BrowseTripsScreen(),
                 ),
               );
               onRefresh?.call();
             },
           ),
           _QuickActionTile(
-            icon: Icons.list_alt_outlined,
-            label: l10n.availableLoads,
-            color: AppTheme.statusInfo,
-            onTap: () => onNavigateToTab?.call(1),
-          ),
-          _QuickActionTile(
-            icon: Icons.inventory_2_outlined,
-            label: l10n.deliveries,
+            icon: Icons.local_shipping_outlined,
+            label: l10n.trackDelivery,
             color: AppTheme.statusTransit,
             onTap: () => onNavigateToTab?.call(2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.escrow,
+            label: l10n.checkBalance,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => onNavigateToTab?.call(3),
           ),
         ];
       case UserRole.buyer:
         return [
           _QuickActionTile(
-            icon: Icons.shopping_bag,
-            label: l10n.buy,
+            icon: Icons.storefront,
+            label: l10n.market,
             color: AppTheme.primaryGreen,
-            onTap: () => onNavigateToTab?.call(1),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const BrowseListingsScreen(),
+                ),
+              );
+              onRefresh?.call();
+            },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.truckers,
+            label: l10n.trackDelivery,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(1),
+            onTap: () => onNavigateToTab?.call(2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.escrow,
+            label: l10n.checkBalance,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => onNavigateToTab?.call(3),
           ),
         ];
     }
@@ -1314,8 +1343,15 @@ class _SyncInfoRow extends StatelessWidget {
 class _NotificationIcon extends StatefulWidget {
   final String userId;
   final AppLocalizations l10n;
+  final bool isOnline;
+  final ValueChanged<int>? onNavigateToTab;
 
-  const _NotificationIcon({required this.userId, required this.l10n});
+  const _NotificationIcon({
+    required this.userId,
+    required this.l10n,
+    required this.isOnline,
+    this.onNavigateToTab,
+  });
 
   @override
   State<_NotificationIcon> createState() => _NotificationIconState();
@@ -1325,6 +1361,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
   List<_NotifItem> _notifications = [];
   bool _hasUnread = false;
   late Future<void> _loadFuture;
+  final Set<String> _dismissedKeys = {};
 
   @override
   void initState() {
@@ -1357,6 +1394,8 @@ class _NotificationIconState extends State<_NotificationIcon> {
             subtitle: '$failedCount operations need attention',
             color: AppTheme.statusError,
             time: DateTime.now(),
+            action: _NotifAction.syncStatus,
+            key: 'sync_failed',
           ),
         );
       }
@@ -1371,6 +1410,8 @@ class _NotificationIconState extends State<_NotificationIcon> {
             subtitle: '$pendingCount waiting to sync',
             color: AppTheme.accentGold,
             time: DateTime.now(),
+            action: _NotifAction.syncStatus,
+            key: 'sync_pending',
           ),
         );
       }
@@ -1399,6 +1440,8 @@ class _NotificationIconState extends State<_NotificationIcon> {
                 ? AppTheme.statusSuccess
                 : AppTheme.statusInfo,
             time: d.createdAt,
+            action: _NotifAction.deliveriesTab,
+            key: 'delivery_${d.deliveryId}',
           ),
         );
       }
@@ -1425,6 +1468,8 @@ class _NotificationIconState extends State<_NotificationIcon> {
                 ? AppTheme.statusSuccess
                 : AppTheme.accentGold,
             time: p.createdAt,
+            action: _NotifAction.paymentsTab,
+            key: 'payment_${p.paymentId}',
           ),
         );
       }
@@ -1439,6 +1484,50 @@ class _NotificationIconState extends State<_NotificationIcon> {
         _hasUnread = items.isNotEmpty;
       });
     }
+  }
+
+  List<_NotifItem> get _visibleNotifications =>
+      _notifications.where((n) => !_dismissedKeys.contains(n.key)).toList();
+
+  void _dismissNotification(String key) {
+    setState(() => _dismissedKeys.add(key));
+  }
+
+  void _clearAllNotifications() {
+    setState(() {
+      _dismissedKeys.addAll(_notifications.map((n) => n.key));
+    });
+  }
+
+  void _handleNotifTap(BuildContext sheetContext, _NotifItem item) {
+    _dismissNotification(item.key);
+    Navigator.of(sheetContext).pop(); // close sheet
+    switch (item.action) {
+      case _NotifAction.syncStatus:
+        _openSyncStatusSheet();
+      case _NotifAction.deliveriesTab:
+        widget.onNavigateToTab?.call(2);
+      case _NotifAction.paymentsTab:
+        widget.onNavigateToTab?.call(3);
+    }
+  }
+
+  void _openSyncStatusSheet() {
+    final l10n = AppLocalizations.of(context)!;
+    final executor = context.read<SyncExecutor>();
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return _SyncStatusSheet(
+          isOnline: widget.isOnline,
+          l10n: l10n,
+          executor: executor,
+        );
+      },
+    );
   }
 
   @override
@@ -1494,100 +1583,149 @@ class _NotificationIconState extends State<_NotificationIcon> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
-        return DraggableScrollableSheet(
-          minChildSize: 0.3,
-          maxChildSize: 0.8,
-          builder: (context, scrollController) {
-            return Column(
-              children: [
-                // Drag handle + title
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AppTheme.textMuted.withAlpha(60),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final visible = _visibleNotifications;
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.4,
+              minChildSize: 0.25,
+              maxChildSize: 0.7,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    // Drag handle + title
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+                      child: Column(
                         children: [
-                          Text(
-                            widget.l10n.notifications,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textDark,
+                          Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppTheme.textMuted.withAlpha(60),
+                              borderRadius: BorderRadius.circular(2),
                             ),
                           ),
-                          const Spacer(),
-                          if (_notifications.isNotEmpty)
-                            Text(
-                              '${_notifications.length}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textMuted,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                // Notification list
-                Expanded(
-                  child: _notifications.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                          const SizedBox(height: 16),
+                          Row(
                             children: [
-                              Icon(
-                                Icons.notifications_none,
-                                size: 48,
-                                color: AppTheme.textMuted.withAlpha(80),
-                              ),
-                              const SizedBox(height: 12),
                               Text(
-                                widget.l10n.noNotificationsYet,
+                                widget.l10n.notifications,
                                 style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textMuted,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.textDark,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                widget.l10n.noNotificationsDescription,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.textMuted.withAlpha(160),
+                              const Spacer(),
+                              if (visible.isNotEmpty) ...[
+                                GestureDetector(
+                                  onTap: () {
+                                    _clearAllNotifications();
+                                    setSheetState(() {});
+                                    Navigator.of(sheetContext).pop();
+                                  },
+                                  child: Text(
+                                    widget.l10n.clearAll,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.statusError,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  '${visible.length}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textMuted,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
-                        )
-                      : ListView.separated(
-                          controller: scrollController,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
-                          ),
-                          itemCount: _notifications.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final item = _notifications[index];
-                            return _NotifCard(item: item, l10n: widget.l10n);
-                          },
-                        ),
-                ),
-              ],
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    // Notification list
+                    Expanded(
+                      child: visible.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.notifications_none,
+                                    size: 48,
+                                    color: AppTheme.textMuted.withAlpha(80),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    widget.l10n.noNotificationsYet,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.textMuted,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    widget.l10n.noNotificationsDescription,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: AppTheme.textMuted.withAlpha(160),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: scrollController,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              itemCount: visible.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final item = visible[index];
+                                return Dismissible(
+                                  key: ValueKey(item.key),
+                                  direction: DismissDirection.endToStart,
+                                  onDismissed: (_) {
+                                    _dismissNotification(item.key);
+                                    setSheetState(() {});
+                                  },
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.statusError,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  child: _NotifCard(
+                                    item: item,
+                                    l10n: widget.l10n,
+                                    onTap: () =>
+                                        _handleNotifTap(sheetContext, item),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -1596,12 +1734,16 @@ class _NotificationIconState extends State<_NotificationIcon> {
   }
 }
 
+enum _NotifAction { syncStatus, deliveriesTab, paymentsTab }
+
 class _NotifItem {
   final IconData icon;
   final String title;
   final String subtitle;
   final Color color;
   final DateTime time;
+  final _NotifAction action;
+  final String key;
 
   _NotifItem({
     required this.icon,
@@ -1609,14 +1751,17 @@ class _NotifItem {
     required this.subtitle,
     required this.color,
     required this.time,
+    required this.action,
+    required this.key,
   });
 }
 
 class _NotifCard extends StatelessWidget {
   final _NotifItem item;
   final AppLocalizations l10n;
+  final VoidCallback? onTap;
 
-  const _NotifCard({required this.item, required this.l10n});
+  const _NotifCard({required this.item, required this.l10n, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1627,61 +1772,74 @@ class _NotifCard extends StatelessWidget {
             ? l10n.hoursAgo(timeDiff.inHours)
             : l10n.daysAgo(timeDiff.inDays);
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceWhite,
+    return Material(
+      color: AppTheme.surfaceWhite,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderLight),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: item.color.withAlpha(20),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(item.icon, size: 20, color: item.color),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.borderLight),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textDark,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: item.color.withAlpha(20),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  item.subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.textMuted,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Icon(item.icon, size: 20, color: item.color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textDark,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textMuted,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                timeLabel,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: AppTheme.textMuted.withAlpha(120),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text(
-            timeLabel,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppTheme.textMuted,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

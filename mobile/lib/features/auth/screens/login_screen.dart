@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
@@ -182,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Icon(
                         Icons.agriculture,
                         size: 80,
-                        color: theme.primaryColor,
+                        color: theme.colorScheme.primary,
                       ),
                       const SizedBox(height: 16),
 
@@ -304,21 +305,25 @@ class _LoginScreenState extends State<LoginScreen> {
                           padding: const EdgeInsets.all(12),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            border: Border.all(color: Colors.red.shade200),
-                            borderRadius: BorderRadius.circular(8),
+                            color: theme.colorScheme.errorContainer,
+                            border: Border.all(
+                              color: AppTheme.statusError.withAlpha(80),
+                            ),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.error_outline,
-                                color: Colors.red.shade700,
+                                color: theme.colorScheme.error,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   _errorMessage!,
-                                  style: TextStyle(color: Colors.red.shade700),
+                                  style: TextStyle(
+                                    color: theme.colorScheme.error,
+                                  ),
                                 ),
                               ),
                             ],
@@ -333,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           minimumSize:
                               const Size.fromHeight(48), // Large touch target
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: isLoading

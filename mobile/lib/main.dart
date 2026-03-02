@@ -27,6 +27,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -313,6 +315,14 @@ class WeredaConnectApp extends StatelessWidget {
           BlocProvider<DeliveryBloc>(
             create: (_) => DeliveryBloc(
               repository: DeliveryRepository(
+                isar: IsarService.instance.db,
+                syncQueue: SyncQueue(IsarService.instance.db),
+              ),
+            ),
+          ),
+          BlocProvider<OrderBloc>(
+            create: (_) => OrderBloc(
+              repository: OrderRepository(
                 isar: IsarService.instance.db,
                 syncQueue: SyncQueue(IsarService.instance.db),
               ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Color-coded status badge for escrow payment status.
 ///
@@ -86,13 +87,13 @@ class EscrowStatusBadge extends StatelessWidget {
 
   static (Color, IconData) _statusVisual(PaymentStatus status) {
     return switch (status) {
-      PaymentStatus.initiated => (Colors.grey, Icons.hourglass_empty),
-      PaymentStatus.escrowed => (Colors.amber.shade700, Icons.shield),
-      PaymentStatus.released => (Colors.blue, Icons.send),
-      PaymentStatus.completed => (Colors.green, Icons.check_circle),
-      PaymentStatus.cancelled => (Colors.grey, Icons.cancel),
-      PaymentStatus.disputed => (Colors.red.shade700, Icons.warning),
-      PaymentStatus.refunded => (Colors.teal, Icons.replay),
+      PaymentStatus.initiated => (AppTheme.textMuted, Icons.hourglass_empty),
+      PaymentStatus.escrowed => (AppTheme.statusWarning, Icons.shield),
+      PaymentStatus.released => (AppTheme.statusInfo, Icons.send),
+      PaymentStatus.completed => (AppTheme.statusSuccess, Icons.check_circle),
+      PaymentStatus.cancelled => (AppTheme.textMuted, Icons.cancel),
+      PaymentStatus.disputed => (AppTheme.statusError, Icons.warning),
+      PaymentStatus.refunded => (AppTheme.primaryGreenLight, Icons.replay),
     };
   }
 

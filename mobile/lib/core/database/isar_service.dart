@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
@@ -94,6 +95,7 @@ class IsarService {
         CropListingSchema,
         TripSchema,
         DeliverySchema,
+        OrderSchema,
         PaymentSchema,
         PaymentIntentSchema,
         SyncOperationSchema,

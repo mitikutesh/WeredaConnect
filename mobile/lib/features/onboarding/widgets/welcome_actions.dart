@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Action buttons for the welcome screen.
 ///
@@ -36,12 +37,12 @@ class WelcomeActions extends StatelessWidget {
             );
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2E7D32), // Deep green
+            backgroundColor: AppTheme.primaryGreen,
             foregroundColor: Colors.white,
             minimumSize: const Size.fromHeight(48),
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
             ),
             elevation: 2,
           ),
@@ -63,13 +64,13 @@ class WelcomeActions extends StatelessWidget {
             );
           },
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF2E7D32),
+            foregroundColor: AppTheme.primaryGreen,
             minimumSize: const Size.fromHeight(48),
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
             ),
-            side: const BorderSide(color: Color(0xFF2E7D32), width: 2),
+            side: const BorderSide(color: AppTheme.primaryGreen, width: 2),
           ),
           child: Text(
             l10n.signUp,

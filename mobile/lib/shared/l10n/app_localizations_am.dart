@@ -1660,4 +1660,74 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get fieldRequired => 'ይህ መስክ ያስፈልጋል';
+
+  @override
+  String get clearAll => 'ሁሉንም አጽዳ';
+
+  @override
+  String get myDeliveries => 'ማድረሻዎቼ';
+
+  @override
+  String get myPayments => 'ክፍያዎቼ';
+
+  @override
+  String get trackDeliveries => 'የሰብል ማጓጓዣዎን ይከታተሉ';
+
+  @override
+  String get trackPayments => 'ገቢዎን እና ኤስክሮ ይከታተሉ';
+
+  @override
+  String get noDeliveries => 'ገና ማድረሻ የለም';
+
+  @override
+  String get noPayments => 'ገና ክፍያ የለም';
+
+  @override
+  String get postTrip => 'ጉዞ ያስገቡ';
+
+  @override
+  String get browseMarket => 'ያስሱ';
+
+  @override
+  String get yourCropListings => 'የእርስዎ ሰብል ዝርዝሮች';
+
+  @override
+  String get payments => 'ክፍያዎች';
+
+  @override
+  String get trackDelivery => 'ማድረሻ ተከታተል';
+
+  @override
+  String get checkBalance => 'ቀሪ ሂሳብ';
+
+  @override
+  String get manageOrders => 'ገቢ ትዕዛዞችን ያስተዳድሩ';
+
+  @override
+  String get orderPending => 'በመጠባበቅ';
+
+  @override
+  String get orderAccepted => 'ተቀብለዋል';
+
+  @override
+  String get orderRejected => 'ውድቅ ተደርጓል';
+
+  @override
+  String get acceptOrder => 'ተቀበል';
+
+  @override
+  String get rejectOrder => 'ውድቅ አድርግ';
+
+  @override
+  String get splashHeadline => 'አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።';
+
+  @override
+  String get splashSubtitle =>
+      'ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።';
+
+  @override
+  String get orderCancelled => 'ተሰርዟል';
+
+  @override
+  String get orderCompleted => 'ተጠናቅቋል';
 }

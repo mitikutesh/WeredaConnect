@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
 import 'package:wereda_connect/features/onboarding/screens/welcome_screen.dart';
 import 'package:wereda_connect/screens/main_navigation.dart';
+import 'package:wereda_connect/screens/splash_screen.dart';
 
 /// Root routing widget that declaratively switches screens based on auth state.
 ///
@@ -59,22 +60,28 @@ class _AuthGateState extends State<AuthGate> {
           return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
-        // If initial auth check still in progress, show splash
+        // If initial auth check still in progress, show loading splash
         if (authState is AuthInitial) {
-          return const _SplashScreen();
+          return const _LoadingSplash();
         }
 
         // AuthUnauthenticated or AuthError — check onboarding state
         return BlocBuilder<OnboardingBloc, OnboardingState>(
           builder: (context, onboardingState) {
-            // If first launch, show welcome screen
+            // First launch: show branded splash landing, then welcome screen
             if (onboardingState is FirstLaunch) {
+              if (!onboardingState.splashDismissed) {
+                return SplashScreen(
+                  onGetStarted: () =>
+                      context.read<OnboardingBloc>().add(const DismissSplash()),
+                );
+              }
               return const WelcomeScreen();
             }
 
-            // If onboarding state still initial, show splash while checking
+            // If onboarding state still initial, show loading splash
             if (onboardingState is OnboardingInitial) {
-              return const _SplashScreen();
+              return const _LoadingSplash();
             }
 
             // Returning user - show login directly
@@ -86,12 +93,12 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Branded splash screen shown during initial auth check.
+/// Loading splash shown during initial auth check.
 ///
 /// Full-screen dark green background with centered logo,
 /// app name, tagline, and gold progress indicator.
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
+class _LoadingSplash extends StatelessWidget {
+  const _LoadingSplash();
 
   @override
   Widget build(BuildContext context) {
@@ -103,19 +110,11 @@ class _SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo icon
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(30),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.agriculture,
-                size: 56,
-                color: Colors.white,
-              ),
+            // Agriculture icon
+            const Icon(
+              Icons.agriculture,
+              size: 80,
+              color: Colors.white,
             ),
             const SizedBox(height: 24),
             // App name

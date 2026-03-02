@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Widget displaying value propositions/benefits on the welcome screen.
 ///
@@ -22,22 +23,22 @@ class ValuePropositionList extends StatelessWidget {
         _ValuePropItem(
           icon: Icons.cloud_off,
           text: l10n.offlineReady,
-          color: Colors.green,
+          color: AppTheme.statusSuccess,
         ),
         _ValuePropItem(
           icon: Icons.mic,
           text: l10n.recordAudioNote,
-          color: Colors.blue,
+          color: AppTheme.statusInfo,
         ),
         _ValuePropItem(
           icon: Icons.payment,
           text: l10n.telebirrPayment,
-          color: Colors.orange,
+          color: AppTheme.accentGold,
         ),
         _ValuePropItem(
           icon: Icons.storefront,
           text: l10n.connectWithMarkets,
-          color: Colors.purple,
+          color: AppTheme.statusTransit,
         ),
       ],
     );
@@ -67,7 +68,9 @@ class _ValuePropItem extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 14, height: 1.4),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    height: 1.4,
+                  ),
             ),
           ),
         ],

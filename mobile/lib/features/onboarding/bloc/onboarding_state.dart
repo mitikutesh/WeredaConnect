@@ -15,7 +15,13 @@ class OnboardingInitial extends OnboardingState {
 
 /// State indicating this is the user's first launch (should show welcome screen).
 class FirstLaunch extends OnboardingState {
-  const FirstLaunch();
+  /// Whether the branded splash landing has been dismissed via "Get started".
+  final bool splashDismissed;
+
+  const FirstLaunch({this.splashDismissed = false});
+
+  @override
+  List<Object?> get props => [splashDismissed];
 }
 
 /// State indicating the user is returning (has seen welcome screen before).

@@ -1697,4 +1697,74 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fieldRequired => 'This field is required';
+
+  @override
+  String get clearAll => 'Clear all';
+
+  @override
+  String get myDeliveries => 'My Deliveries';
+
+  @override
+  String get myPayments => 'My Payments';
+
+  @override
+  String get trackDeliveries => 'Track your crop pickups & deliveries';
+
+  @override
+  String get trackPayments => 'Track your earnings & escrow';
+
+  @override
+  String get noDeliveries => 'No deliveries yet';
+
+  @override
+  String get noPayments => 'No payments yet';
+
+  @override
+  String get postTrip => 'Post Trip';
+
+  @override
+  String get browseMarket => 'Browse';
+
+  @override
+  String get yourCropListings => 'Your crop listings';
+
+  @override
+  String get payments => 'Payments';
+
+  @override
+  String get trackDelivery => 'Track Delivery';
+
+  @override
+  String get checkBalance => 'Check Balance';
+
+  @override
+  String get manageOrders => 'Manage incoming orders';
+
+  @override
+  String get orderPending => 'Pending';
+
+  @override
+  String get orderAccepted => 'Accepted';
+
+  @override
+  String get orderRejected => 'Rejected';
+
+  @override
+  String get acceptOrder => 'Accept';
+
+  @override
+  String get rejectOrder => 'Reject';
+
+  @override
+  String get splashHeadline => 'Grow it. Move it.\nBuy it. Done.';
+
+  @override
+  String get splashSubtitle =>
+      'One platform for farmers, truckers, and buyers — with secure escrow.';
+
+  @override
+  String get orderCancelled => 'Cancelled';
+
+  @override
+  String get orderCompleted => 'Completed';
 }

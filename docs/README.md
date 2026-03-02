@@ -4,7 +4,7 @@
 
 | Goal | Documentation |
 |------|---------------|
-| **Understand the product (PRD)** | [Project Background](./project-background.md) |
+| **Understand the product (PRD v3)** | [Project Background](./project-background.md) |
 | **Transaction flow details** | [Transaction Flow](../specs/transaction-flow.md) |
 | **Ethiopian context** | [Local Reality](./local_reality/README.md) |
 | **Product roadmap** | [Roadmap](../specs/features/ROADMAP.md) |
@@ -99,4 +99,4 @@ docs/
 
 ---
 
-**Last Updated**: 2026-02-28
+**Last Updated**: 2026-03-02

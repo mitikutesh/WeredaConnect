@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
@@ -13,6 +14,7 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
@@ -37,13 +39,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, authState) {
-        if (authState is AuthAuthenticated) {
-          return _buildProfile(context, authState, l10n);
+    return BlocListener<AuthBloc, AuthState>(
+      listener: (context, state) {
+        // When user logs out while on profile, pop back to auth gate
+        if (state is! AuthAuthenticated && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
         }
-        return _buildUnauthenticated(context, l10n);
       },
+      child: BlocBuilder<AuthBloc, AuthState>(
+        builder: (context, authState) {
+          if (authState is AuthAuthenticated) {
+            return _buildProfile(context, authState, l10n);
+          }
+          return _buildUnauthenticated(context, l10n);
+        },
+      ),
     );
   }
 
@@ -61,15 +71,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final role = user?.role ?? authState.role;
         final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
 
-        return SingleChildScrollView(
+        return Scaffold(
+          body: SingleChildScrollView(
           child: Column(
             children: [
-              // ── Green header with avatar ─────────────────────────────
+              // ── Green header with avatar + back button ─────────────
               GreenHeader(
-                height: 200,
+                height: 210,
                 child: Column(
                   children: [
-                    const SizedBox(height: 16),
+                    // Back button row
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.arrow_back_ios_new,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Back',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     // Avatar
                     CircleAvatar(
                       radius: 36,
@@ -197,28 +236,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.account_balance_wallet_outlined,
                       title: l10n.wallet,
                       subtitle: '0 ${l10n.etbCurrency}',
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PaymentHistoryScreen(),
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     _ProfileMenuItem(
                       icon: Icons.history,
                       title: l10n.escrowHistory,
                       subtitle: '0 ${l10n.trades}',
-                      onTap: () {},
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PaymentHistoryScreen(),
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     _ProfileMenuItem(
                       icon: Icons.star_outline,
                       title: l10n.ratings,
                       subtitle: '0.0',
-                      onTap: () {},
+                      onTap: () => _showComingSoon(context, l10n),
                     ),
                     const SizedBox(height: 8),
                     _ProfileMenuItem(
                       icon: Icons.description_outlined,
                       title: l10n.documents,
                       subtitle: l10n.idAndCerts,
-                      onTap: () {},
+                      onTap: () => _showComingSoon(context, l10n),
                     ),
                     const SizedBox(height: 8),
                     _ProfileMenuItem(
@@ -239,7 +292,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.help_outline,
                       title: l10n.help,
                       subtitle: l10n.faqAndSupport,
-                      onTap: () {},
+                      onTap: () => _showComingSoon(context, l10n),
                     ),
                     if (kDebugMode) ...[
                       const SizedBox(height: 8),
@@ -284,8 +337,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ),
+        ),
         );
       },
+    );
+  }
+
+  void _showComingSoon(BuildContext context, AppLocalizations l10n) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(l10n.comingSoon),
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -299,33 +362,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildUnauthenticated(BuildContext context, AppLocalizations l10n) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.person_off_outlined,
-            size: 80,
-            color: AppTheme.textMuted,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            l10n.notLoggedIn,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.profileRestartApp,
-            style: const TextStyle(
-              fontSize: 14,
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.person_off_outlined,
+              size: 80,
               color: AppTheme.textMuted,
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            Text(
+              l10n.notLoggedIn,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.profileRestartApp,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.textMuted,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -439,6 +504,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     await isar.cropListings.clear();
                     await isar.trips.clear();
                     await isar.deliverys.clear();
+                    await isar.orders.clear();
                     await isar.payments.clear();
                     await isar.paymentIntents.clear();
                   });
