@@ -1589,7 +1589,6 @@ class _NotificationIconState extends State<_NotificationIcon> {
             return DraggableScrollableSheet(
               expand: false,
               initialChildSize: 0.4,
-              minChildSize: 0.25,
               maxChildSize: 0.7,
               builder: (context, scrollController) {
                 return Column(

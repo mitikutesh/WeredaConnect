@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
@@ -17,6 +19,14 @@ import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 /// See: `specs/contracts/sync-protocol.md`
 class SyncQueue {
   final Isar _isar;
+
+  /// Notifies listeners whenever a new operation is enqueued.
+  /// SyncExecutor subscribes to this to trigger immediate sync.
+  final StreamController<void> _enqueueController =
+      StreamController<void>.broadcast();
+
+  /// Stream that fires whenever a new operation is enqueued.
+  Stream<void> get onEnqueued => _enqueueController.stream;
 
   /// Maximum operations in the queue before rejecting new ones.
   /// Prevents unbounded growth when offline for extended periods.
@@ -102,6 +112,10 @@ class SyncQueue {
     await _isar.writeTxn(() async {
       await _isar.syncOperations.put(operation);
     });
+
+    if (!_enqueueController.isClosed) {
+      _enqueueController.add(null);
+    }
 
     return operation;
   }
@@ -229,6 +243,11 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// Release resources held by this queue.
+  void dispose() {
+    _enqueueController.close();
   }
 
   // -- Private helpers --

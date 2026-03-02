@@ -197,6 +197,7 @@ class SyncExecutor {
   final ConflictNotificationService? _conflictNotificationService;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<void>? _enqueueSubscription;
   bool _isSyncing = false;
 
   /// Stream controller for sync batch results (for UI observation).
@@ -314,7 +315,11 @@ class SyncExecutor {
       // Process batches until queue is empty or max retries exceeded
       while (consecutiveFailures < retryDelays.length) {
         final result = await executeBatch();
-        debugPrint('[SYNC] batch result: ${result.status} (${result.succeeded}/${result.total} ok, ${result.failed} failed, err: ${result.errorMessage})');
+        debugPrint(
+          '[SYNC] batch result: ${result.status} '
+          '(${result.succeeded}/${result.total} ok, '
+          '${result.failed} failed, err: ${result.errorMessage})',
+        );
         if (result.operationErrors.isNotEmpty) {
           for (final entry in result.operationErrors.entries) {
             debugPrint('[SYNC] op ${entry.key} failed: ${entry.value}');
@@ -656,6 +661,8 @@ class SyncExecutor {
   void stop() {
     _connectivitySubscription?.cancel();
     _connectivitySubscription = null;
+    _enqueueSubscription?.cancel();
+    _enqueueSubscription = null;
   }
 
   /// Release all resources held by this executor.

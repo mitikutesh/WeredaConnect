@@ -211,6 +211,7 @@ Future<void> main() async {
         connectivityMonitor: connectivityMonitor,
         escrowSyncService: escrowSyncService,
         conflictNotificationService: conflictNotificationService,
+        syncQueue: syncQueue,
         syncExecutor: syncExecutor,
         syncWorker: syncWorker,
       ),
@@ -250,6 +251,7 @@ class WeredaConnectApp extends StatelessWidget {
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
   final ConflictNotificationService conflictNotificationService;
+  final SyncQueue syncQueue;
   final SyncExecutor syncExecutor;
   final SyncWorker syncWorker;
 
@@ -258,6 +260,7 @@ class WeredaConnectApp extends StatelessWidget {
     required this.connectivityMonitor,
     required this.escrowSyncService,
     required this.conflictNotificationService,
+    required this.syncQueue,
     required this.syncExecutor,
     required this.syncWorker,
     super.key,
@@ -278,6 +281,10 @@ class WeredaConnectApp extends StatelessWidget {
         Provider<ConflictNotificationService>(
           create: (_) => conflictNotificationService,
           dispose: (_, service) => service.dispose(),
+        ),
+        Provider<SyncQueue>(
+          create: (_) => syncQueue,
+          dispose: (_, queue) => queue.dispose(),
         ),
         Provider<SyncExecutor>(
           create: (_) => syncExecutor,
@@ -300,7 +307,7 @@ class WeredaConnectApp extends StatelessWidget {
             create: (_) => CropListingBloc(
               repository: CropListingRepository(
                 isar: IsarService.instance.db,
-                syncQueue: SyncQueue(IsarService.instance.db),
+                syncQueue: syncQueue,
               ),
             ),
           ),
@@ -308,7 +315,7 @@ class WeredaConnectApp extends StatelessWidget {
             create: (_) => TripListingBloc(
               repository: TripListingRepository(
                 isar: IsarService.instance.db,
-                syncQueue: SyncQueue(IsarService.instance.db),
+                syncQueue: syncQueue,
               ),
             ),
           ),
@@ -316,7 +323,7 @@ class WeredaConnectApp extends StatelessWidget {
             create: (_) => DeliveryBloc(
               repository: DeliveryRepository(
                 isar: IsarService.instance.db,
-                syncQueue: SyncQueue(IsarService.instance.db),
+                syncQueue: syncQueue,
               ),
             ),
           ),
@@ -324,7 +331,7 @@ class WeredaConnectApp extends StatelessWidget {
             create: (_) => OrderBloc(
               repository: OrderRepository(
                 isar: IsarService.instance.db,
-                syncQueue: SyncQueue(IsarService.instance.db),
+                syncQueue: syncQueue,
               ),
             ),
           ),

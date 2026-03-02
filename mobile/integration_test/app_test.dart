@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/sync/sync_worker.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -16,6 +17,8 @@ import 'package:wereda_connect/main.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 class _MockEscrowSyncService extends Mock implements EscrowSyncService {}
+
+class _MockSyncQueue extends Mock implements SyncQueue {}
 
 class _MockSyncExecutor extends Mock implements SyncExecutor {}
 
@@ -43,6 +46,7 @@ void main() {
         connectivityMonitor: ConnectivityMonitor(dio: Dio()),
         escrowSyncService: _MockEscrowSyncService(),
         conflictNotificationService: ConflictNotificationService(),
+        syncQueue: _MockSyncQueue(),
         syncExecutor: mockExecutor,
         syncWorker: _MockSyncWorker(),
       ),
