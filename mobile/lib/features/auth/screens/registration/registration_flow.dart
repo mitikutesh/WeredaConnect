@@ -34,7 +34,8 @@ class RegistrationFlow extends StatefulWidget {
   State<RegistrationFlow> createState() => _RegistrationFlowState();
 }
 
-class _RegistrationFlowState extends State<RegistrationFlow> {
+class _RegistrationFlowState extends State<RegistrationFlow>
+    with WidgetsBindingObserver {
   final _pageController = PageController();
   final _personalInfoFormKey = GlobalKey<FormState>();
   final _faydaService = FaydaOidcService();
@@ -61,17 +62,45 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   String? _faydaError;
   StreamSubscription<Uri>? _deepLinkSub;
 
+  // Whether the browser was launched and we're waiting for a callback
+  bool _awaitingBrowserReturn = false;
+  Timer? _browserReturnTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _listenForDeepLinks();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _browserReturnTimer?.cancel();
     _pageController.dispose();
     _deepLinkSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // When app resumes from browser and we're awaiting a Fayda callback,
+    // give a short grace period for the deep link to arrive, then reset.
+    if (state == AppLifecycleState.resumed &&
+        _faydaVerifying &&
+        _awaitingBrowserReturn) {
+      _browserReturnTimer?.cancel();
+      _browserReturnTimer = Timer(const Duration(seconds: 2), () {
+        // If still verifying after 2s, the callback didn't come — reset.
+        if (mounted && _faydaVerifying) {
+          setState(() {
+            _faydaVerifying = false;
+            _awaitingBrowserReturn = false;
+            _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
+          });
+        }
+      });
+    }
   }
 
   void _listenForDeepLinks() {
@@ -97,7 +126,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       case 0:
         return _selectedRole != null;
       case 1:
-        return _faydaVerified; // Fayda verification required
+        return true; // Fayda verification is optional (post-registration)
       case 2:
         if (_selectedRole == UserRole.farmer) {
           // Farmer sees personal info as step 2
@@ -155,6 +184,16 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   }
 
   Future<void> _handleFaydaVerify() async {
+    // Fail fast if Fayda OIDC credentials are not configured via --dart-define
+    if (!FaydaOidcService.isConfigured) {
+      setState(() {
+        _faydaError =
+            'Fayda is not configured. Provide FAYDA_AUTHORIZE_URL and '
+            'FAYDA_CLIENT_ID via --dart-define or .env file.';
+      });
+      return;
+    }
+
     setState(() {
       _faydaVerifying = true;
       _faydaError = null;
@@ -163,10 +202,30 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
     _faydaState = _faydaService.generateState();
     final url = _faydaService.buildAuthorizationUrl(_faydaState!);
 
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+    debugPrint('[Fayda] isConfigured: ${FaydaOidcService.isConfigured}');
+    debugPrint('[Fayda] Launch URL: $url');
+
+    try {
+      final canLaunch = await canLaunchUrl(url);
+      debugPrint('[Fayda] canLaunchUrl: $canLaunch');
+
+      final launched =
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+      debugPrint('[Fayda] launchUrl result: $launched');
+
+      if (launched) {
+        _awaitingBrowserReturn = true;
+      } else {
+        setState(() {
+          _faydaVerifying = false;
+          _faydaError = AppLocalizations.of(context)!.faydaUnavailable;
+        });
+      }
+    } on Exception catch (e) {
+      debugPrint('[Fayda] Launch error: $e');
       setState(() {
         _faydaVerifying = false;
-        _faydaError = AppLocalizations.of(context)!.faydaUnavailable;
+        _faydaError = 'Failed to open browser: $e';
       });
     }
   }
@@ -174,6 +233,10 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   Future<void> _handleFaydaCallback(Uri uri) async {
     // Only handle our callback scheme
     if (uri.scheme != 'weredaconnect' || uri.host != 'fayda-callback') return;
+
+    // Callback arrived — cancel the browser-return timer
+    _browserReturnTimer?.cancel();
+    _awaitingBrowserReturn = false;
 
     final callback = _faydaService.parseCallback(uri);
 
@@ -238,7 +301,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             name: _name,
             role: _selectedRole!,
             woreda: _woreda,
-            faydaVerificationToken: _faydaVerificationToken!,
+            faydaVerificationToken: _faydaVerificationToken,
             preferredLanguage: languageCode,
           ),
         );
@@ -353,6 +416,16 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                   // Step 1: Fayda OIDC verification
                   FayidaIdScreen(
                     onFaydaVerifyRequested: _handleFaydaVerify,
+                    onCancelVerification: _faydaVerifying
+                        ? () {
+                            _browserReturnTimer?.cancel();
+                            setState(() {
+                              _faydaVerifying = false;
+                              _awaitingBrowserReturn = false;
+                              _faydaError = null;
+                            });
+                          }
+                        : null,
                     isVerifying: _faydaVerifying,
                     isVerified: _faydaVerified,
                     verifiedName: _faydaVerifiedName,

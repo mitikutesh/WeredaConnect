@@ -70,7 +70,7 @@ class AuthService {
     required String name,
     required UserRole role,
     required String woreda,
-    required String faydaVerificationToken,
+    String? faydaVerificationToken,
     String preferredLanguage = 'am',
   }) async {
     if (!Environment.isApiConfigured) {
@@ -88,24 +88,28 @@ class AuthService {
         );
       }
 
-      // Call registration API with Fayda verification token
+      // Call registration API, optionally with Fayda verification token
+      final data = <String, dynamic>{
+        'phoneNumber': phoneNumber,
+        'password': password,
+        'displayName': name,
+        'role': role.name,
+        'woreda': woreda,
+        'preferredLanguage': preferredLanguage,
+      };
+      if (faydaVerificationToken != null) {
+        data['faydaVerificationToken'] = faydaVerificationToken;
+      }
+
       final response = await _dio.post<Map<String, dynamic>>(
         ApiConfig.registerEndpoint,
-        data: {
-          'phoneNumber': phoneNumber,
-          'password': password,
-          'displayName': name,
-          'role': role.name,
-          'woreda': woreda,
-          'preferredLanguage': preferredLanguage,
-          'faydaVerificationToken': faydaVerificationToken,
-        },
+        data: data,
       );
 
-      final data = response.data as Map<String, dynamic>;
+      final responseData = response.data as Map<String, dynamic>;
 
       // Server now returns tokens directly (no OTP step)
-      final tokenData = data['tokens'] as Map<String, dynamic>;
+      final tokenData = responseData['tokens'] as Map<String, dynamic>;
       final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
       final tokens = AuthTokens(
         accessToken: tokenData['accessToken'] as String,
@@ -114,7 +118,7 @@ class AuthService {
         expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
       );
 
-      final user = data['user'] as Map<String, dynamic>;
+      final user = responseData['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
 
       // Cache credentials for offline use

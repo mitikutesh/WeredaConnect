@@ -1806,7 +1806,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaRequired =>
-      'Herrega keessan uumuuf eenyummaa Faayidaan mirkaneessuun dirqama.';
+      'Daldala birrii 10,000 ol ta\'e banachuuf eenyummaa Faayidaa keessan mirkaneessaa. Irra darbuu fi booda mirkaneessuu dandeessu.';
 
   @override
   String get faydaUnavailable =>

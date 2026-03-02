@@ -3418,10 +3418,10 @@ abstract class AppLocalizations {
   /// **'Fayda verification failed. Please try again.'**
   String get faydaVerificationFailed;
 
-  /// Message explaining Fayda verification is mandatory
+  /// Message explaining Fayda verification is optional during registration
   ///
   /// In en, this message translates to:
-  /// **'Fayda identity verification is required to create your account.'**
+  /// **'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.'**
   String get faydaRequired;
 
   /// Error when Fayda service cannot be reached

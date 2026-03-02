@@ -12,6 +12,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Error: red panel with retry button
 class FayidaIdScreen extends StatelessWidget {
   final VoidCallback onFaydaVerifyRequested;
+  final VoidCallback? onCancelVerification;
   final bool isVerifying;
   final bool isVerified;
   final String? verifiedName;
@@ -19,6 +20,7 @@ class FayidaIdScreen extends StatelessWidget {
 
   const FayidaIdScreen({
     required this.onFaydaVerifyRequested,
+    this.onCancelVerification,
     this.isVerifying = false,
     this.isVerified = false,
     this.verifiedName,
@@ -156,6 +158,16 @@ class FayidaIdScreen extends StatelessWidget {
                       color: AppTheme.textMuted,
                     ),
                   ),
+                  if (onCancelVerification != null) ...[
+                    const SizedBox(height: 20),
+                    TextButton(
+                      onPressed: onCancelVerification,
+                      child: Text(
+                        l10n.cancel,
+                        style: const TextStyle(color: AppTheme.textMuted),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

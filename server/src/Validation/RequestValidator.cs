@@ -275,16 +275,6 @@ public static partial class RequestValidator
             });
         }
 
-        if (string.IsNullOrWhiteSpace(request.FaydaVerificationToken))
-        {
-            errors.Add(new ValidationError
-            {
-                Field = "faydaVerificationToken",
-                Code = "FAYDA_001",
-                Message = "Fayda verification token is required."
-            });
-        }
-
         if (!ValidLanguages.Contains(request.PreferredLanguage))
         {
             errors.Add(new ValidationError

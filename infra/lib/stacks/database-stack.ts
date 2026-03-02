@@ -60,6 +60,16 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: look up users by Fayda ID (duplicate check during registration)
+    this.usersTable.addGlobalSecondaryIndex({
+      indexName: "FaydaIdIndex",
+      partitionKey: {
+        name: "faydaId",
+        type: dynamodb.AttributeType.STRING,
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Rate limits table (auth brute-force protection)
     const rateLimits = new WeredaDynamoTable(this, "RateLimitsTable", {
       tableName: `${prefix}-rate-limits`,

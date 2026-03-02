@@ -160,10 +160,12 @@ public sealed class UserRepository : IUserRepository
 
     public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)
     {
-        var request = new ScanRequest
+        // Use FaydaIdIndex GSI — efficient key-based lookup instead of table scan.
+        var request = new QueryRequest
         {
             TableName = _tableName,
-            FilterExpression = "faydaId = :fid",
+            IndexName = "FaydaIdIndex",
+            KeyConditionExpression = "faydaId = :fid",
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":fid", new AttributeValue { S = faydaId } }
@@ -171,7 +173,7 @@ public sealed class UserRepository : IUserRepository
             Limit = 1
         };
 
-        var response = await _dynamoDb.ScanAsync(request);
+        var response = await _dynamoDb.QueryAsync(request);
 
         if (response.Items == null || response.Items.Count == 0)
         {

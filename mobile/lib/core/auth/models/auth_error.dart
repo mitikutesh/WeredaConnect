@@ -20,10 +20,12 @@ class AuthErrorCode {
   static const cognitoUnavailable = 'AUTH_008';
 
   // Fayda verification errors (FAYDA_001 - FAYDA_004)
+  // Server is source of truth — see server/src/Services/FaydaOidcService.cs
+  // and server/src/Functions/FaydaVerifyFunction.cs
   static const faydaVerificationFailed = 'FAYDA_001';
   static const faydaTokenExpired = 'FAYDA_002';
-  static const faydaAlreadyLinked = 'FAYDA_003';
-  static const faydaServiceUnavailable = 'FAYDA_004';
+  static const faydaServiceUnavailable = 'FAYDA_003';
+  static const faydaAlreadyLinked = 'FAYDA_004';
 
   // Legacy (AUTH_013 still used by login)
   static const userNotFound = 'AUTH_013';

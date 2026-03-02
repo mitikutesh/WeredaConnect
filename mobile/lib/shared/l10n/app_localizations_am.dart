@@ -1751,7 +1751,8 @@ class AppLocalizationsAm extends AppLocalizations {
   String get faydaVerificationFailed => 'የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።';
 
   @override
-  String get faydaRequired => 'መለያዎን ለመፍጠር የፋይዳ ማንነት ማረጋገጫ ያስፈልጋል።';
+  String get faydaRequired =>
+      'ከ10,000 ብር በላይ ለመገበያየት የፋይዳ መታወቂያዎን ያረጋግጡ። ይህንን ዘለው ቆይተው ማረጋገጥ ይችላሉ።';
 
   @override
   String get faydaUnavailable => 'የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።';

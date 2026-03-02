@@ -2086,7 +2086,7 @@
   "faydaVerifying": "በፋይዳ በማረጋገጥ ላይ...",
   "faydaVerifiedSuccess": "ማንነት ተረጋግጧል",
   "faydaVerificationFailed": "የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
-  "faydaRequired": "መለያዎን ለመፍጠር የፋይዳ ማንነት ማረጋገጫ ያስፈልጋል።",
+  "faydaRequired": "ከ10,000 ብር በላይ ለመገበያየት የፋይዳ መታወቂያዎን ያረጋግጡ። ይህንን ዘለው ቆይተው ማረጋገጥ ይችላሉ።",
   "faydaUnavailable": "የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
   "faydaAlreadyLinked": "ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።"
 }

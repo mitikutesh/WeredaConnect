@@ -2,7 +2,9 @@ namespace WeredaConnect.Server.Models;
 
 /// <summary>
 /// POST /auth/register request body.
-/// Requires a FaydaVerificationToken from the /auth/fayda-verify endpoint.
+/// FaydaVerificationToken is optional — two-tier model:
+/// - Without Fayda: user is phone-verified, can trade up to 10,000 ETB
+/// - With Fayda: user is identity-verified, can trade unlimited
 /// </summary>
 public sealed record RegisterRequest
 {
@@ -10,7 +12,7 @@ public sealed record RegisterRequest
     public required string Password { get; init; }
     public required string Role { get; init; }
     public required string Woreda { get; init; }
-    public required string FaydaVerificationToken { get; init; }
+    public string? FaydaVerificationToken { get; init; }
     public string? DisplayName { get; init; }
     public string PreferredLanguage { get; init; } = "am";
 }

@@ -1790,7 +1790,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get faydaRequired =>
-      'Fayda identity verification is required to create your account.';
+      'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.';
 
   @override
   String get faydaUnavailable =>

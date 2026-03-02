@@ -95,15 +95,18 @@ public class RegisterFunction
             return LambdaResponse.ValidationError(validation);
         }
 
-        // Validate Fayda verification token
-        var faydaResult = _faydaService.ValidateVerificationToken(registerRequest!.FaydaVerificationToken);
-        if (!faydaResult.IsSuccess)
+        // Validate Fayda verification token (optional — two-tier model)
+        FaydaVerificationResult? faydaVerification = null;
+        if (!string.IsNullOrWhiteSpace(registerRequest!.FaydaVerificationToken))
         {
-            var faydaError = faydaResult.Error!;
-            return LambdaResponse.Error(faydaError.HttpStatus, faydaError.Code, faydaError.Message, faydaError.Field);
+            var faydaResult = _faydaService.ValidateVerificationToken(registerRequest.FaydaVerificationToken);
+            if (!faydaResult.IsSuccess)
+            {
+                var faydaError = faydaResult.Error!;
+                return LambdaResponse.Error(faydaError.HttpStatus, faydaError.Code, faydaError.Message, faydaError.Field);
+            }
+            faydaVerification = faydaResult.Value!;
         }
-
-        var faydaVerification = faydaResult.Value!;
 
         // Rate limit check: registration flood protection
         var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(registerRequest.PhoneNumber);
@@ -157,7 +160,7 @@ public class RegisterFunction
         var tokens = loginResult.Value!;
         var now = DateTime.UtcNow.ToString("o");
 
-        // DynamoDB create user with Fayda-verified status
+        // DynamoDB create user — Fayda fields set only when verified
         var userDto = new UserDto
         {
             UserId = userId,
@@ -165,9 +168,9 @@ public class RegisterFunction
             DisplayName = registerRequest.DisplayName,
             Role = registerRequest.Role,
             Woreda = registerRequest.Woreda,
-            FaydaId = faydaVerification.FaydaId,
-            FaydaVerified = true,
-            FaydaVerifiedAt = now,
+            FaydaId = faydaVerification?.FaydaId,
+            FaydaVerified = faydaVerification != null,
+            FaydaVerifiedAt = faydaVerification != null ? now : null,
             PreferredLanguage = registerRequest.PreferredLanguage,
             IsPhoneVerified = true,
             CreatedAt = now,
@@ -198,7 +201,9 @@ public class RegisterFunction
                 ExpiresIn = tokens.ExpiresIn
             },
             User = userDto,
-            Message = "Registration successful. Fayda identity verified."
+            Message = faydaVerification != null
+                ? "Registration successful. Fayda identity verified."
+                : "Registration successful. Verify Fayda ID to unlock trades above 10,000 ETB."
         };
 
         return LambdaResponse.Created(response, AppJsonContext.Default.RegisterResponse);
