@@ -2079,5 +2079,14 @@
   "splashHeadline": "Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.",
   "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.",
   "orderCancelled": "Haqame",
-  "orderCompleted": "Xumurameera"
+  "orderCompleted": "Xumurameera",
+  "faydaVerifyTitle": "Eenyummaa Faayidaan Mirkaneessuu",
+  "faydaVerifyDescription": "Eenyummaa keessan waraqaa eenyummaa Faayidaa dijitaalaa fayyadamuun mirkaneessaa. Gara portaalii Faayidaatti ni geeffamtu.",
+  "verifyWithFayda": "Faayidaan Mirkaneessuu",
+  "faydaVerifying": "Faayidaan mirkaneessaa jira...",
+  "faydaVerifiedSuccess": "Eenyummaan Mirkanaa'eera",
+  "faydaVerificationFailed": "Mirkaneessuu Faayidaa hin milkoofne. Irra deebi'aatii yaalaa.",
+  "faydaRequired": "Herrega keessan uumuuf eenyummaa Faayidaan mirkaneessuun dirqama.",
+  "faydaUnavailable": "Tajaajilli Faayidaa yeroo ammaa hin argamu. Booda irra deebi'aatii yaalaa.",
+  "faydaAlreadyLinked": "Waraqaan eenyummaa Faayidaa kun herrega biraatti walqabatee jira."
 }

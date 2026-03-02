@@ -2,6 +2,7 @@ namespace WeredaConnect.Server.Models;
 
 /// <summary>
 /// POST /auth/register request body.
+/// Requires a FaydaVerificationToken from the /auth/fayda-verify endpoint.
 /// </summary>
 public sealed record RegisterRequest
 {
@@ -9,40 +10,22 @@ public sealed record RegisterRequest
     public required string Password { get; init; }
     public required string Role { get; init; }
     public required string Woreda { get; init; }
+    public required string FaydaVerificationToken { get; init; }
     public string? DisplayName { get; init; }
     public string PreferredLanguage { get; init; } = "am";
 }
 
 /// <summary>
 /// POST /auth/register success response (201 Created).
+/// Returns tokens directly — no OTP step required (Fayda-verified).
 /// </summary>
 public sealed record RegisterResponse
 {
     public required string UserId { get; init; }
     public required string PhoneNumber { get; init; }
-    public required bool OtpRequired { get; init; }
-    public string? OtpExpiresAt { get; init; }
+    public required TokenResponse Tokens { get; init; }
+    public required UserDto User { get; init; }
     public string? Message { get; init; }
-}
-
-/// <summary>
-/// POST /auth/verify-otp request body.
-/// </summary>
-public sealed record VerifyOtpRequest
-{
-    public required string UserId { get; init; }
-    public required string PhoneNumber { get; init; }
-    public required string OtpCode { get; init; }
-}
-
-/// <summary>
-/// POST /auth/verify-otp success response (200 OK).
-/// </summary>
-public sealed record VerifyOtpResponse
-{
-    public required bool Verified { get; init; }
-    public TokenResponse? Tokens { get; init; }
-    public UserDto? User { get; init; }
 }
 
 /// <summary>

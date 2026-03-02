@@ -42,6 +42,7 @@
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.400" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.400" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.400" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.400" />
 
     <!-- Database Access (AOT-Compatible) -->
     <!-- ❌ BANNED: Entity Framework Core -->

@@ -183,6 +183,63 @@ public sealed class CognitoAuthService : ICognitoAuthService
         }
     }
 
+    public async Task<AuthResult<bool>> AdminConfirmSignUpAsync(string phone)
+    {
+        if (_userPoolId == null)
+        {
+            return AuthResult<bool>.Failure(500, "AUTH_008",
+                "User pool ID not configured for admin operations.");
+        }
+
+        try
+        {
+            // Admin-confirm the user
+            await _cognito.AdminConfirmSignUpAsync(new AdminConfirmSignUpRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone
+            });
+
+            // Mark phone as verified so the phone sign-in alias is created
+            await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone,
+                UserAttributes =
+                [
+                    new AttributeType { Name = "phone_number_verified", Value = "true" }
+                ]
+            });
+
+            return AuthResult<bool>.Success(true);
+        }
+        catch (UserNotFoundException)
+        {
+            return AuthResult<bool>.Failure(404, "AUTH_013",
+                "User not found.", "phoneNumber");
+        }
+        catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (InternalErrorException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+        catch (AmazonServiceException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+    }
+
     public async Task<AuthResult<CognitoAuthTokens>> LoginAsync(string phone, string password)
     {
         var request = new InitiateAuthRequest

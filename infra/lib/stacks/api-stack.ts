@@ -51,7 +51,7 @@ export class ApiStack extends cdk.Stack {
       userPoolName: `${prefix}-users`,
       selfSignUpEnabled: true,
       signInAliases: { phone: true },
-      autoVerify: { phone: true },
+      autoVerify: { phone: false },
       mfa: cognito.Mfa.OFF,
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
       standardAttributes: {
@@ -120,7 +120,8 @@ export class ApiStack extends cdk.Stack {
 
     const registerFn = new WeredaLambda(this, "RegisterFunction", {
       functionName: `${prefix}-auth-register`,
-      description: "POST /auth/register — user registration with phone OTP",
+      description:
+        "POST /auth/register — user registration with Fayda eKYC verification",
       handlerName: "RegisterFunction",
       environment: cognitoEnv,
       reservedConcurrentExecutions: 20,
@@ -131,25 +132,8 @@ export class ApiStack extends cdk.Stack {
       "cognito-idp:SignUp",
       "cognito-idp:AdminGetUser",
       "cognito-idp:AdminUpdateUserAttributes",
-    ]);
-
-    const verifyOtpFn = new WeredaLambda(this, "VerifyOtpFunction", {
-      functionName: `${prefix}-auth-verify-otp`,
-      description: "POST /auth/verify-otp — confirm phone number with OTP",
-      handlerName: "VerifyOtpFunction",
-      environment: {
-        ...cognitoEnv,
-        ...(envConfig.isProd ? {} : { DEV_OTP_BYPASS: "true" }),
-      },
-      reservedConcurrentExecutions: 20,
-    });
-    props.usersTable.grantReadWriteData(verifyOtpFn.function);
-    props.rateLimitsTable.grantReadWriteData(verifyOtpFn.function);
-    this.grantCognito(verifyOtpFn.function, [
-      "cognito-idp:ConfirmSignUp",
       "cognito-idp:AdminConfirmSignUp",
-      "cognito-idp:AdminUpdateUserAttributes",
-      "cognito-idp:ResendConfirmationCode",
+      "cognito-idp:InitiateAuth",
     ]);
 
     const loginFn = new WeredaLambda(this, "LoginFunction", {
@@ -296,6 +280,88 @@ export class ApiStack extends cdk.Stack {
       stringValue: "7",
       description: "Escrow auto-refund timeout in days",
     });
+
+    // ─── Fayda SSM Parameters ──────────────────────────────────────────
+
+    const faydaClientIdParam = new ssm.StringParameter(
+      this,
+      "FaydaClientId",
+      {
+        parameterName: `/${prefix}/fayda/client-id`,
+        stringValue: "PLACEHOLDER",
+        description: "Fayda OIDC client ID — update after registration",
+      },
+    );
+
+    const faydaIssuerUrlParam = new ssm.StringParameter(
+      this,
+      "FaydaIssuerUrl",
+      {
+        parameterName: `/${prefix}/fayda/issuer-url`,
+        stringValue: "https://fayda.et",
+        description: "Fayda OIDC issuer URL",
+      },
+    );
+
+    // ─── Fayda Secrets (Secrets Manager) ─────────────────────────────
+
+    const faydaClientSecret = new secretsmanager.Secret(
+      this,
+      "FaydaClientSecret",
+      {
+        secretName: `/${prefix}/fayda/client-secret`,
+        description:
+          "Fayda OIDC client secret — update after registration",
+        generateSecretString: {
+          excludePunctuation: true,
+          passwordLength: 64,
+        },
+      },
+    );
+
+    const faydaSigningSecret = new secretsmanager.Secret(
+      this,
+      "FaydaSigningSecret",
+      {
+        secretName: `/${prefix}/fayda/signing-secret`,
+        description:
+          "HMAC signing key for Fayda verification JWTs — auto-generated at deploy time",
+        generateSecretString: {
+          excludePunctuation: true,
+          passwordLength: 64,
+        },
+      },
+    );
+
+    // Grant RegisterFunction access to Fayda signing secret
+    registerFn.function.addEnvironment(
+      "FAYDA_SIGNING_SECRET_ARN",
+      faydaSigningSecret.secretArn,
+    );
+    faydaSigningSecret.grantRead(registerFn.function);
+
+    // ─── FaydaVerify Function ────────────────────────────────────────
+
+    const faydaVerifyFn = new WeredaLambda(this, "FaydaVerifyFunction", {
+      functionName: `${prefix}-auth-fayda-verify`,
+      description:
+        "POST /auth/fayda-verify — verify Fayda OIDC authorization code",
+      handlerName: "FaydaVerifyFunction",
+      environment: {
+        USERS_TABLE: props.usersTable.tableName,
+        FAYDA_CLIENT_ID_PARAM: faydaClientIdParam.parameterName,
+        FAYDA_ISSUER_URL_PARAM: faydaIssuerUrlParam.parameterName,
+        FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.secretArn,
+        FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.secretArn,
+        ...(envConfig.isProd ? {} : { DEV_FAYDA_BYPASS: "true" }),
+      },
+      reservedConcurrentExecutions: 20,
+    });
+    props.usersTable.grantReadData(faydaVerifyFn.function);
+    faydaClientIdParam.grantRead(faydaVerifyFn.function);
+    faydaIssuerUrlParam.grantRead(faydaVerifyFn.function);
+    faydaClientSecret.grantRead(faydaVerifyFn.function);
+    faydaSigningSecret.grantRead(faydaVerifyFn.function);
 
     // ─── R4.2 Delivery Function ───────────────────────────────────────
 
@@ -458,11 +524,11 @@ export class ApiStack extends cdk.Stack {
     });
 
     httpApi.addRoutes({
-      path: "/auth/verify-otp",
+      path: "/auth/fayda-verify",
       methods: [apigateway.HttpMethod.POST],
       integration: new integrations.HttpLambdaIntegration(
-        "VerifyOtpInt",
-        verifyOtpFn.function,
+        "FaydaVerifyInt",
+        faydaVerifyFn.function,
       ),
     });
 

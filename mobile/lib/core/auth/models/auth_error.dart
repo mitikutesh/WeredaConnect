@@ -19,11 +19,13 @@ class AuthErrorCode {
   static const internalServerError = 'AUTH_007';
   static const cognitoUnavailable = 'AUTH_008';
 
-  // OTP verification errors (AUTH_009 - AUTH_013)
-  static const invalidOtpFormat = 'AUTH_009';
-  static const otpExpired = 'AUTH_010';
-  static const invalidOtp = 'AUTH_011';
-  static const otpAttemptsExceeded = 'AUTH_012';
+  // Fayda verification errors (FAYDA_001 - FAYDA_004)
+  static const faydaVerificationFailed = 'FAYDA_001';
+  static const faydaTokenExpired = 'FAYDA_002';
+  static const faydaAlreadyLinked = 'FAYDA_003';
+  static const faydaServiceUnavailable = 'FAYDA_004';
+
+  // Legacy (AUTH_013 still used by login)
   static const userNotFound = 'AUTH_013';
 
   // Login errors (AUTH_014 - AUTH_016)
@@ -73,15 +75,15 @@ extension AuthErrorCodeExtension on String {
       case AuthErrorCode.rateLimitExceeded:
         return 'Too many attempts. Please try again later';
 
-      // OTP errors
-      case AuthErrorCode.invalidOtpFormat:
-        return 'OTP must be 6 digits';
-      case AuthErrorCode.otpExpired:
-        return 'Verification code expired. Request a new one';
-      case AuthErrorCode.invalidOtp:
-        return 'Invalid verification code';
-      case AuthErrorCode.otpAttemptsExceeded:
-        return 'Too many failed attempts. Request a new code';
+      // Fayda errors
+      case AuthErrorCode.faydaVerificationFailed:
+        return 'Fayda verification failed. Please try again';
+      case AuthErrorCode.faydaTokenExpired:
+        return 'Fayda verification expired. Please verify again';
+      case AuthErrorCode.faydaAlreadyLinked:
+        return 'This Fayda ID is already linked to another account';
+      case AuthErrorCode.faydaServiceUnavailable:
+        return 'Fayda service is currently unavailable. Please try later';
       case AuthErrorCode.userNotFound:
         return 'User not found. Please register first';
 

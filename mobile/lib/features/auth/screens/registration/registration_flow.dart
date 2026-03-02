@@ -1,6 +1,11 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -18,10 +23,10 @@ import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 ///
 /// Steps:
 /// 1. Role selection
-/// 2. Fayida ID verification
+/// 2. Fayda eKYC verification (OIDC browser flow)
 /// 3. Role-specific details (trucker/buyer only, farmer skips)
 /// 4. Personal info (phone, name, woreda, password)
-/// → Dispatches AuthRegisterRequested → OTP verification
+/// → Dispatches AuthRegisterRequested with Fayda verification token
 class RegistrationFlow extends StatefulWidget {
   const RegistrationFlow({super.key});
 
@@ -32,13 +37,11 @@ class RegistrationFlow extends StatefulWidget {
 class _RegistrationFlowState extends State<RegistrationFlow> {
   final _pageController = PageController();
   final _personalInfoFormKey = GlobalKey<FormState>();
+  final _faydaService = FaydaOidcService();
   int _currentStep = 0;
 
   // Collected data across steps
   UserRole? _selectedRole;
-  String _faydaId = '';
-  String? _faydaIdFrontPath;
-  String? _faydaIdBackPath;
   String? _drivingLicensePath;
   String _buyerType = 'private';
   String _companyName = '';
@@ -48,6 +51,33 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   String _password = '';
   String _confirmPassword = '';
   String? _errorMessage;
+
+  // Fayda OIDC state
+  String? _faydaVerificationToken;
+  String? _faydaVerifiedName;
+  bool _faydaVerified = false;
+  bool _faydaVerifying = false;
+  String? _faydaState;
+  String? _faydaError;
+  StreamSubscription<Uri>? _deepLinkSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _listenForDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _deepLinkSub?.cancel();
+    super.dispose();
+  }
+
+  void _listenForDeepLinks() {
+    final appLinks = AppLinks();
+    _deepLinkSub = appLinks.uriLinkStream.listen(_handleFaydaCallback);
+  }
 
   int get _totalSteps {
     if (_selectedRole == UserRole.farmer) return 3; // skip role details
@@ -67,7 +97,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       case 0:
         return _selectedRole != null;
       case 1:
-        return true; // Fayida ID is optional
+        return _faydaVerified; // Fayda verification required
       case 2:
         if (_selectedRole == UserRole.farmer) {
           // Farmer sees personal info as step 2
@@ -116,8 +146,82 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.networkError => l10n.authNetworkError,
       AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,
+      AuthErrorCode.faydaTokenExpired => l10n.faydaVerificationFailed,
+      AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
+      AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
       _ => l10n.genericError,
     };
+  }
+
+  Future<void> _handleFaydaVerify() async {
+    setState(() {
+      _faydaVerifying = true;
+      _faydaError = null;
+    });
+
+    _faydaState = _faydaService.generateState();
+    final url = _faydaService.buildAuthorizationUrl(_faydaState!);
+
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = AppLocalizations.of(context)!.faydaUnavailable;
+      });
+    }
+  }
+
+  Future<void> _handleFaydaCallback(Uri uri) async {
+    // Only handle our callback scheme
+    if (uri.scheme != 'weredaconnect' || uri.host != 'fayda-callback') return;
+
+    final callback = _faydaService.parseCallback(uri);
+
+    // Validate state to prevent CSRF
+    if (callback.state != _faydaState) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
+      });
+      return;
+    }
+
+    if (!callback.isSuccess) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = callback.errorDescription ??
+            AppLocalizations.of(context)!.faydaVerificationFailed;
+      });
+      return;
+    }
+
+    // Exchange code for verification token via our server
+    final result = await _faydaService.exchangeCode(
+      authCode: callback.code!,
+      state: _faydaState!,
+    );
+
+    if (result.isSuccess) {
+      setState(() {
+        _faydaVerificationToken = result.verificationToken;
+        _faydaVerifiedName = result.verifiedName;
+        _faydaVerified = true;
+        _faydaVerifying = false;
+        _faydaError = null;
+        // Pre-fill name from Fayda if available
+        if (result.verifiedName != null && _name.isEmpty) {
+          _name = result.verifiedName!;
+        }
+      });
+    } else {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = _localizeAuthError(
+          result.errorCode ?? 'FAYDA_001',
+          result.errorMessage ?? 'Verification failed',
+        );
+      });
+    }
   }
 
   void _handleRegister() {
@@ -134,15 +238,10 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             name: _name,
             role: _selectedRole!,
             woreda: _woreda,
+            faydaVerificationToken: _faydaVerificationToken!,
             preferredLanguage: languageCode,
           ),
         );
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   @override
@@ -157,8 +256,8 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                 _localizeAuthError(state.errorCode, state.errorMessage);
           });
         }
-        if (state is AuthOtpVerificationRequired) {
-          // Return to AuthGate, which will show OTP screen
+        if (state is AuthAuthenticated) {
+          // Registration succeeded — pop back to AuthGate
           while (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
           }
@@ -251,16 +350,13 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                       setState(() => _selectedRole = role);
                     },
                   ),
-                  // Step 1: Fayida ID
+                  // Step 1: Fayda OIDC verification
                   FayidaIdScreen(
-                    faydaId: _faydaId.isNotEmpty ? _faydaId : null,
-                    frontImagePath: _faydaIdFrontPath,
-                    backImagePath: _faydaIdBackPath,
-                    onFaydaIdChanged: (v) => setState(() => _faydaId = v),
-                    onFrontImageChanged: (v) =>
-                        setState(() => _faydaIdFrontPath = v),
-                    onBackImageChanged: (v) =>
-                        setState(() => _faydaIdBackPath = v),
+                    onFaydaVerifyRequested: _handleFaydaVerify,
+                    isVerifying: _faydaVerifying,
+                    isVerified: _faydaVerified,
+                    verifiedName: _faydaVerifiedName,
+                    errorMessage: _faydaError,
                   ),
                   // Step 2: Role-specific details
                   if (_selectedRole != null && _selectedRole != UserRole.farmer)

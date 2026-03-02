@@ -1730,4 +1730,32 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderCompleted => 'ተጠናቅቋል';
+
+  @override
+  String get faydaVerifyTitle => 'የፋይዳ ማንነት ማረጋገጫ';
+
+  @override
+  String get faydaVerifyDescription =>
+      'የፋይዳ ዲጂታል መታወቂያዎን ተጠቅመው ማንነትዎን ያረጋግጡ። ወደ ፋይዳ ፖርታል ይዛወራሉ።';
+
+  @override
+  String get verifyWithFayda => 'በፋይዳ ያረጋግጡ';
+
+  @override
+  String get faydaVerifying => 'በፋይዳ በማረጋገጥ ላይ...';
+
+  @override
+  String get faydaVerifiedSuccess => 'ማንነት ተረጋግጧል';
+
+  @override
+  String get faydaVerificationFailed => 'የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get faydaRequired => 'መለያዎን ለመፍጠር የፋይዳ ማንነት ማረጋገጫ ያስፈልጋል።';
+
+  @override
+  String get faydaUnavailable => 'የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።';
+
+  @override
+  String get faydaAlreadyLinked => 'ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።';
 }

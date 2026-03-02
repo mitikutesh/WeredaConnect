@@ -2422,5 +2422,41 @@
   "orderCompleted": "Completed",
   "@orderCompleted": {
     "description": "Order status label for completed orders"
+  },
+  "faydaVerifyTitle": "Fayda Identity Verification",
+  "@faydaVerifyTitle": {
+    "description": "Title for Fayda OIDC verification step"
+  },
+  "faydaVerifyDescription": "Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.",
+  "@faydaVerifyDescription": {
+    "description": "Description for Fayda OIDC verification step"
+  },
+  "verifyWithFayda": "Verify with Fayda",
+  "@verifyWithFayda": {
+    "description": "Button label to start Fayda OIDC verification"
+  },
+  "faydaVerifying": "Verifying with Fayda...",
+  "@faydaVerifying": {
+    "description": "Loading text during Fayda verification"
+  },
+  "faydaVerifiedSuccess": "Identity Verified",
+  "@faydaVerifiedSuccess": {
+    "description": "Success message after Fayda verification"
+  },
+  "faydaVerificationFailed": "Fayda verification failed. Please try again.",
+  "@faydaVerificationFailed": {
+    "description": "Error message when Fayda verification fails"
+  },
+  "faydaRequired": "Fayda identity verification is required to create your account.",
+  "@faydaRequired": {
+    "description": "Message explaining Fayda verification is mandatory"
+  },
+  "faydaUnavailable": "Fayda service is currently unavailable. Please try again later.",
+  "@faydaUnavailable": {
+    "description": "Error when Fayda service cannot be reached"
+  },
+  "faydaAlreadyLinked": "This Fayda ID is already linked to another account.",
+  "@faydaAlreadyLinked": {
+    "description": "Error when Fayda ID is already used by another user"
   }
 }

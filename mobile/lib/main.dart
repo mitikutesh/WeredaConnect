@@ -243,10 +243,8 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
       imageCache.clear();
       imageCache.clearLiveImages();
 
-      // SECURITY: Clear sensitive in-memory data when app goes to background.
-      // On shared devices (common in Ethiopia), this prevents password exposure
-      // via memory inspection tools when the app is backgrounded.
-      authBloc.clearSensitiveData();
+      // NOTE: No sensitive in-memory data to clear after Fayda OIDC migration.
+      // Registration no longer stores pending passwords in AuthBloc.
     } else if (state == AppLifecycleState.resumed) {
       // App returned to foreground — trigger immediate sync attempt
       syncWorker.onAppResumed();

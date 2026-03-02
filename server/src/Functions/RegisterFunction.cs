@@ -11,17 +11,21 @@ namespace WeredaConnect.Server.Functions;
 
 /// <summary>
 /// POST /auth/register Lambda handler.
-/// Flow: parse → validate → rate limit check → Cognito register → track registration → DynamoDB create → 201 response.
+/// Flow: parse → validate → validate Fayda token → rate limit check → Cognito register →
+///       admin confirm → get tokens → track registration → DynamoDB create → 201 response.
+/// Fayda-verified: skips OTP, auto-confirms user, returns tokens immediately.
 /// Rate limiting: 5 registrations per phone per day (AUTH_006).
 /// </summary>
 public class RegisterFunction
 {
     private readonly ICognitoAuthService _authService;
+    private readonly IFaydaOidcService _faydaService;
     private readonly IUserRepository _userRepository;
     private readonly IRateLimitService _rateLimitService;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
+    /// Resolves SSM parameter names and Secrets Manager ARNs to actual values.
     /// </summary>
     public RegisterFunction()
     {
@@ -33,11 +37,19 @@ public class RegisterFunction
                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
         var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
                              ?? throw new InvalidOperationException("RATE_LIMITS_TABLE is not set.");
+        var faydaSigningSecretArn = Environment.GetEnvironmentVariable("FAYDA_SIGNING_SECRET_ARN")
+                                    ?? throw new InvalidOperationException("FAYDA_SIGNING_SECRET_ARN is not set.");
+
+        // Resolve Secrets Manager ARN to actual signing secret
+        var faydaSigningSecret = Helpers.AwsParameterResolver.GetSecretValue(faydaSigningSecretArn);
 
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();
 
         _authService = new CognitoAuthService(cognito, clientId, userPoolId);
+        // RegisterFunction only needs token validation — use a placeholder for unused OIDC params
+        _faydaService = new FaydaOidcService(
+            new HttpClient(), "unused", "unused", "unused", faydaSigningSecret);
         _userRepository = new UserRepository(dynamoDb, tableName);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
     }
@@ -45,9 +57,14 @@ public class RegisterFunction
     /// <summary>
     /// Constructor for testing.
     /// </summary>
-    public RegisterFunction(ICognitoAuthService authService, IUserRepository userRepository, IRateLimitService rateLimitService)
+    public RegisterFunction(
+        ICognitoAuthService authService,
+        IFaydaOidcService faydaService,
+        IUserRepository userRepository,
+        IRateLimitService rateLimitService)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _faydaService = faydaService ?? throw new ArgumentNullException(nameof(faydaService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _rateLimitService = rateLimitService ?? throw new ArgumentNullException(nameof(rateLimitService));
     }
@@ -78,8 +95,18 @@ public class RegisterFunction
             return LambdaResponse.ValidationError(validation);
         }
 
+        // Validate Fayda verification token
+        var faydaResult = _faydaService.ValidateVerificationToken(registerRequest!.FaydaVerificationToken);
+        if (!faydaResult.IsSuccess)
+        {
+            var faydaError = faydaResult.Error!;
+            return LambdaResponse.Error(faydaError.HttpStatus, faydaError.Code, faydaError.Message, faydaError.Field);
+        }
+
+        var faydaVerification = faydaResult.Value!;
+
         // Rate limit check: registration flood protection
-        var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(registerRequest!.PhoneNumber);
+        var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(registerRequest.PhoneNumber);
         if (!rateLimitCheck.IsSuccess)
         {
             var rlError = rateLimitCheck.Error!;
@@ -101,13 +128,36 @@ public class RegisterFunction
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 
+        var userId = cognitoResult.Value!;
+
+        // Admin-confirm the user (skip OTP — Fayda-verified)
+        var confirmResult = await _authService.AdminConfirmSignUpAsync(registerRequest.PhoneNumber);
+        if (!confirmResult.IsSuccess)
+        {
+            var error = confirmResult.Error!;
+            context.Logger.LogWarning(
+                $"Failed to admin-confirm user {userId}: {error.Code} {error.Message}");
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
+        // Get tokens immediately via USER_PASSWORD_AUTH
+        var loginResult = await _authService.LoginAsync(
+            registerRequest.PhoneNumber, registerRequest.Password);
+        if (!loginResult.IsSuccess)
+        {
+            var error = loginResult.Error!;
+            context.Logger.LogWarning(
+                $"Failed to get tokens for newly registered user {userId}: {error.Code} {error.Message}");
+            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+        }
+
         // Track registration for flood protection
         await _rateLimitService.RecordRegistrationAsync(registerRequest.PhoneNumber);
 
-        var userId = cognitoResult.Value!;
+        var tokens = loginResult.Value!;
         var now = DateTime.UtcNow.ToString("o");
 
-        // DynamoDB create user (best effort — Cognito is source of truth)
+        // DynamoDB create user with Fayda-verified status
         var userDto = new UserDto
         {
             UserId = userId,
@@ -115,8 +165,11 @@ public class RegisterFunction
             DisplayName = registerRequest.DisplayName,
             Role = registerRequest.Role,
             Woreda = registerRequest.Woreda,
+            FaydaId = faydaVerification.FaydaId,
+            FaydaVerified = true,
+            FaydaVerifiedAt = now,
             PreferredLanguage = registerRequest.PreferredLanguage,
-            IsPhoneVerified = false,
+            IsPhoneVerified = true,
             CreatedAt = now,
             UpdatedAt = now,
             Version = 1
@@ -137,8 +190,15 @@ public class RegisterFunction
         {
             UserId = userId,
             PhoneNumber = registerRequest.PhoneNumber,
-            OtpRequired = true,
-            Message = "Registration successful. Please verify your phone number with the OTP sent via SMS."
+            Tokens = new TokenResponse
+            {
+                AccessToken = tokens.AccessToken,
+                IdToken = tokens.IdToken,
+                RefreshToken = tokens.RefreshToken,
+                ExpiresIn = tokens.ExpiresIn
+            },
+            User = userDto,
+            Message = "Registration successful. Fayda identity verified."
         };
 
         return LambdaResponse.Created(response, AppJsonContext.Default.RegisterResponse);

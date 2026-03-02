@@ -103,7 +103,8 @@ public sealed class UserRepository : IUserRepository
             },
             UpdateExpression = "SET #phone = :phone, #name = :name, #role = :role, " +
                                "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
-                               "#photo = :photo, #fayda = :fayda, #updated = :updated, #v = :newVersion",
+                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, " +
+                               "#updated = :updated, #v = :newVersion",
             ConditionExpression = "#v = :expectedVersion",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -115,6 +116,8 @@ public sealed class UserRepository : IUserRepository
                 { "#verified", "isPhoneVerified" },
                 { "#photo", "profilePhotoRef" },
                 { "#fayda", "faydaId" },
+                { "#faydaV", "faydaVerified" },
+                { "#faydaVAt", "faydaVerifiedAt" },
                 { "#updated", "updatedAt" },
                 { "#v", "version" }
             },
@@ -128,6 +131,8 @@ public sealed class UserRepository : IUserRepository
                 { ":verified", new AttributeValue { BOOL = user.IsPhoneVerified } },
                 { ":photo", user.ProfilePhotoRef != null ? new AttributeValue { S = user.ProfilePhotoRef } : new AttributeValue { NULL = true } },
                 { ":fayda", user.FaydaId != null ? new AttributeValue { S = user.FaydaId } : new AttributeValue { NULL = true } },
+                { ":faydaV", new AttributeValue { BOOL = user.FaydaVerified } },
+                { ":faydaVAt", user.FaydaVerifiedAt != null ? new AttributeValue { S = user.FaydaVerifiedAt } : new AttributeValue { NULL = true } },
                 { ":updated", new AttributeValue { S = now } },
                 { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                 { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
@@ -153,6 +158,29 @@ public sealed class UserRepository : IUserRepository
         }
     }
 
+    public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)
+    {
+        var request = new ScanRequest
+        {
+            TableName = _tableName,
+            FilterExpression = "faydaId = :fid",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":fid", new AttributeValue { S = faydaId } }
+            },
+            Limit = 1
+        };
+
+        var response = await _dynamoDb.ScanAsync(request);
+
+        if (response.Items == null || response.Items.Count == 0)
+        {
+            return null;
+        }
+
+        return FromItem(response.Items[0]);
+    }
+
     /// <summary>
     /// Marshal a UserDto to a DynamoDB item (Dictionary).
     /// </summary>
@@ -166,6 +194,7 @@ public sealed class UserRepository : IUserRepository
             { "woreda", new AttributeValue { S = user.Woreda } },
             { "preferredLanguage", new AttributeValue { S = user.PreferredLanguage } },
             { "isPhoneVerified", new AttributeValue { BOOL = user.IsPhoneVerified } },
+            { "faydaVerified", new AttributeValue { BOOL = user.FaydaVerified } },
             { "createdAt", new AttributeValue { S = user.CreatedAt } },
             { "updatedAt", new AttributeValue { S = user.UpdatedAt } },
             { "version", new AttributeValue { N = user.Version.ToString() } }
@@ -179,6 +208,11 @@ public sealed class UserRepository : IUserRepository
         if (user.FaydaId != null)
         {
             item["faydaId"] = new AttributeValue { S = user.FaydaId };
+        }
+
+        if (user.FaydaVerifiedAt != null)
+        {
+            item["faydaVerifiedAt"] = new AttributeValue { S = user.FaydaVerifiedAt };
         }
 
         if (user.ProfilePhotoRef != null)
@@ -202,6 +236,8 @@ public sealed class UserRepository : IUserRepository
             Role = item["role"].S,
             Woreda = item["woreda"].S,
             FaydaId = item.TryGetValue("faydaId", out var fid) && fid.S != null ? fid.S : null,
+            FaydaVerified = item.TryGetValue("faydaVerified", out var fv) && fv.BOOL,
+            FaydaVerifiedAt = item.TryGetValue("faydaVerifiedAt", out var fva) && fva.S != null ? fva.S : null,
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,

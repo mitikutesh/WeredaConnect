@@ -6,7 +6,6 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
-import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
@@ -20,7 +19,6 @@ import 'package:wereda_connect/screens/splash_screen.dart';
 /// - AuthInitial → splash screen
 /// - AuthLoading → ignored (current screen stays, shows its own spinner)
 /// - AuthAuthenticated → MainNavigation
-/// - AuthOtpVerificationRequired → OtpVerificationScreen
 /// - AuthUnauthenticated / AuthError → Check onboarding state
 ///   - FirstLaunch OR hasn't seen welcome → WelcomeScreen
 ///   - ReturningUser → LoginScreen
@@ -53,11 +51,6 @@ class _AuthGateState extends State<AuthGate> {
           // Mark welcome as seen when user successfully authenticates
           context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
           return const MainNavigation();
-        }
-
-        // If OTP verification required, show OTP screen
-        if (authState is AuthOtpVerificationRequired) {
-          return OtpVerificationScreen(phoneNumber: authState.phoneNumber);
         }
 
         // If initial auth check still in progress, show loading splash

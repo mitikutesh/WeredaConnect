@@ -24,7 +24,23 @@ public class LambdaResponseTests
         {
             UserId = "u-1",
             PhoneNumber = "+251912345678",
-            OtpRequired = true
+            Tokens = new TokenResponse
+            {
+                AccessToken = "access",
+                IdToken = "id",
+                ExpiresIn = 3600
+            },
+            User = new UserDto
+            {
+                UserId = "u-1",
+                PhoneNumber = "+251912345678",
+                Role = "farmer",
+                Woreda = "Adama",
+                IsPhoneVerified = true,
+                CreatedAt = "2026-01-01T00:00:00Z",
+                UpdatedAt = "2026-01-01T00:00:00Z",
+                Version = 1
+            }
         };
         var response = LambdaResponse.Created(body, AppJsonContext.Default.RegisterResponse);
 

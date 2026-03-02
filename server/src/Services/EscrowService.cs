@@ -147,8 +147,8 @@ public sealed class EscrowService
             var buyer = await _userRepo.GetUserByIdAsync(request.BuyerId);
             var farmer = await _userRepo.GetUserByIdAsync(request.FarmerId);
 
-            buyerFaydaVerified = !string.IsNullOrEmpty(buyer?.FaydaId);
-            farmerFaydaVerified = !string.IsNullOrEmpty(farmer?.FaydaId);
+            buyerFaydaVerified = buyer?.FaydaVerified == true;
+            farmerFaydaVerified = farmer?.FaydaVerified == true;
 
             if (!buyerFaydaVerified)
             {

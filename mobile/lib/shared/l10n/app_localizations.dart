@@ -3381,6 +3381,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Completed'**
   String get orderCompleted;
+
+  /// Title for Fayda OIDC verification step
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda Identity Verification'**
+  String get faydaVerifyTitle;
+
+  /// Description for Fayda OIDC verification step
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.'**
+  String get faydaVerifyDescription;
+
+  /// Button label to start Fayda OIDC verification
+  ///
+  /// In en, this message translates to:
+  /// **'Verify with Fayda'**
+  String get verifyWithFayda;
+
+  /// Loading text during Fayda verification
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying with Fayda...'**
+  String get faydaVerifying;
+
+  /// Success message after Fayda verification
+  ///
+  /// In en, this message translates to:
+  /// **'Identity Verified'**
+  String get faydaVerifiedSuccess;
+
+  /// Error message when Fayda verification fails
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda verification failed. Please try again.'**
+  String get faydaVerificationFailed;
+
+  /// Message explaining Fayda verification is mandatory
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda identity verification is required to create your account.'**
+  String get faydaRequired;
+
+  /// Error when Fayda service cannot be reached
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda service is currently unavailable. Please try again later.'**
+  String get faydaUnavailable;
+
+  /// Error when Fayda ID is already used by another user
+  ///
+  /// In en, this message translates to:
+  /// **'This Fayda ID is already linked to another account.'**
+  String get faydaAlreadyLinked;
 }
 
 class _AppLocalizationsDelegate

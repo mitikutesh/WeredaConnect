@@ -1767,4 +1767,36 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get orderCompleted => 'Completed';
+
+  @override
+  String get faydaVerifyTitle => 'Fayda Identity Verification';
+
+  @override
+  String get faydaVerifyDescription =>
+      'Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.';
+
+  @override
+  String get verifyWithFayda => 'Verify with Fayda';
+
+  @override
+  String get faydaVerifying => 'Verifying with Fayda...';
+
+  @override
+  String get faydaVerifiedSuccess => 'Identity Verified';
+
+  @override
+  String get faydaVerificationFailed =>
+      'Fayda verification failed. Please try again.';
+
+  @override
+  String get faydaRequired =>
+      'Fayda identity verification is required to create your account.';
+
+  @override
+  String get faydaUnavailable =>
+      'Fayda service is currently unavailable. Please try again later.';
+
+  @override
+  String get faydaAlreadyLinked =>
+      'This Fayda ID is already linked to another account.';
 }

@@ -2079,5 +2079,14 @@
   "splashHeadline": "አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።",
   "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።",
   "orderCancelled": "ተሰርዟል",
-  "orderCompleted": "ተጠናቅቋል"
+  "orderCompleted": "ተጠናቅቋል",
+  "faydaVerifyTitle": "የፋይዳ ማንነት ማረጋገጫ",
+  "faydaVerifyDescription": "የፋይዳ ዲጂታል መታወቂያዎን ተጠቅመው ማንነትዎን ያረጋግጡ። ወደ ፋይዳ ፖርታል ይዛወራሉ።",
+  "verifyWithFayda": "በፋይዳ ያረጋግጡ",
+  "faydaVerifying": "በፋይዳ በማረጋገጥ ላይ...",
+  "faydaVerifiedSuccess": "ማንነት ተረጋግጧል",
+  "faydaVerificationFailed": "የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+  "faydaRequired": "መለያዎን ለመፍጠር የፋይዳ ማንነት ማረጋገጫ ያስፈልጋል።",
+  "faydaUnavailable": "የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
+  "faydaAlreadyLinked": "ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።"
 }

@@ -10,7 +10,7 @@ namespace WeredaConnect.Server;
 /// based on the FUNCTION_HANDLER environment variable.
 ///
 /// Each Lambda is deployed with its own FUNCTION_HANDLER value:
-///   RegisterFunction, VerifyOtpFunction, LoginFunction,
+///   RegisterFunction, FaydaVerifyFunction, LoginFunction,
 ///   RefreshFunction, LogoutFunction, HealthCheckFunction
 /// </summary>
 public static class Program
@@ -36,9 +36,9 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new RegisterFunction().FunctionHandler, serializer),
 
-            var h when h.Contains("VerifyOtpFunction") =>
+            var h when h.Contains("FaydaVerifyFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
-                    new VerifyOtpFunction().FunctionHandler, serializer),
+                    new FaydaVerifyFunction().FunctionHandler, serializer),
 
             var h when h.Contains("LoginFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(

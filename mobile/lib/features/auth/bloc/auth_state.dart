@@ -49,20 +49,6 @@ class AuthUnauthenticated extends AuthState {
   const AuthUnauthenticated();
 }
 
-/// OTP verification required state (after registration).
-class AuthOtpVerificationRequired extends AuthState {
-  final String phoneNumber;
-  final String userId;
-
-  const AuthOtpVerificationRequired({
-    required this.phoneNumber,
-    required this.userId,
-  });
-
-  @override
-  List<Object?> get props => [phoneNumber, userId];
-}
-
 /// Error state (authentication operation failed).
 class AuthError extends AuthState {
   final String errorCode;

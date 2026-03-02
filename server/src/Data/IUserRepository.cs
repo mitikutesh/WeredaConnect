@@ -27,4 +27,10 @@ public interface IUserRepository
     /// Update a user with optimistic concurrency (version check).
     /// </summary>
     Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion);
+
+    /// <summary>
+    /// Find a user by Fayda ID. Returns null if no user has this Fayda ID linked.
+    /// Uses a table scan with filter — acceptable for duplicate check during registration.
+    /// </summary>
+    Task<UserDto?> GetUserByFaydaIdAsync(string faydaId);
 }

@@ -1783,4 +1783,36 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCompleted => 'Xumurameera';
+
+  @override
+  String get faydaVerifyTitle => 'Eenyummaa Faayidaan Mirkaneessuu';
+
+  @override
+  String get faydaVerifyDescription =>
+      'Eenyummaa keessan waraqaa eenyummaa Faayidaa dijitaalaa fayyadamuun mirkaneessaa. Gara portaalii Faayidaatti ni geeffamtu.';
+
+  @override
+  String get verifyWithFayda => 'Faayidaan Mirkaneessuu';
+
+  @override
+  String get faydaVerifying => 'Faayidaan mirkaneessaa jira...';
+
+  @override
+  String get faydaVerifiedSuccess => 'Eenyummaan Mirkanaa\'eera';
+
+  @override
+  String get faydaVerificationFailed =>
+      'Mirkaneessuu Faayidaa hin milkoofne. Irra deebi\'aatii yaalaa.';
+
+  @override
+  String get faydaRequired =>
+      'Herrega keessan uumuuf eenyummaa Faayidaan mirkaneessuun dirqama.';
+
+  @override
+  String get faydaUnavailable =>
+      'Tajaajilli Faayidaa yeroo ammaa hin argamu. Booda irra deebi\'aatii yaalaa.';
+
+  @override
+  String get faydaAlreadyLinked =>
+      'Waraqaan eenyummaa Faayidaa kun herrega biraatti walqabatee jira.';
 }
