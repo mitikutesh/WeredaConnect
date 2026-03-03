@@ -106,6 +106,14 @@ public class RegisterFunction
                 return LambdaResponse.Error(faydaError.HttpStatus, faydaError.Code, faydaError.Message, faydaError.Field);
             }
             faydaVerification = faydaResult.Value!;
+
+            // Re-check Fayda ID uniqueness to close TOCTOU race between fayda-verify and register
+            var existingUser = await _userRepository.GetUserByFaydaIdAsync(faydaVerification.FaydaId);
+            if (existingUser != null)
+            {
+                return LambdaResponse.Error(409, "FAYDA_004",
+                    "This Fayda ID is already linked to another account.", "faydaVerificationToken");
+            }
         }
 
         // Rate limit check: registration flood protection

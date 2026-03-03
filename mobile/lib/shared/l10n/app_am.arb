@@ -2188,5 +2188,22 @@
   "intentSaved": "ተቀምጧል! አዲስ ተመሳሳይ ሲኖር እናሳውቅዎታለን",
   "newMatchesAvailable": "አዲስ ተመሳሳይ ተገኝቷል!",
   "findCrops": "ሰብል ፈልግ",
-  "totalLabel": "ጠቅላላ"
+  "totalLabel": "ጠቅላላ",
+
+  "startTrip": "ጉዞ ጀምር",
+  "startTripConfirmation": "ይህን ጉዞ ይጀምሩ? ጭነቱን መውሰዳቸውን ያረጋግጣሉ።",
+  "tripStartedSuccess": "ጉዞ ተጀመረ! በጥንቃቄ ይነዱ።",
+  "markDelivered": "ተደርሷል ምልክት ያድርጉ",
+  "markDeliveredConfirmation": "ተላልፏል ምልክት ያድርጉ? ሸቀጦቹ መላካቸውን ያረጋግጡ።",
+  "tripDeliveredSuccess": "ማድረስ ተረጋግጧል!",
+
+  "waitingForMatch": "ጥሪ እየተጠበቀ ነው...",
+  "headingTo": "ወደ {destination} በመሄድ ላይ",
+  "postNextTrip": "ቀጣይ ጉዞ ይለጥፉ",
+  "recentRoutes": "የቅርብ ጊዜ መንገዶች",
+  "noActiveTrip": "ንቁ ጉዞ የለም",
+  "postATrip": "ጉዞ ይለጥፉ",
+
+  "repeatLastTrip": "ያለፈውን ጉዞ ድገም",
+  "quickFill": "ፈጣን ሙሌት"
 }

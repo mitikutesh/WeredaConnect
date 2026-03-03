@@ -35,6 +35,16 @@ class TripDetailScreen extends StatelessWidget {
             SnackBar(content: Text(l10n.tripCancelledSuccess)),
           );
           Navigator.of(context).pop();
+        } else if (state is TripStarted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.tripStartedSuccess)),
+          );
+          Navigator.of(context).pop();
+        } else if (state is TripDelivered) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.tripDeliveredSuccess)),
+          );
+          Navigator.of(context).pop();
         } else if (state is TripListingError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -109,51 +119,146 @@ class TripDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 32),
 
-                      // Cancel button (only for open/matched trips)
-                      if (trip.status == TripStatus.open ||
-                          trip.status == TripStatus.matched)
-                        BlocBuilder<TripListingBloc, TripListingState>(
-                          builder: (context, state) {
-                            final isLoading = state is TripListingLoading;
-                            return SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: isLoading
-                                    ? null
-                                    : () =>
-                                        _showCancelConfirmation(context, l10n),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  minimumSize: const Size.fromHeight(48),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                      // Contextual action buttons based on trip status
+                      BlocBuilder<TripListingBloc, TripListingState>(
+                        builder: (context, state) {
+                          final isLoading = state is TripListingLoading;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // Start Trip (matched trips)
+                              if (trip.status == TripStatus.matched)
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: isLoading
+                                        ? null
+                                        : () => _showStartTripConfirmation(
+                                              context,
+                                              l10n,
+                                            ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                      ),
+                                      minimumSize: const Size.fromHeight(56),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    icon: isLoading
+                                        ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                            ),
+                                          )
+                                        : const Icon(Icons.play_arrow),
+                                    label: Text(
+                                      l10n.startTrip,
+                                      style: const TextStyle(fontSize: 16),
+                                    ),
                                   ),
                                 ),
-                                icon: isLoading
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                            Colors.white,
+                              // Mark Delivered (inTransit trips)
+                              if (trip.status == TripStatus.inTransit)
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: isLoading
+                                        ? null
+                                        : () => _showMarkDeliveredConfirmation(
+                                              context,
+                                              l10n,
+                                            ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                      ),
+                                      minimumSize: const Size.fromHeight(56),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    icon: isLoading
+                                        ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.check_circle_outline,
                                           ),
-                                        ),
-                                      )
-                                    : const Icon(Icons.cancel_outlined),
-                                label: Text(
-                                  l10n.cancelTrip,
-                                  style: const TextStyle(fontSize: 16),
+                                    label: Text(
+                                      l10n.markDelivered,
+                                      style: const TextStyle(fontSize: 16),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                              // Cancel button (open/matched trips)
+                              if (trip.status == TripStatus.open ||
+                                  trip.status == TripStatus.matched) ...[
+                                if (trip.status == TripStatus.matched)
+                                  const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: isLoading
+                                        ? null
+                                        : () => _showCancelConfirmation(
+                                              context,
+                                              l10n,
+                                            ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                      ),
+                                      minimumSize: const Size.fromHeight(56),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    icon: isLoading
+                                        ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                            ),
+                                          )
+                                        : const Icon(Icons.cancel_outlined),
+                                    label: Text(
+                                      l10n.cancelTrip,
+                                      style: const TextStyle(fontSize: 16),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -165,13 +270,21 @@ class TripDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showCancelConfirmation(BuildContext context, AppLocalizations l10n) {
+  void _showTripConfirmation(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required String confirmLabel,
+    required Color confirmColor,
+    required TripListingEvent Function(String truckerId) eventFactory,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: Text(l10n.cancelTrip),
-          content: Text(l10n.cancelTripConfirmation),
+          title: Text(title),
+          content: Text(body),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -182,20 +295,59 @@ class TripDetailScreen extends StatelessWidget {
                 Navigator.of(dialogContext).pop();
                 final authState = context.read<AuthBloc>().state;
                 if (authState is AuthAuthenticated) {
-                  context.read<TripListingBloc>().add(
-                        CancelTrip(
-                          tripId: trip.tripId,
-                          truckerId: authState.userId,
-                        ),
-                      );
+                  context
+                      .read<TripListingBloc>()
+                      .add(eventFactory(authState.userId));
                 }
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: Text(l10n.cancelTrip),
+              style: TextButton.styleFrom(foregroundColor: confirmColor),
+              child: Text(confirmLabel),
             ),
           ],
         );
       },
+    );
+  }
+
+  void _showStartTripConfirmation(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    _showTripConfirmation(
+      context,
+      title: l10n.startTrip,
+      body: l10n.startTripConfirmation,
+      confirmLabel: l10n.startTrip,
+      confirmColor: Colors.green,
+      eventFactory: (truckerId) =>
+          StartTrip(tripId: trip.tripId, truckerId: truckerId),
+    );
+  }
+
+  void _showMarkDeliveredConfirmation(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    _showTripConfirmation(
+      context,
+      title: l10n.markDelivered,
+      body: l10n.markDeliveredConfirmation,
+      confirmLabel: l10n.markDelivered,
+      confirmColor: Colors.green,
+      eventFactory: (truckerId) =>
+          MarkTripDelivered(tripId: trip.tripId, truckerId: truckerId),
+    );
+  }
+
+  void _showCancelConfirmation(BuildContext context, AppLocalizations l10n) {
+    _showTripConfirmation(
+      context,
+      title: l10n.cancelTrip,
+      body: l10n.cancelTripConfirmation,
+      confirmLabel: l10n.cancelTrip,
+      confirmColor: Colors.red,
+      eventFactory: (truckerId) =>
+          CancelTrip(tripId: trip.tripId, truckerId: truckerId),
     );
   }
 }

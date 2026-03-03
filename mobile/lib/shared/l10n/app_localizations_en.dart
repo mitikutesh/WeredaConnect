@@ -2025,4 +2025,50 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get totalLabel => 'Total';
+
+  @override
+  String get startTrip => 'Start Trip';
+
+  @override
+  String get startTripConfirmation =>
+      'Start this trip? You are confirming pickup.';
+
+  @override
+  String get tripStartedSuccess => 'Trip started! Drive safe.';
+
+  @override
+  String get markDelivered => 'Mark Delivered';
+
+  @override
+  String get markDeliveredConfirmation =>
+      'Mark as delivered? Confirm drop-off.';
+
+  @override
+  String get tripDeliveredSuccess => 'Delivery confirmed!';
+
+  @override
+  String get waitingForMatch => 'Waiting for match...';
+
+  @override
+  String headingTo(String destination) {
+    return 'Heading to $destination';
+  }
+
+  @override
+  String get postNextTrip => 'Post Next Trip';
+
+  @override
+  String get recentRoutes => 'Recent Routes';
+
+  @override
+  String get noActiveTrip => 'No active trip';
+
+  @override
+  String get postATrip => 'Post a Trip';
+
+  @override
+  String get repeatLastTrip => 'Repeat Last Trip';
+
+  @override
+  String get quickFill => 'Quick Fill';
 }

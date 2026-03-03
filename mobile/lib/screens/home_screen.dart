@@ -20,8 +20,10 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_sta
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -94,6 +96,17 @@ class _HomeScreenState extends State<HomeScreen> {
               onRefresh: _refreshData,
             ),
           ),
+
+          // ── Trucker Hero Card ─────────────────────────────────────
+          if (role == UserRole.trucker)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: TruckerHeroCard(
+                key: ValueKey('hero_$_refreshKey'),
+                userId: userId,
+                onRefresh: _refreshData,
+              ),
+            ),
 
           // ── Active Buying Intents (buyer only) ────────────────────
           if (role == UserRole.buyer)
@@ -661,63 +674,71 @@ class _OverviewStatsState extends State<_OverviewStats> {
   Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
     try {
       final isar = IsarService.instance.db;
-      final listings = userId.isNotEmpty
-          ? await isar.cropListings.where().farmerIdEqualTo(userId).count()
-          : await isar.cropListings.count();
-      final deliveries = userId.isNotEmpty
-          ? await isar.deliverys
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .count()
-          : await isar.deliverys.count();
-      final payments = userId.isNotEmpty
-          ? await isar.payments
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .count()
-          : await isar.payments.count();
+      final result = <String, int>{};
 
-      // Count orders relevant to the user's role
-      int pendingOrders = 0;
-      int activeOrders = 0;
       if (role == UserRole.farmer && userId.isNotEmpty) {
-        pendingOrders = await isar.orders
-            .filter()
-            .farmerIdEqualTo(userId)
-            .statusEqualTo(OrderStatus.funded)
-            .count();
+        final futures = await Future.wait([
+          isar.cropListings.where().farmerIdEqualTo(userId).count(),
+          isar.payments.where().filter().farmerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .farmerIdEqualTo(userId)
+              .statusEqualTo(OrderStatus.funded)
+              .count(),
+          isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
+        ]);
+        result['listings'] = futures[0];
+        result['payments'] = futures[1];
+        result['pendingOrders'] = futures[2];
+        result['deliveries'] = futures[3];
       } else if (role == UserRole.buyer && userId.isNotEmpty) {
-        activeOrders = await isar.orders
-            .filter()
-            .buyerIdEqualTo(userId)
-            .group(
-              (q) => q
-                  .statusEqualTo(OrderStatus.created)
-                  .or()
-                  .statusEqualTo(OrderStatus.pendingPayment)
-                  .or()
-                  .statusEqualTo(OrderStatus.paymentSubmitted)
-                  .or()
-                  .statusEqualTo(OrderStatus.funded)
-                  .or()
-                  .statusEqualTo(OrderStatus.accepted),
-            )
-            .count();
+        final futures = await Future.wait([
+          isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
+          isar.payments.where().filter().buyerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .buyerIdEqualTo(userId)
+              .group(
+                (q) => q
+                    .statusEqualTo(OrderStatus.created)
+                    .or()
+                    .statusEqualTo(OrderStatus.pendingPayment)
+                    .or()
+                    .statusEqualTo(OrderStatus.paymentSubmitted)
+                    .or()
+                    .statusEqualTo(OrderStatus.funded)
+                    .or()
+                    .statusEqualTo(OrderStatus.accepted),
+              )
+              .count(),
+          isar.cropListings.count(),
+        ]);
+        result['deliveries'] = futures[0];
+        result['payments'] = futures[1];
+        result['activeOrders'] = futures[2];
+        result['listings'] = futures[3];
+      } else if (role == UserRole.trucker && userId.isNotEmpty) {
+        final futures = await Future.wait([
+          isar.trips.filter().truckerIdEqualTo(userId).count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.inTransit)
+              .count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.matched)
+              .count(),
+          isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
+        ]);
+        result['trips'] = futures[0];
+        result['inTransit'] = futures[1];
+        result['matched'] = futures[2];
+        result['deliveries'] = futures[3];
       }
 
-      return {
-        'listings': listings,
-        'deliveries': deliveries,
-        'payments': payments,
-        'pendingOrders': pendingOrders,
-        'activeOrders': activeOrders,
-      };
+      return result;
     } on Object {
       return {};
     }
@@ -755,18 +776,18 @@ class _OverviewStatsState extends State<_OverviewStats> {
       case UserRole.trucker:
         return [
           StatTile(
-            value: '${stats['listings'] ?? 0}',
+            value: '${stats['trips'] ?? 0}',
             label: l10n.myTrips,
             icon: Icons.local_shipping,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['inTransit'] ?? 0}',
             label: l10n.inTransit,
             icon: Icons.route,
             valueColor: AppTheme.statusTransit,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['matched'] ?? 0}',
             label: l10n.matchedLoads,
             icon: Icons.handshake_outlined,
             valueColor: AppTheme.accentGold,

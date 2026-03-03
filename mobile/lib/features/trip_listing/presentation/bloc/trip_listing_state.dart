@@ -46,6 +46,26 @@ class TripCreated extends TripListingState {
   List<Object?> get props => [trip];
 }
 
+/// State after a trip has been started (matched → inTransit).
+class TripStarted extends TripListingState {
+  final Trip trip;
+
+  const TripStarted({required this.trip});
+
+  @override
+  List<Object?> get props => [trip];
+}
+
+/// State after a trip has been marked as delivered (inTransit → delivered).
+class TripDelivered extends TripListingState {
+  final Trip trip;
+
+  const TripDelivered({required this.trip});
+
+  @override
+  List<Object?> get props => [trip];
+}
+
 /// Error state when an operation fails.
 class TripListingError extends TripListingState {
   final String message;

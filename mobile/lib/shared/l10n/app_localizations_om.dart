@@ -2041,4 +2041,50 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get totalLabel => 'Waliigala';
+
+  @override
+  String get startTrip => 'Imala Jalqabii';
+
+  @override
+  String get startTripConfirmation =>
+      'Imala kana jalqabdaa? Fe\'annoo fudhachuu mirkaneessita.';
+
+  @override
+  String get tripStartedSuccess => 'Imalaan jalqabame! Nagaan oofii.';
+
+  @override
+  String get markDelivered => 'Geessuu Mirkaneessi';
+
+  @override
+  String get markDeliveredConfirmation =>
+      'Akka geeffameetti mallatteessi? Meeshaaleen buufamuu mirkaneessi.';
+
+  @override
+  String get tripDeliveredSuccess => 'Geessuu mirkanaa\'e!';
+
+  @override
+  String get waitingForMatch => 'Walsimatu eegamaa jira...';
+
+  @override
+  String headingTo(String destination) {
+    return 'Gara $destination deemaa jira';
+  }
+
+  @override
+  String get postNextTrip => 'Imala Itti Aanuu Maxxansi';
+
+  @override
+  String get recentRoutes => 'Karaalee Dhiyoo';
+
+  @override
+  String get noActiveTrip => 'Imalli hojjatamaa jiru hin jiru';
+
+  @override
+  String get postATrip => 'Imala Maxxansi';
+
+  @override
+  String get repeatLastTrip => 'Imala Darbe Irra Deebi\'i';
+
+  @override
+  String get quickFill => 'Guuttaa Ariifataa';
 }

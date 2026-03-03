@@ -220,12 +220,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthLoginRequested event,
     Emitter<AuthState> emit,
   ) async {
+    _cancelled = false;
     emit(const AuthLoading());
 
     final result = await _authService.login(
       phoneNumber: event.phoneNumber,
       password: event.password,
     );
+
+    // User navigated away — discard the result
+    if (_cancelled) return;
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
@@ -262,12 +266,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthLoginOnlineRequested event,
     Emitter<AuthState> emit,
   ) async {
+    _cancelled = false;
     emit(const AuthLoading());
 
     final result = await _authService.loginOnline(
       phoneNumber: event.phoneNumber,
       password: event.password,
     );
+
+    // User navigated away — discard the result
+    if (_cancelled) return;
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);
@@ -302,12 +310,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthLoginOfflineRequested event,
     Emitter<AuthState> emit,
   ) async {
+    _cancelled = false;
     emit(const AuthLoading());
 
     final result = await _authService.loginOffline(
       phoneNumber: event.phoneNumber,
       password: event.password,
     );
+
+    // User navigated away — discard the result
+    if (_cancelled) return;
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);

@@ -1983,4 +1983,48 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get totalLabel => 'ጠቅላላ';
+
+  @override
+  String get startTrip => 'ጉዞ ጀምር';
+
+  @override
+  String get startTripConfirmation => 'ይህን ጉዞ ይጀምሩ? ጭነቱን መውሰዳቸውን ያረጋግጣሉ።';
+
+  @override
+  String get tripStartedSuccess => 'ጉዞ ተጀመረ! በጥንቃቄ ይነዱ።';
+
+  @override
+  String get markDelivered => 'ተደርሷል ምልክት ያድርጉ';
+
+  @override
+  String get markDeliveredConfirmation => 'ተላልፏል ምልክት ያድርጉ? ሸቀጦቹ መላካቸውን ያረጋግጡ።';
+
+  @override
+  String get tripDeliveredSuccess => 'ማድረስ ተረጋግጧል!';
+
+  @override
+  String get waitingForMatch => 'ጥሪ እየተጠበቀ ነው...';
+
+  @override
+  String headingTo(String destination) {
+    return 'ወደ $destination በመሄድ ላይ';
+  }
+
+  @override
+  String get postNextTrip => 'ቀጣይ ጉዞ ይለጥፉ';
+
+  @override
+  String get recentRoutes => 'የቅርብ ጊዜ መንገዶች';
+
+  @override
+  String get noActiveTrip => 'ንቁ ጉዞ የለም';
+
+  @override
+  String get postATrip => 'ጉዞ ይለጥፉ';
+
+  @override
+  String get repeatLastTrip => 'ያለፈውን ጉዞ ድገም';
+
+  @override
+  String get quickFill => 'ፈጣን ሙሌት';
 }

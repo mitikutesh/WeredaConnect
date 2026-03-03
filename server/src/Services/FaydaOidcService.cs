@@ -219,6 +219,7 @@ public sealed class FaydaOidcService : IFaydaOidcService
 
         var claims = new[]
         {
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim("faydaId", faydaId),
             new Claim("name", name),
             new Claim("purpose", "fayda-verification")

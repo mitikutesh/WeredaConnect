@@ -3861,6 +3861,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Total'**
   String get totalLabel;
+
+  /// Button label to start a matched trip
+  ///
+  /// In en, this message translates to:
+  /// **'Start Trip'**
+  String get startTrip;
+
+  /// Confirmation dialog text for starting a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Start this trip? You are confirming pickup.'**
+  String get startTripConfirmation;
+
+  /// Success message after starting a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Trip started! Drive safe.'**
+  String get tripStartedSuccess;
+
+  /// Button label to mark a trip as delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Mark Delivered'**
+  String get markDelivered;
+
+  /// Confirmation dialog text for marking delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as delivered? Confirm drop-off.'**
+  String get markDeliveredConfirmation;
+
+  /// Success message after confirming delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery confirmed!'**
+  String get tripDeliveredSuccess;
+
+  /// Hero card text when trip is posted but not matched
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for match...'**
+  String get waitingForMatch;
+
+  /// Hero card text when trip is in transit
+  ///
+  /// In en, this message translates to:
+  /// **'Heading to {destination}'**
+  String headingTo(String destination);
+
+  /// Button label to post another trip after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Post Next Trip'**
+  String get postNextTrip;
+
+  /// Label for recent route chips section
+  ///
+  /// In en, this message translates to:
+  /// **'Recent Routes'**
+  String get recentRoutes;
+
+  /// Hero card text when trucker has no trips
+  ///
+  /// In en, this message translates to:
+  /// **'No active trip'**
+  String get noActiveTrip;
+
+  /// CTA button label for idle trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Post a Trip'**
+  String get postATrip;
+
+  /// Button label to repeat a previous trip
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat Last Trip'**
+  String get repeatLastTrip;
+
+  /// Label for quick-fill route chips on create trip screen
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Fill'**
+  String get quickFill;
 }
 
 class _AppLocalizationsDelegate

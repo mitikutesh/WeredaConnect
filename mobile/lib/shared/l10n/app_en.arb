@@ -2710,5 +2710,36 @@
   "findCrops": "Find Crops",
   "@findCrops": { "description": "Quick action label for buyer to find crops" },
   "totalLabel": "Total",
-  "@totalLabel": { "description": "Total label in price breakdown" }
+  "@totalLabel": { "description": "Total label in price breakdown" },
+
+  "startTrip": "Start Trip",
+  "@startTrip": { "description": "Button label to start a matched trip" },
+  "startTripConfirmation": "Start this trip? You are confirming pickup.",
+  "@startTripConfirmation": { "description": "Confirmation dialog text for starting a trip" },
+  "tripStartedSuccess": "Trip started! Drive safe.",
+  "@tripStartedSuccess": { "description": "Success message after starting a trip" },
+  "markDelivered": "Mark Delivered",
+  "@markDelivered": { "description": "Button label to mark a trip as delivered" },
+  "markDeliveredConfirmation": "Mark as delivered? Confirm drop-off.",
+  "@markDeliveredConfirmation": { "description": "Confirmation dialog text for marking delivery" },
+  "tripDeliveredSuccess": "Delivery confirmed!",
+  "@tripDeliveredSuccess": { "description": "Success message after confirming delivery" },
+
+  "waitingForMatch": "Waiting for match...",
+  "@waitingForMatch": { "description": "Hero card text when trip is posted but not matched" },
+  "headingTo": "Heading to {destination}",
+  "@headingTo": { "description": "Hero card text when trip is in transit", "placeholders": { "destination": { "type": "String" } } },
+  "postNextTrip": "Post Next Trip",
+  "@postNextTrip": { "description": "Button label to post another trip after delivery" },
+  "recentRoutes": "Recent Routes",
+  "@recentRoutes": { "description": "Label for recent route chips section" },
+  "noActiveTrip": "No active trip",
+  "@noActiveTrip": { "description": "Hero card text when trucker has no trips" },
+  "postATrip": "Post a Trip",
+  "@postATrip": { "description": "CTA button label for idle trucker" },
+
+  "repeatLastTrip": "Repeat Last Trip",
+  "@repeatLastTrip": { "description": "Button label to repeat a previous trip" },
+  "quickFill": "Quick Fill",
+  "@quickFill": { "description": "Label for quick-fill route chips on create trip screen" }
 }

@@ -2188,5 +2188,22 @@
   "intentSaved": "Kuufame! Yoo walsimatu haaraan jiraate isin beeksifna",
   "newMatchesAvailable": "Walsimatu haaraa argameera!",
   "findCrops": "Midhaan Barbaadi",
-  "totalLabel": "Waliigala"
+  "totalLabel": "Waliigala",
+
+  "startTrip": "Imala Jalqabii",
+  "startTripConfirmation": "Imala kana jalqabdaa? Fe'annoo fudhachuu mirkaneessita.",
+  "tripStartedSuccess": "Imalaan jalqabame! Nagaan oofii.",
+  "markDelivered": "Geessuu Mirkaneessi",
+  "markDeliveredConfirmation": "Akka geeffameetti mallatteessi? Meeshaaleen buufamuu mirkaneessi.",
+  "tripDeliveredSuccess": "Geessuu mirkanaa'e!",
+
+  "waitingForMatch": "Walsimatu eegamaa jira...",
+  "headingTo": "Gara {destination} deemaa jira",
+  "postNextTrip": "Imala Itti Aanuu Maxxansi",
+  "recentRoutes": "Karaalee Dhiyoo",
+  "noActiveTrip": "Imalli hojjatamaa jiru hin jiru",
+  "postATrip": "Imala Maxxansi",
+
+  "repeatLastTrip": "Imala Darbe Irra Deebi'i",
+  "quickFill": "Guuttaa Ariifataa"
 }
