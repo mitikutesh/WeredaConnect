@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -17,10 +18,12 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 class PlaceOrderScreen extends StatefulWidget {
   final CropListing listing;
   final String farmerName;
+  final Trip? selectedTrip;
 
   const PlaceOrderScreen({
     required this.listing,
     required this.farmerName,
+    this.selectedTrip,
     super.key,
   });
 
@@ -51,9 +54,16 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
   double get _cropCost => _quantity * widget.listing.pricePerKg;
 
-  double get _commission => _cropCost * _commissionRate;
+  double get _transportCost {
+    if (widget.selectedTrip == null) return 0;
+    // Convert kg quantity to quintals for transport cost
+    final quintals = _quantity / 100;
+    return quintals * widget.selectedTrip!.pricePerQuintal;
+  }
 
-  double get _total => _cropCost + _commission;
+  double get _commission => (_cropCost + _transportCost) * _commissionRate;
+
+  double get _total => _cropCost + _transportCost + _commission;
 
   void _placeOrder() {
     final authState = context.read<AuthBloc>().state;
@@ -72,6 +82,10 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
             cropType: widget.listing.cropType,
             quantity: quantity,
             pricePerUnit: widget.listing.pricePerKg,
+            tripId: widget.selectedTrip?.tripId,
+            truckerId: widget.selectedTrip?.truckerId,
+            truckerName: widget.selectedTrip?.truckerName,
+            transportCost: _transportCost > 0 ? _transportCost : null,
             commissionRate: _commissionRate,
           ),
         );
@@ -191,6 +205,14 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                           amount: _cropCost,
                           l10n: l10n,
                         ),
+                        if (widget.selectedTrip != null) ...[
+                          const Divider(height: 16),
+                          _PriceRow(
+                            label: l10n.transportCost,
+                            amount: _transportCost,
+                            l10n: l10n,
+                          ),
+                        ],
                         const Divider(height: 16),
                         _PriceRow(
                           label: l10n.platformCommission,

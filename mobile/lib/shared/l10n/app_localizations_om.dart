@@ -1952,4 +1952,93 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get unauthorizedAccess => 'Ajaja kana ilaaluuf hayyamni hin jiru.';
+
+  @override
+  String get whatDoYouNeed => 'Maal barbaaddu?';
+
+  @override
+  String get whatDoYouNeedSubtitle =>
+      'Waan barbaaddan nutti himaa waan walsimatu isiniif barbaanna';
+
+  @override
+  String get findMatches => 'Walsimatu Barbaadi';
+
+  @override
+  String get quantityNeeded => 'Hamma barbaadamu (kuuntaalii)';
+
+  @override
+  String get maxPrice => 'Gatii ol\'aanaa (Birrii/kg)';
+
+  @override
+  String get deliverTo => 'Bakka geejjibaa';
+
+  @override
+  String matchesFound(int count) {
+    return '$count walsimatu argame';
+  }
+
+  @override
+  String get noMatchesYet => 'Hanga ammaatti walsimatu hin jiru';
+
+  @override
+  String get suggestedTransport => 'Geejjiba Yaadame';
+
+  @override
+  String get selectThisTrip => 'Imala Kana Fili';
+
+  @override
+  String get estimatedTotal => 'Tilmaama Waliigalaa';
+
+  @override
+  String tripsAvailable(int count) {
+    return '$count imala ni jira';
+  }
+
+  @override
+  String get noTripsYet => 'Hanga ammaatti imala hin jiru';
+
+  @override
+  String get placeOrderWithTransport => 'Ajaja + Geejjiba';
+
+  @override
+  String get placeOrderNoTransport => 'Ajaja (geejjiba malee)';
+
+  @override
+  String get activeBuyingIntents => 'Fedhii Bittaa Hojii Irra Jiru';
+
+  @override
+  String get newBuyingIntent => 'Fedhii Bittaa Haaraa';
+
+  @override
+  String get cropCostLabel => 'Gatii Midhaan';
+
+  @override
+  String get transportCostLabel => 'Gatii Geejjibaa';
+
+  @override
+  String get commissionLabel => 'Komishinii (5%)';
+
+  @override
+  String syncedAgo(String time) {
+    return '$time dura walsiме';
+  }
+
+  @override
+  String get browseAllListings => 'Tarree Hunda Ilaali';
+
+  @override
+  String get browseAllTrips => 'Imala Hunda Ilaali';
+
+  @override
+  String get intentSaved =>
+      'Kuufame! Yoo walsimatu haaraan jiraate isin beeksifna';
+
+  @override
+  String get newMatchesAvailable => 'Walsimatu haaraa argameera!';
+
+  @override
+  String get findCrops => 'Midhaan Barbaadi';
+
+  @override
+  String get totalLabel => 'Waliigala';
 }

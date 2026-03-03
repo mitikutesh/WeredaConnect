@@ -195,6 +195,7 @@ class SyncExecutor {
   final ConflictHandler? _onConflict;
   final ConflictResolver? _conflictResolver;
   final ConflictNotificationService? _conflictNotificationService;
+  final VoidCallback? _onSyncComplete;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _enqueueSubscription;
@@ -246,13 +247,15 @@ class SyncExecutor {
     ConflictHandler? onConflict,
     ConflictResolver? conflictResolver,
     ConflictNotificationService? conflictNotificationService,
+    VoidCallback? onSyncComplete,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
         _clientId = clientId,
         _onConflict = onConflict,
         _conflictResolver = conflictResolver,
-        _conflictNotificationService = conflictNotificationService;
+        _conflictNotificationService = conflictNotificationService,
+        _onSyncComplete = onSyncComplete;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -386,6 +389,11 @@ class SyncExecutor {
           await Future<void>.delayed(retryDelays[consecutiveFailures]);
         }
         consecutiveFailures++;
+      }
+
+      // Notify listener that sync completed (for match refresh, etc.)
+      if (aggregated.succeeded > 0) {
+        _onSyncComplete?.call();
       }
 
       return aggregated;

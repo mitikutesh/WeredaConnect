@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
@@ -296,6 +298,61 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// One-time migration: fix trip sync operations that contain fields
+  /// rejected by the server's whitelist (tripId, createdAt, updatedAt).
+  ///
+  /// These operations were created before the fix in trip_listing_repository
+  /// and will never succeed because the server rejects unknown fields.
+  /// This strips the bad fields from the JSON payload and resets the
+  /// operations to pending so they get retried with valid data.
+  ///
+  /// Returns the number of operations fixed.
+  Future<int> migrateBadTripSyncData() async {
+    // Find all trip operations that are failed or pending
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo('trip')
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.failed)
+              .or()
+              .statusEqualTo(SyncStatus.pending),
+        )
+        .findAll();
+
+    if (ops.isEmpty) return 0;
+
+    var fixed = 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in ops) {
+        final data = jsonDecode(op.data) as Map<String, dynamic>;
+
+        // Check if data contains the problematic fields
+        if (!data.containsKey('tripId') && !data.containsKey('createdAt')) {
+          continue;
+        }
+
+        // Strip server-managed fields that cause TRIP_VALIDATION errors
+        data.remove('tripId');
+        data.remove('createdAt');
+        data.remove('updatedAt');
+
+        op.data = jsonEncode(data);
+        op.status = SyncStatus.pending;
+        op.retryCount = 0;
+        await _isar.syncOperations.put(op);
+        fixed++;
+      }
+    });
+
+    if (fixed > 0) {
+      debugPrint('[SYNC] migrated $fixed trip operations with bad fields');
+    }
+
+    return fixed;
   }
 
   /// Release resources held by this queue.

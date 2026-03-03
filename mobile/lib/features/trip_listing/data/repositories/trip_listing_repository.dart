@@ -175,8 +175,9 @@ class TripListingRepository {
     });
 
     // Enqueue sync operation
+    // Only include server-whitelisted fields in data payload.
+    // tripId is sent as entityId; createdAt/updatedAt are set server-side.
     final syncData = <String, dynamic>{
-      'tripId': tripId,
       'truckerId': truckerId,
       'truckerName': truckerName,
       'truckerPhone': truckerPhone,
@@ -187,7 +188,6 @@ class TripListingRepository {
       'pricePerQuintal': pricePerQuintal,
       'status': trip.status.name,
       'matchedListings': <String>[],
-      'createdAt': now.toIso8601String(),
       'version': 1,
     };
     if (vehiclePlate != null && vehiclePlate.isNotEmpty) {
@@ -283,9 +283,7 @@ class TripListingRepository {
       entityId: tripId,
       action: 'delete',
       data: jsonEncode({
-        'tripId': tripId,
         'status': TripStatus.cancelled.name,
-        'updatedAt': now.toIso8601String(),
         'version': trip.version,
       }),
       operationId: _uuid.v4(),

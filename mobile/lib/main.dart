@@ -29,6 +29,9 @@ import 'package:wereda_connect/features/delivery_verification/data/repositories/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -156,6 +159,14 @@ Future<void> main() async {
   // The executor auto-syncs on connectivity changes; the worker adds
   // periodic 15-minute sync and daily purge of old operations.
   final syncQueue = SyncQueue(IsarService.instance.db);
+
+  // One-time migration: fix trip sync ops with server-rejected fields
+  try {
+    await syncQueue.migrateBadTripSyncData();
+  } on Object catch (e) {
+    debugPrint('[SYNC] migration failed (non-fatal): $e');
+  }
+
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -338,6 +349,16 @@ class WeredaConnectApp extends StatelessWidget {
               repository: OrderRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+              ),
+            ),
+          ),
+          BlocProvider<BuyerIntentBloc>(
+            create: (_) => BuyerIntentBloc(
+              repository: BuyerIntentRepository(
+                isar: IsarService.instance.db,
+              ),
+              matchingService: MatchingService(
+                isar: IsarService.instance.db,
               ),
             ),
           ),

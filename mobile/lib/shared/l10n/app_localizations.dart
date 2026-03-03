@@ -3699,6 +3699,168 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You are not authorized to view this order.'**
   String get unauthorizedAccess;
+
+  /// Title for buyer intent creation screen
+  ///
+  /// In en, this message translates to:
+  /// **'What do you need?'**
+  String get whatDoYouNeed;
+
+  /// Subtitle for buyer intent creation screen
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us what you\'re looking for and we\'ll find matches'**
+  String get whatDoYouNeedSubtitle;
+
+  /// Button to search for matching crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Find Matches'**
+  String get findMatches;
+
+  /// Label for quantity input on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity needed (quintals)'**
+  String get quantityNeeded;
+
+  /// Label for max price input on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum price (ETB/kg)'**
+  String get maxPrice;
+
+  /// Label for delivery destination on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Deliver to'**
+  String get deliverTo;
+
+  /// Count of matching listings
+  ///
+  /// In en, this message translates to:
+  /// **'{count} matches found'**
+  String matchesFound(int count);
+
+  /// Empty state when no listings match the intent
+  ///
+  /// In en, this message translates to:
+  /// **'No matches yet'**
+  String get noMatchesYet;
+
+  /// Section title for transport suggestions
+  ///
+  /// In en, this message translates to:
+  /// **'Suggested Transport'**
+  String get suggestedTransport;
+
+  /// Button to select a trip for transport
+  ///
+  /// In en, this message translates to:
+  /// **'Select This Trip'**
+  String get selectThisTrip;
+
+  /// Label for total cost estimate
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated Total'**
+  String get estimatedTotal;
+
+  /// Count of available trips
+  ///
+  /// In en, this message translates to:
+  /// **'{count} trips available'**
+  String tripsAvailable(int count);
+
+  /// Empty state when no trips match
+  ///
+  /// In en, this message translates to:
+  /// **'No trips yet'**
+  String get noTripsYet;
+
+  /// Button to place order with selected transport
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order + Transport'**
+  String get placeOrderWithTransport;
+
+  /// Button to place order without transport
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order (no transport)'**
+  String get placeOrderNoTransport;
+
+  /// Section title for active buyer intents on home screen
+  ///
+  /// In en, this message translates to:
+  /// **'Active Buying Intents'**
+  String get activeBuyingIntents;
+
+  /// Button to create a new buying intent
+  ///
+  /// In en, this message translates to:
+  /// **'New Buying Intent'**
+  String get newBuyingIntent;
+
+  /// Label for crop cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Cost'**
+  String get cropCostLabel;
+
+  /// Label for transport cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Transport Cost'**
+  String get transportCostLabel;
+
+  /// Label for commission in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Commission (5%)'**
+  String get commissionLabel;
+
+  /// Stale data indicator
+  ///
+  /// In en, this message translates to:
+  /// **'Synced {time} ago'**
+  String syncedAgo(String time);
+
+  /// Link to browse all crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Browse All Listings'**
+  String get browseAllListings;
+
+  /// Link to browse all trips
+  ///
+  /// In en, this message translates to:
+  /// **'Browse All Trips'**
+  String get browseAllTrips;
+
+  /// Confirmation after saving a buying intent
+  ///
+  /// In en, this message translates to:
+  /// **'Saved! We\'ll notify you of new matches'**
+  String get intentSaved;
+
+  /// Badge text for new matches
+  ///
+  /// In en, this message translates to:
+  /// **'New matches available!'**
+  String get newMatchesAvailable;
+
+  /// Quick action label for buyer to find crops
+  ///
+  /// In en, this message translates to:
+  /// **'Find Crops'**
+  String get findCrops;
+
+  /// Total label in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get totalLabel;
 }
 
 class _AppLocalizationsDelegate

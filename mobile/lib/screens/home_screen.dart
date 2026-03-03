@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:isar/isar.dart';
-import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -15,6 +14,12 @@ import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
@@ -89,6 +94,18 @@ class _HomeScreenState extends State<HomeScreen> {
               onRefresh: _refreshData,
             ),
           ),
+
+          // ── Active Buying Intents (buyer only) ────────────────────
+          if (role == UserRole.buyer)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: _ActiveIntentsSection(
+                key: ValueKey('intents_$_refreshKey'),
+                userId: userId,
+                l10n: l10n,
+                onRefresh: _refreshData,
+              ),
+            ),
 
           // ── Overview ─────────────────────────────────────────────
           Padding(
@@ -400,14 +417,14 @@ class _QuickActionsGrid extends StatelessWidget {
       case UserRole.buyer:
         return [
           _QuickActionTile(
-            icon: Icons.storefront,
-            label: l10n.market,
+            icon: Icons.search,
+            label: l10n.findCrops,
             color: AppTheme.primaryGreen,
             onTap: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const BrowseListingsScreen(),
+                  builder: (_) => const CreateIntentScreen(),
                 ),
               );
               onRefresh?.call();
@@ -485,6 +502,103 @@ class _QuickActionTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Active buying intents section for the buyer home screen.
+///
+/// Shows up to 3 active intents with match count badges.
+/// Tapping an intent navigates to match results.
+class _ActiveIntentsSection extends StatefulWidget {
+  final String userId;
+  final AppLocalizations l10n;
+  final VoidCallback? onRefresh;
+
+  const _ActiveIntentsSection({
+    required this.userId,
+    required this.l10n,
+    this.onRefresh,
+    super.key,
+  });
+
+  @override
+  State<_ActiveIntentsSection> createState() => _ActiveIntentsSectionState();
+}
+
+class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
+  @override
+  void initState() {
+    super.initState();
+    context
+        .read<BuyerIntentBloc>()
+        .add(LoadActiveIntents(buyerId: widget.userId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+
+    return BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+      buildWhen: (prev, curr) => curr is ActiveIntentsLoaded,
+      builder: (context, state) {
+        if (state is! ActiveIntentsLoaded || state.intents.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final intents = state.intents.take(3).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.activeBuyingIntents,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...intents.map(
+              (intent) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: IntentCard(
+                  intent: intent,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => BlocProvider.value(
+                          value: context.read<BuyerIntentBloc>(),
+                          child: MatchResultsScreen(intent: intent),
+                        ),
+                      ),
+                    );
+                    widget.onRefresh?.call();
+                  },
+                ),
+              ),
+            ),
+            // "New Buying Intent" button
+            Center(
+              child: TextButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CreateIntentScreen(),
+                    ),
+                  );
+                  widget.onRefresh?.call();
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: Text(l10n.newBuyingIntent),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -955,7 +1069,7 @@ class _SyncStatusIconState extends State<_SyncStatusIcon>
     _isSyncing = executor.isSyncing;
     if (_isSyncing) _spinController.repeat();
 
-    _syncSub = executor.onSyncResult.listen((result) {
+    _syncSub = executor.onSyncResult.listen((_) {
       _loadCounts();
     });
   }
@@ -1111,11 +1225,12 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
         SyncBatchStatus.partial =>
           '${result.succeeded} synced, ${result.failed} failed',
         SyncBatchStatus.empty => widget.l10n.syncComplete,
+        SyncBatchStatus.skipped => null, // another sync in progress, no change
         SyncBatchStatus.noInternet => widget.l10n.offlineModeIndicator,
         SyncBatchStatus.networkError => 'Network error',
         SyncBatchStatus.authError => 'Authentication error',
         SyncBatchStatus.rateLimited => 'Rate limited — try later',
-        _ => result.errorMessage ?? 'Error',
+        SyncBatchStatus.error => result.errorMessage ?? 'Error',
       };
     });
   }
@@ -1138,10 +1253,17 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
 
   Future<void> _syncNow() async {
     setState(() => _isSyncing = true);
-    final result = await widget.executor.syncNow();
-    if (mounted) {
-      _onSyncResult(result);
-      widget.onSyncComplete?.call();
+    try {
+      final result = await widget.executor.syncNow();
+      if (mounted) {
+        _onSyncResult(result);
+        widget.onSyncComplete?.call();
+      }
+    } on Object {
+      // Ensure _isSyncing resets even if executor throws unexpectedly
+      if (mounted) {
+        setState(() => _isSyncing = widget.executor.isSyncing);
+      }
     }
   }
 
@@ -1150,6 +1272,9 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
     final retried = await queue.retryFailed();
     if (mounted && retried > 0) {
       await _syncNow();
+    } else if (mounted) {
+      // Refresh counts — failed ops may have been cleared
+      _loadCounts();
     }
   }
 

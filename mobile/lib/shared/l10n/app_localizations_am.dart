@@ -1896,4 +1896,91 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get unauthorizedAccess => 'ይህን ትዕዛዝ ለማየት ፍቃድ የሎትም።';
+
+  @override
+  String get whatDoYouNeed => 'ምን ይፈልጋሉ?';
+
+  @override
+  String get whatDoYouNeedSubtitle => 'የሚፈልጉትን ይንገሩን ተመሳሳይ እናገኝልዎታለን';
+
+  @override
+  String get findMatches => 'ተመሳሳይ ፈልግ';
+
+  @override
+  String get quantityNeeded => 'የሚፈለግ መጠን (ኩንታል)';
+
+  @override
+  String get maxPrice => 'ከፍተኛ ዋጋ (ብር/ኪግ)';
+
+  @override
+  String get deliverTo => 'ማድረሻ';
+
+  @override
+  String matchesFound(int count) {
+    return '$count ተመሳሳይ ተገኝቷል';
+  }
+
+  @override
+  String get noMatchesYet => 'ገና ምንም ተመሳሳይ የለም';
+
+  @override
+  String get suggestedTransport => 'የተጠቆመ ትራንስፖርት';
+
+  @override
+  String get selectThisTrip => 'ይህን ጉዞ ይምረጡ';
+
+  @override
+  String get estimatedTotal => 'የተገመተ ጠቅላላ';
+
+  @override
+  String tripsAvailable(int count) {
+    return '$count ጉዞዎች አሉ';
+  }
+
+  @override
+  String get noTripsYet => 'ገና ጉዞ የለም';
+
+  @override
+  String get placeOrderWithTransport => 'ትዕዛዝ + ትራንስፖርት';
+
+  @override
+  String get placeOrderNoTransport => 'ትዕዛዝ (ያለ ትራንስፖርት)';
+
+  @override
+  String get activeBuyingIntents => 'ንቁ የግዢ ፍላጎቶች';
+
+  @override
+  String get newBuyingIntent => 'አዲስ የግዢ ፍላጎት';
+
+  @override
+  String get cropCostLabel => 'የሰብል ዋጋ';
+
+  @override
+  String get transportCostLabel => 'የትራንስፖርት ዋጋ';
+
+  @override
+  String get commissionLabel => 'ኮሚሽን (5%)';
+
+  @override
+  String syncedAgo(String time) {
+    return 'ከ$time በፊት ተመሳሳል';
+  }
+
+  @override
+  String get browseAllListings => 'ሁሉንም ዝርዝሮች ይመልከቱ';
+
+  @override
+  String get browseAllTrips => 'ሁሉንም ጉዞዎች ይመልከቱ';
+
+  @override
+  String get intentSaved => 'ተቀምጧል! አዲስ ተመሳሳይ ሲኖር እናሳውቅዎታለን';
+
+  @override
+  String get newMatchesAvailable => 'አዲስ ተመሳሳይ ተገኝቷል!';
+
+  @override
+  String get findCrops => 'ሰብል ፈልግ';
+
+  @override
+  String get totalLabel => 'ጠቅላላ';
 }

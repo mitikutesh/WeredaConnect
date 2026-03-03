@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
@@ -99,6 +100,7 @@ class IsarService {
         PaymentSchema,
         PaymentIntentSchema,
         SyncOperationSchema,
+        BuyerIntentSchema,
       ],
       directory: dir.path,
       name: 'wereda_connect',

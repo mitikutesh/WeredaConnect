@@ -11,7 +11,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
-import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
@@ -98,7 +98,7 @@ class _MainNavigationState extends State<MainNavigation> {
         await Navigator.push(
           context,
           MaterialPageRoute<void>(
-            builder: (_) => const BrowseListingsScreen(),
+            builder: (_) => const CreateIntentScreen(),
           ),
         );
     }

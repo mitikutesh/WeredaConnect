@@ -1937,4 +1937,92 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get unauthorizedAccess => 'You are not authorized to view this order.';
+
+  @override
+  String get whatDoYouNeed => 'What do you need?';
+
+  @override
+  String get whatDoYouNeedSubtitle =>
+      'Tell us what you\'re looking for and we\'ll find matches';
+
+  @override
+  String get findMatches => 'Find Matches';
+
+  @override
+  String get quantityNeeded => 'Quantity needed (quintals)';
+
+  @override
+  String get maxPrice => 'Maximum price (ETB/kg)';
+
+  @override
+  String get deliverTo => 'Deliver to';
+
+  @override
+  String matchesFound(int count) {
+    return '$count matches found';
+  }
+
+  @override
+  String get noMatchesYet => 'No matches yet';
+
+  @override
+  String get suggestedTransport => 'Suggested Transport';
+
+  @override
+  String get selectThisTrip => 'Select This Trip';
+
+  @override
+  String get estimatedTotal => 'Estimated Total';
+
+  @override
+  String tripsAvailable(int count) {
+    return '$count trips available';
+  }
+
+  @override
+  String get noTripsYet => 'No trips yet';
+
+  @override
+  String get placeOrderWithTransport => 'Place Order + Transport';
+
+  @override
+  String get placeOrderNoTransport => 'Place Order (no transport)';
+
+  @override
+  String get activeBuyingIntents => 'Active Buying Intents';
+
+  @override
+  String get newBuyingIntent => 'New Buying Intent';
+
+  @override
+  String get cropCostLabel => 'Crop Cost';
+
+  @override
+  String get transportCostLabel => 'Transport Cost';
+
+  @override
+  String get commissionLabel => 'Commission (5%)';
+
+  @override
+  String syncedAgo(String time) {
+    return 'Synced $time ago';
+  }
+
+  @override
+  String get browseAllListings => 'Browse All Listings';
+
+  @override
+  String get browseAllTrips => 'Browse All Trips';
+
+  @override
+  String get intentSaved => 'Saved! We\'ll notify you of new matches';
+
+  @override
+  String get newMatchesAvailable => 'New matches available!';
+
+  @override
+  String get findCrops => 'Find Crops';
+
+  @override
+  String get totalLabel => 'Total';
 }

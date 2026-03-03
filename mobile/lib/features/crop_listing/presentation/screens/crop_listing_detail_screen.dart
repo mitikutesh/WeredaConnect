@@ -5,7 +5,10 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
@@ -17,23 +20,85 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// and role-based action buttons (trucker → Create Delivery, buyer → Contact
 /// Farmer). Follows the same SafeArea + SingleChildScrollView layout used by
 /// [DeliveryDetailScreen] and [CreateCropListingScreen].
-class CropListingDetailScreen extends StatelessWidget {
+class CropListingDetailScreen extends StatefulWidget {
   final CropListing listing;
   final String currentUserId;
   final UserRole currentUserRole;
+  final String? deliveryWoreda;
+  final double? quantityNeeded;
 
   const CropListingDetailScreen({
     required this.listing,
     required this.currentUserId,
     required this.currentUserRole,
+    this.deliveryWoreda,
+    this.quantityNeeded,
     super.key,
   });
+
+  @override
+  State<CropListingDetailScreen> createState() =>
+      _CropListingDetailScreenState();
+}
+
+class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
+  List<Trip>? _suggestedTrips;
+  Trip? _selectedTrip;
+  bool _tripsLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.currentUserRole == UserRole.buyer &&
+        widget.deliveryWoreda != null) {
+      _loadSuggestedTrips();
+    }
+  }
+
+  Future<void> _loadSuggestedTrips() async {
+    setState(() => _tripsLoading = true);
+    try {
+      final isar = IsarService.instance.db;
+      final matchingService = MatchingService(isar: isar);
+      final trips = await matchingService.findTripsForListing(
+        widget.listing,
+        widget.deliveryWoreda!,
+        widget.quantityNeeded ?? widget.listing.quantity,
+      );
+      if (mounted) {
+        setState(() {
+          _suggestedTrips = trips;
+          _tripsLoading = false;
+        });
+      }
+    } on Exception {
+      if (mounted) {
+        setState(() {
+          _suggestedTrips = [];
+          _tripsLoading = false;
+        });
+      }
+    }
+  }
+
+  double get _quantity =>
+      widget.quantityNeeded ?? widget.listing.quantity;
+
+  double get _cropCost => _quantity * 100 * widget.listing.pricePerKg;
+
+  double get _transportCost => _selectedTrip != null
+      ? _quantity * _selectedTrip!.pricePerQuintal
+      : 0.0;
+
+  double get _commission => (_cropCost + _transportCost) * 0.05;
+
+  double get _total => _cropCost + _transportCost + _commission;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final cropType = CropType.fromKey(listing.cropType);
+    final cropType = CropType.fromKey(widget.listing.cropType);
     final dateFormat = DateFormat.yMMMd().add_jm();
 
     return Scaffold(
@@ -50,16 +115,24 @@ class CropListingDetailScreen extends StatelessWidget {
               // Header section: crop icon + name + status chip
               _HeaderSection(
                 cropType: cropType,
-                status: listing.status,
+                status: widget.listing.status,
               ),
               const SizedBox(height: 24),
 
               // Details card
               _DetailsCard(
-                listing: listing,
+                listing: widget.listing,
                 cropType: cropType,
                 dateFormat: dateFormat,
               ),
+
+              // Suggested transport section (buyer with delivery woreda)
+              if (widget.currentUserRole == UserRole.buyer &&
+                  widget.deliveryWoreda != null) ...[
+                const SizedBox(height: 24),
+                ..._buildTransportSection(context, l10n, theme),
+              ],
+
               const SizedBox(height: 32),
 
               // Role-based action buttons
@@ -71,10 +144,111 @@ class CropListingDetailScreen extends StatelessWidget {
     );
   }
 
+  List<Widget> _buildTransportSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    ThemeData theme,
+  ) {
+    return [
+      // Section title
+      Row(
+        children: [
+          const Icon(Icons.local_shipping, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            l10n.suggestedTransport,
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      Text(
+        '${widget.listing.locationName} → ${widget.deliveryWoreda}',
+        style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withAlpha(153)),
+      ),
+      const SizedBox(height: 12),
+
+      // Trip cards or loading/empty state
+      if (_tripsLoading)
+        const Center(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(),
+          ),
+        )
+      else if (_suggestedTrips == null || _suggestedTrips!.isEmpty)
+        Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: Text(
+                l10n.noTripsYet,
+                style: TextStyle(color: theme.colorScheme.onSurface.withAlpha(153)),
+              ),
+            ),
+          ),
+        )
+      else
+        ...(_suggestedTrips!.take(3).map(
+              (trip) => SuggestedTripCard(
+                trip: trip,
+                isSelected: _selectedTrip?.tripId == trip.tripId,
+                onSelect: () {
+                  setState(() {
+                    _selectedTrip =
+                        _selectedTrip?.tripId == trip.tripId ? null : trip;
+                  });
+                },
+              ),
+            )),
+
+      // Price breakdown
+      const SizedBox(height: 16),
+      Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              _PriceBreakdownRow(
+                label: l10n.cropCostLabel,
+                amount: _cropCost,
+                l10n: l10n,
+              ),
+              if (_selectedTrip != null) ...[
+                const Divider(height: 16),
+                _PriceBreakdownRow(
+                  label: l10n.transportCostLabel,
+                  amount: _transportCost,
+                  l10n: l10n,
+                ),
+              ],
+              const Divider(height: 16),
+              _PriceBreakdownRow(
+                label: l10n.commissionLabel,
+                amount: _commission,
+                l10n: l10n,
+              ),
+              const Divider(height: 16),
+              _PriceBreakdownRow(
+                label: l10n.totalLabel,
+                amount: _total,
+                l10n: l10n,
+                isBold: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
   List<Widget> _buildActionButtons(BuildContext context, ThemeData theme) {
     final widgets = <Widget>[];
 
-    switch (currentUserRole) {
+    switch (widget.currentUserRole) {
       case UserRole.farmer:
         // Owner sees no actions for now (editing is future work)
         break;
@@ -89,7 +263,8 @@ class CropListingDetailScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute<void>(
-                    builder: (_) => CreateDeliveryScreen(listing: listing),
+                    builder: (_) =>
+                        CreateDeliveryScreen(listing: widget.listing),
                   ),
                 );
               },
@@ -104,40 +279,98 @@ class CropListingDetailScreen extends StatelessWidget {
 
       case UserRole.buyer:
         final l10n = AppLocalizations.of(context)!;
-        // Primary: Place Order
+
+        // If transport section is showing, use transport-aware buttons
+        if (widget.deliveryWoreda != null && _selectedTrip != null) {
+          widgets.add(
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  final farmerName =
+                      await _lookupFarmerName(widget.listing.farmerId);
+                  if (!context.mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlaceOrderScreen(
+                        listing: widget.listing,
+                        farmerName: farmerName,
+                        selectedTrip: _selectedTrip,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.shopping_cart),
+                label: Text(l10n.placeOrderWithTransport),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+              ),
+            ),
+          );
+          widgets.add(const SizedBox(height: 12));
+        }
+
+        // Standard Place Order button
         widgets.add(
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () async {
-                final farmerName = await _lookupFarmerName(listing.farmerId);
-                if (!context.mounted) return;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => PlaceOrderScreen(
-                      listing: listing,
-                      farmerName: farmerName,
+            child: widget.deliveryWoreda != null && _selectedTrip != null
+                ? OutlinedButton.icon(
+                    onPressed: () async {
+                      final farmerName =
+                          await _lookupFarmerName(widget.listing.farmerId);
+                      if (!context.mounted) return;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => PlaceOrderScreen(
+                            listing: widget.listing,
+                            farmerName: farmerName,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.shopping_cart_outlined),
+                    label: Text(l10n.placeOrderNoTransport),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  )
+                : FilledButton.icon(
+                    onPressed: () async {
+                      final farmerName =
+                          await _lookupFarmerName(widget.listing.farmerId);
+                      if (!context.mounted) return;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => PlaceOrderScreen(
+                            listing: widget.listing,
+                            farmerName: farmerName,
+                            selectedTrip: _selectedTrip,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.shopping_cart),
+                    label: Text(l10n.placeOrder),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
                     ),
                   ),
-                );
-              },
-              icon: const Icon(Icons.shopping_cart),
-              label: Text(l10n.placeOrder),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-            ),
           ),
         );
         widgets.add(const SizedBox(height: 12));
-        // Secondary: Contact Farmer
+        // Contact Farmer
         widgets.add(
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () async {
-                final farmerName = await _lookupFarmerName(listing.farmerId);
+                final farmerName =
+                    await _lookupFarmerName(widget.listing.farmerId);
                 if (!context.mounted) return;
                 showModalBottomSheet<void>(
                   context: context,
@@ -196,6 +429,37 @@ class CropListingDetailScreen extends StatelessWidget {
     final farmer =
         await isar.users.filter().userIdEqualTo(farmerId).findFirst();
     return farmer?.name ?? farmerId;
+  }
+}
+
+/// Price breakdown row for the transport section.
+class _PriceBreakdownRow extends StatelessWidget {
+  final String label;
+  final double amount;
+  final AppLocalizations l10n;
+  final bool isBold;
+
+  const _PriceBreakdownRow({
+    required this.label,
+    required this.amount,
+    required this.l10n,
+    this.isBold = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = isBold
+        ? theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
+        : theme.textTheme.bodyMedium;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: style),
+        Text(l10n.etbCurrency(amount.toStringAsFixed(0)), style: style),
+      ],
+    );
   }
 }
 
