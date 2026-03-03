@@ -2,6 +2,7 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 
@@ -63,6 +64,9 @@ class ConflictResolver {
 
       case 'trip':
         return _resolveTrip(operation, serverData, serverVersion);
+
+      case 'order':
+        return _resolveOrder(operation, serverData, serverVersion);
 
       case 'payment':
       case 'user':
@@ -278,6 +282,8 @@ class ConflictResolver {
         trip.capacity = (serverData['capacity'] as num).toDouble();
         trip.pricePerQuintal =
             (serverData['pricePerQuintal'] as num).toDouble();
+        trip.vehiclePlate = serverData['vehiclePlate'] as String?;
+        trip.vehicleDescription = serverData['vehicleDescription'] as String?;
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
@@ -314,6 +320,105 @@ class ConflictResolver {
     } on Object catch (e) {
       throw ConflictResolutionException(
         'Failed to resolve Trip conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve an Order conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolveOrder(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      final order = await _isar.orders
+          .filter()
+          .orderIdEqualTo(operation.entityId)
+          .findFirst();
+
+      if (order == null) {
+        throw ConflictResolutionException(
+          'Order not found in local database: ${operation.entityId}',
+        );
+      }
+
+      await _isar.writeTxn(() async {
+        order.listingId = serverData['listingId'] as String;
+        order.buyerId = serverData['buyerId'] as String;
+        order.farmerId = serverData['farmerId'] as String;
+        order.buyerName = serverData['buyerName'] as String;
+        order.farmerName = serverData['farmerName'] as String;
+        order.cropType = serverData['cropType'] as String;
+        order.quantity = (serverData['quantity'] as num).toDouble();
+        order.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
+        order.totalPrice = (serverData['totalPrice'] as num).toDouble();
+
+        // Parse status enum
+        final statusStr = serverData['status'] as String;
+        order.status = OrderStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => OrderStatus.created,
+        );
+
+        // Timestamps
+        order.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+
+        final updatedAtStr = serverData['updatedAt'] as String?;
+        order.updatedAt =
+            updatedAtStr != null ? DateTime.parse(updatedAtStr).toUtc() : null;
+
+        final respondedAtStr = serverData['respondedAt'] as String?;
+        order.respondedAt = respondedAtStr != null
+            ? DateTime.parse(respondedAtStr).toUtc()
+            : null;
+
+        final cancelledAtStr = serverData['cancelledAt'] as String?;
+        order.cancelledAt = cancelledAtStr != null
+            ? DateTime.parse(cancelledAtStr).toUtc()
+            : null;
+
+        final paymentVerifiedAtStr = serverData['paymentVerifiedAt'] as String?;
+        order.paymentVerifiedAt = paymentVerifiedAtStr != null
+            ? DateTime.parse(paymentVerifiedAtStr).toUtc()
+            : null;
+
+        // Optional fields
+        order.rejectionReason = serverData['rejectionReason'] as String?;
+        order.cancelReason = serverData['cancelReason'] as String?;
+        order.tripId = serverData['tripId'] as String?;
+        order.truckerId = serverData['truckerId'] as String?;
+        order.truckerName = serverData['truckerName'] as String?;
+        order.paymentMethod = serverData['paymentMethod'] as String?;
+        order.cbeTransactionId = serverData['cbeTransactionId'] as String?;
+
+        // Numeric optional fields
+        order.cropCost = (serverData['cropCost'] as num?)?.toDouble();
+        order.transportCost = (serverData['transportCost'] as num?)?.toDouble();
+        order.commissionRate =
+            (serverData['commissionRate'] as num?)?.toDouble();
+        order.commissionAmount =
+            (serverData['commissionAmount'] as num?)?.toDouble();
+        order.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
+
+        // CRITICAL: Update version to server version
+        order.version = serverVersion;
+
+        await _isar.orders.put(order);
+      });
+
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve Order conflict: $e',
       );
     }
   }
