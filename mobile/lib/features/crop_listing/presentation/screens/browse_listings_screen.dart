@@ -209,7 +209,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         ],
                         decoration: InputDecoration(
                           isDense: true,
-                          prefixText: '${l10n.etbCurrency} ',
+                          prefixText: '${l10n.etbCurrency('')} ',
                           hintText: l10n.filterMin,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -235,7 +235,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         ],
                         decoration: InputDecoration(
                           isDense: true,
-                          prefixText: '${l10n.etbCurrency} ',
+                          prefixText: '${l10n.etbCurrency('')} ',
                           hintText: l10n.filterMax,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -328,8 +328,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                             title: listing.cropType,
                             location: listing.locationName,
                             sellerName: listing.farmerId,
-                            price:
-                                '${listing.pricePerKg.toStringAsFixed(0)} ${l10n.etbCurrency}',
+                            price: l10n.etbCurrency(
+                              listing.pricePerKg.toStringAsFixed(0),
+                            ),
                             hasEscrow: true,
                             rating: 4.5,
                             icon: Icons.eco,

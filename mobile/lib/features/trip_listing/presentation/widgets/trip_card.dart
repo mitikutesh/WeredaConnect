@@ -138,7 +138,7 @@ class TripCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   // Price — large and bold
                   Text(
-                    '${trip.pricePerQuintal.toStringAsFixed(0)} ${l10n.etbCurrency}/${l10n.quintals}',
+                    '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -209,10 +209,14 @@ class _TripStatusChip extends StatelessWidget {
     final (color, label) = switch (status) {
       TripStatus.open => (AppTheme.statusSuccess, l10n.tripStatusOpen),
       TripStatus.matched => (AppTheme.statusInfo, l10n.tripStatusMatched),
-      TripStatus.inTransit =>
-        (AppTheme.statusTransit, l10n.tripStatusInTransit),
-      TripStatus.delivered =>
-        (AppTheme.statusSuccess, l10n.tripStatusDelivered),
+      TripStatus.inTransit => (
+          AppTheme.statusTransit,
+          l10n.tripStatusInTransit
+        ),
+      TripStatus.delivered => (
+          AppTheme.statusSuccess,
+          l10n.tripStatusDelivered
+        ),
       TripStatus.cancelled => (AppTheme.statusError, l10n.tripStatusCancelled),
     };
 

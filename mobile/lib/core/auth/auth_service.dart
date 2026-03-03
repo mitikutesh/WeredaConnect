@@ -320,44 +320,53 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    // Check connectivity
-    final connectivityResults = await _connectivity.checkConnectivity();
-    final isOnline =
-        connectivityResults.any((result) => result != ConnectivityResult.none);
+    try {
+      // Check connectivity
+      final connectivityResults = await _connectivity.checkConnectivity();
+      final isOnline = connectivityResults
+          .any((result) => result != ConnectivityResult.none);
 
-    if (isOnline) {
-      // Online login requires API config
-      if (!Environment.isApiConfigured) {
-        // Fall back to offline login if cached credentials exist
-        final offlineResult = await loginOffline(
+      if (isOnline) {
+        // Online login requires API config
+        if (!Environment.isApiConfigured) {
+          // Fall back to offline login if cached credentials exist
+          final offlineResult = await loginOffline(
+            phoneNumber: phoneNumber,
+            password: password,
+          );
+          if (offlineResult.isSuccess) return offlineResult;
+
+          return _notConfiguredResult();
+        }
+
+        // Try online login
+        final result = await loginOnline(
           phoneNumber: phoneNumber,
           password: password,
         );
-        if (offlineResult.isSuccess) return offlineResult;
 
-        return _notConfiguredResult();
-      }
+        // If online login fails due to network, try offline
+        if (!result.isSuccess &&
+            result.errorCode == AuthErrorCode.networkError) {
+          return await loginOffline(
+            phoneNumber: phoneNumber,
+            password: password,
+          );
+        }
 
-      // Try online login
-      final result = await loginOnline(
-        phoneNumber: phoneNumber,
-        password: password,
-      );
-
-      // If online login fails due to network, try offline
-      if (!result.isSuccess && result.errorCode == AuthErrorCode.networkError) {
+        return result;
+      } else {
+        // No connectivity - try offline login
         return await loginOffline(
           phoneNumber: phoneNumber,
           password: password,
         );
       }
-
-      return result;
-    } else {
-      // No connectivity - try offline login
-      return await loginOffline(
-        phoneNumber: phoneNumber,
-        password: password,
+    } on Object catch (e) {
+      debugPrint('[AuthService] login failed unexpectedly: $e');
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
       );
     }
   }

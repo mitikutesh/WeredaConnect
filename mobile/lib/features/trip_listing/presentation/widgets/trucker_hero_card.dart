@@ -207,7 +207,7 @@ class _PostedCard extends StatelessWidget {
           _RouteDisplay(from: trip.fromWoreda, to: trip.toWoreda),
           const SizedBox(height: 12),
           Text(
-            '${trip.pricePerQuintal.toStringAsFixed(0)} ${l10n.etbCurrency}/${l10n.quintals}',
+            '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -269,7 +269,7 @@ class _MatchedCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            '${trip.pricePerQuintal.toStringAsFixed(0)} ${l10n.etbCurrency}/${l10n.quintals}',
+            '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -344,7 +344,7 @@ class _InTransitCard extends StatelessWidget {
           _RouteDisplay(from: trip.fromWoreda, to: trip.toWoreda),
           const SizedBox(height: 12),
           Text(
-            '${trip.pricePerQuintal.toStringAsFixed(0)} ${l10n.etbCurrency}/${l10n.quintals}',
+            '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,

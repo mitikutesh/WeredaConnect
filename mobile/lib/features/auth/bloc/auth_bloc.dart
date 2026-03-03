@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
@@ -176,40 +177,51 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     _currentPhoneNumber = event.phoneNumber;
 
-    final result = await _authService.register(
-      phoneNumber: event.phoneNumber,
-      password: event.password,
-      name: event.name,
-      role: event.role,
-      woreda: event.woreda,
-      faydaVerificationToken: event.faydaVerificationToken,
-      preferredLanguage: event.preferredLanguage,
-    );
-
-    // User navigated away — discard the result
-    if (_cancelled) return;
-
-    if (result.isSuccess) {
-      await _saveSession(event.phoneNumber);
-      await _saveActiveTokens(result.tokens!);
-
-      emit(
-        AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-          role: event.role,
-          userName: event.name,
-          woreda: event.woreda,
-        ),
+    try {
+      final result = await _authService.register(
+        phoneNumber: event.phoneNumber,
+        password: event.password,
+        name: event.name,
+        role: event.role,
+        woreda: event.woreda,
+        faydaVerificationToken: event.faydaVerificationToken,
+        preferredLanguage: event.preferredLanguage,
       );
-    } else {
+
+      // User navigated away — discard the result
+      if (_cancelled) return;
+
+      if (result.isSuccess) {
+        await _saveSession(event.phoneNumber);
+        await _saveActiveTokens(result.tokens!);
+
+        emit(
+          AuthAuthenticated(
+            userId: result.userId!,
+            tokens: result.tokens!,
+            role: event.role,
+            userName: event.name,
+            woreda: event.woreda,
+          ),
+        );
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Registration failed',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      if (_cancelled) return;
+      debugPrint('[AuthBloc] Registration failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Registration failed',
-          canRetry: result.errorCode?.isRecoverable ?? true,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Something went wrong. Please try again.',
         ),
       );
     }
@@ -223,39 +235,50 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _cancelled = false;
     emit(const AuthLoading());
 
-    final result = await _authService.login(
-      phoneNumber: event.phoneNumber,
-      password: event.password,
-    );
-
-    // User navigated away — discard the result
-    if (_cancelled) return;
-
-    if (result.isSuccess) {
-      await _saveSession(event.phoneNumber);
-      await _saveActiveTokens(result.tokens!);
-
-      final user = await _offlineCache.getCachedUser(event.phoneNumber);
-
-      emit(
-        AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-          isOfflineAuth: result.isOfflineAuth,
-          role: user?.role ?? UserRole.farmer,
-          userName: user?.name ?? '',
-          woreda: user?.woreda,
-        ),
+    try {
+      final result = await _authService.login(
+        phoneNumber: event.phoneNumber,
+        password: event.password,
       );
-    } else {
+
+      // User navigated away — discard the result
+      if (_cancelled) return;
+
+      if (result.isSuccess) {
+        await _saveSession(event.phoneNumber);
+        await _saveActiveTokens(result.tokens!);
+
+        final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
+        emit(
+          AuthAuthenticated(
+            userId: result.userId!,
+            tokens: result.tokens!,
+            isOfflineAuth: result.isOfflineAuth,
+            role: user?.role ?? UserRole.farmer,
+            userName: user?.name ?? '',
+            woreda: user?.woreda,
+          ),
+        );
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Login failed',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+            retryAfterSeconds: result.retryAfterSeconds,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      if (_cancelled) return;
+      debugPrint('[AuthBloc] Login failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Login failed',
-          canRetry: result.errorCode?.isRecoverable ?? true,
-          retryAfterSeconds: result.retryAfterSeconds,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Something went wrong. Please try again.',
         ),
       );
     }
@@ -269,37 +292,48 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _cancelled = false;
     emit(const AuthLoading());
 
-    final result = await _authService.loginOnline(
-      phoneNumber: event.phoneNumber,
-      password: event.password,
-    );
-
-    // User navigated away — discard the result
-    if (_cancelled) return;
-
-    if (result.isSuccess) {
-      await _saveSession(event.phoneNumber);
-      await _saveActiveTokens(result.tokens!);
-
-      final user = await _offlineCache.getCachedUser(event.phoneNumber);
-
-      emit(
-        AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-          role: user?.role ?? UserRole.farmer,
-          userName: user?.name ?? '',
-          woreda: user?.woreda,
-        ),
+    try {
+      final result = await _authService.loginOnline(
+        phoneNumber: event.phoneNumber,
+        password: event.password,
       );
-    } else {
+
+      // User navigated away — discard the result
+      if (_cancelled) return;
+
+      if (result.isSuccess) {
+        await _saveSession(event.phoneNumber);
+        await _saveActiveTokens(result.tokens!);
+
+        final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
+        emit(
+          AuthAuthenticated(
+            userId: result.userId!,
+            tokens: result.tokens!,
+            role: user?.role ?? UserRole.farmer,
+            userName: user?.name ?? '',
+            woreda: user?.woreda,
+          ),
+        );
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Login failed',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      if (_cancelled) return;
+      debugPrint('[AuthBloc] Online login failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Login failed',
-          canRetry: result.errorCode?.isRecoverable ?? true,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Something went wrong. Please try again.',
         ),
       );
     }
@@ -313,38 +347,49 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _cancelled = false;
     emit(const AuthLoading());
 
-    final result = await _authService.loginOffline(
-      phoneNumber: event.phoneNumber,
-      password: event.password,
-    );
-
-    // User navigated away — discard the result
-    if (_cancelled) return;
-
-    if (result.isSuccess) {
-      await _saveSession(event.phoneNumber);
-      await _saveActiveTokens(result.tokens!);
-
-      final user = await _offlineCache.getCachedUser(event.phoneNumber);
-
-      emit(
-        AuthAuthenticated(
-          userId: result.userId!,
-          tokens: result.tokens!,
-          isOfflineAuth: true,
-          role: user?.role ?? UserRole.farmer,
-          userName: user?.name ?? '',
-          woreda: user?.woreda,
-        ),
+    try {
+      final result = await _authService.loginOffline(
+        phoneNumber: event.phoneNumber,
+        password: event.password,
       );
-    } else {
+
+      // User navigated away — discard the result
+      if (_cancelled) return;
+
+      if (result.isSuccess) {
+        await _saveSession(event.phoneNumber);
+        await _saveActiveTokens(result.tokens!);
+
+        final user = await _offlineCache.getCachedUser(event.phoneNumber);
+
+        emit(
+          AuthAuthenticated(
+            userId: result.userId!,
+            tokens: result.tokens!,
+            isOfflineAuth: true,
+            role: user?.role ?? UserRole.farmer,
+            userName: user?.name ?? '',
+            woreda: user?.woreda,
+          ),
+        );
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Offline login failed',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      if (_cancelled) return;
+      debugPrint('[AuthBloc] Offline login failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Offline login failed',
-          canRetry: result.errorCode?.isRecoverable ?? true,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Something went wrong. Please try again.',
         ),
       );
     }

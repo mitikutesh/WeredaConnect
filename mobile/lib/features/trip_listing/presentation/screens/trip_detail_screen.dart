@@ -93,8 +93,9 @@ class TripDetailScreen extends StatelessWidget {
                       _InfoRow(
                         icon: Icons.payments,
                         label: l10n.pricePerQuintal,
-                        value:
-                            '${trip.pricePerQuintal.toStringAsFixed(2)} ${l10n.etbCurrency}',
+                        value: l10n.etbCurrency(
+                          trip.pricePerQuintal.toStringAsFixed(2),
+                        ),
                       ),
                       const SizedBox(height: 24),
 
