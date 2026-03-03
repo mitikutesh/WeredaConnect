@@ -554,7 +554,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get sameOriginDestination => 'መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም';
 
   @override
-  String get etbCurrency => 'ብር';
+  String etbCurrency(String amount) {
+    return '$amount ብር';
+  }
 
   @override
   String get findTransport => 'ትራንስፖርት ፈልግ';
@@ -1609,7 +1611,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get scanLicense => 'ፈቃድ ቃኝ';
 
   @override
-  String get statusFunded => 'ገንዘብ ገብቷል';
+  String get statusFunded => 'ገንዘብ ተላልፏል';
 
   @override
   String get statusPlaced => 'ታዝዟል';
@@ -1621,7 +1623,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get statusTransit => 'በመንገድ ላይ';
 
   @override
-  String get statusDisputed => 'አለመግባባት';
+  String get statusDisputed => 'በክርክር ላይ';
 
   @override
   String deliveryTitle(int id) {
@@ -1759,4 +1761,130 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get faydaAlreadyLinked => 'ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።';
+
+  @override
+  String get placeOrder => 'ትዕዛዝ ያስገቡ';
+
+  @override
+  String get cropCost => 'የሰብል ዋጋ';
+
+  @override
+  String get transportCost => 'የማጓጓዣ ወጪ';
+
+  @override
+  String get platformCommission => 'የመድረክ ኮሚሽን (5%)';
+
+  @override
+  String get orderTotal => 'ጠቅላላ';
+
+  @override
+  String get payNow => 'አሁን ይክፈሉ';
+
+  @override
+  String get payLater => 'ቆይቶ ይክፈሉ';
+
+  @override
+  String get cbePaymentInstructions =>
+      'ወደ ታች ወደሚታየው የኢትዮጵያ ንግድ ባንክ ሂሳብ ያስተላልፉ። ክፍያዎን ለማዛመድ የማጣቀሻ ቁጥሩን ይጠቀሙ።';
+
+  @override
+  String get enterTransactionId => 'የCBE የግብይት መታወቂያ ያስገቡ';
+
+  @override
+  String get submitPayment => 'ክፍያ ያስገቡ';
+
+  @override
+  String get statusCreated => 'ተፈጥሯል';
+
+  @override
+  String get statusPendingPayment => 'ክፍያ በመጠባበቅ';
+
+  @override
+  String get statusPaymentSubmitted => 'ክፍያ ገብቷል';
+
+  @override
+  String get statusPickupConfirmed => 'ማንሳት ተረጋግጧል';
+
+  @override
+  String get statusInTransit => 'በመጓጓዣ ላይ';
+
+  @override
+  String get statusDelivered => 'ተረክቧል';
+
+  @override
+  String get statusDisbursing => 'በማከፋፈል ላይ';
+
+  @override
+  String get statusSettled => 'ተጠናቅቋል';
+
+  @override
+  String get statusPaymentFailed => 'ክፍያ አልተሳካም';
+
+  @override
+  String get statusDisputeResolved => 'ክርክር ተፈቷል';
+
+  @override
+  String get cancelOrder => 'ትዕዛዝ ሰርዝ';
+
+  @override
+  String get cancelReason => 'የሰረዙበት ምክንያት';
+
+  @override
+  String get orderDetails => 'የትዕዛዝ ዝርዝር';
+
+  @override
+  String get priceBreakdown => 'የዋጋ ዝርዝር';
+
+  @override
+  String get cbeAccountNumber => 'ሂሳብ: 1000XXXXXXXXXX';
+
+  @override
+  String get transferReference => 'ማጣቀሻ';
+
+  @override
+  String get paymentAmount => 'መጠን';
+
+  @override
+  String get quantity => 'ብዛት (ኪግ)';
+
+  @override
+  String get listingSummary => 'የዝርዝር ማጠቃለያ';
+
+  @override
+  String get orderPlacedSuccess => 'ትዕዛዝ በተሳካ ሁኔታ ገብቷል!';
+
+  @override
+  String get paymentSubmittedSuccess => 'ክፍያ በተሳካ ሁኔታ ገብቷል!';
+
+  @override
+  String get orderCancelledSuccess => 'ትዕዛዝ ተሰርዟል።';
+
+  @override
+  String get bankName => 'የኢትዮጵያ ንግድ ባንክ';
+
+  @override
+  String get paymentInstructions => 'የክፍያ መመሪያዎች';
+
+  @override
+  String get transactionIdRequired => 'የግብይት መታወቂያ ያስፈልጋል';
+
+  @override
+  String get orderTimeline => 'የትዕዛዝ ሂደት';
+
+  @override
+  String quantityKg(String amount) {
+    return '$amount ኪግ';
+  }
+
+  @override
+  String get pendingOrders => 'በመጠባበቅ ላይ ያሉ ትዕዛዞች';
+
+  @override
+  String get activeOrders => 'ንቁ ትዕዛዞች';
+
+  @override
+  String get listingNotFound => 'ዝርዝር አልተገኘም';
+
+  @override
+  String get unauthorizedAccess => 'ይህን ትዕዛዝ ለማየት ፍቃድ የሎትም።';
 }

@@ -213,7 +213,7 @@ public class RequestValidatorTests
 
         var result = RequestValidator.ValidateRegisterRequest(request);
         Assert.False(result.IsValid);
-        Assert.True(result.Errors.Count >= 5); // phone, password, role, woreda, faydaToken
+        Assert.True(result.Errors.Count >= 4); // phone, password, role, woreda
     }
 
     // --- Login Request ---

@@ -51,8 +51,6 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   String _woreda = '';
   String _password = '';
   String _confirmPassword = '';
-  String? _errorMessage;
-
   // Fayda OIDC state
   String? _faydaVerificationToken;
   String? _faydaVerifiedName;
@@ -141,6 +139,9 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   }
 
   void _nextStep() {
+    // Dismiss keyboard to prevent scroll jumps from viewport resizing
+    FocusScope.of(context).unfocus();
+
     if (_currentStep < _totalSteps - 1) {
       setState(() => _currentStep++);
       _pageController.animateToPage(
@@ -153,7 +154,14 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     }
   }
 
+  void _cancelIfLoading() {
+    if (context.read<AuthBloc>().state is AuthLoading) {
+      context.read<AuthBloc>().add(const AuthCancelRequested());
+    }
+  }
+
   void _previousStep() {
+    _cancelIfLoading();
     if (_currentStep > 0) {
       setState(() => _currentStep--);
       _pageController.animateToPage(
@@ -290,7 +298,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   void _handleRegister() {
     if (!_personalInfoFormKey.currentState!.validate()) return;
 
-    setState(() => _errorMessage = null);
+    // Clear any previous error snackbar
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     final languageCode = Localizations.localeOf(context).languageCode;
 
@@ -314,10 +323,17 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthError) {
-          setState(() {
-            _errorMessage =
-                _localizeAuthError(state.errorCode, state.errorMessage);
-          });
+          final msg = _localizeAuthError(state.errorCode, state.errorMessage);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(msg),
+                backgroundColor: AppTheme.statusError,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 5),
+              ),
+            );
         }
         if (state is AuthAuthenticated) {
           // Registration succeeded — pop back to AuthGate
@@ -339,7 +355,10 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                 )
               : IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () {
+                    _cancelIfLoading();
+                    Navigator.of(context).pop();
+                  },
                 ),
           title: Text(l10n.register),
           actions: [
@@ -364,41 +383,6 @@ class _RegistrationFlowState extends State<RegistrationFlow>
               ),
             ),
             const SizedBox(height: 8),
-
-            // Error message
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.statusError.withAlpha(25),
-                    border:
-                        Border.all(color: AppTheme.statusError.withAlpha(50)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: AppTheme.statusError,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                            color: AppTheme.statusError,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
 
             // Step content
             Expanded(

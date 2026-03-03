@@ -7,6 +7,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -81,7 +82,11 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
 
     return BlocListener<OrderBloc, OrderState>(
       listener: (context, state) {
-        if (state is OrderAccepted || state is OrderRejected) {
+        if (state is OrderAccepted ||
+            state is OrderRejected ||
+            state is OrderCreated ||
+            state is PaymentSubmitted ||
+            state is OrderCancelled) {
           _loadOrders();
         }
       },
@@ -145,7 +150,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               children: [
                 _buildChip(null, l10n.deliveryFilterAll),
-                _buildChip('pending', l10n.orderPending),
+                _buildChip('created', l10n.orderPending),
                 _buildChip('accepted', l10n.orderAccepted),
                 _buildChip('rejected', l10n.orderRejected),
               ],
@@ -226,6 +231,16 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                         return OrderCard(
                           order: order,
                           isFarmerView: isFarmer,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => OrderDetailScreen(
+                                  orderId: order.orderId,
+                                ),
+                              ),
+                            );
+                          },
                           onAccept: isFarmer
                               ? () {
                                   context.read<OrderBloc>().add(

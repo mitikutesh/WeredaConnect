@@ -80,6 +80,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(EscrowError))]
 // Fraud detection DTOs (F-14)
 [JsonSerializable(typeof(FraudCheckResult))]
+// Order DTOs
+[JsonSerializable(typeof(OrderDto))]
+[JsonSerializable(typeof(List<OrderDto>))]
+[JsonSerializable(typeof(GetOrdersResponse))]
+[JsonSerializable(typeof(GetOrderResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

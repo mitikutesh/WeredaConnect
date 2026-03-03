@@ -35,6 +35,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final OfflineAuthCache _offlineCache;
   final Isar? _isar;
   String? _currentPhoneNumber;
+  bool _cancelled = false;
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -58,6 +59,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthLoginOnlineRequested>(_onAuthLoginOnlineRequested);
     on<AuthLoginOfflineRequested>(_onAuthLoginOfflineRequested);
     on<AuthRefreshTokenRequested>(_onAuthRefreshTokenRequested);
+    on<AuthCancelRequested>(_onAuthCancelRequested);
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
   }
 
@@ -149,6 +151,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
+  /// Cancel an in-flight auth operation.
+  ///
+  /// Sets a cancellation flag so that any pending register/login handler
+  /// will silently discard its result instead of emitting a new state.
+  Future<void> _onAuthCancelRequested(
+    AuthCancelRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    _cancelled = true;
+    emit(const AuthUnauthenticated());
+  }
+
   /// Handle user registration with Fayda verification token.
   ///
   /// Server validates the Fayda token and creates the user account,
@@ -157,6 +171,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthRegisterRequested event,
     Emitter<AuthState> emit,
   ) async {
+    _cancelled = false;
     emit(const AuthLoading());
 
     _currentPhoneNumber = event.phoneNumber;
@@ -170,6 +185,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       faydaVerificationToken: event.faydaVerificationToken,
       preferredLanguage: event.preferredLanguage,
     );
+
+    // User navigated away — discard the result
+    if (_cancelled) return;
 
     if (result.isSuccess) {
       await _saveSession(event.phoneNumber);

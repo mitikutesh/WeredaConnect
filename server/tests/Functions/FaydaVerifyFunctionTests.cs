@@ -65,7 +65,7 @@ public class FaydaVerifyFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("mock-verification-token", response.Body);
-        Assert.Contains("FAYDA-123", response.Body);
+        Assert.DoesNotContain("faydaId", response.Body);
         Assert.Contains("Abebe Kebede", response.Body);
     }
 

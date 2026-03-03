@@ -2458,5 +2458,191 @@
   "faydaAlreadyLinked": "This Fayda ID is already linked to another account.",
   "@faydaAlreadyLinked": {
     "description": "Error when Fayda ID is already used by another user"
+  },
+  "placeOrder": "Place Order",
+  "@placeOrder": {
+    "description": "Button label to place a new order"
+  },
+  "cropCost": "Crop Cost",
+  "@cropCost": {
+    "description": "Label for the crop cost line in price breakdown"
+  },
+  "transportCost": "Transport Cost",
+  "@transportCost": {
+    "description": "Label for transport cost in price breakdown"
+  },
+  "platformCommission": "Platform Commission (5%)",
+  "@platformCommission": {
+    "description": "Label for platform commission in price breakdown"
+  },
+  "orderTotal": "Total",
+  "@orderTotal": {
+    "description": "Label for total order amount"
+  },
+  "payNow": "Pay Now",
+  "@payNow": {
+    "description": "Button label to pay for an order"
+  },
+  "payLater": "Pay Later",
+  "@payLater": {
+    "description": "Button label to skip payment for now"
+  },
+  "cbePaymentInstructions": "Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.",
+  "@cbePaymentInstructions": {
+    "description": "Instructions for CBE bank transfer payment"
+  },
+  "enterTransactionId": "Enter CBE Transaction ID",
+  "@enterTransactionId": {
+    "description": "Hint for CBE transaction ID input field"
+  },
+  "submitPayment": "Submit Payment",
+  "@submitPayment": {
+    "description": "Button label to submit payment proof"
+  },
+  "statusCreated": "Created",
+  "@statusCreated": {
+    "description": "Order status label for newly created orders"
+  },
+  "statusPendingPayment": "Pending Payment",
+  "@statusPendingPayment": {
+    "description": "Order status label for orders awaiting payment"
+  },
+  "statusPaymentSubmitted": "Payment Submitted",
+  "@statusPaymentSubmitted": {
+    "description": "Order status label for orders with submitted payment"
+  },
+  "statusFunded": "Funded",
+  "@statusFunded": {
+    "description": "Order status label for funded orders"
+  },
+  "statusPickupConfirmed": "Pickup Confirmed",
+  "@statusPickupConfirmed": {
+    "description": "Order status label for orders with confirmed pickup"
+  },
+  "statusInTransit": "In Transit",
+  "@statusInTransit": {
+    "description": "Order status label for orders in transit"
+  },
+  "statusDelivered": "Delivered",
+  "@statusDelivered": {
+    "description": "Order status label for delivered orders"
+  },
+  "statusDisbursing": "Disbursing",
+  "@statusDisbursing": {
+    "description": "Order status label for orders being disbursed"
+  },
+  "statusSettled": "Settled",
+  "@statusSettled": {
+    "description": "Order status label for settled orders"
+  },
+  "statusPaymentFailed": "Payment Failed",
+  "@statusPaymentFailed": {
+    "description": "Order status label for failed payment orders"
+  },
+  "statusDisputed": "Disputed",
+  "@statusDisputed": {
+    "description": "Order status label for disputed orders"
+  },
+  "statusDisputeResolved": "Dispute Resolved",
+  "@statusDisputeResolved": {
+    "description": "Order status label for resolved dispute orders"
+  },
+  "cancelOrder": "Cancel Order",
+  "@cancelOrder": {
+    "description": "Button label to cancel an order"
+  },
+  "cancelReason": "Reason for cancellation",
+  "@cancelReason": {
+    "description": "Hint for cancellation reason input"
+  },
+  "orderDetails": "Order Details",
+  "@orderDetails": {
+    "description": "Title for order detail screen"
+  },
+  "priceBreakdown": "Price Breakdown",
+  "@priceBreakdown": {
+    "description": "Section header for price breakdown"
+  },
+  "cbeAccountNumber": "Account: 1000XXXXXXXXXX",
+  "@cbeAccountNumber": {
+    "description": "CBE account number for payment"
+  },
+  "transferReference": "Reference",
+  "@transferReference": {
+    "description": "Label for transfer reference number"
+  },
+  "paymentAmount": "Amount",
+  "@paymentAmount": {
+    "description": "Label for payment amount"
+  },
+  "quantity": "Quantity (kg)",
+  "@quantity": {
+    "description": "Label for order quantity input"
+  },
+  "listingSummary": "Listing Summary",
+  "@listingSummary": {
+    "description": "Section header for listing summary in order screen"
+  },
+  "orderPlacedSuccess": "Order placed successfully!",
+  "@orderPlacedSuccess": {
+    "description": "Success message after placing an order"
+  },
+  "paymentSubmittedSuccess": "Payment submitted successfully!",
+  "@paymentSubmittedSuccess": {
+    "description": "Success message after submitting payment"
+  },
+  "orderCancelledSuccess": "Order cancelled.",
+  "@orderCancelledSuccess": {
+    "description": "Success message after cancelling an order"
+  },
+  "bankName": "Commercial Bank of Ethiopia",
+  "@bankName": {
+    "description": "Name of the bank for payments"
+  },
+  "paymentInstructions": "Payment Instructions",
+  "@paymentInstructions": {
+    "description": "Title for payment instructions screen"
+  },
+  "transactionIdRequired": "Transaction ID is required",
+  "@transactionIdRequired": {
+    "description": "Validation message for empty transaction ID"
+  },
+  "orderTimeline": "Order Timeline",
+  "@orderTimeline": {
+    "description": "Section header for order status timeline"
+  },
+  "etbCurrency": "{amount} ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency format",
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "quantityKg": "{amount} kg",
+  "@quantityKg": {
+    "description": "Quantity in kilograms format",
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingOrders": "Pending Orders",
+  "@pendingOrders": {
+    "description": "Label for pending orders count on home screen stats"
+  },
+  "activeOrders": "Active Orders",
+  "@activeOrders": {
+    "description": "Label for active orders count on home screen stats"
+  },
+  "listingNotFound": "Listing not found",
+  "@listingNotFound": {
+    "description": "Error message when a crop listing referenced by an order cannot be found locally"
+  },
+  "unauthorizedAccess": "You are not authorized to view this order.",
+  "@unauthorizedAccess": {
+    "description": "Message shown when a user tries to view an order they are not part of"
   }
 }

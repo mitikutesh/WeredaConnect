@@ -27,6 +27,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly escrowsTable: dynamodb.Table;
   readonly escrowAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
+  readonly ordersTable: dynamodb.Table;
   readonly fraudSignalsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
@@ -131,6 +132,7 @@ export class ApiStack extends cdk.Stack {
     this.grantCognito(registerFn.function, [
       "cognito-idp:SignUp",
       "cognito-idp:AdminGetUser",
+      "cognito-idp:AdminDeleteUser",
       "cognito-idp:AdminUpdateUserAttributes",
       "cognito-idp:AdminConfirmSignUp",
       "cognito-idp:InitiateAuth",
@@ -188,6 +190,7 @@ export class ApiStack extends cdk.Stack {
         USERS_TABLE: props.usersTable.tableName,
         TRIPS_TABLE: props.tripsTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        ORDERS_TABLE: props.ordersTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
       },
@@ -200,6 +203,7 @@ export class ApiStack extends cdk.Stack {
     props.usersTable.grantReadData(syncFn.function);
     props.tripsTable.grantReadWriteData(syncFn.function);
     props.deliveriesTable.grantReadWriteData(syncFn.function);
+    props.ordersTable.grantReadWriteData(syncFn.function);
     props.rateLimitsTable.grantReadWriteData(syncFn.function);
     props.fraudSignalsTable.grantReadWriteData(syncFn.function);
 
@@ -263,10 +267,17 @@ export class ApiStack extends cdk.Stack {
       "CommissionRate",
       {
         parameterName: `/${prefix}/escrow/commission-rate`,
-        stringValue: "0.025",
-        description: "Platform commission rate (default 2.5%)",
+        stringValue: "0.05",
+        description: "Platform commission rate (default 5%)",
       },
     );
+
+    // SyncFunction needs commission rate for order processing
+    syncFn.function.addEnvironment(
+      "COMMISSION_RATE_PARAM",
+      commissionRateParam.parameterName,
+    );
+    commissionRateParam.grantRead(syncFn.function);
 
     const disputeWindowParam = new ssm.StringParameter(this, "DisputeWindow", {
       parameterName: `/${prefix}/escrow/dispute-window-hours`,
@@ -353,7 +364,7 @@ export class ApiStack extends cdk.Stack {
         FAYDA_ISSUER_URL_PARAM: faydaIssuerUrlParam.parameterName,
         FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.secretArn,
         FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.secretArn,
-        ...(envConfig.isProd ? {} : { DEV_FAYDA_BYPASS: "true" }),
+        ...(envConfig.name === 'dev' ? { DEV_FAYDA_BYPASS: "true" } : {}),
       },
       reservedConcurrentExecutions: 20,
     });
@@ -399,6 +410,7 @@ export class ApiStack extends cdk.Stack {
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        ORDERS_TABLE: props.ordersTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
         CROPS_TABLE: props.cropsTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
@@ -418,6 +430,7 @@ export class ApiStack extends cdk.Stack {
     props.escrowAuditTable.grantWriteData(escrowFn.function);
     props.escrowIdempotencyTable.grantReadWriteData(escrowFn.function);
     props.deliveriesTable.grantReadData(escrowFn.function);
+    props.ordersTable.grantReadData(escrowFn.function);
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
@@ -480,6 +493,53 @@ export class ApiStack extends cdk.Stack {
         new targets.LambdaFunction(escrowCronFn.function, {
           event: events.RuleTargetInput.fromObject({
             action: "reconciliation",
+          }),
+        }),
+      ],
+    });
+
+    // ─── Order Function ──────────────────────────────────────────────
+
+    const orderFn = new WeredaLambda(this, "OrderFunction", {
+      functionName: `${prefix}-orders`,
+      description: "GET /orders — browse orders (read-only)",
+      handlerName: "OrderFunction",
+      environment: {
+        ORDERS_TABLE: props.ordersTable.tableName,
+        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    props.ordersTable.grantReadData(orderFn.function);
+    paginationSecret.grantRead(orderFn.function);
+
+    // ─── Order Cron Function (auto-cancel expired unpaid orders) ────
+
+    const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
+      functionName: `${prefix}-order-cron`,
+      description:
+        "Scheduled order cleanup: auto-cancel expired unpaid orders",
+      handlerName: "OrderCronFunction",
+      environment: {
+        ORDERS_TABLE: props.ordersTable.tableName,
+      },
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      reservedConcurrentExecutions: 2,
+    });
+    props.ordersTable.grantReadWriteData(orderCronFn.function);
+
+    // EventBridge: auto-cancel expired orders every hour
+    new events.Rule(this, "OrderCronHourly", {
+      ruleName: `${prefix}-order-cron-hourly`,
+      description: "Auto-cancel expired unpaid orders every hour",
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+      targets: [
+        new targets.LambdaFunction(orderCronFn.function, {
+          event: events.RuleTargetInput.fromObject({
+            action: "auto_cancel_expired",
           }),
         }),
       ],
@@ -619,6 +679,34 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "TripsGetInt",
         tripFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ─── Order Routes (authenticated) ────────────────────────────────
+
+    httpApi.addRoutes({
+      path: "/orders",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "OrdersListInt",
+        orderFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/orders/{id}",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "OrdersGetInt",
+        orderFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

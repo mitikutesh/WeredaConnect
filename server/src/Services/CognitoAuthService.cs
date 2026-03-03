@@ -69,6 +69,53 @@ public sealed class CognitoAuthService : ICognitoAuthService
         }
         catch (UsernameExistsException)
         {
+            // If a previous registration left the user UNCONFIRMED (e.g. client
+            // crashed before admin-confirm), delete the stale signup and retry.
+            if (_userPoolId != null)
+            {
+                try
+                {
+                    var existing = await _cognito.AdminGetUserAsync(new AdminGetUserRequest
+                    {
+                        UserPoolId = _userPoolId,
+                        Username = phone
+                    });
+
+                    if (existing.UserStatus == UserStatusType.UNCONFIRMED)
+                    {
+                        await _cognito.AdminDeleteUserAsync(new AdminDeleteUserRequest
+                        {
+                            UserPoolId = _userPoolId,
+                            Username = phone
+                        });
+
+                        // Retry signup after deleting the stale user
+                        var retryResponse = await _cognito.SignUpAsync(request);
+                        if (_userPoolId != null)
+                        {
+                            await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+                            {
+                                UserPoolId = _userPoolId,
+                                Username = phone,
+                                UserAttributes =
+                                [
+                                    new AttributeType { Name = "custom:role", Value = role }
+                                ]
+                            });
+                        }
+                        return AuthResult<string>.Success(retryResponse.UserSub);
+                    }
+                }
+                catch (UserNotFoundException)
+                {
+                    // Race condition — user was deleted between checks; fall through
+                }
+                catch (Exception)
+                {
+                    // If cleanup fails, return the original "already exists" error
+                }
+            }
+
             return AuthResult<string>.Failure(409, "AUTH_005",
                 "A user with this phone number already exists.", "phoneNumber");
         }

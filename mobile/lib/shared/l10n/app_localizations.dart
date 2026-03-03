@@ -1162,11 +1162,11 @@ abstract class AppLocalizations {
   /// **'Origin and destination cannot be the same'**
   String get sameOriginDestination;
 
-  /// Ethiopian Birr currency abbreviation for price display
+  /// Ethiopian Birr currency format
   ///
   /// In en, this message translates to:
-  /// **'ETB'**
-  String get etbCurrency;
+  /// **'{amount} ETB'**
+  String etbCurrency(String amount);
 
   /// Quick action card title for finding transport/trucking services
   ///
@@ -3166,7 +3166,7 @@ abstract class AppLocalizations {
   /// **'Scan License'**
   String get scanLicense;
 
-  /// Order status label for funded/escrowed
+  /// Order status label for funded orders
   ///
   /// In en, this message translates to:
   /// **'Funded'**
@@ -3190,7 +3190,7 @@ abstract class AppLocalizations {
   /// **'Transit'**
   String get statusTransit;
 
-  /// Order status label for disputed
+  /// Order status label for disputed orders
   ///
   /// In en, this message translates to:
   /// **'Disputed'**
@@ -3435,6 +3435,252 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This Fayda ID is already linked to another account.'**
   String get faydaAlreadyLinked;
+
+  /// Button label to place a new order
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order'**
+  String get placeOrder;
+
+  /// Label for the crop cost line in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Cost'**
+  String get cropCost;
+
+  /// Label for transport cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Transport Cost'**
+  String get transportCost;
+
+  /// Label for platform commission in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Platform Commission (5%)'**
+  String get platformCommission;
+
+  /// Label for total order amount
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get orderTotal;
+
+  /// Button label to pay for an order
+  ///
+  /// In en, this message translates to:
+  /// **'Pay Now'**
+  String get payNow;
+
+  /// Button label to skip payment for now
+  ///
+  /// In en, this message translates to:
+  /// **'Pay Later'**
+  String get payLater;
+
+  /// Instructions for CBE bank transfer payment
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.'**
+  String get cbePaymentInstructions;
+
+  /// Hint for CBE transaction ID input field
+  ///
+  /// In en, this message translates to:
+  /// **'Enter CBE Transaction ID'**
+  String get enterTransactionId;
+
+  /// Button label to submit payment proof
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Payment'**
+  String get submitPayment;
+
+  /// Order status label for newly created orders
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get statusCreated;
+
+  /// Order status label for orders awaiting payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pending Payment'**
+  String get statusPendingPayment;
+
+  /// Order status label for orders with submitted payment
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Submitted'**
+  String get statusPaymentSubmitted;
+
+  /// Order status label for orders with confirmed pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup Confirmed'**
+  String get statusPickupConfirmed;
+
+  /// Order status label for orders in transit
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get statusInTransit;
+
+  /// Order status label for delivered orders
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get statusDelivered;
+
+  /// Order status label for orders being disbursed
+  ///
+  /// In en, this message translates to:
+  /// **'Disbursing'**
+  String get statusDisbursing;
+
+  /// Order status label for settled orders
+  ///
+  /// In en, this message translates to:
+  /// **'Settled'**
+  String get statusSettled;
+
+  /// Order status label for failed payment orders
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Failed'**
+  String get statusPaymentFailed;
+
+  /// Order status label for resolved dispute orders
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute Resolved'**
+  String get statusDisputeResolved;
+
+  /// Button label to cancel an order
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Order'**
+  String get cancelOrder;
+
+  /// Hint for cancellation reason input
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for cancellation'**
+  String get cancelReason;
+
+  /// Title for order detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'Order Details'**
+  String get orderDetails;
+
+  /// Section header for price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Price Breakdown'**
+  String get priceBreakdown;
+
+  /// CBE account number for payment
+  ///
+  /// In en, this message translates to:
+  /// **'Account: 1000XXXXXXXXXX'**
+  String get cbeAccountNumber;
+
+  /// Label for transfer reference number
+  ///
+  /// In en, this message translates to:
+  /// **'Reference'**
+  String get transferReference;
+
+  /// Label for payment amount
+  ///
+  /// In en, this message translates to:
+  /// **'Amount'**
+  String get paymentAmount;
+
+  /// Label for order quantity input
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (kg)'**
+  String get quantity;
+
+  /// Section header for listing summary in order screen
+  ///
+  /// In en, this message translates to:
+  /// **'Listing Summary'**
+  String get listingSummary;
+
+  /// Success message after placing an order
+  ///
+  /// In en, this message translates to:
+  /// **'Order placed successfully!'**
+  String get orderPlacedSuccess;
+
+  /// Success message after submitting payment
+  ///
+  /// In en, this message translates to:
+  /// **'Payment submitted successfully!'**
+  String get paymentSubmittedSuccess;
+
+  /// Success message after cancelling an order
+  ///
+  /// In en, this message translates to:
+  /// **'Order cancelled.'**
+  String get orderCancelledSuccess;
+
+  /// Name of the bank for payments
+  ///
+  /// In en, this message translates to:
+  /// **'Commercial Bank of Ethiopia'**
+  String get bankName;
+
+  /// Title for payment instructions screen
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Instructions'**
+  String get paymentInstructions;
+
+  /// Validation message for empty transaction ID
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction ID is required'**
+  String get transactionIdRequired;
+
+  /// Section header for order status timeline
+  ///
+  /// In en, this message translates to:
+  /// **'Order Timeline'**
+  String get orderTimeline;
+
+  /// Quantity in kilograms format
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} kg'**
+  String quantityKg(String amount);
+
+  /// Label for pending orders count on home screen stats
+  ///
+  /// In en, this message translates to:
+  /// **'Pending Orders'**
+  String get pendingOrders;
+
+  /// Label for active orders count on home screen stats
+  ///
+  /// In en, this message translates to:
+  /// **'Active Orders'**
+  String get activeOrders;
+
+  /// Error message when a crop listing referenced by an order cannot be found locally
+  ///
+  /// In en, this message translates to:
+  /// **'Listing not found'**
+  String get listingNotFound;
+
+  /// Message shown when a user tries to view an order they are not part of
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized to view this order.'**
+  String get unauthorizedAccess;
 }
 
 class _AppLocalizationsDelegate

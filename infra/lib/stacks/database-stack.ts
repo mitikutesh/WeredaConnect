@@ -24,6 +24,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
+  public readonly ordersTable: dynamodb.Table;
   public readonly fraudSignalsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
@@ -328,6 +329,55 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
+    // ─── Orders Table (buyer-initiated orders) ─────────────────────
+    const orders = new WeredaDynamoTable(this, "OrdersTable", {
+      tableName: `${prefix}-orders`,
+      partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.ordersTable = orders.table;
+
+    // GSI: Query orders by buyer
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "BuyerIdCreatedAtIndex",
+      partitionKey: { name: "buyerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by farmer
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "FarmerIdCreatedAtIndex",
+      partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by status
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "StatusCreatedAtIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by listing
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "ListingIdIndex",
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by trip
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "TripIdIndex",
+      partitionKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${prefix}-access-logs-${this.account}`,
@@ -440,6 +490,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "FraudSignalsTableName", {
       value: this.fraudSignalsTable.tableName,
       description: "DynamoDB Fraud Signals Table (F-14)",
+    });
+
+    new cdk.CfnOutput(this, "OrdersTableName", {
+      value: this.ordersTable.tableName,
+      description: "DynamoDB Orders Table",
     });
   }
 }

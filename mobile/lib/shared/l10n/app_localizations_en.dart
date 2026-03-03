@@ -568,7 +568,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Origin and destination cannot be the same';
 
   @override
-  String get etbCurrency => 'ETB';
+  String etbCurrency(String amount) {
+    return '$amount ETB';
+  }
 
   @override
   String get findTransport => 'Find Transport';
@@ -1799,4 +1801,130 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get faydaAlreadyLinked =>
       'This Fayda ID is already linked to another account.';
+
+  @override
+  String get placeOrder => 'Place Order';
+
+  @override
+  String get cropCost => 'Crop Cost';
+
+  @override
+  String get transportCost => 'Transport Cost';
+
+  @override
+  String get platformCommission => 'Platform Commission (5%)';
+
+  @override
+  String get orderTotal => 'Total';
+
+  @override
+  String get payNow => 'Pay Now';
+
+  @override
+  String get payLater => 'Pay Later';
+
+  @override
+  String get cbePaymentInstructions =>
+      'Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.';
+
+  @override
+  String get enterTransactionId => 'Enter CBE Transaction ID';
+
+  @override
+  String get submitPayment => 'Submit Payment';
+
+  @override
+  String get statusCreated => 'Created';
+
+  @override
+  String get statusPendingPayment => 'Pending Payment';
+
+  @override
+  String get statusPaymentSubmitted => 'Payment Submitted';
+
+  @override
+  String get statusPickupConfirmed => 'Pickup Confirmed';
+
+  @override
+  String get statusInTransit => 'In Transit';
+
+  @override
+  String get statusDelivered => 'Delivered';
+
+  @override
+  String get statusDisbursing => 'Disbursing';
+
+  @override
+  String get statusSettled => 'Settled';
+
+  @override
+  String get statusPaymentFailed => 'Payment Failed';
+
+  @override
+  String get statusDisputeResolved => 'Dispute Resolved';
+
+  @override
+  String get cancelOrder => 'Cancel Order';
+
+  @override
+  String get cancelReason => 'Reason for cancellation';
+
+  @override
+  String get orderDetails => 'Order Details';
+
+  @override
+  String get priceBreakdown => 'Price Breakdown';
+
+  @override
+  String get cbeAccountNumber => 'Account: 1000XXXXXXXXXX';
+
+  @override
+  String get transferReference => 'Reference';
+
+  @override
+  String get paymentAmount => 'Amount';
+
+  @override
+  String get quantity => 'Quantity (kg)';
+
+  @override
+  String get listingSummary => 'Listing Summary';
+
+  @override
+  String get orderPlacedSuccess => 'Order placed successfully!';
+
+  @override
+  String get paymentSubmittedSuccess => 'Payment submitted successfully!';
+
+  @override
+  String get orderCancelledSuccess => 'Order cancelled.';
+
+  @override
+  String get bankName => 'Commercial Bank of Ethiopia';
+
+  @override
+  String get paymentInstructions => 'Payment Instructions';
+
+  @override
+  String get transactionIdRequired => 'Transaction ID is required';
+
+  @override
+  String get orderTimeline => 'Order Timeline';
+
+  @override
+  String quantityKg(String amount) {
+    return '$amount kg';
+  }
+
+  @override
+  String get pendingOrders => 'Pending Orders';
+
+  @override
+  String get activeOrders => 'Active Orders';
+
+  @override
+  String get listingNotFound => 'Listing not found';
+
+  @override
+  String get unauthorizedAccess => 'You are not authorized to view this order.';
 }

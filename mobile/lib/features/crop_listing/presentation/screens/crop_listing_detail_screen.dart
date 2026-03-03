@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:isar/isar.dart';
 
+import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
+import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Full detail view for a single crop listing.
@@ -101,11 +104,41 @@ class CropListingDetailScreen extends StatelessWidget {
 
       case UserRole.buyer:
         final l10n = AppLocalizations.of(context)!;
+        // Primary: Place Order
+        widgets.add(
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () async {
+                final farmerName = await _lookupFarmerName(listing.farmerId);
+                if (!context.mounted) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => PlaceOrderScreen(
+                      listing: listing,
+                      farmerName: farmerName,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.shopping_cart),
+              label: Text(l10n.placeOrder),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 12));
+        // Secondary: Contact Farmer
         widgets.add(
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () {
+              onPressed: () async {
+                final farmerName = await _lookupFarmerName(listing.farmerId);
+                if (!context.mounted) return;
                 showModalBottomSheet<void>(
                   context: context,
                   builder: (context) {
@@ -123,12 +156,12 @@ class CropListingDetailScreen extends StatelessWidget {
                           const SizedBox(height: 16),
                           ListTile(
                             leading: const Icon(Icons.person),
-                            title: Text(listing.farmerId),
+                            title: Text(farmerName),
                             trailing: IconButton(
                               icon: const Icon(Icons.copy),
                               onPressed: () {
                                 Clipboard.setData(
-                                  ClipboardData(text: listing.farmerId),
+                                  ClipboardData(text: farmerName),
                                 );
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -156,6 +189,13 @@ class CropListingDetailScreen extends StatelessWidget {
     }
 
     return widgets;
+  }
+
+  Future<String> _lookupFarmerName(String farmerId) async {
+    final isar = IsarService.instance.db;
+    final farmer =
+        await isar.users.filter().userIdEqualTo(farmerId).findFirst();
+    return farmer?.name ?? farmerId;
   }
 }
 

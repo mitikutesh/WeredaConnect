@@ -18,7 +18,6 @@ public sealed record FaydaVerifyRequest
 public sealed record FaydaVerifyResponse
 {
     public required bool Verified { get; init; }
-    public required string FaydaId { get; init; }
     public required string VerifiedName { get; init; }
     public required string VerificationToken { get; init; }
     public required string ExpiresAt { get; init; }

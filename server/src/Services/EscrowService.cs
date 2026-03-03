@@ -19,6 +19,7 @@ public sealed class EscrowService
     private readonly IEscrowIdempotencyRepository _idempotencyRepo;
     private readonly ITelebirrGateway _telebirrGateway;
     private readonly IUserRepository? _userRepo;
+    private readonly IOrderRepository? _orderRepo;
 
     private const decimal DefaultCommissionRate = 0.025m;
     private const decimal MinCommission = 5.0m;
@@ -47,13 +48,15 @@ public sealed class EscrowService
         IEscrowAuditRepository auditRepo,
         IEscrowIdempotencyRepository idempotencyRepo,
         ITelebirrGateway telebirrGateway,
-        IUserRepository? userRepo = null)
+        IUserRepository? userRepo = null,
+        IOrderRepository? orderRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
         _idempotencyRepo = idempotencyRepo ?? throw new ArgumentNullException(nameof(idempotencyRepo));
         _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
         _userRepo = userRepo;
+        _orderRepo = orderRepo;
     }
 
     // ──────────────────────────────────────────────
@@ -177,6 +180,34 @@ public sealed class EscrowService
         var createdAt = now.ToString("o");
         var expiresAt = now.AddDays(EscrowExpiryDays).ToString("o");
 
+        // If orderId provided, read order record for 3-way split amounts
+        decimal? orderCropCost = null;
+        decimal? orderTransportCost = null;
+        decimal? orderCommissionAmount = null;
+        string? truckerId = null;
+        if (!string.IsNullOrEmpty(request.OrderId) && _orderRepo != null)
+        {
+            var order = await _orderRepo.GetByIdAsync(request.OrderId);
+            if (order != null)
+            {
+                if (order.TryGetValue("cropCost", out var cc))
+                    orderCropCost = decimal.TryParse(cc?.ToString(), out var ccVal) ? ccVal : null;
+                if (order.TryGetValue("transportCost", out var tc))
+                    orderTransportCost = decimal.TryParse(tc?.ToString(), out var tcVal) ? tcVal : null;
+                if (order.TryGetValue("commissionAmount", out var ca))
+                    orderCommissionAmount = decimal.TryParse(ca?.ToString(), out var caVal) ? caVal : null;
+                if (order.TryGetValue("truckerId", out var tid))
+                    truckerId = tid?.ToString();
+            }
+        }
+
+        // When order provides 3-way split amounts, use those instead of default calculation
+        if (orderCropCost.HasValue)
+        {
+            farmerPayout = orderCropCost.Value;
+            commission = orderCommissionAmount ?? commission;
+        }
+
         var escrowRecord = new Dictionary<string, object>
         {
             { "escrowId", escrowId },
@@ -196,6 +227,13 @@ public sealed class EscrowService
             { "expiresAt", expiresAt },
             { "version", 1 }
         };
+
+        if (!string.IsNullOrEmpty(request.OrderId))
+            escrowRecord["orderId"] = request.OrderId;
+        if (orderTransportCost.HasValue)
+            escrowRecord["truckerPayout"] = orderTransportCost.Value;
+        if (!string.IsNullOrEmpty(truckerId))
+            escrowRecord["truckerId"] = truckerId;
 
         // 10. Store idempotency record BEFORE calling Telebirr (conditional write prevents races)
         var stored = await _idempotencyRepo.StoreAsync(request.IdempotencyKey, escrowId, "processing");
@@ -352,16 +390,44 @@ public sealed class EscrowService
                 releaseResponse.ErrorMessage ?? "Telebirr gateway error during fund release.");
         }
 
+        // 5b. 3-way split: If trucker payout exists, release transport cost to trucker
+        var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
+        string? truckerReleaseRef = null;
+        if (truckerPayout.HasValue && truckerPayout.Value > 0)
+        {
+            var truckerIdValue = GetStringOrNull(escrowItem, "truckerId") ?? "";
+            var truckerRelease = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
+            {
+                TransactionRef = $"{request.IdempotencyKey}:trucker",
+                HoldRef = holdRef,
+                FarmerPhone = truckerIdValue, // Real impl resolves phone from truckerId
+                Amount = truckerPayout.Value,
+                PlatformCommission = 0m
+            });
+
+            if (truckerRelease.Success)
+            {
+                truckerReleaseRef = truckerRelease.TelebirrRef;
+                await AppendAuditAsync(request.EscrowId, "trucker_release", currentStatus, currentStatus,
+                    "system", truckerRelease.TelebirrRef);
+            }
+            // Best-effort: trucker payment failure doesn't block farmer payment
+        }
+
         var now = DateTime.UtcNow.ToString("o");
 
         // 6. Transition to "released" (optimistic concurrency on current status)
+        var releaseFields = new Dictionary<string, object>
+        {
+            { "telebirrReleaseRef", releaseResponse.TelebirrRef ?? "" },
+            { "releasedAt", now },
+            { "version", currentVersion + 1 }
+        };
+        if (!string.IsNullOrEmpty(truckerReleaseRef))
+            releaseFields["truckerTelebirrRef"] = truckerReleaseRef;
+
         await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
-            new Dictionary<string, object>
-            {
-                { "telebirrReleaseRef", releaseResponse.TelebirrRef ?? "" },
-                { "releasedAt", now },
-                { "version", currentVersion + 1 }
-            });
+            releaseFields);
 
         // 7. Audit log
         await AppendAuditAsync(request.EscrowId, "release", currentStatus, "released",
@@ -380,16 +446,20 @@ public sealed class EscrowService
 
         await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
 
-        // 9. Return ReleaseEscrowResponse
+        // 10. Return ReleaseEscrowResponse
         return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
         {
             EscrowId = request.EscrowId,
             Status = "completed",
             FarmerPayout = farmerPayout,
+            TruckerPayout = truckerPayout,
             Commission = commission,
             TelebirrRef = releaseResponse.TelebirrRef,
+            TruckerTelebirrRef = truckerReleaseRef,
             ReleasedAt = now,
-            Message = "Funds released to farmer's Telebirr account."
+            Message = truckerPayout.HasValue
+                ? "Funds released: farmer, trucker, and platform commission split."
+                : "Funds released to farmer's Telebirr account."
         });
     }
 
@@ -827,6 +897,7 @@ public sealed class EscrowService
         {
             EscrowId = GetString(item, "escrowId"),
             DeliveryId = GetString(item, "deliveryId"),
+            OrderId = GetStringOrNull(item, "orderId"),
             BuyerId = GetString(item, "buyerId"),
             FarmerId = GetString(item, "farmerId"),
             Amount = GetDecimal(item, "amount"),
@@ -886,6 +957,7 @@ public sealed class EscrowService
         {
             EscrowId = GetString(escrow, "escrowId"),
             DeliveryId = GetString(escrow, "deliveryId"),
+            OrderId = GetStringOrNull(escrow, "orderId"),
             BuyerId = GetString(escrow, "buyerId"),
             FarmerId = GetString(escrow, "farmerId"),
             Amount = GetDecimal(escrow, "amount"),
@@ -908,8 +980,10 @@ public sealed class EscrowService
             EscrowId = GetString(escrow, "escrowId"),
             Status = GetString(escrow, "status"),
             FarmerPayout = GetDecimal(escrow, "farmerPayout"),
+            TruckerPayout = GetDecimalOrNull(escrow, "truckerPayout"),
             Commission = GetDecimal(escrow, "commission"),
             TelebirrRef = GetStringOrNull(escrow, "telebirrReleaseRef"),
+            TruckerTelebirrRef = GetStringOrNull(escrow, "truckerTelebirrRef"),
             ReleasedAt = GetStringOrNull(escrow, "releasedAt") ?? GetString(escrow, "updatedAt"),
             Message = "Duplicate request. Returning cached result."
         };
@@ -1072,6 +1146,28 @@ public sealed class EscrowService
                 ? result
                 : 0m,
             _ => 0m
+        };
+    }
+
+    private static decimal? GetDecimalOrNull(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value))
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            decimal d => d,
+            double dbl => (decimal)dbl,
+            float f => (decimal)f,
+            int i => i,
+            long l => l,
+            string s => decimal.TryParse(s, NumberStyles.Number,
+                CultureInfo.InvariantCulture, out var result)
+                ? result
+                : null,
+            _ => null
         };
     }
 

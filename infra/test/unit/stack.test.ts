@@ -19,8 +19,8 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates eleven DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 11);
+  test('creates twelve DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 12);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -61,6 +61,7 @@ describe('ApiStack', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -84,8 +85,8 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
   });
 
-  test('creates twelve Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 12);
+  test('creates fourteen Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 14);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -93,11 +94,12 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 20 routes: /health, /auth/register, /auth/verify-otp, /auth/login, /auth/refresh, /auth/logout,
+    // 22 routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
     //            /sync, /crops, /crops/{id}, /trips, /trips/{id},
+    //            /orders, /orders/{id},
     //            /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
     //            /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 20);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 22);
   });
 
   test('creates JWT authorizer for protected routes', () => {

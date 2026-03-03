@@ -2088,5 +2088,63 @@
   "faydaVerificationFailed": "የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
   "faydaRequired": "ከ10,000 ብር በላይ ለመገበያየት የፋይዳ መታወቂያዎን ያረጋግጡ። ይህንን ዘለው ቆይተው ማረጋገጥ ይችላሉ።",
   "faydaUnavailable": "የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
-  "faydaAlreadyLinked": "ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።"
+  "faydaAlreadyLinked": "ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።",
+  "pendingOrders": "በመጠባበቅ ላይ ያሉ ትዕዛዞች",
+  "activeOrders": "ንቁ ትዕዛዞች",
+  "placeOrder": "ትዕዛዝ ያስገቡ",
+  "cropCost": "የሰብል ዋጋ",
+  "transportCost": "የማጓጓዣ ወጪ",
+  "platformCommission": "የመድረክ ኮሚሽን (5%)",
+  "orderTotal": "ጠቅላላ",
+  "payNow": "አሁን ይክፈሉ",
+  "payLater": "ቆይቶ ይክፈሉ",
+  "cbePaymentInstructions": "ወደ ታች ወደሚታየው የኢትዮጵያ ንግድ ባንክ ሂሳብ ያስተላልፉ። ክፍያዎን ለማዛመድ የማጣቀሻ ቁጥሩን ይጠቀሙ።",
+  "enterTransactionId": "የCBE የግብይት መታወቂያ ያስገቡ",
+  "submitPayment": "ክፍያ ያስገቡ",
+  "statusCreated": "ተፈጥሯል",
+  "statusPendingPayment": "ክፍያ በመጠባበቅ",
+  "statusPaymentSubmitted": "ክፍያ ገብቷል",
+  "statusFunded": "ገንዘብ ተላልፏል",
+  "statusPickupConfirmed": "ማንሳት ተረጋግጧል",
+  "statusInTransit": "በመጓጓዣ ላይ",
+  "statusDelivered": "ተረክቧል",
+  "statusDisbursing": "በማከፋፈል ላይ",
+  "statusSettled": "ተጠናቅቋል",
+  "statusPaymentFailed": "ክፍያ አልተሳካም",
+  "statusDisputed": "በክርክር ላይ",
+  "statusDisputeResolved": "ክርክር ተፈቷል",
+  "cancelOrder": "ትዕዛዝ ሰርዝ",
+  "cancelReason": "የሰረዙበት ምክንያት",
+  "orderDetails": "የትዕዛዝ ዝርዝር",
+  "priceBreakdown": "የዋጋ ዝርዝር",
+  "cbeAccountNumber": "ሂሳብ: 1000XXXXXXXXXX",
+  "transferReference": "ማጣቀሻ",
+  "paymentAmount": "መጠን",
+  "quantity": "ብዛት (ኪግ)",
+  "listingSummary": "የዝርዝር ማጠቃለያ",
+  "orderPlacedSuccess": "ትዕዛዝ በተሳካ ሁኔታ ገብቷል!",
+  "paymentSubmittedSuccess": "ክፍያ በተሳካ ሁኔታ ገብቷል!",
+  "orderCancelledSuccess": "ትዕዛዝ ተሰርዟል።",
+  "bankName": "የኢትዮጵያ ንግድ ባንክ",
+  "paymentInstructions": "የክፍያ መመሪያዎች",
+  "transactionIdRequired": "የግብይት መታወቂያ ያስፈልጋል",
+  "orderTimeline": "የትዕዛዝ ሂደት",
+  "etbCurrency": "{amount} ብር",
+  "@etbCurrency": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "quantityKg": "{amount} ኪግ",
+  "@quantityKg": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "listingNotFound": "ዝርዝር አልተገኘም",
+  "unauthorizedAccess": "ይህን ትዕዛዝ ለማየት ፍቃድ የሎትም።"
 }

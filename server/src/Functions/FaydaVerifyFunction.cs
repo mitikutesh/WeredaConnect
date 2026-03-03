@@ -94,7 +94,6 @@ public class FaydaVerifyFunction
             var devResponse = new FaydaVerifyResponse
             {
                 Verified = true,
-                FaydaId = devFaydaId,
                 VerifiedName = devName,
                 VerificationToken = devToken,
                 ExpiresAt = devExpiresAt
@@ -131,7 +130,6 @@ public class FaydaVerifyFunction
         var response = new FaydaVerifyResponse
         {
             Verified = true,
-            FaydaId = verification.FaydaId,
             VerifiedName = verification.FullName,
             VerificationToken = verificationToken,
             ExpiresAt = expiresAt

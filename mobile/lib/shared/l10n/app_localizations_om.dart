@@ -572,7 +572,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ka\'umsaa fi ga\'umsaan tokko ta\'uu hin danda\'u';
 
   @override
-  String get etbCurrency => 'ETB';
+  String etbCurrency(String amount) {
+    return 'Birrii $amount';
+  }
 
   @override
   String get findTransport => 'Geejjiba Barbaadi';
@@ -1661,7 +1663,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get scanLicense => 'Hayyama Iskaani';
 
   @override
-  String get statusFunded => 'Maallaqi Galmeera';
+  String get statusFunded => 'Maallaqni Galee';
 
   @override
   String get statusPlaced => 'Ajajamame';
@@ -1673,7 +1675,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get statusTransit => 'Daandii Irra';
 
   @override
-  String get statusDisputed => 'Waldhabdee';
+  String get statusDisputed => 'Falmiirra Jira';
 
   @override
   String deliveryTitle(int id) {
@@ -1815,4 +1817,130 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get faydaAlreadyLinked =>
       'Waraqaan eenyummaa Faayidaa kun herrega biraatti walqabatee jira.';
+
+  @override
+  String get placeOrder => 'Ajaja Galmeessi';
+
+  @override
+  String get cropCost => 'Gatii Midhaanii';
+
+  @override
+  String get transportCost => 'Baasii Geejjibaa';
+
+  @override
+  String get platformCommission => 'Komishiinii Waltajjii (5%)';
+
+  @override
+  String get orderTotal => 'Waliigala';
+
+  @override
+  String get payNow => 'Amma Kaffalii';
+
+  @override
+  String get payLater => 'Booda Kaffalii';
+
+  @override
+  String get cbePaymentInstructions =>
+      'Gara herrega Baankii Daldalaa Itoophiyaa armaan gadiitti dabarsi. Kaffaltii kee walsimsiisuuf lakkoofsa wabii fayyadami.';
+
+  @override
+  String get enterTransactionId => 'Lakkoofsa Daldala CBE Galchi';
+
+  @override
+  String get submitPayment => 'Kaffaltii Galmeessi';
+
+  @override
+  String get statusCreated => 'Uumame';
+
+  @override
+  String get statusPendingPayment => 'Kaffaltii Eeggataa';
+
+  @override
+  String get statusPaymentSubmitted => 'Kaffaltiin Galmeeffame';
+
+  @override
+  String get statusPickupConfirmed => 'Fudhannaan Mirkanaa\'e';
+
+  @override
+  String get statusInTransit => 'Geejjibarra Jira';
+
+  @override
+  String get statusDelivered => 'Ga\'eera';
+
+  @override
+  String get statusDisbursing => 'Raabsamaa Jira';
+
+  @override
+  String get statusSettled => 'Xumurameera';
+
+  @override
+  String get statusPaymentFailed => 'Kaffaltiin Hin Milkoofne';
+
+  @override
+  String get statusDisputeResolved => 'Falmiin Furameera';
+
+  @override
+  String get cancelOrder => 'Ajaja Haquu';
+
+  @override
+  String get cancelReason => 'Sababa haquuf';
+
+  @override
+  String get orderDetails => 'Ibsa Ajajaa';
+
+  @override
+  String get priceBreakdown => 'Caccabsaa Gatii';
+
+  @override
+  String get cbeAccountNumber => 'Herrega: 1000XXXXXXXXXX';
+
+  @override
+  String get transferReference => 'Wabii';
+
+  @override
+  String get paymentAmount => 'Hamma';
+
+  @override
+  String get quantity => 'Hamma (kg)';
+
+  @override
+  String get listingSummary => 'Cuunfaa Tarree';
+
+  @override
+  String get orderPlacedSuccess => 'Ajajni milkaa\'inaan galmeeffame!';
+
+  @override
+  String get paymentSubmittedSuccess => 'Kaffaltiin milkaa\'inaan galmeeffame!';
+
+  @override
+  String get orderCancelledSuccess => 'Ajajni haqameera.';
+
+  @override
+  String get bankName => 'Baankii Daldalaa Itoophiyaa';
+
+  @override
+  String get paymentInstructions => 'Qajeelfama Kaffaltii';
+
+  @override
+  String get transactionIdRequired => 'Lakkoofsi daldala barbaachisaadha';
+
+  @override
+  String get orderTimeline => 'Sarara Yeroo Ajajaa';
+
+  @override
+  String quantityKg(String amount) {
+    return '$amount kg';
+  }
+
+  @override
+  String get pendingOrders => 'Ajaja Eeggataa';
+
+  @override
+  String get activeOrders => 'Ajaja Hojii Irra Jiran';
+
+  @override
+  String get listingNotFound => 'Tarreen hin argamne';
+
+  @override
+  String get unauthorizedAccess => 'Ajaja kana ilaaluuf hayyamni hin jiru.';
 }

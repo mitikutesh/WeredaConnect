@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
@@ -568,10 +569,40 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .count()
           : await isar.payments.count();
 
+      // Count orders relevant to the user's role
+      int pendingOrders = 0;
+      int activeOrders = 0;
+      if (role == UserRole.farmer && userId.isNotEmpty) {
+        pendingOrders = await isar.orders
+            .filter()
+            .farmerIdEqualTo(userId)
+            .statusEqualTo(OrderStatus.funded)
+            .count();
+      } else if (role == UserRole.buyer && userId.isNotEmpty) {
+        activeOrders = await isar.orders
+            .filter()
+            .buyerIdEqualTo(userId)
+            .group(
+              (q) => q
+                  .statusEqualTo(OrderStatus.created)
+                  .or()
+                  .statusEqualTo(OrderStatus.pendingPayment)
+                  .or()
+                  .statusEqualTo(OrderStatus.paymentSubmitted)
+                  .or()
+                  .statusEqualTo(OrderStatus.funded)
+                  .or()
+                  .statusEqualTo(OrderStatus.accepted),
+            )
+            .count();
+      }
+
       return {
         'listings': listings,
         'deliveries': deliveries,
         'payments': payments,
+        'pendingOrders': pendingOrders,
+        'activeOrders': activeOrders,
       };
     } on Object {
       return {};
@@ -589,16 +620,16 @@ class _OverviewStatsState extends State<_OverviewStats> {
             icon: Icons.trending_up,
           ),
           StatTile(
+            value: '${stats['pendingOrders'] ?? 0}',
+            label: l10n.pendingOrders,
+            icon: Icons.receipt_long_outlined,
+            valueColor: AppTheme.accentGold,
+          ),
+          StatTile(
             value: '${stats['payments'] ?? 0}',
             label: l10n.escrow,
             icon: Icons.account_balance_wallet_outlined,
             valueColor: AppTheme.primaryGreen,
-          ),
-          StatTile(
-            value: '0',
-            label: l10n.activeFarmers,
-            icon: Icons.people_outline,
-            valueColor: AppTheme.statusInfo,
           ),
           StatTile(
             value: '${stats['deliveries'] ?? 0}',
@@ -635,12 +666,12 @@ class _OverviewStatsState extends State<_OverviewStats> {
       case UserRole.buyer:
         return [
           StatTile(
-            value: '${stats['payments'] ?? 0}',
-            label: l10n.myOrders,
+            value: '${stats['activeOrders'] ?? 0}',
+            label: l10n.activeOrders,
             icon: Icons.receipt_long_outlined,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['payments'] ?? 0}',
             label: l10n.escrow,
             icon: Icons.account_balance_wallet_outlined,
             valueColor: AppTheme.accentGold,

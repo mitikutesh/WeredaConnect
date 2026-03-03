@@ -116,6 +116,11 @@ class AuthRefreshTokenRequested extends AuthEvent {
   List<Object?> get props => [refreshToken];
 }
 
+/// Event to cancel an in-flight auth operation (e.g. user navigated back).
+class AuthCancelRequested extends AuthEvent {
+  const AuthCancelRequested();
+}
+
 /// Event to logout user.
 class AuthLogoutRequested extends AuthEvent {
   final bool clearCache;
