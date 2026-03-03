@@ -176,7 +176,7 @@ class SyncBatchResult {
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// Error handling per HTTP error:
-/// - Network/timeout → revert to pending with retry count increment
+/// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
 /// - 429 → revert (rate limited, try again later)
 /// - Other → mark failed with retry count increment
@@ -313,6 +313,12 @@ class SyncExecutor {
     debugPrint('[SYNC] syncNow() started');
 
     try {
+      // Recover any operations stuck in 'syncing' from a previous crash/kill.
+      final recovered = await _syncQueue.recoverStaleSyncing();
+      if (recovered > 0) {
+        debugPrint('[SYNC] recovered $recovered stale syncing ops');
+      }
+
       // Quick check: if OS reports no network, skip the expensive HTTP call
       final connected = await _connectivityMonitor.isConnected();
       debugPrint('[SYNC] OS connectivity: $connected');
@@ -366,9 +372,12 @@ class SyncExecutor {
           continue;
         }
 
-        // Auth or rate limit errors — stop immediately, don't retry
+        // Auth, rate limit, or network errors — stop immediately, don't retry
+        // within this call. The periodic worker or connectivity listener will
+        // trigger a fresh syncNow() when conditions improve.
         if (result.status == SyncBatchStatus.authError ||
-            result.status == SyncBatchStatus.rateLimited) {
+            result.status == SyncBatchStatus.rateLimited ||
+            result.status == SyncBatchStatus.networkError) {
           break;
         }
 
@@ -604,7 +613,9 @@ class SyncExecutor {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.connectionError:
-        await _markBatchFailed(operations);
+        // Network errors are transient — the operation payload is valid,
+        // only the transport failed. Revert without burning retry count.
+        await _revertBatchToPending(operations);
         return SyncBatchResult(
           total: operations.length,
           failed: operations.length,
@@ -677,7 +688,8 @@ class SyncExecutor {
   }
 
   /// Revert all operations in a batch to pending without incrementing retry count.
-  /// Used for transient errors (auth, rate limit) where the operations are valid.
+  /// Used for transient errors (auth, rate limit, network) where the operations
+  /// are valid but the transport or auth state failed.
   Future<void> _revertBatchToPending(List<SyncOperation> operations) async {
     for (final op in operations) {
       await _syncQueue.revertToPending(op.operationId);

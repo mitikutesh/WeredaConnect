@@ -253,6 +253,39 @@ void main() {
       expect(resetCount, 0);
     });
 
+    test('recoverStaleSyncing resets syncing operations to pending', () async {
+      await syncQueue.enqueue(
+        userId: 'user-001',
+        entityType: 'crop_listing',
+        entityId: 'listing-stale',
+        action: 'create',
+        data: '{}',
+        operationId: 'op-stale',
+      );
+
+      // Simulate the app being killed mid-sync: mark as syncing
+      await syncQueue.markAsSyncing('op-stale');
+      var operation = await syncQueue.getOperation('op-stale');
+      expect(operation!.status, SyncStatus.syncing);
+
+      // Recover stale operations
+      final recovered = await syncQueue.recoverStaleSyncing();
+      expect(recovered, 1);
+
+      operation = await syncQueue.getOperation('op-stale');
+      expect(operation!.status, SyncStatus.pending);
+      expect(operation.retryCount, 0);
+
+      // Should now appear in getPendingOperations
+      final pending = await syncQueue.getPendingOperations();
+      expect(pending.any((op) => op.operationId == 'op-stale'), isTrue);
+    });
+
+    test('recoverStaleSyncing returns 0 when no stale operations', () async {
+      final recovered = await syncQueue.recoverStaleSyncing();
+      expect(recovered, 0);
+    });
+
     test('getPendingCount includes both pending and syncing', () async {
       await syncQueue.enqueue(
         userId: 'user-001',

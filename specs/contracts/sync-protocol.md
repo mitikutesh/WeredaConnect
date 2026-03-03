@@ -177,21 +177,27 @@ These rules must always hold:
 | 4 | 45 seconds | Final retry attempt |
 | 5+ | Permanent failure | Mark operation as `failed`, require manual intervention |
 
-**When to Retry**:
-- Network errors (timeout, connection refused, DNS failure)
+**When to Retry (with backoff, increments `retryCount`)**:
 - 5xx server errors (500, 502, 503, 504)
-- 429 Too Many Requests (rate limiting)
+
+**When to Revert to Pending (no `retryCount` increment)**:
+- Network errors (timeout, connection refused, DNS failure) — the operation payload is valid, only the transport failed. `syncNow()` exits immediately; the periodic worker (15 min) or connectivity listener triggers a fresh attempt.
+- 429 Too Many Requests (rate limiting) — revert and wait
+- 401/403 Unauthorized — revert (AuthInterceptor should refresh token)
 
 **When NOT to Retry**:
 - 400 Bad Request (validation error) → Mark as `failed`, requires data fix
-- 401 Unauthorized → Refresh auth token, then retry
 - 409 Conflict → Resolve conflict, mark as `synced` (not retry)
 - 422 Unprocessable Entity → Mark as `failed`, requires data fix
+- Fraud rejections (`FRAUD_*`, `SYNC_VALIDATION`) → Mark as permanently rejected
 
 **Retry State Management**:
-- `retryCount` field in `SyncOperation` entity tracks attempts
+- `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
 - Max retries: 3 (configurable in `SyncExecutor`)
 - Failed operations remain in queue for manual inspection
+
+**Crash Recovery**:
+- If the app is killed during sync, operations stuck in `syncing` status are recovered by `recoverStaleSyncing()` at the start of each `syncNow()` call. They are reset to `pending` with `retryCount = 0`.
 
 ---
 
@@ -230,10 +236,11 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-03-03 | Updated: Network errors no longer increment retryCount; added crash recovery for stale syncing operations; clarified retry vs. revert categories |
 | 1.1.0 | 2026-02-15 | Added: Composite idempotency key format, server-wins conflict resolution details, exponential backoff retry logic, SyncMetadata table schema, implementation status |
 | 1.0.0 | 2026-02-09 | Initial contract: sync request/response, conflict resolution, idempotency |
 
 ---
 
-**Last Updated**: 2026-02-15
-**Version**: 1.1.0
+**Last Updated**: 2026-03-03
+**Version**: 1.2.0

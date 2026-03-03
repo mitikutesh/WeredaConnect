@@ -219,6 +219,33 @@ class SyncQueue {
     return failedOps.length;
   }
 
+  /// Recover operations stuck in [SyncStatus.syncing] from a previous crash.
+  ///
+  /// If the app is killed during sync, operations remain in `syncing` status
+  /// and are never picked up by [getPendingOperations] (which queries `pending`)
+  /// or [retryFailed] (which queries `failed`). This method resets them to
+  /// `pending` without incrementing [retryCount] so they are retried normally.
+  ///
+  /// Returns the number of operations recovered.
+  Future<int> recoverStaleSyncing() async {
+    final staleOps = await _isar.syncOperations
+        .filter()
+        .statusEqualTo(SyncStatus.syncing)
+        .findAll();
+
+    if (staleOps.isEmpty) return 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in staleOps) {
+        op.status = SyncStatus.pending;
+        op.retryCount = 0;
+        await _isar.syncOperations.put(op);
+      }
+    });
+
+    return staleOps.length;
+  }
+
   /// Get the count of pending operations (pending + syncing).
   ///
   /// Includes both [SyncStatus.pending] and [SyncStatus.syncing]

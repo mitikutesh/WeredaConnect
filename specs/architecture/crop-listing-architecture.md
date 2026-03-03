@@ -227,7 +227,9 @@ Example: farmer-123:crop_listing:crop-456:create:1707998400000
 |-----------|----------|
 | Enqueue | Generate idempotency key, check for duplicates |
 | Fetch batch | `getPendingOperations(limit: 50)` — FIFO |
-| Retry | Increment retryCount, reset to pending if < 3 |
+| Retry (server error) | Increment retryCount, reset to pending if < 3 |
+| Revert (network error) | Reset to pending without incrementing retryCount |
+| Recover (crash) | Reset stale `syncing` ops to pending via `recoverStaleSyncing()` |
 | Purge | Remove synced operations > 30 days old |
 | Capacity | Max 1000 operations (bounded queue) |
 
