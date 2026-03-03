@@ -183,6 +183,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get fullName => 'ሙሉ ስም';
 
   @override
+  String get displayName => 'የመታያ ስም';
+
+  @override
+  String get displayNameHelper => 'በገበያ ላይ ለሌሎች የሚታይ ቅጽል ስም';
+
+  @override
+  String get verifiedLegalName => 'የተረጋገጠ ሕጋዊ ስም';
+
+  @override
   String get selectRole => 'ሚና ምረጥ';
 
   @override

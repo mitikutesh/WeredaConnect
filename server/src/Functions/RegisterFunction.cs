@@ -166,6 +166,7 @@ public class RegisterFunction
             UserId = userId,
             PhoneNumber = registerRequest.PhoneNumber,
             DisplayName = registerRequest.DisplayName,
+            FullName = faydaVerification?.FullName,
             Role = registerRequest.Role,
             Woreda = registerRequest.Woreda,
             FaydaId = faydaVerification?.FaydaId,

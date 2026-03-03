@@ -448,6 +448,24 @@ abstract class AppLocalizations {
   /// **'Full Name'**
   String get fullName;
 
+  /// Label for user-chosen marketplace nickname
+  ///
+  /// In en, this message translates to:
+  /// **'Display Name'**
+  String get displayName;
+
+  /// Helper text for display name field
+  ///
+  /// In en, this message translates to:
+  /// **'Your marketplace nickname (visible to others)'**
+  String get displayNameHelper;
+
+  /// Label for Fayda-verified legal name card
+  ///
+  /// In en, this message translates to:
+  /// **'Verified Legal Name'**
+  String get verifiedLegalName;
+
   /// Role selection label
   ///
   /// In en, this message translates to:

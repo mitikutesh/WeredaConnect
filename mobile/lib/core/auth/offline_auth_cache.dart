@@ -81,6 +81,8 @@ class OfflineAuthCache {
     required String name,
     required String woreda,
     required AuthTokens tokens,
+    String? fullName,
+    String? displayName,
   }) async {
     // Store user profile in Isar first — required for profile screen.
     await saveUserToIsar(
@@ -89,6 +91,8 @@ class OfflineAuthCache {
       name: name,
       role: role,
       woreda: woreda,
+      fullName: fullName,
+      displayName: displayName,
     );
 
     // Cache password hash and tokens in secure storage for offline auth.
@@ -125,6 +129,8 @@ class OfflineAuthCache {
     required String name,
     required UserRole role,
     required String woreda,
+    String? fullName,
+    String? displayName,
   }) async {
     final isar = IsarService.instance.db;
     await isar.writeTxn(() async {
@@ -135,6 +141,8 @@ class OfflineAuthCache {
         ..userId = userId
         ..phoneNumber = phoneNumber
         ..name = name
+        ..fullName = fullName
+        ..displayName = displayName
         ..role = role
         ..woreda = woreda
         ..createdAt = existing?.createdAt ?? DateTime.now().toUtc()

@@ -17,6 +17,8 @@ class PersonalInfoScreen extends StatefulWidget {
   final ValueChanged<String> onPasswordChanged;
   final ValueChanged<String> onConfirmPasswordChanged;
   final GlobalKey<FormState> formKey;
+  final bool faydaVerified;
+  final String? faydaVerifiedName;
 
   const PersonalInfoScreen({
     required this.phone,
@@ -30,6 +32,8 @@ class PersonalInfoScreen extends StatefulWidget {
     required this.onPasswordChanged,
     required this.onConfirmPasswordChanged,
     required this.formKey,
+    this.faydaVerified = false,
+    this.faydaVerifiedName,
     super.key,
   });
 
@@ -122,11 +126,58 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Full name
+            // Verified legal name card (shown when Fayda verified)
+            if (widget.faydaVerified && widget.faydaVerifiedName != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.primaryGreen),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: AppTheme.primaryGreen,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.verifiedLegalName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.faydaVerifiedName!,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Display name
             TextFormField(
               controller: _nameController,
               decoration: InputDecoration(
-                labelText: l10n.fullName,
+                labelText: l10n.displayName,
+                helperText: l10n.displayNameHelper,
                 prefixIcon: const Icon(Icons.person),
               ),
               keyboardType: TextInputType.name,

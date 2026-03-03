@@ -101,7 +101,7 @@ public sealed class UserRepository : IUserRepository
             {
                 { "userId", new AttributeValue { S = user.UserId } }
             },
-            UpdateExpression = "SET #phone = :phone, #name = :name, #role = :role, " +
+            UpdateExpression = "SET #phone = :phone, #name = :name, #fullName = :fullName, #role = :role, " +
                                "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
                                "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, " +
                                "#updated = :updated, #v = :newVersion",
@@ -110,6 +110,7 @@ public sealed class UserRepository : IUserRepository
             {
                 { "#phone", "phoneNumber" },
                 { "#name", "displayName" },
+                { "#fullName", "fullName" },
                 { "#role", "role" },
                 { "#woreda", "woreda" },
                 { "#lang", "preferredLanguage" },
@@ -125,6 +126,7 @@ public sealed class UserRepository : IUserRepository
             {
                 { ":phone", new AttributeValue { S = user.PhoneNumber } },
                 { ":name", user.DisplayName != null ? new AttributeValue { S = user.DisplayName } : new AttributeValue { NULL = true } },
+                { ":fullName", user.FullName != null ? new AttributeValue { S = user.FullName } : new AttributeValue { NULL = true } },
                 { ":role", new AttributeValue { S = user.Role } },
                 { ":woreda", new AttributeValue { S = user.Woreda } },
                 { ":lang", new AttributeValue { S = user.PreferredLanguage } },
@@ -207,6 +209,11 @@ public sealed class UserRepository : IUserRepository
             item["displayName"] = new AttributeValue { S = user.DisplayName };
         }
 
+        if (user.FullName != null)
+        {
+            item["fullName"] = new AttributeValue { S = user.FullName };
+        }
+
         if (user.FaydaId != null)
         {
             item["faydaId"] = new AttributeValue { S = user.FaydaId };
@@ -235,6 +242,7 @@ public sealed class UserRepository : IUserRepository
             UserId = item["userId"].S,
             PhoneNumber = item["phoneNumber"].S,
             DisplayName = item.TryGetValue("displayName", out var dn) && dn.S != null ? dn.S : null,
+            FullName = item.TryGetValue("fullName", out var fn) && fn.S != null ? fn.S : null,
             Role = item["role"].S,
             Woreda = item["woreda"].S,
             FaydaId = item.TryGetValue("faydaId", out var fid) && fid.S != null ? fid.S : null,

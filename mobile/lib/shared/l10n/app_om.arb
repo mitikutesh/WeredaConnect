@@ -232,6 +232,18 @@
   "@fullName": {
     "description": "Full name input label"
   },
+  "displayName": "Maqaa Agarsiisaa",
+  "@displayName": {
+    "description": "Label for user-chosen marketplace nickname"
+  },
+  "displayNameHelper": "Maqaa gabaatti namoota birootiif mul'atu",
+  "@displayNameHelper": {
+    "description": "Helper text for display name field"
+  },
+  "verifiedLegalName": "Maqaa Seeraa Mirkanaa'e",
+  "@verifiedLegalName": {
+    "description": "Label for Fayda-verified legal name card"
+  },
   "selectRole": "Ga'ee Filadhu",
   "@selectRole": {
     "description": "Role selection label"

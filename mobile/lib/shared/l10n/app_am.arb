@@ -232,6 +232,18 @@
   "@fullName": {
     "description": "Full name input label"
   },
+  "displayName": "የመታያ ስም",
+  "@displayName": {
+    "description": "Label for user-chosen marketplace nickname"
+  },
+  "displayNameHelper": "በገበያ ላይ ለሌሎች የሚታይ ቅጽል ስም",
+  "@displayNameHelper": {
+    "description": "Helper text for display name field"
+  },
+  "verifiedLegalName": "የተረጋገጠ ሕጋዊ ስም",
+  "@verifiedLegalName": {
+    "description": "Label for Fayda-verified legal name card"
+  },
   "selectRole": "ሚና ምረጥ",
   "@selectRole": {
     "description": "Role selection label"

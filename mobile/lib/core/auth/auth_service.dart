@@ -120,6 +120,7 @@ class AuthService {
 
       final user = responseData['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
+      final fullName = user['fullName'] as String?;
 
       // Cache credentials for offline use
       try {
@@ -131,6 +132,8 @@ class AuthService {
           name: name,
           woreda: woreda,
           tokens: tokens,
+          fullName: fullName,
+          displayName: name,
         );
       } on Exception catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
@@ -199,6 +202,7 @@ class AuthService {
 
       final user = data['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
+      final fullName = user['fullName'] as String?;
 
       // Cache credentials for offline use (best-effort — don't block login)
       try {
@@ -214,6 +218,8 @@ class AuthService {
           name: (user['displayName'] as String?) ?? '',
           woreda: user['woreda'] as String,
           tokens: tokens,
+          fullName: fullName,
+          displayName: (user['displayName'] as String?) ?? '',
         );
       } on Exception catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');

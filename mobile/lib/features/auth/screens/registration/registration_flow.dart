@@ -279,10 +279,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
         _faydaVerified = true;
         _faydaVerifying = false;
         _faydaError = null;
-        // Pre-fill name from Fayda if available
-        if (result.verifiedName != null && _name.isEmpty) {
-          _name = result.verifiedName!;
-        }
+        // Verified name is shown in a read-only card on the personal info screen
       });
     } else {
       setState(() {
@@ -438,6 +435,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                     password: _password,
                     confirmPassword: _confirmPassword,
                     formKey: _personalInfoFormKey,
+                    faydaVerified: _faydaVerified,
+                    faydaVerifiedName: _faydaVerifiedName,
                     onPhoneChanged: (v) => _phone = v,
                     onNameChanged: (v) => _name = v,
                     onWeredaChanged: (v) => _woreda = v,

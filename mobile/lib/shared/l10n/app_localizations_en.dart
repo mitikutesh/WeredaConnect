@@ -185,6 +185,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fullName => 'Full Name';
 
   @override
+  String get displayName => 'Display Name';
+
+  @override
+  String get displayNameHelper =>
+      'Your marketplace nickname (visible to others)';
+
+  @override
+  String get verifiedLegalName => 'Verified Legal Name';
+
+  @override
   String get selectRole => 'Select Role';
 
   @override

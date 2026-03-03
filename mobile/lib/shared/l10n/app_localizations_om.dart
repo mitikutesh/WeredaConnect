@@ -186,6 +186,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get fullName => 'Maqaa Guutuu';
 
   @override
+  String get displayName => 'Maqaa Agarsiisaa';
+
+  @override
+  String get displayNameHelper => 'Maqaa gabaatti namoota birootiif mul\'atu';
+
+  @override
+  String get verifiedLegalName => 'Maqaa Seeraa Mirkanaa\'e';
+
+  @override
   String get selectRole => 'Ga\'ee Filadhu';
 
   @override

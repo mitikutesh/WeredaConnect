@@ -232,6 +232,18 @@
   "@fullName": {
     "description": "Full name input label"
   },
+  "displayName": "Display Name",
+  "@displayName": {
+    "description": "Label for user-chosen marketplace nickname"
+  },
+  "displayNameHelper": "Your marketplace nickname (visible to others)",
+  "@displayNameHelper": {
+    "description": "Helper text for display name field"
+  },
+  "verifiedLegalName": "Verified Legal Name",
+  "@verifiedLegalName": {
+    "description": "Label for Fayda-verified legal name card"
+  },
   "selectRole": "Select Role",
   "@selectRole": {
     "description": "Role selection label"
