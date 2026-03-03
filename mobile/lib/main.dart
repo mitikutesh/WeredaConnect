@@ -46,11 +46,12 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // SECURITY: Fail fast if API credentials are missing (prevents silent fallback to empty URL)
+  // Warn if API credentials are missing — the app still starts in offline/demo
+  // mode but online login and sync will be unavailable.
   if (!Environment.isApiConfigured) {
-    throw StateError(
-      'API_BASE_URL and Cognito credentials must be provided via --dart-define. '
-      'See README for build instructions.',
+    debugPrint(
+      '[WeredaConnect] WARNING: API_BASE_URL and Cognito credentials not '
+      'provided via --dart-define. Online features will be unavailable.',
     );
   }
 
