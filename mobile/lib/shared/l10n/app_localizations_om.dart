@@ -186,6 +186,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get fullName => 'Maqaa Guutuu';
 
   @override
+  String get displayName => 'Maqaa Agarsiisaa';
+
+  @override
+  String get displayNameHelper => 'Maqaa gabaatti namoota birootiif mul\'atu';
+
+  @override
+  String get verifiedLegalName => 'Maqaa Seeraa Mirkanaa\'e';
+
+  @override
   String get selectRole => 'Ga\'ee Filadhu';
 
   @override
@@ -572,7 +581,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ka\'umsaa fi ga\'umsaan tokko ta\'uu hin danda\'u';
 
   @override
-  String get etbCurrency => 'ETB';
+  String etbCurrency(String amount) {
+    return 'Birrii $amount';
+  }
 
   @override
   String get findTransport => 'Geejjiba Barbaadi';
@@ -1661,7 +1672,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get scanLicense => 'Hayyama Iskaani';
 
   @override
-  String get statusFunded => 'Maallaqi Galmeera';
+  String get statusFunded => 'Maallaqni Galee';
 
   @override
   String get statusPlaced => 'Ajajamame';
@@ -1673,7 +1684,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get statusTransit => 'Daandii Irra';
 
   @override
-  String get statusDisputed => 'Waldhabdee';
+  String get statusDisputed => 'Falmiirra Jira';
 
   @override
   String deliveryTitle(int id) {
@@ -1783,4 +1794,297 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCompleted => 'Xumurameera';
+
+  @override
+  String get faydaVerifyTitle => 'Eenyummaa Faayidaan Mirkaneessuu';
+
+  @override
+  String get faydaVerifyDescription =>
+      'Eenyummaa keessan waraqaa eenyummaa Faayidaa dijitaalaa fayyadamuun mirkaneessaa. Gara portaalii Faayidaatti ni geeffamtu.';
+
+  @override
+  String get verifyWithFayda => 'Faayidaan Mirkaneessuu';
+
+  @override
+  String get faydaVerifying => 'Faayidaan mirkaneessaa jira...';
+
+  @override
+  String get faydaVerifiedSuccess => 'Eenyummaan Mirkanaa\'eera';
+
+  @override
+  String get faydaVerificationFailed =>
+      'Mirkaneessuu Faayidaa hin milkoofne. Irra deebi\'aatii yaalaa.';
+
+  @override
+  String get faydaRequired =>
+      'Daldala birrii 10,000 ol ta\'e banachuuf eenyummaa Faayidaa keessan mirkaneessaa. Irra darbuu fi booda mirkaneessuu dandeessu.';
+
+  @override
+  String get faydaUnavailable =>
+      'Tajaajilli Faayidaa yeroo ammaa hin argamu. Booda irra deebi\'aatii yaalaa.';
+
+  @override
+  String get faydaAlreadyLinked =>
+      'Waraqaan eenyummaa Faayidaa kun herrega biraatti walqabatee jira.';
+
+  @override
+  String get placeOrder => 'Ajaja Galmeessi';
+
+  @override
+  String get cropCost => 'Gatii Midhaanii';
+
+  @override
+  String get transportCost => 'Baasii Geejjibaa';
+
+  @override
+  String get platformCommission => 'Komishiinii Waltajjii (5%)';
+
+  @override
+  String get orderTotal => 'Waliigala';
+
+  @override
+  String get payNow => 'Amma Kaffalii';
+
+  @override
+  String get payLater => 'Booda Kaffalii';
+
+  @override
+  String get cbePaymentInstructions =>
+      'Gara herrega Baankii Daldalaa Itoophiyaa armaan gadiitti dabarsi. Kaffaltii kee walsimsiisuuf lakkoofsa wabii fayyadami.';
+
+  @override
+  String get enterTransactionId => 'Lakkoofsa Daldala CBE Galchi';
+
+  @override
+  String get submitPayment => 'Kaffaltii Galmeessi';
+
+  @override
+  String get statusCreated => 'Uumame';
+
+  @override
+  String get statusPendingPayment => 'Kaffaltii Eeggataa';
+
+  @override
+  String get statusPaymentSubmitted => 'Kaffaltiin Galmeeffame';
+
+  @override
+  String get statusPickupConfirmed => 'Fudhannaan Mirkanaa\'e';
+
+  @override
+  String get statusInTransit => 'Geejjibarra Jira';
+
+  @override
+  String get statusDelivered => 'Ga\'eera';
+
+  @override
+  String get statusDisbursing => 'Raabsamaa Jira';
+
+  @override
+  String get statusSettled => 'Xumurameera';
+
+  @override
+  String get statusPaymentFailed => 'Kaffaltiin Hin Milkoofne';
+
+  @override
+  String get statusDisputeResolved => 'Falmiin Furameera';
+
+  @override
+  String get cancelOrder => 'Ajaja Haquu';
+
+  @override
+  String get cancelReason => 'Sababa haquuf';
+
+  @override
+  String get orderDetails => 'Ibsa Ajajaa';
+
+  @override
+  String get priceBreakdown => 'Caccabsaa Gatii';
+
+  @override
+  String get cbeAccountNumber => 'Herrega: 1000XXXXXXXXXX';
+
+  @override
+  String get transferReference => 'Wabii';
+
+  @override
+  String get paymentAmount => 'Hamma';
+
+  @override
+  String get quantity => 'Hamma (kg)';
+
+  @override
+  String get listingSummary => 'Cuunfaa Tarree';
+
+  @override
+  String get orderPlacedSuccess => 'Ajajni milkaa\'inaan galmeeffame!';
+
+  @override
+  String get paymentSubmittedSuccess => 'Kaffaltiin milkaa\'inaan galmeeffame!';
+
+  @override
+  String get orderCancelledSuccess => 'Ajajni haqameera.';
+
+  @override
+  String get bankName => 'Baankii Daldalaa Itoophiyaa';
+
+  @override
+  String get paymentInstructions => 'Qajeelfama Kaffaltii';
+
+  @override
+  String get transactionIdRequired => 'Lakkoofsi daldala barbaachisaadha';
+
+  @override
+  String get orderTimeline => 'Sarara Yeroo Ajajaa';
+
+  @override
+  String quantityKg(String amount) {
+    return '$amount kg';
+  }
+
+  @override
+  String get pendingOrders => 'Ajaja Eeggataa';
+
+  @override
+  String get activeOrders => 'Ajaja Hojii Irra Jiran';
+
+  @override
+  String get listingNotFound => 'Tarreen hin argamne';
+
+  @override
+  String get unauthorizedAccess => 'Ajaja kana ilaaluuf hayyamni hin jiru.';
+
+  @override
+  String get whatDoYouNeed => 'Maal barbaaddu?';
+
+  @override
+  String get whatDoYouNeedSubtitle =>
+      'Waan barbaaddan nutti himaa waan walsimatu isiniif barbaanna';
+
+  @override
+  String get findMatches => 'Walsimatu Barbaadi';
+
+  @override
+  String get quantityNeeded => 'Hamma barbaadamu (kuuntaalii)';
+
+  @override
+  String get maxPrice => 'Gatii ol\'aanaa (Birrii/kg)';
+
+  @override
+  String get deliverTo => 'Bakka geejjibaa';
+
+  @override
+  String matchesFound(int count) {
+    return '$count walsimatu argame';
+  }
+
+  @override
+  String get noMatchesYet => 'Hanga ammaatti walsimatu hin jiru';
+
+  @override
+  String get suggestedTransport => 'Geejjiba Yaadame';
+
+  @override
+  String get selectThisTrip => 'Imala Kana Fili';
+
+  @override
+  String get estimatedTotal => 'Tilmaama Waliigalaa';
+
+  @override
+  String tripsAvailable(int count) {
+    return '$count imala ni jira';
+  }
+
+  @override
+  String get noTripsYet => 'Hanga ammaatti imala hin jiru';
+
+  @override
+  String get placeOrderWithTransport => 'Ajaja + Geejjiba';
+
+  @override
+  String get placeOrderNoTransport => 'Ajaja (geejjiba malee)';
+
+  @override
+  String get activeBuyingIntents => 'Fedhii Bittaa Hojii Irra Jiru';
+
+  @override
+  String get newBuyingIntent => 'Fedhii Bittaa Haaraa';
+
+  @override
+  String get cropCostLabel => 'Gatii Midhaan';
+
+  @override
+  String get transportCostLabel => 'Gatii Geejjibaa';
+
+  @override
+  String get commissionLabel => 'Komishinii (5%)';
+
+  @override
+  String syncedAgo(String time) {
+    return '$time dura walsiме';
+  }
+
+  @override
+  String get browseAllListings => 'Tarree Hunda Ilaali';
+
+  @override
+  String get browseAllTrips => 'Imala Hunda Ilaali';
+
+  @override
+  String get intentSaved =>
+      'Kuufame! Yoo walsimatu haaraan jiraate isin beeksifna';
+
+  @override
+  String get newMatchesAvailable => 'Walsimatu haaraa argameera!';
+
+  @override
+  String get findCrops => 'Midhaan Barbaadi';
+
+  @override
+  String get totalLabel => 'Waliigala';
+
+  @override
+  String get startTrip => 'Imala Jalqabii';
+
+  @override
+  String get startTripConfirmation =>
+      'Imala kana jalqabdaa? Fe\'annoo fudhachuu mirkaneessita.';
+
+  @override
+  String get tripStartedSuccess => 'Imalaan jalqabame! Nagaan oofii.';
+
+  @override
+  String get markDelivered => 'Geessuu Mirkaneessi';
+
+  @override
+  String get markDeliveredConfirmation =>
+      'Akka geeffameetti mallatteessi? Meeshaaleen buufamuu mirkaneessi.';
+
+  @override
+  String get tripDeliveredSuccess => 'Geessuu mirkanaa\'e!';
+
+  @override
+  String get waitingForMatch => 'Walsimatu eegamaa jira...';
+
+  @override
+  String headingTo(String destination) {
+    return 'Gara $destination deemaa jira';
+  }
+
+  @override
+  String get postNextTrip => 'Imala Itti Aanuu Maxxansi';
+
+  @override
+  String get recentRoutes => 'Karaalee Dhiyoo';
+
+  @override
+  String get noActiveTrip => 'Imalli hojjatamaa jiru hin jiru';
+
+  @override
+  String get postATrip => 'Imala Maxxansi';
+
+  @override
+  String get repeatLastTrip => 'Imala Darbe Irra Deebi\'i';
+
+  @override
+  String get quickFill => 'Guuttaa Ariifataa';
 }

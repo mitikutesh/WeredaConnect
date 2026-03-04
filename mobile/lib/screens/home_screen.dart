@@ -3,19 +3,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:isar/isar.dart';
-import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -88,6 +96,29 @@ class _HomeScreenState extends State<HomeScreen> {
               onRefresh: _refreshData,
             ),
           ),
+
+          // ── Trucker Hero Card ─────────────────────────────────────
+          if (role == UserRole.trucker)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: TruckerHeroCard(
+                key: ValueKey('hero_$_refreshKey'),
+                userId: userId,
+                onRefresh: _refreshData,
+              ),
+            ),
+
+          // ── Active Buying Intents (buyer only) ────────────────────
+          if (role == UserRole.buyer)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: _ActiveIntentsSection(
+                key: ValueKey('intents_$_refreshKey'),
+                userId: userId,
+                l10n: l10n,
+                onRefresh: _refreshData,
+              ),
+            ),
 
           // ── Overview ─────────────────────────────────────────────
           Padding(
@@ -399,14 +430,14 @@ class _QuickActionsGrid extends StatelessWidget {
       case UserRole.buyer:
         return [
           _QuickActionTile(
-            icon: Icons.storefront,
-            label: l10n.market,
+            icon: Icons.search,
+            label: l10n.findCrops,
             color: AppTheme.primaryGreen,
             onTap: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const BrowseListingsScreen(),
+                  builder: (_) => const CreateIntentScreen(),
                 ),
               );
               onRefresh?.call();
@@ -488,6 +519,103 @@ class _QuickActionTile extends StatelessWidget {
   }
 }
 
+/// Active buying intents section for the buyer home screen.
+///
+/// Shows up to 3 active intents with match count badges.
+/// Tapping an intent navigates to match results.
+class _ActiveIntentsSection extends StatefulWidget {
+  final String userId;
+  final AppLocalizations l10n;
+  final VoidCallback? onRefresh;
+
+  const _ActiveIntentsSection({
+    required this.userId,
+    required this.l10n,
+    this.onRefresh,
+    super.key,
+  });
+
+  @override
+  State<_ActiveIntentsSection> createState() => _ActiveIntentsSectionState();
+}
+
+class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
+  @override
+  void initState() {
+    super.initState();
+    context
+        .read<BuyerIntentBloc>()
+        .add(LoadActiveIntents(buyerId: widget.userId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+
+    return BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+      buildWhen: (prev, curr) => curr is ActiveIntentsLoaded,
+      builder: (context, state) {
+        if (state is! ActiveIntentsLoaded || state.intents.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final intents = state.intents.take(3).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.activeBuyingIntents,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...intents.map(
+              (intent) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: IntentCard(
+                  intent: intent,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => BlocProvider.value(
+                          value: context.read<BuyerIntentBloc>(),
+                          child: MatchResultsScreen(intent: intent),
+                        ),
+                      ),
+                    );
+                    widget.onRefresh?.call();
+                  },
+                ),
+              ),
+            ),
+            // "New Buying Intent" button
+            Center(
+              child: TextButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CreateIntentScreen(),
+                    ),
+                  );
+                  widget.onRefresh?.call();
+                },
+                icon: const Icon(Icons.add, size: 16),
+                label: Text(l10n.newBuyingIntent),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// 2x2 overview stats grid.
 class _OverviewStats extends StatefulWidget {
   final UserRole role;
@@ -546,33 +674,71 @@ class _OverviewStatsState extends State<_OverviewStats> {
   Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
     try {
       final isar = IsarService.instance.db;
-      final listings = userId.isNotEmpty
-          ? await isar.cropListings.where().farmerIdEqualTo(userId).count()
-          : await isar.cropListings.count();
-      final deliveries = userId.isNotEmpty
-          ? await isar.deliverys
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .count()
-          : await isar.deliverys.count();
-      final payments = userId.isNotEmpty
-          ? await isar.payments
-              .where()
-              .filter()
-              .farmerIdEqualTo(userId)
-              .or()
-              .buyerIdEqualTo(userId)
-              .count()
-          : await isar.payments.count();
+      final result = <String, int>{};
 
-      return {
-        'listings': listings,
-        'deliveries': deliveries,
-        'payments': payments,
-      };
+      if (role == UserRole.farmer && userId.isNotEmpty) {
+        final futures = await Future.wait([
+          isar.cropListings.where().farmerIdEqualTo(userId).count(),
+          isar.payments.where().filter().farmerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .farmerIdEqualTo(userId)
+              .statusEqualTo(OrderStatus.funded)
+              .count(),
+          isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
+        ]);
+        result['listings'] = futures[0];
+        result['payments'] = futures[1];
+        result['pendingOrders'] = futures[2];
+        result['deliveries'] = futures[3];
+      } else if (role == UserRole.buyer && userId.isNotEmpty) {
+        final futures = await Future.wait([
+          isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
+          isar.payments.where().filter().buyerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .buyerIdEqualTo(userId)
+              .group(
+                (q) => q
+                    .statusEqualTo(OrderStatus.created)
+                    .or()
+                    .statusEqualTo(OrderStatus.pendingPayment)
+                    .or()
+                    .statusEqualTo(OrderStatus.paymentSubmitted)
+                    .or()
+                    .statusEqualTo(OrderStatus.funded)
+                    .or()
+                    .statusEqualTo(OrderStatus.accepted),
+              )
+              .count(),
+          isar.cropListings.count(),
+        ]);
+        result['deliveries'] = futures[0];
+        result['payments'] = futures[1];
+        result['activeOrders'] = futures[2];
+        result['listings'] = futures[3];
+      } else if (role == UserRole.trucker && userId.isNotEmpty) {
+        final futures = await Future.wait([
+          isar.trips.filter().truckerIdEqualTo(userId).count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.inTransit)
+              .count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.matched)
+              .count(),
+          isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
+        ]);
+        result['trips'] = futures[0];
+        result['inTransit'] = futures[1];
+        result['matched'] = futures[2];
+        result['deliveries'] = futures[3];
+      }
+
+      return result;
     } on Object {
       return {};
     }
@@ -589,16 +755,16 @@ class _OverviewStatsState extends State<_OverviewStats> {
             icon: Icons.trending_up,
           ),
           StatTile(
+            value: '${stats['pendingOrders'] ?? 0}',
+            label: l10n.pendingOrders,
+            icon: Icons.receipt_long_outlined,
+            valueColor: AppTheme.accentGold,
+          ),
+          StatTile(
             value: '${stats['payments'] ?? 0}',
             label: l10n.escrow,
             icon: Icons.account_balance_wallet_outlined,
             valueColor: AppTheme.primaryGreen,
-          ),
-          StatTile(
-            value: '0',
-            label: l10n.activeFarmers,
-            icon: Icons.people_outline,
-            valueColor: AppTheme.statusInfo,
           ),
           StatTile(
             value: '${stats['deliveries'] ?? 0}',
@@ -610,18 +776,18 @@ class _OverviewStatsState extends State<_OverviewStats> {
       case UserRole.trucker:
         return [
           StatTile(
-            value: '${stats['listings'] ?? 0}',
+            value: '${stats['trips'] ?? 0}',
             label: l10n.myTrips,
             icon: Icons.local_shipping,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['inTransit'] ?? 0}',
             label: l10n.inTransit,
             icon: Icons.route,
             valueColor: AppTheme.statusTransit,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['matched'] ?? 0}',
             label: l10n.matchedLoads,
             icon: Icons.handshake_outlined,
             valueColor: AppTheme.accentGold,
@@ -635,12 +801,12 @@ class _OverviewStatsState extends State<_OverviewStats> {
       case UserRole.buyer:
         return [
           StatTile(
-            value: '${stats['payments'] ?? 0}',
-            label: l10n.myOrders,
+            value: '${stats['activeOrders'] ?? 0}',
+            label: l10n.activeOrders,
             icon: Icons.receipt_long_outlined,
           ),
           StatTile(
-            value: '0',
+            value: '${stats['payments'] ?? 0}',
             label: l10n.escrow,
             icon: Icons.account_balance_wallet_outlined,
             valueColor: AppTheme.accentGold,
@@ -924,7 +1090,7 @@ class _SyncStatusIconState extends State<_SyncStatusIcon>
     _isSyncing = executor.isSyncing;
     if (_isSyncing) _spinController.repeat();
 
-    _syncSub = executor.onSyncResult.listen((result) {
+    _syncSub = executor.onSyncResult.listen((_) {
       _loadCounts();
     });
   }
@@ -1080,11 +1246,12 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
         SyncBatchStatus.partial =>
           '${result.succeeded} synced, ${result.failed} failed',
         SyncBatchStatus.empty => widget.l10n.syncComplete,
+        SyncBatchStatus.skipped => null, // another sync in progress, no change
         SyncBatchStatus.noInternet => widget.l10n.offlineModeIndicator,
         SyncBatchStatus.networkError => 'Network error',
         SyncBatchStatus.authError => 'Authentication error',
         SyncBatchStatus.rateLimited => 'Rate limited — try later',
-        _ => result.errorMessage ?? 'Error',
+        SyncBatchStatus.error => result.errorMessage ?? 'Error',
       };
     });
   }
@@ -1107,10 +1274,17 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
 
   Future<void> _syncNow() async {
     setState(() => _isSyncing = true);
-    final result = await widget.executor.syncNow();
-    if (mounted) {
-      _onSyncResult(result);
-      widget.onSyncComplete?.call();
+    try {
+      final result = await widget.executor.syncNow();
+      if (mounted) {
+        _onSyncResult(result);
+        widget.onSyncComplete?.call();
+      }
+    } on Object {
+      // Ensure _isSyncing resets even if executor throws unexpectedly
+      if (mounted) {
+        setState(() => _isSyncing = widget.executor.isSyncing);
+      }
     }
   }
 
@@ -1119,6 +1293,9 @@ class _SyncStatusSheetState extends State<_SyncStatusSheet> {
     final retried = await queue.retryFailed();
     if (mounted && retried > 0) {
       await _syncNow();
+    } else if (mounted) {
+      // Refresh counts — failed ops may have been cleared
+      _loadCounts();
     }
   }
 

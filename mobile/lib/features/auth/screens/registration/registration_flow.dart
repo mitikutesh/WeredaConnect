@@ -1,6 +1,11 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -18,10 +23,10 @@ import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 ///
 /// Steps:
 /// 1. Role selection
-/// 2. Fayida ID verification
+/// 2. Fayda eKYC verification (OIDC browser flow)
 /// 3. Role-specific details (trucker/buyer only, farmer skips)
 /// 4. Personal info (phone, name, woreda, password)
-/// → Dispatches AuthRegisterRequested → OTP verification
+/// → Dispatches AuthRegisterRequested with Fayda verification token
 class RegistrationFlow extends StatefulWidget {
   const RegistrationFlow({super.key});
 
@@ -29,16 +34,15 @@ class RegistrationFlow extends StatefulWidget {
   State<RegistrationFlow> createState() => _RegistrationFlowState();
 }
 
-class _RegistrationFlowState extends State<RegistrationFlow> {
+class _RegistrationFlowState extends State<RegistrationFlow>
+    with WidgetsBindingObserver {
   final _pageController = PageController();
   final _personalInfoFormKey = GlobalKey<FormState>();
+  final _faydaService = FaydaOidcService();
   int _currentStep = 0;
 
   // Collected data across steps
   UserRole? _selectedRole;
-  String _faydaId = '';
-  String? _faydaIdFrontPath;
-  String? _faydaIdBackPath;
   String? _drivingLicensePath;
   String _buyerType = 'private';
   String _companyName = '';
@@ -47,7 +51,60 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   String _woreda = '';
   String _password = '';
   String _confirmPassword = '';
-  String? _errorMessage;
+  // Fayda OIDC state
+  String? _faydaVerificationToken;
+  String? _faydaVerifiedName;
+  bool _faydaVerified = false;
+  bool _faydaVerifying = false;
+  String? _faydaState;
+  String? _faydaError;
+  StreamSubscription<Uri>? _deepLinkSub;
+
+  // Whether the browser was launched and we're waiting for a callback
+  bool _awaitingBrowserReturn = false;
+  Timer? _browserReturnTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _listenForDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _browserReturnTimer?.cancel();
+    _pageController.dispose();
+    _deepLinkSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // When app resumes from browser and we're awaiting a Fayda callback,
+    // give a short grace period for the deep link to arrive, then reset.
+    if (state == AppLifecycleState.resumed &&
+        _faydaVerifying &&
+        _awaitingBrowserReturn) {
+      _browserReturnTimer?.cancel();
+      _browserReturnTimer = Timer(const Duration(seconds: 2), () {
+        // If still verifying after 2s, the callback didn't come — reset.
+        if (mounted && _faydaVerifying) {
+          setState(() {
+            _faydaVerifying = false;
+            _awaitingBrowserReturn = false;
+            _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
+          });
+        }
+      });
+    }
+  }
+
+  void _listenForDeepLinks() {
+    final appLinks = AppLinks();
+    _deepLinkSub = appLinks.uriLinkStream.listen(_handleFaydaCallback);
+  }
 
   int get _totalSteps {
     if (_selectedRole == UserRole.farmer) return 3; // skip role details
@@ -67,7 +124,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       case 0:
         return _selectedRole != null;
       case 1:
-        return true; // Fayida ID is optional
+        return true; // Fayda verification is optional (post-registration)
       case 2:
         if (_selectedRole == UserRole.farmer) {
           // Farmer sees personal info as step 2
@@ -82,6 +139,9 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   }
 
   void _nextStep() {
+    // Dismiss keyboard to prevent scroll jumps from viewport resizing
+    FocusScope.of(context).unfocus();
+
     if (_currentStep < _totalSteps - 1) {
       setState(() => _currentStep++);
       _pageController.animateToPage(
@@ -94,7 +154,14 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
     }
   }
 
+  void _cancelIfLoading() {
+    if (context.read<AuthBloc>().state is AuthLoading) {
+      context.read<AuthBloc>().add(const AuthCancelRequested());
+    }
+  }
+
   void _previousStep() {
+    _cancelIfLoading();
     if (_currentStep > 0) {
       setState(() => _currentStep--);
       _pageController.animateToPage(
@@ -116,14 +183,120 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
       AuthErrorCode.networkError => l10n.authNetworkError,
       AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
+      AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,
+      AuthErrorCode.faydaTokenExpired => l10n.faydaVerificationFailed,
+      AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
+      AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
       _ => l10n.genericError,
     };
+  }
+
+  Future<void> _handleFaydaVerify() async {
+    // Fail fast if Fayda OIDC credentials are not configured via --dart-define
+    if (!FaydaOidcService.isConfigured) {
+      setState(() {
+        _faydaError =
+            'Fayda is not configured. Provide FAYDA_AUTHORIZE_URL and '
+            'FAYDA_CLIENT_ID via --dart-define or .env file.';
+      });
+      return;
+    }
+
+    setState(() {
+      _faydaVerifying = true;
+      _faydaError = null;
+    });
+
+    _faydaState = _faydaService.generateState();
+    final url = _faydaService.buildAuthorizationUrl(_faydaState!);
+
+    debugPrint('[Fayda] isConfigured: ${FaydaOidcService.isConfigured}');
+    debugPrint('[Fayda] Launch URL: $url');
+
+    try {
+      final canLaunch = await canLaunchUrl(url);
+      debugPrint('[Fayda] canLaunchUrl: $canLaunch');
+
+      final launched =
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+      debugPrint('[Fayda] launchUrl result: $launched');
+
+      if (launched) {
+        _awaitingBrowserReturn = true;
+      } else {
+        setState(() {
+          _faydaVerifying = false;
+          _faydaError = AppLocalizations.of(context)!.faydaUnavailable;
+        });
+      }
+    } on Exception catch (e) {
+      debugPrint('[Fayda] Launch error: $e');
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = 'Failed to open browser: $e';
+      });
+    }
+  }
+
+  Future<void> _handleFaydaCallback(Uri uri) async {
+    // Only handle our callback scheme
+    if (uri.scheme != 'weredaconnect' || uri.host != 'fayda-callback') return;
+
+    // Callback arrived — cancel the browser-return timer
+    _browserReturnTimer?.cancel();
+    _awaitingBrowserReturn = false;
+
+    final callback = _faydaService.parseCallback(uri);
+
+    // Validate state to prevent CSRF
+    if (callback.state != _faydaState) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
+      });
+      return;
+    }
+
+    if (!callback.isSuccess) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = callback.errorDescription ??
+            AppLocalizations.of(context)!.faydaVerificationFailed;
+      });
+      return;
+    }
+
+    // Exchange code for verification token via our server
+    final result = await _faydaService.exchangeCode(
+      authCode: callback.code!,
+      state: _faydaState!,
+    );
+
+    if (result.isSuccess) {
+      setState(() {
+        _faydaVerificationToken = result.verificationToken;
+        _faydaVerifiedName = result.verifiedName;
+        _faydaVerified = true;
+        _faydaVerifying = false;
+        _faydaError = null;
+        // Verified name is shown in a read-only card on the personal info screen
+      });
+    } else {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = _localizeAuthError(
+          result.errorCode ?? 'FAYDA_001',
+          result.errorMessage ?? 'Verification failed',
+        );
+      });
+    }
   }
 
   void _handleRegister() {
     if (!_personalInfoFormKey.currentState!.validate()) return;
 
-    setState(() => _errorMessage = null);
+    // Clear any previous error snackbar
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     final languageCode = Localizations.localeOf(context).languageCode;
 
@@ -134,15 +307,10 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             name: _name,
             role: _selectedRole!,
             woreda: _woreda,
+            faydaVerificationToken: _faydaVerificationToken,
             preferredLanguage: languageCode,
           ),
         );
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   @override
@@ -152,13 +320,20 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthError) {
-          setState(() {
-            _errorMessage =
-                _localizeAuthError(state.errorCode, state.errorMessage);
-          });
+          final msg = _localizeAuthError(state.errorCode, state.errorMessage);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(msg),
+                backgroundColor: AppTheme.statusError,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 5),
+              ),
+            );
         }
-        if (state is AuthOtpVerificationRequired) {
-          // Return to AuthGate, which will show OTP screen
+        if (state is AuthAuthenticated) {
+          // Registration succeeded — pop back to AuthGate
           while (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
           }
@@ -177,7 +352,10 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                 )
               : IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () {
+                    _cancelIfLoading();
+                    Navigator.of(context).pop();
+                  },
                 ),
           title: Text(l10n.register),
           actions: [
@@ -203,41 +381,6 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             ),
             const SizedBox(height: 8),
 
-            // Error message
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.statusError.withAlpha(25),
-                    border:
-                        Border.all(color: AppTheme.statusError.withAlpha(50)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: AppTheme.statusError,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                            color: AppTheme.statusError,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
             // Step content
             Expanded(
               child: PageView(
@@ -251,16 +394,23 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                       setState(() => _selectedRole = role);
                     },
                   ),
-                  // Step 1: Fayida ID
+                  // Step 1: Fayda OIDC verification
                   FayidaIdScreen(
-                    faydaId: _faydaId.isNotEmpty ? _faydaId : null,
-                    frontImagePath: _faydaIdFrontPath,
-                    backImagePath: _faydaIdBackPath,
-                    onFaydaIdChanged: (v) => setState(() => _faydaId = v),
-                    onFrontImageChanged: (v) =>
-                        setState(() => _faydaIdFrontPath = v),
-                    onBackImageChanged: (v) =>
-                        setState(() => _faydaIdBackPath = v),
+                    onFaydaVerifyRequested: _handleFaydaVerify,
+                    onCancelVerification: _faydaVerifying
+                        ? () {
+                            _browserReturnTimer?.cancel();
+                            setState(() {
+                              _faydaVerifying = false;
+                              _awaitingBrowserReturn = false;
+                              _faydaError = null;
+                            });
+                          }
+                        : null,
+                    isVerifying: _faydaVerifying,
+                    isVerified: _faydaVerified,
+                    verifiedName: _faydaVerifiedName,
+                    errorMessage: _faydaError,
                   ),
                   // Step 2: Role-specific details
                   if (_selectedRole != null && _selectedRole != UserRole.farmer)
@@ -285,6 +435,8 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
                     password: _password,
                     confirmPassword: _confirmPassword,
                     formKey: _personalInfoFormKey,
+                    faydaVerified: _faydaVerified,
+                    faydaVerifiedName: _faydaVerifiedName,
                     onPhoneChanged: (v) => _phone = v,
                     onNameChanged: (v) => _name = v,
                     onWeredaChanged: (v) => _woreda = v,

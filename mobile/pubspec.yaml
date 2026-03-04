@@ -57,6 +57,10 @@ dependencies:
   just_audio: ^0.10.5
   audio_session: ^0.2.2
 
+  # Fayda OIDC deep link + browser launch
+  url_launcher: ^6.2.0
+  app_links: ^6.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

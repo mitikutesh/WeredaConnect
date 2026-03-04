@@ -204,11 +204,11 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Registration flow
+    // Registration flow (Fayda-only, no OTP)
     // -----------------------------------------------------------------------
     group('Registration flow', () {
       test(
-          'emits [AuthLoading, AuthOtpVerificationRequired] on successful registration',
+          'emits [AuthLoading, AuthAuthenticated] on successful registration with Fayda token',
           () async {
         when(
           () => authService.register(
@@ -217,17 +217,17 @@ void main() {
             name: any(named: 'name'),
             role: any(named: 'role'),
             woreda: any(named: 'woreda'),
+            faydaVerificationToken: any(named: 'faydaVerificationToken'),
+            preferredLanguage: any(named: 'preferredLanguage'),
           ),
         ).thenAnswer(
           (_) async => AuthResult.success(
-            const AuthTokens(
-              accessToken: '',
-              refreshToken: '',
-              idToken: '',
-            ),
+            _testTokens,
             userId: 'user-002',
           ),
         );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
 
         final bloc = buildBloc();
         addTearDown(bloc.close);
@@ -240,16 +240,17 @@ void main() {
             name: 'Kebede Alemu',
             role: UserRole.trucker,
             woreda: 'Bahir Dar',
+            faydaVerificationToken: 'fake-fayda-token',
           ),
         );
 
         expect(states.length, greaterThanOrEqualTo(2));
         expect(states[0], isA<AuthLoading>());
-        expect(states[1], isA<AuthOtpVerificationRequired>());
+        expect(states[1], isA<AuthAuthenticated>());
 
-        final otp = states[1] as AuthOtpVerificationRequired;
-        expect(otp.phoneNumber, equals('+251912345678'));
-        expect(otp.userId, equals('user-002'));
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.userId, equals('user-002'));
+        expect(authenticated.tokens, equals(_testTokens));
       });
 
       test('emits [AuthLoading, AuthError] on failed registration', () async {
@@ -260,6 +261,8 @@ void main() {
             name: any(named: 'name'),
             role: any(named: 'role'),
             woreda: any(named: 'woreda'),
+            faydaVerificationToken: any(named: 'faydaVerificationToken'),
+            preferredLanguage: any(named: 'preferredLanguage'),
           ),
         ).thenAnswer(
           (_) async => AuthResult.failure(
@@ -279,6 +282,7 @@ void main() {
             name: 'Test',
             role: UserRole.farmer,
             woreda: 'Jimma',
+            faydaVerificationToken: 'fake-fayda-token',
           ),
         );
 
@@ -288,122 +292,6 @@ void main() {
 
         final error = states[1] as AuthError;
         expect(error.errorCode, equals(AuthErrorCode.phoneAlreadyRegistered));
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // OTP verification
-    // -----------------------------------------------------------------------
-    group('OTP verification', () {
-      test(
-          'emits [AuthLoading, AuthAuthenticated] on successful OTP + auto-login',
-          () async {
-        // Mock register (sets pending data in bloc)
-        when(
-          () => authService.register(
-            phoneNumber: any(named: 'phoneNumber'),
-            password: any(named: 'password'),
-            name: any(named: 'name'),
-            role: any(named: 'role'),
-            woreda: any(named: 'woreda'),
-            preferredLanguage: any(named: 'preferredLanguage'),
-          ),
-        ).thenAnswer(
-          (_) async => AuthResult.success(
-            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
-            userId: 'user-002',
-          ),
-        );
-
-        // Mock verifyOtp (returns success with empty tokens)
-        when(
-          () => authService.verifyOtp(
-            phoneNumber: any(named: 'phoneNumber'),
-            otp: any(named: 'otp'),
-            userId: any(named: 'userId'),
-          ),
-        ).thenAnswer(
-          (_) async => AuthResult.success(
-            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
-            userId: 'user-002',
-          ),
-        );
-
-        // Mock loginOnline (auto-login after OTP)
-        when(
-          () => authService.loginOnline(
-            phoneNumber: any(named: 'phoneNumber'),
-            password: any(named: 'password'),
-          ),
-        ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-002'),
-        );
-        when(() => offlineCache.getCachedUser(any()))
-            .thenAnswer((_) async => _testUser);
-
-        final bloc = buildBloc();
-        addTearDown(bloc.close);
-
-        // Step 1: Register to set pending data
-        await collectStates(
-          bloc,
-          const AuthRegisterRequested(
-            phoneNumber: '+251912345678',
-            password: 'Test1234',
-            name: 'Test User',
-            role: UserRole.farmer,
-            woreda: 'Jimma',
-          ),
-        );
-
-        // Step 2: Verify OTP (triggers auto-login)
-        final states = await collectStates(
-          bloc,
-          const AuthVerifyOtpRequested(
-            phoneNumber: '+251912345678',
-            otp: '123456',
-          ),
-        );
-
-        expect(states.length, greaterThanOrEqualTo(2));
-        expect(states[0], isA<AuthLoading>());
-        expect(states[1], isA<AuthAuthenticated>());
-
-        final authenticated = states[1] as AuthAuthenticated;
-        expect(authenticated.userId, equals('user-002'));
-      });
-
-      test('emits [AuthLoading, AuthError] on invalid OTP', () async {
-        when(
-          () => authService.verifyOtp(
-            phoneNumber: any(named: 'phoneNumber'),
-            otp: any(named: 'otp'),
-            userId: any(named: 'userId'),
-          ),
-        ).thenAnswer(
-          (_) async => AuthResult.failure(
-            AuthErrorCode.invalidOtp,
-            'Invalid verification code',
-          ),
-        );
-
-        final bloc = buildBloc();
-        addTearDown(bloc.close);
-
-        final states = await collectStates(
-          bloc,
-          const AuthVerifyOtpRequested(
-            phoneNumber: '+251912345678',
-            otp: '000000',
-          ),
-        );
-
-        expect(states.length, greaterThanOrEqualTo(2));
-        expect(states[0], isA<AuthLoading>());
-        expect(states[1], isA<AuthError>());
-
-        final error = states[1] as AuthError;
-        expect(error.errorCode, equals(AuthErrorCode.invalidOtp));
       });
     });
 

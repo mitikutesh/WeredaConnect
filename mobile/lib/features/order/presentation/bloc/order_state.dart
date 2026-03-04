@@ -50,3 +50,33 @@ class OrderAccepted extends OrderState {
 class OrderRejected extends OrderState {
   const OrderRejected();
 }
+
+/// State after a new order has been created.
+class OrderCreated extends OrderState {
+  final Order order;
+
+  const OrderCreated({required this.order});
+
+  @override
+  List<Object?> get props => [order];
+}
+
+/// State after payment has been submitted.
+class PaymentSubmitted extends OrderState {
+  const PaymentSubmitted();
+}
+
+/// State after an order has been cancelled.
+class OrderCancelled extends OrderState {
+  const OrderCancelled();
+}
+
+/// State when a single order has been loaded.
+class SingleOrderLoaded extends OrderState {
+  final Order order;
+
+  const SingleOrderLoaded({required this.order});
+
+  @override
+  List<Object?> get props => [order];
+}

@@ -182,6 +182,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "farmer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             DisplayName = "Abebe Kebede",
             PreferredLanguage = "am"
         };
@@ -206,7 +207,8 @@ public class RequestValidatorTests
             PhoneNumber = "invalid",
             Password = "12",
             Role = "admin",
-            Woreda = ""
+            Woreda = "",
+            FaydaVerificationToken = ""
         };
 
         var result = RequestValidator.ValidateRegisterRequest(request);
@@ -236,20 +238,28 @@ public class RequestValidatorTests
         Assert.False(result.IsValid);
     }
 
-    // --- Verify OTP Request ---
+    // --- Fayda Verify Request ---
 
     [Fact]
-    public void ValidateVerifyOtpRequest_ValidRequest_ReturnsSuccess()
+    public void ValidateFaydaVerifyRequest_ValidRequest_ReturnsSuccess()
     {
-        var request = new VerifyOtpRequest
+        var request = new FaydaVerifyRequest
         {
-            UserId = "550e8400-e29b-41d4-a716-446655440000",
-            PhoneNumber = "+251912345678",
-            OtpCode = "123456"
+            AuthorizationCode = "code-123",
+            State = "state-abc",
+            RedirectUri = "weredaconnect://fayda-callback"
         };
 
-        var result = RequestValidator.ValidateVerifyOtpRequest(request);
+        var result = RequestValidator.ValidateFaydaVerifyRequest(request);
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateFaydaVerifyRequest_NullBody_ReturnsFailure()
+    {
+        var result = RequestValidator.ValidateFaydaVerifyRequest(null);
+        Assert.False(result.IsValid);
+        Assert.Equal("AUTH_007", result.Errors[0].Code);
     }
 
     // --- Refresh Request ---

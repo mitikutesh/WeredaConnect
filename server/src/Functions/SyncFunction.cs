@@ -34,12 +34,19 @@ public partial class SyncFunction
 {
     private readonly ISyncMetadataRepository _syncMetadataRepo;
     private readonly ICropRepository _cropRepo;
+    private readonly IOrderRepository _orderRepo;
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tripsTable;
     private readonly string _deliveriesTable;
     private readonly IRateLimitService? _rateLimitService;
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
+
+    // SSM commission rate cache (15-min TTL)
+    private static double _cachedCommissionRate;
+    private static DateTime _commissionRateFetchedAt = DateTime.MinValue;
+    private static readonly TimeSpan CommissionRateCacheTtl = TimeSpan.FromMinutes(15);
+    private const double DefaultCommissionRate = 0.05;
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
@@ -56,11 +63,42 @@ public partial class SyncFunction
 
     private static readonly HashSet<string> AllowedDeliveryFields = new()
     {
-        "tripId", "listingId", "farmerId", "farmerName", "farmerPhone",
+        "tripId", "listingId", "orderId", "farmerId", "farmerName", "farmerPhone",
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "disputeReason",
         "qrToken", "gpsAnomalyFlag"
+    };
+
+    private static readonly HashSet<string> AllowedOrderFields = new()
+    {
+        "listingId", "buyerId", "farmerId", "buyerName", "farmerName",
+        "cropType", "quantity", "pricePerUnit",
+        "tripId", "truckerId", "truckerName", "transportCost",
+        "paymentMethod", "cbeTransactionId",
+        "status", "rejectionReason", "cancelReason"
+    };
+
+    // Server-calculated fields that clients must not set directly
+    private static readonly HashSet<string> OrderServerOnlyFields = new()
+    {
+        "cropCost", "commissionRate", "commissionAmount", "orderTotal",
+        "paymentVerifiedAt", "respondedAt", "cancelledAt"
+    };
+
+    private static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
+    {
+        { "created", new HashSet<string> { "pending_payment", "cancelled" } },
+        { "pending_payment", new HashSet<string> { "payment_submitted", "cancelled" } },
+        { "payment_submitted", new HashSet<string> { "funded", "payment_failed" } },
+        { "funded", new HashSet<string> { "accepted", "cancelled" } },
+        { "accepted", new HashSet<string> { "pickup_confirmed" } },
+        { "pickup_confirmed", new HashSet<string> { "in_transit" } },
+        { "in_transit", new HashSet<string> { "delivered" } },
+        { "delivered", new HashSet<string> { "disbursing", "disputed" } },
+        { "disbursing", new HashSet<string> { "settled" } },
+        { "disputed", new HashSet<string> { "dispute_resolved" } },
+        { "payment_failed", new HashSet<string> { "pending_payment", "cancelled" } },
     };
 
     // Server-controlled fields that must not be set by clients.
@@ -142,11 +180,14 @@ public partial class SyncFunction
 
         var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE")
                          ?? throw new InvalidOperationException("USERS_TABLE is not set.");
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE")
+                          ?? throw new InvalidOperationException("ORDERS_TABLE is not set.");
 
         _dynamoDb = new AmazonDynamoDBClient();
 
         _syncMetadataRepo = new SyncMetadataRepository(_dynamoDb, syncMetadataTable);
         _cropRepo = new CropRepository(_dynamoDb, cropsTable);
+        _orderRepo = new OrderRepository(_dynamoDb, ordersTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(_dynamoDb, rateLimitTable));
         _fraudService = new FraudDetectionService(
             _dynamoDb,
@@ -162,10 +203,12 @@ public partial class SyncFunction
         IAmazonDynamoDB dynamoDb, string tripsTable, string deliveriesTable,
         IRateLimitService? rateLimitService = null,
         IFraudDetectionService? fraudService = null,
-        IUserRepository? userRepo = null)
+        IUserRepository? userRepo = null,
+        IOrderRepository? orderRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
+        _orderRepo = orderRepo ?? new OrderRepository(dynamoDb, "orders-placeholder");
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tripsTable = tripsTable ?? throw new ArgumentNullException(nameof(tripsTable));
         _deliveriesTable = deliveriesTable ?? throw new ArgumentNullException(nameof(deliveriesTable));
@@ -313,6 +356,7 @@ public partial class SyncFunction
                 "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, context),
                 "trip" => await ProcessTripAsync(operation, authenticatedUserId, context),
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
+                "order" => await ProcessOrderAsync(operation, authenticatedUserId, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -2535,5 +2579,535 @@ public partial class SyncFunction
 
         var response = await _dynamoDb.QueryAsync(request);
         return response.Items.Count > 0 ? response.Items[0] : null;
+    }
+
+    // ─── Order Processing ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Process an order sync operation (create, update).
+    /// Uses server-authoritative state machine and commission calculation.
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessOrderAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        switch (operation.Action)
+        {
+            case "create":
+                return await ProcessOrderCreateAsync(operation, authenticatedUserId, context);
+            case "update":
+                return await ProcessOrderUpdateAsync(operation, authenticatedUserId, context);
+            default:
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
+                };
+        }
+    }
+
+    private async Task<SyncOperationResult> ProcessOrderCreateAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        if (operation.Data == null || operation.Data.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "Create operation requires data payload."
+            };
+        }
+
+        // Validate buyerId matches authenticated user
+        if (!operation.Data.TryGetValue("buyerId", out var buyerIdObj)
+            || buyerIdObj?.ToString() != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: buyerId must match authenticated user."
+            };
+        }
+
+        // Strip server-controlled fields
+        foreach (var field in OrderServerOnlyFields)
+        {
+            operation.Data.Remove(field);
+        }
+
+        // Field whitelist
+        var unknownFields = operation.Data.Keys
+            .Where(k => !AllowedOrderFields.Contains(k) && k != "version")
+            .ToList();
+        if (unknownFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"ORDER_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+            };
+        }
+
+        // Validate required fields
+        var validationErrors = ValidateOrderFields(operation.Data, isCreate: true);
+        if (validationErrors.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"ORDER_VALIDATION: {string.Join(" ", validationErrors)}"
+            };
+        }
+
+        // Calculate server-side fields
+        var quantity = ParseDouble(operation.Data, "quantity");
+        var pricePerUnit = ParseDouble(operation.Data, "pricePerUnit");
+        var cropCost = quantity * pricePerUnit;
+        var commissionRate = GetCommissionRate(context);
+        var commissionAmount = cropCost * commissionRate;
+        var transportCost = ParseDoubleOrNull(operation.Data, "transportCost") ?? 0.0;
+        var orderTotal = cropCost + transportCost + commissionAmount;
+
+        operation.Data["cropCost"] = cropCost;
+        operation.Data["commissionRate"] = commissionRate;
+        operation.Data["commissionAmount"] = commissionAmount;
+        operation.Data["orderTotal"] = orderTotal;
+
+        // Force initial status
+        operation.Data["status"] = "created";
+
+        var createResult = await _orderRepo.CreateAsync(operation.EntityId, operation.Data);
+
+        if (createResult.IsSuccess)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = 1,
+                ServerData = createResult.Value
+            };
+        }
+
+        // Already exists — return conflict
+        var existing = await _orderRepo.GetByIdAsync(operation.EntityId);
+        var serverVersion = existing != null && existing.TryGetValue("version", out var v)
+            ? int.TryParse(v.ToString(), out var sv) ? sv : 1
+            : 1;
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = serverVersion,
+            ServerData = existing,
+            Message = "Order already exists on server."
+        };
+    }
+
+    private async Task<SyncOperationResult> ProcessOrderUpdateAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        if (operation.Data == null || operation.Data.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "Update operation requires data payload."
+            };
+        }
+
+        // Fetch existing order
+        var existingOrder = await _orderRepo.GetByIdAsync(operation.EntityId);
+        if (existingOrder == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "Order not found."
+            };
+        }
+
+        // Authorization: only buyer or farmer of this order can update
+        var orderBuyerId = existingOrder.TryGetValue("buyerId", out var bid) ? bid?.ToString() : null;
+        var orderFarmerId = existingOrder.TryGetValue("farmerId", out var fid) ? fid?.ToString() : null;
+
+        if (authenticatedUserId != orderBuyerId && authenticatedUserId != orderFarmerId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: You can only update orders you are a participant in."
+            };
+        }
+
+        // Strip server-controlled fields
+        foreach (var field in OrderServerOnlyFields)
+        {
+            operation.Data.Remove(field);
+        }
+
+        // Validate status transition
+        if (operation.Data.TryGetValue("status", out var newStatusObj))
+        {
+            var newStatus = newStatusObj?.ToString() ?? "";
+            var currentStatus = existingOrder.TryGetValue("status", out var cs) ? cs?.ToString() ?? "" : "";
+
+            if (!OrderTransitions.TryGetValue(currentStatus, out var allowedTransitions)
+                || !allowedTransitions.Contains(newStatus))
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"ORDER_VALIDATION: Invalid status transition from '{currentStatus}' to '{newStatus}'."
+                };
+            }
+
+            // Authorization for specific transitions
+            var transitionError = ValidateOrderTransitionAuth(
+                currentStatus, newStatus, authenticatedUserId, orderBuyerId, orderFarmerId);
+            if (transitionError != null)
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = transitionError
+                };
+            }
+
+            // Add server-side timestamps for specific transitions
+            var now = DateTime.UtcNow.ToString("o");
+            switch (newStatus)
+            {
+                case "cancelled":
+                    operation.Data["cancelledAt"] = now;
+                    break;
+                case "accepted":
+                case "rejected":
+                    operation.Data["respondedAt"] = now;
+                    break;
+                case "funded":
+                    operation.Data["paymentVerifiedAt"] = now;
+                    break;
+            }
+        }
+
+        // Get version for optimistic concurrency
+        var version = 1;
+        if (operation.Data.TryGetValue("version", out var vObj))
+        {
+            int.TryParse(vObj?.ToString(), out version);
+            operation.Data.Remove("version"); // version handled by repo
+        }
+        else if (existingOrder.TryGetValue("version", out var evObj))
+        {
+            int.TryParse(evObj?.ToString(), out version);
+        }
+
+        var updateResult = await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+
+        if (updateResult.IsSuccess)
+        {
+            // 6D: When order transitions to "funded", decrease listing quantity
+            if (operation.Data.TryGetValue("status", out var statusVal) && statusVal?.ToString() == "funded")
+            {
+                await TryDecreaseListingQuantityAsync(existingOrder, context);
+            }
+
+            var newVersion = version + 1;
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = newVersion,
+                ServerData = updateResult.Value
+            };
+        }
+
+        // Conflict
+        var serverData = await _orderRepo.GetByIdAsync(operation.EntityId);
+        var srvVersion = serverData != null && serverData.TryGetValue("version", out var svObj)
+            ? int.TryParse(svObj.ToString(), out var parsed) ? parsed : version
+            : version;
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = srvVersion,
+            ServerData = serverData,
+            Message = updateResult.Error?.Message ?? "Version conflict."
+        };
+    }
+
+    /// <summary>
+    /// When an order becomes "funded", decrease the crop listing's available quantity
+    /// by the order quantity. If quantity reaches 0, transition listing to "reserved".
+    /// Best-effort — failures are logged but do not block the order update.
+    /// </summary>
+    private async Task TryDecreaseListingQuantityAsync(
+        Dictionary<string, object> order, ILambdaContext context)
+    {
+        try
+        {
+            var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
+            if (string.IsNullOrEmpty(listingId)) return;
+
+            var orderQuantity = ParseDouble(order, "quantity");
+            if (orderQuantity <= 0) return;
+
+            var listing = await _cropRepo.GetByIdAsync(listingId);
+            if (listing == null) return;
+
+            var currentQuantity = ParseDouble(listing, "quantity");
+            var listingVersion = 1;
+            if (listing.TryGetValue("version", out var lvObj))
+                int.TryParse(lvObj?.ToString(), out listingVersion);
+
+            var newQuantity = Math.Max(0, currentQuantity - orderQuantity);
+            var updateData = new Dictionary<string, object>
+            {
+                { "quantity", newQuantity.ToString("F2") }
+            };
+
+            if (newQuantity <= 0)
+            {
+                updateData["status"] = "reserved";
+            }
+
+            await _cropRepo.UpdateAsync(listingId, updateData, listingVersion);
+            context.Logger.LogInformation(
+                $"Listing {listingId}: quantity {currentQuantity} -> {newQuantity} (order funded)");
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: don't fail the order update if listing update fails
+            context.Logger.LogWarning(
+                $"Failed to decrease listing quantity: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Validate authorization for specific order state transitions.
+    /// Returns null if authorized, or an error message string if not.
+    /// </summary>
+    private static string? ValidateOrderTransitionAuth(
+        string currentStatus, string newStatus,
+        string? authenticatedUserId, string? buyerId, string? farmerId)
+    {
+        // System-only transitions: block from client sync
+        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved")
+        {
+            return $"ORDER_UNAUTHORIZED: '{newStatus}' is a system-managed transition.";
+        }
+
+        // Buyer actions: cancel, submit payment
+        if (newStatus is "cancelled" or "pending_payment" or "payment_submitted")
+        {
+            if (authenticatedUserId != buyerId)
+            {
+                return $"ORDER_UNAUTHORIZED: Only the buyer can transition to '{newStatus}'.";
+            }
+        }
+
+        // Farmer actions: accept, reject
+        if (newStatus is "accepted" or "rejected")
+        {
+            if (authenticatedUserId != farmerId)
+            {
+                return $"ORDER_UNAUTHORIZED: Only the farmer can transition to '{newStatus}'.";
+            }
+        }
+
+        // Logistics transitions (pickup_confirmed, in_transit, delivered):
+        // either participant allowed — already gated by participant check
+
+        return null;
+    }
+
+    private static List<string> ValidateOrderFields(Dictionary<string, object> data, bool isCreate)
+    {
+        var errors = new List<string>();
+
+        if (isCreate)
+        {
+            if (!data.ContainsKey("listingId"))
+                errors.Add("listingId is required.");
+            if (!data.ContainsKey("buyerId"))
+                errors.Add("buyerId is required.");
+            if (!data.ContainsKey("farmerId"))
+                errors.Add("farmerId is required.");
+            if (!data.ContainsKey("buyerName"))
+                errors.Add("buyerName is required.");
+            if (!data.ContainsKey("farmerName"))
+                errors.Add("farmerName is required.");
+            if (!data.ContainsKey("cropType"))
+                errors.Add("cropType is required.");
+        }
+
+        // Validate quantity
+        if (data.TryGetValue("quantity", out var qObj))
+        {
+            if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
+                || qty <= 0 || qty > 100000)
+            {
+                errors.Add("quantity must be between 0.01 and 100000.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("quantity is required.");
+        }
+
+        // Validate pricePerUnit
+        if (data.TryGetValue("pricePerUnit", out var ppuObj))
+        {
+            if (!decimal.TryParse(ppuObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var ppu)
+                || ppu <= 0 || ppu > 10000)
+            {
+                errors.Add("pricePerUnit must be between 0.01 and 10000.");
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add("pricePerUnit is required.");
+        }
+
+        // Validate cropType against allowed enum
+        if (data.TryGetValue("cropType", out var ctObj))
+        {
+            var cropType = ctObj?.ToString() ?? "";
+            if (!AllowedCropTypes.Contains(cropType))
+            {
+                errors.Add("Invalid cropType.");
+            }
+        }
+
+        // Validate string lengths
+        if (data.TryGetValue("buyerName", out var bnObj))
+        {
+            var name = bnObj?.ToString() ?? "";
+            if (name.Length > 100)
+                errors.Add("buyerName must not exceed 100 characters.");
+        }
+
+        if (data.TryGetValue("farmerName", out var fnObj))
+        {
+            var name = fnObj?.ToString() ?? "";
+            if (name.Length > 100)
+                errors.Add("farmerName must not exceed 100 characters.");
+        }
+
+        if (data.TryGetValue("rejectionReason", out var rrObj))
+        {
+            var reason = rrObj?.ToString() ?? "";
+            if (reason.Length > 500)
+                errors.Add("rejectionReason must not exceed 500 characters.");
+        }
+
+        if (data.TryGetValue("cancelReason", out var crObj))
+        {
+            var reason = crObj?.ToString() ?? "";
+            if (reason.Length > 500)
+                errors.Add("cancelReason must not exceed 500 characters.");
+        }
+
+        if (data.TryGetValue("cbeTransactionId", out var cbeObj))
+        {
+            var txId = cbeObj?.ToString() ?? "";
+            if (txId.Length > 100)
+                errors.Add("cbeTransactionId must not exceed 100 characters.");
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// Get the platform commission rate from SSM with 15-minute cache.
+    /// Falls back to DefaultCommissionRate if SSM is unavailable.
+    /// </summary>
+    private static double GetCommissionRate(ILambdaContext context)
+    {
+        if (DateTime.UtcNow - _commissionRateFetchedAt < CommissionRateCacheTtl)
+        {
+            return _cachedCommissionRate;
+        }
+
+        try
+        {
+            var paramName = Environment.GetEnvironmentVariable("COMMISSION_RATE_PARAM");
+            if (string.IsNullOrEmpty(paramName))
+            {
+                _cachedCommissionRate = DefaultCommissionRate;
+                _commissionRateFetchedAt = DateTime.UtcNow;
+                return _cachedCommissionRate;
+            }
+
+            var value = AwsParameterResolver.GetSsmParameterValue(paramName);
+            if (double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var rate) && rate > 0 && rate < 1)
+            {
+                _cachedCommissionRate = rate;
+            }
+            else
+            {
+                context.Logger.LogWarning($"Invalid commission rate from SSM: '{value}'. Using default {DefaultCommissionRate}.");
+                _cachedCommissionRate = DefaultCommissionRate;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Failed to fetch commission rate from SSM: {ex.Message}. Using default.");
+            _cachedCommissionRate = DefaultCommissionRate;
+        }
+
+        _commissionRateFetchedAt = DateTime.UtcNow;
+        return _cachedCommissionRate;
+    }
+
+    private static double ParseDouble(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value)) return 0.0;
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal m => (double)m,
+            string s => double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var r) ? r : 0.0,
+            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.Number => je.GetDouble(),
+            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.String =>
+                double.TryParse(je.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var r2) ? r2 : 0.0,
+            _ => 0.0
+        };
+    }
+
+    private static double? ParseDoubleOrNull(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var value)) return null;
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal m => (double)m,
+            string s => double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var r) ? r : null,
+            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.Number => je.GetDouble(),
+            System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.String =>
+                double.TryParse(je.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var r2) ? r2 : null,
+            _ => null
+        };
     }
 }

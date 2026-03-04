@@ -16,6 +16,12 @@ public sealed record InitiateEscrowRequest
     public required string DeliveryId { get; init; }
 
     /// <summary>
+    /// Optional: the order this escrow is linked to (UUID).
+    /// When present, amounts are derived from the order record (3-way split).
+    /// </summary>
+    public string? OrderId { get; init; }
+
+    /// <summary>
     /// Buyer initiating payment (must match JWT sub claim).
     /// </summary>
     public required string BuyerId { get; init; }
@@ -48,6 +54,7 @@ public sealed record InitiateEscrowResponse
 {
     public required string EscrowId { get; init; }
     public required string DeliveryId { get; init; }
+    public string? OrderId { get; init; }
     public required string BuyerId { get; init; }
     public required string FarmerId { get; init; }
     public required decimal Amount { get; init; }
@@ -87,8 +94,10 @@ public sealed record ReleaseEscrowResponse
     public required string EscrowId { get; init; }
     public required string Status { get; init; }
     public required decimal FarmerPayout { get; init; }
+    public decimal? TruckerPayout { get; init; }
     public required decimal Commission { get; init; }
     public string? TelebirrRef { get; init; }
+    public string? TruckerTelebirrRef { get; init; }
     public required string ReleasedAt { get; init; }
     public string? Message { get; init; }
 }
@@ -195,6 +204,7 @@ public sealed record EscrowDto
 {
     public required string EscrowId { get; init; }
     public required string DeliveryId { get; init; }
+    public string? OrderId { get; init; }
     public required string BuyerId { get; init; }
     public required string FarmerId { get; init; }
     public required decimal Amount { get; init; }

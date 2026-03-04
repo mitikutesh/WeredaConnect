@@ -448,6 +448,24 @@ abstract class AppLocalizations {
   /// **'Full Name'**
   String get fullName;
 
+  /// Label for user-chosen marketplace nickname
+  ///
+  /// In en, this message translates to:
+  /// **'Display Name'**
+  String get displayName;
+
+  /// Helper text for display name field
+  ///
+  /// In en, this message translates to:
+  /// **'Your marketplace nickname (visible to others)'**
+  String get displayNameHelper;
+
+  /// Label for Fayda-verified legal name card
+  ///
+  /// In en, this message translates to:
+  /// **'Verified Legal Name'**
+  String get verifiedLegalName;
+
   /// Role selection label
   ///
   /// In en, this message translates to:
@@ -1162,11 +1180,11 @@ abstract class AppLocalizations {
   /// **'Origin and destination cannot be the same'**
   String get sameOriginDestination;
 
-  /// Ethiopian Birr currency abbreviation for price display
+  /// Ethiopian Birr currency format
   ///
   /// In en, this message translates to:
-  /// **'ETB'**
-  String get etbCurrency;
+  /// **'{amount} ETB'**
+  String etbCurrency(String amount);
 
   /// Quick action card title for finding transport/trucking services
   ///
@@ -3166,7 +3184,7 @@ abstract class AppLocalizations {
   /// **'Scan License'**
   String get scanLicense;
 
-  /// Order status label for funded/escrowed
+  /// Order status label for funded orders
   ///
   /// In en, this message translates to:
   /// **'Funded'**
@@ -3190,7 +3208,7 @@ abstract class AppLocalizations {
   /// **'Transit'**
   String get statusTransit;
 
-  /// Order status label for disputed
+  /// Order status label for disputed orders
   ///
   /// In en, this message translates to:
   /// **'Disputed'**
@@ -3381,6 +3399,552 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Completed'**
   String get orderCompleted;
+
+  /// Title for Fayda OIDC verification step
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda Identity Verification'**
+  String get faydaVerifyTitle;
+
+  /// Description for Fayda OIDC verification step
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.'**
+  String get faydaVerifyDescription;
+
+  /// Button label to start Fayda OIDC verification
+  ///
+  /// In en, this message translates to:
+  /// **'Verify with Fayda'**
+  String get verifyWithFayda;
+
+  /// Loading text during Fayda verification
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying with Fayda...'**
+  String get faydaVerifying;
+
+  /// Success message after Fayda verification
+  ///
+  /// In en, this message translates to:
+  /// **'Identity Verified'**
+  String get faydaVerifiedSuccess;
+
+  /// Error message when Fayda verification fails
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda verification failed. Please try again.'**
+  String get faydaVerificationFailed;
+
+  /// Message explaining Fayda verification is optional during registration
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.'**
+  String get faydaRequired;
+
+  /// Error when Fayda service cannot be reached
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda service is currently unavailable. Please try again later.'**
+  String get faydaUnavailable;
+
+  /// Error when Fayda ID is already used by another user
+  ///
+  /// In en, this message translates to:
+  /// **'This Fayda ID is already linked to another account.'**
+  String get faydaAlreadyLinked;
+
+  /// Button label to place a new order
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order'**
+  String get placeOrder;
+
+  /// Label for the crop cost line in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Cost'**
+  String get cropCost;
+
+  /// Label for transport cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Transport Cost'**
+  String get transportCost;
+
+  /// Label for platform commission in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Platform Commission (5%)'**
+  String get platformCommission;
+
+  /// Label for total order amount
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get orderTotal;
+
+  /// Button label to pay for an order
+  ///
+  /// In en, this message translates to:
+  /// **'Pay Now'**
+  String get payNow;
+
+  /// Button label to skip payment for now
+  ///
+  /// In en, this message translates to:
+  /// **'Pay Later'**
+  String get payLater;
+
+  /// Instructions for CBE bank transfer payment
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.'**
+  String get cbePaymentInstructions;
+
+  /// Hint for CBE transaction ID input field
+  ///
+  /// In en, this message translates to:
+  /// **'Enter CBE Transaction ID'**
+  String get enterTransactionId;
+
+  /// Button label to submit payment proof
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Payment'**
+  String get submitPayment;
+
+  /// Order status label for newly created orders
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get statusCreated;
+
+  /// Order status label for orders awaiting payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pending Payment'**
+  String get statusPendingPayment;
+
+  /// Order status label for orders with submitted payment
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Submitted'**
+  String get statusPaymentSubmitted;
+
+  /// Order status label for orders with confirmed pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup Confirmed'**
+  String get statusPickupConfirmed;
+
+  /// Order status label for orders in transit
+  ///
+  /// In en, this message translates to:
+  /// **'In Transit'**
+  String get statusInTransit;
+
+  /// Order status label for delivered orders
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered'**
+  String get statusDelivered;
+
+  /// Order status label for orders being disbursed
+  ///
+  /// In en, this message translates to:
+  /// **'Disbursing'**
+  String get statusDisbursing;
+
+  /// Order status label for settled orders
+  ///
+  /// In en, this message translates to:
+  /// **'Settled'**
+  String get statusSettled;
+
+  /// Order status label for failed payment orders
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Failed'**
+  String get statusPaymentFailed;
+
+  /// Order status label for resolved dispute orders
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute Resolved'**
+  String get statusDisputeResolved;
+
+  /// Button label to cancel an order
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Order'**
+  String get cancelOrder;
+
+  /// Hint for cancellation reason input
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for cancellation'**
+  String get cancelReason;
+
+  /// Title for order detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'Order Details'**
+  String get orderDetails;
+
+  /// Section header for price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Price Breakdown'**
+  String get priceBreakdown;
+
+  /// CBE account number for payment
+  ///
+  /// In en, this message translates to:
+  /// **'Account: 1000XXXXXXXXXX'**
+  String get cbeAccountNumber;
+
+  /// Label for transfer reference number
+  ///
+  /// In en, this message translates to:
+  /// **'Reference'**
+  String get transferReference;
+
+  /// Label for payment amount
+  ///
+  /// In en, this message translates to:
+  /// **'Amount'**
+  String get paymentAmount;
+
+  /// Label for order quantity input
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (kg)'**
+  String get quantity;
+
+  /// Section header for listing summary in order screen
+  ///
+  /// In en, this message translates to:
+  /// **'Listing Summary'**
+  String get listingSummary;
+
+  /// Success message after placing an order
+  ///
+  /// In en, this message translates to:
+  /// **'Order placed successfully!'**
+  String get orderPlacedSuccess;
+
+  /// Success message after submitting payment
+  ///
+  /// In en, this message translates to:
+  /// **'Payment submitted successfully!'**
+  String get paymentSubmittedSuccess;
+
+  /// Success message after cancelling an order
+  ///
+  /// In en, this message translates to:
+  /// **'Order cancelled.'**
+  String get orderCancelledSuccess;
+
+  /// Name of the bank for payments
+  ///
+  /// In en, this message translates to:
+  /// **'Commercial Bank of Ethiopia'**
+  String get bankName;
+
+  /// Title for payment instructions screen
+  ///
+  /// In en, this message translates to:
+  /// **'Payment Instructions'**
+  String get paymentInstructions;
+
+  /// Validation message for empty transaction ID
+  ///
+  /// In en, this message translates to:
+  /// **'Transaction ID is required'**
+  String get transactionIdRequired;
+
+  /// Section header for order status timeline
+  ///
+  /// In en, this message translates to:
+  /// **'Order Timeline'**
+  String get orderTimeline;
+
+  /// Quantity in kilograms format
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} kg'**
+  String quantityKg(String amount);
+
+  /// Label for pending orders count on home screen stats
+  ///
+  /// In en, this message translates to:
+  /// **'Pending Orders'**
+  String get pendingOrders;
+
+  /// Label for active orders count on home screen stats
+  ///
+  /// In en, this message translates to:
+  /// **'Active Orders'**
+  String get activeOrders;
+
+  /// Error message when a crop listing referenced by an order cannot be found locally
+  ///
+  /// In en, this message translates to:
+  /// **'Listing not found'**
+  String get listingNotFound;
+
+  /// Message shown when a user tries to view an order they are not part of
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized to view this order.'**
+  String get unauthorizedAccess;
+
+  /// Title for buyer intent creation screen
+  ///
+  /// In en, this message translates to:
+  /// **'What do you need?'**
+  String get whatDoYouNeed;
+
+  /// Subtitle for buyer intent creation screen
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us what you\'re looking for and we\'ll find matches'**
+  String get whatDoYouNeedSubtitle;
+
+  /// Button to search for matching crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Find Matches'**
+  String get findMatches;
+
+  /// Label for quantity input on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity needed (quintals)'**
+  String get quantityNeeded;
+
+  /// Label for max price input on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum price (ETB/kg)'**
+  String get maxPrice;
+
+  /// Label for delivery destination on intent form
+  ///
+  /// In en, this message translates to:
+  /// **'Deliver to'**
+  String get deliverTo;
+
+  /// Count of matching listings
+  ///
+  /// In en, this message translates to:
+  /// **'{count} matches found'**
+  String matchesFound(int count);
+
+  /// Empty state when no listings match the intent
+  ///
+  /// In en, this message translates to:
+  /// **'No matches yet'**
+  String get noMatchesYet;
+
+  /// Section title for transport suggestions
+  ///
+  /// In en, this message translates to:
+  /// **'Suggested Transport'**
+  String get suggestedTransport;
+
+  /// Button to select a trip for transport
+  ///
+  /// In en, this message translates to:
+  /// **'Select This Trip'**
+  String get selectThisTrip;
+
+  /// Label for total cost estimate
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated Total'**
+  String get estimatedTotal;
+
+  /// Count of available trips
+  ///
+  /// In en, this message translates to:
+  /// **'{count} trips available'**
+  String tripsAvailable(int count);
+
+  /// Empty state when no trips match
+  ///
+  /// In en, this message translates to:
+  /// **'No trips yet'**
+  String get noTripsYet;
+
+  /// Button to place order with selected transport
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order + Transport'**
+  String get placeOrderWithTransport;
+
+  /// Button to place order without transport
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order (no transport)'**
+  String get placeOrderNoTransport;
+
+  /// Section title for active buyer intents on home screen
+  ///
+  /// In en, this message translates to:
+  /// **'Active Buying Intents'**
+  String get activeBuyingIntents;
+
+  /// Button to create a new buying intent
+  ///
+  /// In en, this message translates to:
+  /// **'New Buying Intent'**
+  String get newBuyingIntent;
+
+  /// Label for crop cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Crop Cost'**
+  String get cropCostLabel;
+
+  /// Label for transport cost in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Transport Cost'**
+  String get transportCostLabel;
+
+  /// Label for commission in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Commission (5%)'**
+  String get commissionLabel;
+
+  /// Stale data indicator
+  ///
+  /// In en, this message translates to:
+  /// **'Synced {time} ago'**
+  String syncedAgo(String time);
+
+  /// Link to browse all crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Browse All Listings'**
+  String get browseAllListings;
+
+  /// Link to browse all trips
+  ///
+  /// In en, this message translates to:
+  /// **'Browse All Trips'**
+  String get browseAllTrips;
+
+  /// Confirmation after saving a buying intent
+  ///
+  /// In en, this message translates to:
+  /// **'Saved! We\'ll notify you of new matches'**
+  String get intentSaved;
+
+  /// Badge text for new matches
+  ///
+  /// In en, this message translates to:
+  /// **'New matches available!'**
+  String get newMatchesAvailable;
+
+  /// Quick action label for buyer to find crops
+  ///
+  /// In en, this message translates to:
+  /// **'Find Crops'**
+  String get findCrops;
+
+  /// Total label in price breakdown
+  ///
+  /// In en, this message translates to:
+  /// **'Total'**
+  String get totalLabel;
+
+  /// Button label to start a matched trip
+  ///
+  /// In en, this message translates to:
+  /// **'Start Trip'**
+  String get startTrip;
+
+  /// Confirmation dialog text for starting a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Start this trip? You are confirming pickup.'**
+  String get startTripConfirmation;
+
+  /// Success message after starting a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Trip started! Drive safe.'**
+  String get tripStartedSuccess;
+
+  /// Button label to mark a trip as delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Mark Delivered'**
+  String get markDelivered;
+
+  /// Confirmation dialog text for marking delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as delivered? Confirm drop-off.'**
+  String get markDeliveredConfirmation;
+
+  /// Success message after confirming delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery confirmed!'**
+  String get tripDeliveredSuccess;
+
+  /// Hero card text when trip is posted but not matched
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for match...'**
+  String get waitingForMatch;
+
+  /// Hero card text when trip is in transit
+  ///
+  /// In en, this message translates to:
+  /// **'Heading to {destination}'**
+  String headingTo(String destination);
+
+  /// Button label to post another trip after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Post Next Trip'**
+  String get postNextTrip;
+
+  /// Label for recent route chips section
+  ///
+  /// In en, this message translates to:
+  /// **'Recent Routes'**
+  String get recentRoutes;
+
+  /// Hero card text when trucker has no trips
+  ///
+  /// In en, this message translates to:
+  /// **'No active trip'**
+  String get noActiveTrip;
+
+  /// CTA button label for idle trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Post a Trip'**
+  String get postATrip;
+
+  /// Button label to repeat a previous trip
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat Last Trip'**
+  String get repeatLastTrip;
+
+  /// Label for quick-fill route chips on create trip screen
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Fill'**
+  String get quickFill;
 }
 
 class _AppLocalizationsDelegate

@@ -87,18 +87,6 @@ class AuthResult {
     );
   }
 
-  /// Create a successful OTP verification result (no tokens yet — caller must login)
-  factory AuthResult.otpVerified({required String userId}) {
-    return AuthResult._(
-      isSuccess: true,
-      userId: userId,
-    );
-  }
-
-  /// Whether this result represents a successful OTP verification
-  /// that still requires a login call to obtain tokens.
-  bool get isOtpVerifiedOnly => isSuccess && tokens == null;
-
   /// Create an offline-not-available result
   factory AuthResult.offlineNotAvailable() {
     return AuthResult.failure(

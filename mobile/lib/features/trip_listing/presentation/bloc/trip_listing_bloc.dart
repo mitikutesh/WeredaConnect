@@ -22,6 +22,8 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     on<LoadOpenTrips>(_onLoadOpenTrips);
     on<CreateTrip>(_onCreateTrip);
     on<CancelTrip>(_onCancelTrip);
+    on<StartTrip>(_onStartTrip);
+    on<MarkTripDelivered>(_onMarkTripDelivered);
     on<FilterTrips>(_onFilterTrips);
   }
 
@@ -101,6 +103,40 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       // Reload trips after cancel
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
+    } on Exception catch (e) {
+      emit(TripListingError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onStartTrip(
+    StartTrip event,
+    Emitter<TripListingState> emit,
+  ) async {
+    emit(const TripListingLoading());
+
+    try {
+      final trip = await _repository.startTrip(
+        tripId: event.tripId,
+        truckerId: event.truckerId,
+      );
+      emit(TripStarted(trip: trip));
+    } on Exception catch (e) {
+      emit(TripListingError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onMarkTripDelivered(
+    MarkTripDelivered event,
+    Emitter<TripListingState> emit,
+  ) async {
+    emit(const TripListingLoading());
+
+    try {
+      final trip = await _repository.markDelivered(
+        tripId: event.tripId,
+        truckerId: event.truckerId,
+      );
+      emit(TripDelivered(trip: trip));
     } on Exception catch (e) {
       emit(TripListingError(message: e.toString()));
     }

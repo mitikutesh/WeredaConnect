@@ -145,6 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () {
+              // Cancel any in-flight login before navigating away
+              if (context.read<AuthBloc>().state is AuthLoading) {
+                context.read<AuthBloc>().add(const AuthCancelRequested());
+              }
               if (Navigator.of(context).canPop()) {
                 // Pushed as a route (e.g. from WelcomeScreen) — pop back
                 Navigator.of(context).pop();

@@ -81,6 +81,8 @@ class OfflineAuthCache {
     required String name,
     required String woreda,
     required AuthTokens tokens,
+    String? fullName,
+    String? displayName,
   }) async {
     // Store user profile in Isar first — required for profile screen.
     await saveUserToIsar(
@@ -89,6 +91,8 @@ class OfflineAuthCache {
       name: name,
       role: role,
       woreda: woreda,
+      fullName: fullName,
+      displayName: displayName,
     );
 
     // Cache password hash and tokens in secure storage for offline auth.
@@ -125,16 +129,21 @@ class OfflineAuthCache {
     required String name,
     required UserRole role,
     required String woreda,
+    String? fullName,
+    String? displayName,
   }) async {
     final isar = IsarService.instance.db;
     await isar.writeTxn(() async {
-      // Preserve existing createdAt if user already exists
+      // Preserve existing Isar id and createdAt if user already exists
       final existing =
           await isar.users.where().userIdEqualTo(userId).findFirst();
       final user = User()
+        ..id = existing?.id ?? Isar.autoIncrement
         ..userId = userId
         ..phoneNumber = phoneNumber
         ..name = name
+        ..fullName = fullName
+        ..displayName = displayName
         ..role = role
         ..woreda = woreda
         ..createdAt = existing?.createdAt ?? DateTime.now().toUtc()
@@ -375,16 +384,17 @@ class OfflineAuthCache {
   }
 
   /// Constant-time string comparison to prevent timing attacks.
+  ///
+  /// Iterates over the longer string using 0 as fill for the shorter one,
+  /// so the loop duration does not leak the length of either input.
   bool _constantTimeEquals(String a, String b) {
-    if (a.length != b.length) {
-      return false;
+    final maxLen = a.length > b.length ? a.length : b.length;
+    int result = a.length ^ b.length;
+    for (int i = 0; i < maxLen; i++) {
+      final ca = i < a.length ? a.codeUnitAt(i) : 0;
+      final cb = i < b.length ? b.codeUnitAt(i) : 0;
+      result |= ca ^ cb;
     }
-
-    int result = 0;
-    for (int i = 0; i < a.length; i++) {
-      result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
-    }
-
     return result == 0;
   }
 

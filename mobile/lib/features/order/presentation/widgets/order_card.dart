@@ -61,12 +61,24 @@ class OrderCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${order.totalPrice.toStringAsFixed(0)} ETB · ${dateFormat.format(order.createdAt)}',
+                          '${(order.orderTotal ?? order.totalPrice).toStringAsFixed(0)} ETB · ${dateFormat.format(order.createdAt)}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.6),
                           ),
                         ),
+                        if (order.transportCost != null &&
+                            order.transportCost! > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '${l10n.transportCost}: ${order.transportCost!.toStringAsFixed(0)} ETB',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -75,7 +87,7 @@ class OrderCard extends StatelessWidget {
               ),
               // Show accept/reject buttons for pending orders in farmer view
               if (isFarmerView &&
-                  order.status == OrderStatus.pending &&
+                  order.status == OrderStatus.created &&
                   (onAccept != null || onReject != null)) ...[
                 const SizedBox(height: 12),
                 Row(
@@ -117,11 +129,24 @@ class _OrderStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, label) = switch (status) {
-      OrderStatus.pending => (Colors.orange, l10n.orderPending),
+      OrderStatus.created => (Colors.orange, l10n.statusCreated),
+      OrderStatus.pendingPayment => (Colors.orange, l10n.statusPendingPayment),
+      OrderStatus.paymentSubmitted => (
+          Colors.amber,
+          l10n.statusPaymentSubmitted
+        ),
+      OrderStatus.funded => (Colors.teal, l10n.statusFunded),
       OrderStatus.accepted => (Colors.green, l10n.orderAccepted),
       OrderStatus.rejected => (Colors.red, l10n.orderRejected),
       OrderStatus.cancelled => (Colors.grey, l10n.orderCancelled),
-      OrderStatus.completed => (Colors.blue, l10n.orderCompleted),
+      OrderStatus.pickupConfirmed => (Colors.blue, l10n.statusPickupConfirmed),
+      OrderStatus.inTransit => (Colors.indigo, l10n.statusInTransit),
+      OrderStatus.delivered => (Colors.green, l10n.statusDelivered),
+      OrderStatus.disbursing => (Colors.teal, l10n.statusDisbursing),
+      OrderStatus.settled => (Colors.green.shade800, l10n.statusSettled),
+      OrderStatus.paymentFailed => (Colors.red, l10n.statusPaymentFailed),
+      OrderStatus.disputed => (Colors.deepOrange, l10n.statusDisputed),
+      OrderStatus.disputeResolved => (Colors.grey, l10n.statusDisputeResolved),
     };
 
     return Container(

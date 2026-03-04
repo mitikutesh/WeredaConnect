@@ -61,3 +61,93 @@ class RejectOrder extends OrderEvent {
   @override
   List<Object?> get props => [orderId, farmerId, reason];
 }
+
+/// Create a new order (buyer action).
+class CreateOrder extends OrderEvent {
+  final String listingId;
+  final String buyerId;
+  final String farmerId;
+  final String buyerName;
+  final String farmerName;
+  final String cropType;
+  final double quantity;
+  final double pricePerUnit;
+  final String? tripId;
+  final String? truckerId;
+  final String? truckerName;
+  final double? transportCost;
+  final double? commissionRate;
+
+  const CreateOrder({
+    required this.listingId,
+    required this.buyerId,
+    required this.farmerId,
+    required this.buyerName,
+    required this.farmerName,
+    required this.cropType,
+    required this.quantity,
+    required this.pricePerUnit,
+    this.tripId,
+    this.truckerId,
+    this.truckerName,
+    this.transportCost,
+    this.commissionRate,
+  });
+
+  @override
+  List<Object?> get props => [
+        listingId,
+        buyerId,
+        farmerId,
+        buyerName,
+        farmerName,
+        cropType,
+        quantity,
+        pricePerUnit,
+        tripId,
+        truckerId,
+        truckerName,
+        transportCost,
+        commissionRate,
+      ];
+}
+
+/// Submit payment proof for an order (buyer action).
+class SubmitPayment extends OrderEvent {
+  final String orderId;
+  final String cbeTransactionId;
+
+  const SubmitPayment({
+    required this.orderId,
+    required this.cbeTransactionId,
+  });
+
+  @override
+  List<Object?> get props => [orderId, cbeTransactionId];
+}
+
+/// Cancel an order (buyer or farmer action).
+class CancelOrder extends OrderEvent {
+  final String orderId;
+  final String userId;
+  final String? reason;
+
+  const CancelOrder({
+    required this.orderId,
+    required this.userId,
+    this.reason,
+  });
+
+  @override
+  List<Object?> get props => [orderId, userId, reason];
+}
+
+/// Load a single order by its ID.
+class LoadOrderById extends OrderEvent {
+  final String orderId;
+
+  const LoadOrderById({required this.orderId});
+
+  @override
+  List<Object?> get props => [orderId];
+}

@@ -26,6 +26,15 @@ class User {
   /// User's full name (supports Amharic/Afan Oromo scripts)
   late String name;
 
+  /// Fayda-verified legal name (immutable, set by server)
+  String? fullName;
+
+  /// User-chosen marketplace display name
+  String? displayName;
+
+  /// Returns the display name, falling back to legacy name field
+  String get effectiveDisplayName => displayName ?? name;
+
   /// Optional Fayda microfinance ID for credit scoring
   /// Null if user hasn't linked Fayda account
   String? faydaId;
@@ -47,6 +56,12 @@ class User {
 
   /// Whether user has been verified (ID + OTP)
   bool isVerified = false;
+
+  /// Whether user has completed Fayda eKYC verification
+  bool faydaVerified = false;
+
+  /// Timestamp when Fayda verification was completed (UTC)
+  DateTime? faydaVerifiedAt;
 
   /// User role in the marketplace
   /// Values: 'farmer', 'trucker', 'buyer'

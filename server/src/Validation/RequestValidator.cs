@@ -329,9 +329,9 @@ public static partial class RequestValidator
     }
 
     /// <summary>
-    /// Combined validation for POST /auth/verify-otp request.
+    /// Combined validation for POST /auth/fayda-verify request.
     /// </summary>
-    public static ValidationResult ValidateVerifyOtpRequest(VerifyOtpRequest? request)
+    public static ValidationResult ValidateFaydaVerifyRequest(FaydaVerifyRequest? request)
     {
         if (request is null)
         {
@@ -345,26 +345,34 @@ public static partial class RequestValidator
 
         var errors = new List<ValidationError>();
 
-        if (string.IsNullOrWhiteSpace(request.UserId))
+        if (string.IsNullOrWhiteSpace(request.AuthorizationCode))
         {
             errors.Add(new ValidationError
             {
-                Field = "userId",
-                Code = "AUTH_013",
-                Message = "User ID is required."
+                Field = "authorizationCode",
+                Code = "FAYDA_001",
+                Message = "Authorization code is required."
             });
         }
 
-        var phoneResult = ValidatePhoneNumber(request.PhoneNumber);
-        if (!phoneResult.IsValid)
+        if (string.IsNullOrWhiteSpace(request.State))
         {
-            errors.AddRange(phoneResult.Errors);
+            errors.Add(new ValidationError
+            {
+                Field = "state",
+                Code = "FAYDA_002",
+                Message = "State parameter is required."
+            });
         }
 
-        var otpResult = ValidateOtpCode(request.OtpCode);
-        if (!otpResult.IsValid)
+        if (string.IsNullOrWhiteSpace(request.RedirectUri))
         {
-            errors.AddRange(otpResult.Errors);
+            errors.Add(new ValidationError
+            {
+                Field = "redirectUri",
+                Code = "AUTH_007",
+                Message = "Redirect URI is required."
+            });
         }
 
         return errors.Count > 0

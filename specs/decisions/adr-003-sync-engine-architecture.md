@@ -58,6 +58,7 @@ User Action → Repository → Isar (local DB) → SyncQueue → SyncExecutor �
   - `markAsSyncing()` — Update status to `syncing` before sending to server
   - `markAsSynced()` — Update status to `synced` after successful server response
   - `markAsFailed()` — Update status to `failed`, increment `retryCount`
+  - `recoverStaleSyncing()` — Reset `syncing` operations to `pending` (crash recovery)
 
 #### 2. **ConnectivityMonitor**
 - **Library**: `connectivity_plus` (cross-platform, maintained by Flutter team)
@@ -84,9 +85,16 @@ User Action → Repository → Isar (local DB) → SyncQueue → SyncExecutor �
     - `success` → `markAsSynced()`
     - `conflict` → Call `ConflictResolver`, then `markAsSynced()`
     - `error` → `markAsFailed()`, increment retry count
+- **Error Handling (HTTP-level)**:
+  - Network errors (timeout, connection) → revert to `pending` without incrementing retry count; `syncNow()` exits immediately and defers to the periodic worker or connectivity listener
+  - 401/403 → revert to `pending` (auth is transient)
+  - 429 → revert to `pending` (rate limited)
+  - Other 4xx/5xx → `markAsFailed()`, increment retry count
+- **Crash Recovery**:
+  - On each `syncNow()` call, `recoverStaleSyncing()` resets any operations stuck in `syncing` status (from a previous app kill) back to `pending` without incrementing retry count
 - **Retry Logic**:
-  - Exponential backoff: 5s, 15s, 45s
-  - Max 3 retries
+  - Exponential backoff: 5s, 15s, 45s (only for non-network server errors within a single `syncNow()` call)
+  - Max 3 retries (only incremented by genuine server errors, not network failures)
   - After 3 failures, mark as `failed` permanently (requires manual review)
 - **Concurrency**:
   - Use mutex/lock to prevent multiple sync executors running simultaneously
@@ -267,7 +275,7 @@ We chose the **local queue + executor pattern** because:
 
 2. **Server-Wins Strategy**: Simplest approach for MVP. Users trust the server as "source of truth" (consistent with mental model of "syncing to cloud").
 
-3. **Exponential Backoff**: Retry delays (5s, 15s, 45s) balance responsiveness vs. server load. Max 3 retries prevents infinite loops.
+3. **Exponential Backoff**: Retry delays (5s, 15s, 45s) balance responsiveness vs. server load. Max 3 retries prevents infinite loops. Network errors (timeouts, connection failures) do not consume retry attempts — they revert operations to pending and defer to the next `syncNow()` invocation.
 
 4. **7-Day TTL on Idempotency**: Balances idempotency guarantees vs. DynamoDB storage costs. 7 days is sufficient for retries (users won't wait weeks to sync).
 
@@ -307,6 +315,7 @@ We chose the **local queue + executor pattern** because:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-03-03 | Updated: Network errors no longer burn retry count; added `recoverStaleSyncing()` crash recovery; clarified error handling categories |
 | 1.0.0 | 2026-02-15 | Initial ADR: Sync engine architecture, alternatives considered, decision rationale |
 
 ---

@@ -1,7 +1,7 @@
 # Feature: VeriFayda 2.0 Identity Verification During Registration
 
 ## Version
-0.2.0 (Reviewed)
+1.0.0 (Implemented)
 
 ## What
 
@@ -69,7 +69,7 @@ Use Fayda's **OpenID Connect (OIDC) via eSignet** protocol. This is the standard
 - Reference implementations exist on GitHub (`fayda-auth-go`, `fayda-auth-sdk`)
 - EthSwitch blocks direct merchant API access — OIDC via eSignet is the only sanctioned third-party path
 
-**Important prerequisite**: Fayda OIDC verification requires the user to have **already enrolled biometrics in person** at a Fayda registration center. The OIDC flow authenticates against existing enrollment — it does not perform remote enrollment. Users without prior biometric enrollment must use the manual entry fallback.
+**Important prerequisite**: Fayda OIDC verification requires the user to have **already enrolled biometrics in person** at a Fayda registration center. The OIDC flow authenticates against existing enrollment — it does not perform remote enrollment. Users without prior biometric enrollment cannot register on WeredaConnect.
 
 ### Option B: Server-Side API Verification
 
@@ -97,23 +97,23 @@ Keep collecting Fayda ID locally, add server-side format validation, verify late
 ### Registration Flow Changes
 
 ```
-Current:                          Proposed:
+Before (v0.2.0):                  After (v1.0.0):
 1. Role Selection                 1. Role Selection
-2. Fayida ID (local capture)     2. Fayda Verification (OIDC) ← NEW
+2. Fayida ID (local capture)     2. Fayda Verification (OIDC) ← REQUIRED
 3. Role Details                   3. Role Details
-4. Personal Info + SMS OTP        4. Personal Info + SMS OTP
+4. Personal Info + SMS OTP        4. Personal Info → Register → Tokens returned directly
 ```
 
-Step 2 transforms from local ID capture to a real verification flow:
+Step 2 is now **mandatory** Fayda OIDC verification. Step 4 no longer requires SMS OTP — the server auto-confirms the user in Cognito and returns tokens directly.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Step 2: Fayda Identity Verification                    │
+│  Step 2: Fayda Identity Verification (REQUIRED)         │
 │                                                         │
 │  ┌─────────────────────────────────────────────────┐    │
-│  │  🪪  Verify your Fayda ID                       │    │
+│  │  Verify your Fayda ID                            │    │
 │  │                                                 │    │
-│  │  To trade on WeredaConnect, we need to verify   │    │
+│  │  To register on WeredaConnect, you must verify  │    │
 │  │  your identity using Ethiopia's national        │    │
 │  │  Fayda digital ID system.                       │    │
 │  │                                                 │    │
@@ -125,26 +125,23 @@ Step 2 transforms from local ID capture to a real verification flow:
 │  │  │   [ Verify with Fayda ]  (green btn)    │    │    │
 │  │  └─────────────────────────────────────────┘    │    │
 │  │                                                 │    │
-│  │  ─── OR enter manually (reduced trust) ───     │    │
-│  │                                                 │    │
-│  │  [ Fayda ID Number: _________________ ]         │    │
-│  │  (Manual entry — limited to < 10K ETB trades)   │    │
+│  │  No manual fallback — Fayda is required.        │    │
 │  └─────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Two Verification Tiers
+### Verification Policy: Fayda-Required for All Users
 
-| Tier | Method | Trust Level | Transaction Limit |
-|------|--------|-------------|-------------------|
-| **Verified** | Fayda OIDC (biometric) | Full | Unlimited |
-| **Basic** | Manual ID entry (no biometric) | Limited | < 10,000 ETB per trade |
+**Decision**: All users must verify via Fayda OIDC. There is no manual fallback and no "basic" tier.
 
-This approach avoids blocking users who can't do OIDC verification (no biometric enrollment, poor connectivity, old phone) while incentivizing full verification.
+**Rationale**:
+- Fayda OIDC already performs OTP verification on Fayda's side, making our SMS OTP redundant
+- Removes SMS costs and complexity
+- Provides stronger identity assurance for NBE compliance
+- Simplifies the registration flow (no two-tier system)
+- The April 8, 2026 deadline requires all accounts to be Fayda-verified anyway
 
-**Who falls into each tier**:
-- **Verified**: Users who have visited a Fayda registration center and enrolled biometrics (face/fingerprint), AND have internet during registration
-- **Basic**: Users without Fayda biometric enrollment, or users with poor connectivity, or users on very old devices that struggle with WebView
+**Who this affects**: Users without prior Fayda biometric enrollment cannot register. They must first enroll at a Fayda registration center.
 
 ### Mobile Changes
 

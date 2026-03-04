@@ -29,6 +29,9 @@ import 'package:wereda_connect/features/delivery_verification/data/repositories/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -43,11 +46,12 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // SECURITY: Fail fast if API credentials are missing (prevents silent fallback to empty URL)
+  // Warn if API credentials are missing — the app still starts in offline/demo
+  // mode but online login and sync will be unavailable.
   if (!Environment.isApiConfigured) {
-    throw StateError(
-      'API_BASE_URL and Cognito credentials must be provided via --dart-define. '
-      'See README for build instructions.',
+    debugPrint(
+      '[WeredaConnect] WARNING: API_BASE_URL and Cognito credentials not '
+      'provided via --dart-define. Online features will be unavailable.',
     );
   }
 
@@ -156,6 +160,14 @@ Future<void> main() async {
   // The executor auto-syncs on connectivity changes; the worker adds
   // periodic 15-minute sync and daily purge of old operations.
   final syncQueue = SyncQueue(IsarService.instance.db);
+
+  // One-time migration: fix trip sync ops with server-rejected fields
+  try {
+    await syncQueue.migrateBadTripSyncData();
+  } on Object catch (e) {
+    debugPrint('[SYNC] migration failed (non-fatal): $e');
+  }
+
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -163,6 +175,7 @@ Future<void> main() async {
     clientId: 'mobile-${DateTime.now().millisecondsSinceEpoch}',
     conflictResolver: ConflictResolver(IsarService.instance.db),
     conflictNotificationService: conflictNotificationService,
+    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
@@ -243,10 +256,8 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
       imageCache.clear();
       imageCache.clearLiveImages();
 
-      // SECURITY: Clear sensitive in-memory data when app goes to background.
-      // On shared devices (common in Ethiopia), this prevents password exposure
-      // via memory inspection tools when the app is backgrounded.
-      authBloc.clearSensitiveData();
+      // NOTE: No sensitive in-memory data to clear after Fayda OIDC migration.
+      // Registration no longer stores pending passwords in AuthBloc.
     } else if (state == AppLifecycleState.resumed) {
       // App returned to foreground — trigger immediate sync attempt
       syncWorker.onAppResumed();
@@ -340,6 +351,16 @@ class WeredaConnectApp extends StatelessWidget {
               repository: OrderRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+              ),
+            ),
+          ),
+          BlocProvider<BuyerIntentBloc>(
+            create: (_) => BuyerIntentBloc(
+              repository: BuyerIntentRepository(
+                isar: IsarService.instance.db,
+              ),
+              matchingService: MatchingService(
+                isar: IsarService.instance.db,
               ),
             ),
           ),

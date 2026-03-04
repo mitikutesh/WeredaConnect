@@ -1115,7 +1115,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251912345678",
             Role = "Buyer",
             Woreda = "test-woreda",
-            FaydaId = null, // No Fayda ID
+            FaydaVerified = false, // Not Fayda-verified
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",
             UpdatedAt = "2026-01-01T00:00:00Z",
@@ -1127,6 +1127,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251922222222",
             Role = "Farmer",
             Woreda = "test-woreda",
+            FaydaVerified = true,
             FaydaId = "FAYDA-FARMER-001",
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",
@@ -1155,6 +1156,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251912345678",
             Role = "Buyer",
             Woreda = "test-woreda",
+            FaydaVerified = true,
             FaydaId = "FAYDA-BUYER-001",
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",
@@ -1167,7 +1169,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251922222222",
             Role = "Farmer",
             Woreda = "test-woreda",
-            FaydaId = null, // No Fayda ID
+            FaydaVerified = false, // Not Fayda-verified
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",
             UpdatedAt = "2026-01-01T00:00:00Z",
@@ -1195,6 +1197,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251912345678",
             Role = "Buyer",
             Woreda = "test-woreda",
+            FaydaVerified = true,
             FaydaId = "FAYDA-BUYER-001",
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",
@@ -1207,6 +1210,7 @@ public class EscrowServiceTests
             PhoneNumber = "+251922222222",
             Role = "Farmer",
             Woreda = "test-woreda",
+            FaydaVerified = true,
             FaydaId = "FAYDA-FARMER-001",
             IsPhoneVerified = true,
             CreatedAt = "2026-01-01T00:00:00Z",

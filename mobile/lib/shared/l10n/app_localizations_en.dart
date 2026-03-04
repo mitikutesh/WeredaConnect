@@ -185,6 +185,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fullName => 'Full Name';
 
   @override
+  String get displayName => 'Display Name';
+
+  @override
+  String get displayNameHelper =>
+      'Your marketplace nickname (visible to others)';
+
+  @override
+  String get verifiedLegalName => 'Verified Legal Name';
+
+  @override
   String get selectRole => 'Select Role';
 
   @override
@@ -568,7 +578,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Origin and destination cannot be the same';
 
   @override
-  String get etbCurrency => 'ETB';
+  String etbCurrency(String amount) {
+    return '$amount ETB';
+  }
 
   @override
   String get findTransport => 'Find Transport';
@@ -1767,4 +1779,296 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get orderCompleted => 'Completed';
+
+  @override
+  String get faydaVerifyTitle => 'Fayda Identity Verification';
+
+  @override
+  String get faydaVerifyDescription =>
+      'Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.';
+
+  @override
+  String get verifyWithFayda => 'Verify with Fayda';
+
+  @override
+  String get faydaVerifying => 'Verifying with Fayda...';
+
+  @override
+  String get faydaVerifiedSuccess => 'Identity Verified';
+
+  @override
+  String get faydaVerificationFailed =>
+      'Fayda verification failed. Please try again.';
+
+  @override
+  String get faydaRequired =>
+      'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.';
+
+  @override
+  String get faydaUnavailable =>
+      'Fayda service is currently unavailable. Please try again later.';
+
+  @override
+  String get faydaAlreadyLinked =>
+      'This Fayda ID is already linked to another account.';
+
+  @override
+  String get placeOrder => 'Place Order';
+
+  @override
+  String get cropCost => 'Crop Cost';
+
+  @override
+  String get transportCost => 'Transport Cost';
+
+  @override
+  String get platformCommission => 'Platform Commission (5%)';
+
+  @override
+  String get orderTotal => 'Total';
+
+  @override
+  String get payNow => 'Pay Now';
+
+  @override
+  String get payLater => 'Pay Later';
+
+  @override
+  String get cbePaymentInstructions =>
+      'Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.';
+
+  @override
+  String get enterTransactionId => 'Enter CBE Transaction ID';
+
+  @override
+  String get submitPayment => 'Submit Payment';
+
+  @override
+  String get statusCreated => 'Created';
+
+  @override
+  String get statusPendingPayment => 'Pending Payment';
+
+  @override
+  String get statusPaymentSubmitted => 'Payment Submitted';
+
+  @override
+  String get statusPickupConfirmed => 'Pickup Confirmed';
+
+  @override
+  String get statusInTransit => 'In Transit';
+
+  @override
+  String get statusDelivered => 'Delivered';
+
+  @override
+  String get statusDisbursing => 'Disbursing';
+
+  @override
+  String get statusSettled => 'Settled';
+
+  @override
+  String get statusPaymentFailed => 'Payment Failed';
+
+  @override
+  String get statusDisputeResolved => 'Dispute Resolved';
+
+  @override
+  String get cancelOrder => 'Cancel Order';
+
+  @override
+  String get cancelReason => 'Reason for cancellation';
+
+  @override
+  String get orderDetails => 'Order Details';
+
+  @override
+  String get priceBreakdown => 'Price Breakdown';
+
+  @override
+  String get cbeAccountNumber => 'Account: 1000XXXXXXXXXX';
+
+  @override
+  String get transferReference => 'Reference';
+
+  @override
+  String get paymentAmount => 'Amount';
+
+  @override
+  String get quantity => 'Quantity (kg)';
+
+  @override
+  String get listingSummary => 'Listing Summary';
+
+  @override
+  String get orderPlacedSuccess => 'Order placed successfully!';
+
+  @override
+  String get paymentSubmittedSuccess => 'Payment submitted successfully!';
+
+  @override
+  String get orderCancelledSuccess => 'Order cancelled.';
+
+  @override
+  String get bankName => 'Commercial Bank of Ethiopia';
+
+  @override
+  String get paymentInstructions => 'Payment Instructions';
+
+  @override
+  String get transactionIdRequired => 'Transaction ID is required';
+
+  @override
+  String get orderTimeline => 'Order Timeline';
+
+  @override
+  String quantityKg(String amount) {
+    return '$amount kg';
+  }
+
+  @override
+  String get pendingOrders => 'Pending Orders';
+
+  @override
+  String get activeOrders => 'Active Orders';
+
+  @override
+  String get listingNotFound => 'Listing not found';
+
+  @override
+  String get unauthorizedAccess => 'You are not authorized to view this order.';
+
+  @override
+  String get whatDoYouNeed => 'What do you need?';
+
+  @override
+  String get whatDoYouNeedSubtitle =>
+      'Tell us what you\'re looking for and we\'ll find matches';
+
+  @override
+  String get findMatches => 'Find Matches';
+
+  @override
+  String get quantityNeeded => 'Quantity needed (quintals)';
+
+  @override
+  String get maxPrice => 'Maximum price (ETB/kg)';
+
+  @override
+  String get deliverTo => 'Deliver to';
+
+  @override
+  String matchesFound(int count) {
+    return '$count matches found';
+  }
+
+  @override
+  String get noMatchesYet => 'No matches yet';
+
+  @override
+  String get suggestedTransport => 'Suggested Transport';
+
+  @override
+  String get selectThisTrip => 'Select This Trip';
+
+  @override
+  String get estimatedTotal => 'Estimated Total';
+
+  @override
+  String tripsAvailable(int count) {
+    return '$count trips available';
+  }
+
+  @override
+  String get noTripsYet => 'No trips yet';
+
+  @override
+  String get placeOrderWithTransport => 'Place Order + Transport';
+
+  @override
+  String get placeOrderNoTransport => 'Place Order (no transport)';
+
+  @override
+  String get activeBuyingIntents => 'Active Buying Intents';
+
+  @override
+  String get newBuyingIntent => 'New Buying Intent';
+
+  @override
+  String get cropCostLabel => 'Crop Cost';
+
+  @override
+  String get transportCostLabel => 'Transport Cost';
+
+  @override
+  String get commissionLabel => 'Commission (5%)';
+
+  @override
+  String syncedAgo(String time) {
+    return 'Synced $time ago';
+  }
+
+  @override
+  String get browseAllListings => 'Browse All Listings';
+
+  @override
+  String get browseAllTrips => 'Browse All Trips';
+
+  @override
+  String get intentSaved => 'Saved! We\'ll notify you of new matches';
+
+  @override
+  String get newMatchesAvailable => 'New matches available!';
+
+  @override
+  String get findCrops => 'Find Crops';
+
+  @override
+  String get totalLabel => 'Total';
+
+  @override
+  String get startTrip => 'Start Trip';
+
+  @override
+  String get startTripConfirmation =>
+      'Start this trip? You are confirming pickup.';
+
+  @override
+  String get tripStartedSuccess => 'Trip started! Drive safe.';
+
+  @override
+  String get markDelivered => 'Mark Delivered';
+
+  @override
+  String get markDeliveredConfirmation =>
+      'Mark as delivered? Confirm drop-off.';
+
+  @override
+  String get tripDeliveredSuccess => 'Delivery confirmed!';
+
+  @override
+  String get waitingForMatch => 'Waiting for match...';
+
+  @override
+  String headingTo(String destination) {
+    return 'Heading to $destination';
+  }
+
+  @override
+  String get postNextTrip => 'Post Next Trip';
+
+  @override
+  String get recentRoutes => 'Recent Routes';
+
+  @override
+  String get noActiveTrip => 'No active trip';
+
+  @override
+  String get postATrip => 'Post a Trip';
+
+  @override
+  String get repeatLastTrip => 'Repeat Last Trip';
+
+  @override
+  String get quickFill => 'Quick Fill';
 }

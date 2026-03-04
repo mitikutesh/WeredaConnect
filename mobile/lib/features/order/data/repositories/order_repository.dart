@@ -31,7 +31,7 @@ class OrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.pending,
+        orElse: () => OrderStatus.created,
       );
       query = query.statusEqualTo(status);
     }
@@ -49,7 +49,7 @@ class OrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.pending,
+        orElse: () => OrderStatus.created,
       );
       query = query.statusEqualTo(status);
     }
@@ -77,12 +77,17 @@ class OrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.pending,
+        orElse: () => OrderStatus.created,
       );
       query = query.statusEqualTo(status);
     }
 
     return query.sortByCreatedAtDesc().findAll();
+  }
+
+  /// Get a single order by its orderId.
+  Future<Order?> getOrderById(String orderId) async {
+    return _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
   }
 
   /// Create a new order (buyer action).
@@ -95,10 +100,19 @@ class OrderRepository {
     required String cropType,
     required double quantity,
     required double pricePerUnit,
+    String? tripId,
+    String? truckerId,
+    String? truckerName,
+    double? transportCost,
+    double? commissionRate,
   }) async {
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc();
     final totalPrice = quantity * pricePerUnit;
+    final cropCost = totalPrice;
+    final effectiveCommissionRate = commissionRate ?? 0.05;
+    final commissionAmount = cropCost * effectiveCommissionRate;
+    final orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
 
     final order = Order()
       ..orderId = orderId
@@ -111,9 +125,19 @@ class OrderRepository {
       ..quantity = quantity
       ..pricePerUnit = pricePerUnit
       ..totalPrice = totalPrice
-      ..status = OrderStatus.pending
+      ..status = OrderStatus.created
       ..createdAt = now
-      ..version = 1;
+      ..version = 1
+      ..tripId = tripId
+      ..truckerId = truckerId
+      ..truckerName = truckerName
+      ..cropCost = cropCost
+      ..transportCost = transportCost
+      ..commissionRate = effectiveCommissionRate
+      ..commissionAmount = commissionAmount
+      ..orderTotal = orderTotal
+      ..paymentMethod = 'cbe_transfer'
+      ..updatedAt = now;
 
     await _isar.writeTxn(() async {
       await _isar.orders.put(order);
@@ -135,8 +159,18 @@ class OrderRepository {
         'quantity': quantity,
         'pricePerUnit': pricePerUnit,
         'totalPrice': totalPrice,
-        'status': OrderStatus.pending.name,
+        'cropCost': cropCost,
+        'transportCost': transportCost,
+        'commissionRate': effectiveCommissionRate,
+        'commissionAmount': commissionAmount,
+        'orderTotal': orderTotal,
+        'paymentMethod': 'cbe_transfer',
+        if (tripId != null) 'tripId': tripId,
+        if (truckerId != null) 'truckerId': truckerId,
+        if (truckerName != null) 'truckerName': truckerName,
+        'status': OrderStatus.created.name,
         'createdAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'version': 1,
       }),
       operationId: _uuid.v4(),
@@ -145,20 +179,96 @@ class OrderRepository {
     return order;
   }
 
+  /// Submit payment proof (buyer action).
+  Future<void> submitPayment(
+    String orderId,
+    String cbeTransactionId,
+  ) async {
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+
+    if (order == null) return;
+
+    final now = DateTime.now().toUtc();
+
+    await _isar.writeTxn(() async {
+      order.cbeTransactionId = cbeTransactionId;
+      order.status = OrderStatus.paymentSubmitted;
+      order.updatedAt = now;
+      order.version += 1;
+      await _isar.orders.put(order);
+    });
+
+    await _syncQueue.enqueue(
+      userId: order.buyerId,
+      entityType: 'order',
+      entityId: orderId,
+      action: 'update',
+      data: jsonEncode({
+        'orderId': orderId,
+        'cbeTransactionId': cbeTransactionId,
+        'status': OrderStatus.paymentSubmitted.name,
+        'updatedAt': now.toIso8601String(),
+        'version': order.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
+  /// Cancel an order (buyer or farmer action).
+  Future<void> cancelOrder(
+    String orderId,
+    String userId, {
+    String? reason,
+  }) async {
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+
+    if (order == null) return;
+    if (order.buyerId != userId && order.farmerId != userId) return;
+
+    final now = DateTime.now().toUtc();
+
+    await _isar.writeTxn(() async {
+      order.status = OrderStatus.cancelled;
+      order.cancelledAt = now;
+      order.cancelReason = reason;
+      order.updatedAt = now;
+      order.version += 1;
+      await _isar.orders.put(order);
+    });
+
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: 'order',
+      entityId: orderId,
+      action: 'update',
+      data: jsonEncode({
+        'orderId': orderId,
+        'status': OrderStatus.cancelled.name,
+        'cancelledAt': now.toIso8601String(),
+        if (reason != null) 'cancelReason': reason,
+        'updatedAt': now.toIso8601String(),
+        'version': order.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+  }
+
   /// Accept an order (farmer action).
   Future<void> acceptOrder(String orderId, String farmerId) async {
-    final order = await _isar.orders
-        .filter()
-        .orderIdEqualTo(orderId)
-        .findFirst();
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
 
     if (order == null || order.farmerId != farmerId) return;
+    if (order.status != OrderStatus.funded) return;
 
     final now = DateTime.now().toUtc();
 
     await _isar.writeTxn(() async {
       order.status = OrderStatus.accepted;
       order.respondedAt = now;
+      order.updatedAt = now;
       order.version += 1;
       await _isar.orders.put(order);
     });
@@ -172,6 +282,7 @@ class OrderRepository {
         'orderId': orderId,
         'status': OrderStatus.accepted.name,
         'respondedAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
         'version': order.version,
       }),
       operationId: _uuid.v4(),
@@ -184,12 +295,11 @@ class OrderRepository {
     String farmerId, {
     String? reason,
   }) async {
-    final order = await _isar.orders
-        .filter()
-        .orderIdEqualTo(orderId)
-        .findFirst();
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
 
     if (order == null || order.farmerId != farmerId) return;
+    if (order.status != OrderStatus.funded) return;
 
     final now = DateTime.now().toUtc();
 
@@ -197,6 +307,7 @@ class OrderRepository {
       order.status = OrderStatus.rejected;
       order.respondedAt = now;
       order.rejectionReason = reason;
+      order.updatedAt = now;
       order.version += 1;
       await _isar.orders.put(order);
     });
@@ -211,6 +322,7 @@ class OrderRepository {
         'status': OrderStatus.rejected.name,
         'respondedAt': now.toIso8601String(),
         if (reason != null) 'rejectionReason': reason,
+        'updatedAt': now.toIso8601String(),
         'version': order.version,
       }),
       operationId: _uuid.v4(),

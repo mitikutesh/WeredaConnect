@@ -73,6 +73,34 @@ class CancelTrip extends TripListingEvent {
   List<Object?> get props => [tripId, truckerId];
 }
 
+/// Event to start a trip (matched → inTransit).
+class StartTrip extends TripListingEvent {
+  final String tripId;
+  final String truckerId;
+
+  const StartTrip({
+    required this.tripId,
+    required this.truckerId,
+  });
+
+  @override
+  List<Object?> get props => [tripId, truckerId];
+}
+
+/// Event to mark a trip as delivered (inTransit → delivered).
+class MarkTripDelivered extends TripListingEvent {
+  final String tripId;
+  final String truckerId;
+
+  const MarkTripDelivered({
+    required this.tripId,
+    required this.truckerId,
+  });
+
+  @override
+  List<Object?> get props => [tripId, truckerId];
+}
+
 /// Event to load all open trips (browse mode for farmers/buyers).
 class LoadOpenTrips extends TripListingEvent {
   final String? fromWoreda;

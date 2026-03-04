@@ -15,7 +15,11 @@ class AuthCheckRequested extends AuthEvent {
   const AuthCheckRequested();
 }
 
-/// Event to register a new user.
+/// Event to register a new user, optionally with Fayda verification.
+///
+/// Fayda verification is optional during registration (two-tier model):
+/// - Without Fayda: user can trade up to 10,000 ETB
+/// - With Fayda: user can trade unlimited amounts
 class AuthRegisterRequested extends AuthEvent {
   final String phoneNumber;
   final String password;
@@ -23,11 +27,9 @@ class AuthRegisterRequested extends AuthEvent {
   final UserRole role;
   final String woreda;
   final String preferredLanguage;
+  final String? faydaVerificationToken;
 
   // Optional fields from multi-step registration flow
-  final String? faydaId;
-  final String? faydaIdFrontPath;
-  final String? faydaIdBackPath;
   final String? drivingLicensePath;
   final String? buyerType;
   final String? companyName;
@@ -38,10 +40,8 @@ class AuthRegisterRequested extends AuthEvent {
     required this.name,
     required this.role,
     required this.woreda,
+    this.faydaVerificationToken,
     this.preferredLanguage = 'am',
-    this.faydaId,
-    this.faydaIdFrontPath,
-    this.faydaIdBackPath,
     this.drivingLicensePath,
     this.buyerType,
     this.companyName,
@@ -55,39 +55,11 @@ class AuthRegisterRequested extends AuthEvent {
         role,
         woreda,
         preferredLanguage,
-        faydaId,
-        faydaIdFrontPath,
-        faydaIdBackPath,
+        faydaVerificationToken,
         drivingLicensePath,
         buyerType,
         companyName,
       ];
-}
-
-/// Event to verify OTP after registration.
-class AuthVerifyOtpRequested extends AuthEvent {
-  final String phoneNumber;
-  final String otp;
-
-  const AuthVerifyOtpRequested({
-    required this.phoneNumber,
-    required this.otp,
-  });
-
-  @override
-  List<Object?> get props => [phoneNumber, otp];
-}
-
-/// Event to resend OTP code to the user's phone.
-class AuthResendOtpRequested extends AuthEvent {
-  final String phoneNumber;
-
-  const AuthResendOtpRequested({
-    required this.phoneNumber,
-  });
-
-  @override
-  List<Object?> get props => [phoneNumber];
 }
 
 /// Event to login (auto-detects online/offline).
@@ -142,6 +114,11 @@ class AuthRefreshTokenRequested extends AuthEvent {
 
   @override
   List<Object?> get props => [refreshToken];
+}
+
+/// Event to cancel an in-flight auth operation (e.g. user navigated back).
+class AuthCancelRequested extends AuthEvent {
+  const AuthCancelRequested();
 }
 
 /// Event to logout user.

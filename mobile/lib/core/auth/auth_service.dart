@@ -14,21 +14,21 @@ import 'package:wereda_connect/core/network/api_config.dart';
 /// Main authentication service for WeredaConnect.
 ///
 /// This service handles:
-/// - User registration with OTP verification
+/// - User registration with Fayda eKYC verification
 /// - Online login (AWS Cognito)
 /// - Offline login (cached credentials)
 /// - Token refresh
 /// - Logout
 ///
 /// Flow:
-/// 1. Registration: register() → verifyOtp() → auto-login
+/// 1. Registration: Fayda OIDC verify → register(faydaVerificationToken) → tokens
 /// 2. Online login: loginOnline() → cache credentials → success
 /// 3. Offline login: loginOffline() → verify cached hash → success
 /// 4. Token refresh: Automatic in background when tokens expire
 ///
 /// Ethiopian context:
 /// - Phone number as primary identifier (not email)
-/// - SMS OTP via Ethio Telecom
+/// - Fayda eKYC for identity verification
 /// - Offline-first: Cached credentials work without connectivity
 class AuthService {
   final Dio _dio;
@@ -48,10 +48,11 @@ class AuthService {
     }
   }
 
-  /// Register a new user with phone number and password.
+  /// Register a new user with phone number, password, and Fayda verification.
   ///
-  /// This sends an SMS OTP to the user's phone number.
-  /// User must call [verifyOtp] with the OTP code to complete registration.
+  /// The user must first complete Fayda OIDC verification to obtain a
+  /// [faydaVerificationToken]. The server validates this token and creates
+  /// the user account, returning auth tokens directly (no OTP step).
   ///
   /// Params:
   /// - [phoneNumber]: Ethiopian phone number (+251XXXXXXXXX)
@@ -59,15 +60,17 @@ class AuthService {
   /// - [name]: User's full name (supports Amharic/Oromo)
   /// - [role]: User role (farmer, trucker, buyer)
   /// - [woreda]: Ethiopian woreda (district)
+  /// - [faydaVerificationToken]: Token from Fayda OIDC verification
   /// - [preferredLanguage]: UI language (am, om, en)
   ///
-  /// Returns [AuthResult] with userId and OTP expiration time.
+  /// Returns [AuthResult] with tokens on success.
   Future<AuthResult> register({
     required String phoneNumber,
     required String password,
     required String name,
     required UserRole role,
     required String woreda,
+    String? faydaVerificationToken,
     String preferredLanguage = 'am',
   }) async {
     if (!Environment.isApiConfigured) {
@@ -85,85 +88,58 @@ class AuthService {
         );
       }
 
-      // Call registration API
-      final response = await _dio.post<Map<String, dynamic>>(
-        ApiConfig.registerEndpoint,
-        data: {
-          'phoneNumber': phoneNumber,
-          'password': password,
-          'displayName': name,
-          'role': role.name,
-          'woreda': woreda,
-          'preferredLanguage': preferredLanguage,
-        },
-      );
-
-      final data = response.data as Map<String, dynamic>;
-
-      // Return success with userId (user must verify OTP next)
-      return AuthResult.success(
-        const AuthTokens(
-          accessToken: '', // Not available until OTP verified
-          refreshToken: '',
-          idToken: '',
-        ),
-        userId: data['userId'] as String,
-      );
-    } on DioException catch (e) {
-      return _handleDioError(e);
-    } on Exception {
-      return AuthResult.failure(
-        AuthErrorCode.internalServerError,
-        'Something went wrong. Please try again.',
-      );
-    }
-  }
-
-  /// Verify OTP code sent during registration.
-  ///
-  /// Server confirms the sign-up but does NOT return tokens.
-  /// Returns success with [userId] — caller must login separately to get tokens.
-  ///
-  /// Params:
-  /// - [phoneNumber]: Phone number used during registration
-  /// - [otp]: 6-digit OTP code from SMS
-  /// - [userId]: Cognito user ID returned from registration
-  ///
-  /// Returns [AuthResult] with userId on success (tokens will be empty).
-  Future<AuthResult> verifyOtp({
-    required String phoneNumber,
-    required String otp,
-    required String userId,
-  }) async {
-    if (!Environment.isApiConfigured) {
-      return _notConfiguredResult();
-    }
-
-    try {
-      // Check connectivity
-      final connectivityResults = await _connectivity.checkConnectivity();
-      if (!connectivityResults
-          .any((result) => result != ConnectivityResult.none)) {
-        return AuthResult.failure(
-          AuthErrorCode.networkError,
-          'OTP verification requires internet connection',
-        );
+      // Call registration API, optionally with Fayda verification token
+      final data = <String, dynamic>{
+        'phoneNumber': phoneNumber,
+        'password': password,
+        'displayName': name,
+        'role': role.name,
+        'woreda': woreda,
+        'preferredLanguage': preferredLanguage,
+      };
+      if (faydaVerificationToken != null) {
+        data['faydaVerificationToken'] = faydaVerificationToken;
       }
 
-      // Call OTP verification API
-      // Server expects: { userId, phoneNumber, otpCode }
-      await _dio.post<Map<String, dynamic>>(
-        ApiConfig.verifyOtpEndpoint,
-        data: {
-          'userId': userId,
-          'phoneNumber': phoneNumber,
-          'otpCode': otp,
-        },
+      final response = await _dio.post<Map<String, dynamic>>(
+        ApiConfig.registerEndpoint,
+        data: data,
       );
 
-      // Server returns { verified: true, tokens: null, user: {...} }
-      // No tokens — caller must call login() after verification.
-      return AuthResult.otpVerified(userId: userId);
+      final responseData = response.data as Map<String, dynamic>;
+
+      // Server now returns tokens directly (no OTP step)
+      final tokenData = responseData['tokens'] as Map<String, dynamic>;
+      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
+      final tokens = AuthTokens(
+        accessToken: tokenData['accessToken'] as String,
+        refreshToken: tokenData['refreshToken'] as String? ?? '',
+        idToken: tokenData['idToken'] as String,
+        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      );
+
+      final user = responseData['user'] as Map<String, dynamic>;
+      final userId = user['userId'] as String;
+      final fullName = user['fullName'] as String?;
+
+      // Cache credentials for offline use
+      try {
+        await _offlineCache.cacheCredentials(
+          phoneNumber: phoneNumber,
+          password: password,
+          userId: userId,
+          role: role,
+          name: name,
+          woreda: woreda,
+          tokens: tokens,
+          fullName: fullName,
+          displayName: name,
+        );
+      } on Object catch (e) {
+        debugPrint('[AuthService] Failed to cache credentials: $e');
+      }
+
+      return AuthResult.success(tokens, userId: userId);
     } on DioException catch (e) {
       return _handleDioError(e);
     } on Exception {
@@ -226,6 +202,7 @@ class AuthService {
 
       final user = data['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
+      final fullName = user['fullName'] as String?;
 
       // Cache credentials for offline use (best-effort — don't block login)
       try {
@@ -241,8 +218,10 @@ class AuthService {
           name: (user['displayName'] as String?) ?? '',
           woreda: user['woreda'] as String,
           tokens: tokens,
+          fullName: fullName,
+          displayName: (user['displayName'] as String?) ?? '',
         );
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
@@ -341,44 +320,53 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    // Check connectivity
-    final connectivityResults = await _connectivity.checkConnectivity();
-    final isOnline =
-        connectivityResults.any((result) => result != ConnectivityResult.none);
+    try {
+      // Check connectivity
+      final connectivityResults = await _connectivity.checkConnectivity();
+      final isOnline = connectivityResults
+          .any((result) => result != ConnectivityResult.none);
 
-    if (isOnline) {
-      // Online login requires API config
-      if (!Environment.isApiConfigured) {
-        // Fall back to offline login if cached credentials exist
-        final offlineResult = await loginOffline(
+      if (isOnline) {
+        // Online login requires API config
+        if (!Environment.isApiConfigured) {
+          // Fall back to offline login if cached credentials exist
+          final offlineResult = await loginOffline(
+            phoneNumber: phoneNumber,
+            password: password,
+          );
+          if (offlineResult.isSuccess) return offlineResult;
+
+          return _notConfiguredResult();
+        }
+
+        // Try online login
+        final result = await loginOnline(
           phoneNumber: phoneNumber,
           password: password,
         );
-        if (offlineResult.isSuccess) return offlineResult;
 
-        return _notConfiguredResult();
-      }
+        // If online login fails due to network, try offline
+        if (!result.isSuccess &&
+            result.errorCode == AuthErrorCode.networkError) {
+          return await loginOffline(
+            phoneNumber: phoneNumber,
+            password: password,
+          );
+        }
 
-      // Try online login
-      final result = await loginOnline(
-        phoneNumber: phoneNumber,
-        password: password,
-      );
-
-      // If online login fails due to network, try offline
-      if (!result.isSuccess && result.errorCode == AuthErrorCode.networkError) {
+        return result;
+      } else {
+        // No connectivity - try offline login
         return await loginOffline(
           phoneNumber: phoneNumber,
           password: password,
         );
       }
-
-      return result;
-    } else {
-      // No connectivity - try offline login
-      return await loginOffline(
-        phoneNumber: phoneNumber,
-        password: password,
+    } on Object catch (e) {
+      debugPrint('[AuthService] login failed unexpectedly: $e');
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
       );
     }
   }

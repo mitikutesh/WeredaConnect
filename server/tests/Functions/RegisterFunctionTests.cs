@@ -15,6 +15,7 @@ namespace WeredaConnect.Server.Tests.Functions;
 public class RegisterFunctionTests
 {
     private readonly ICognitoAuthService _mockAuth;
+    private readonly IFaydaOidcService _mockFayda;
     private readonly IUserRepository _mockRepo;
     private readonly IRateLimitService _mockRateLimit;
     private readonly RegisterFunction _function;
@@ -23,14 +24,37 @@ public class RegisterFunctionTests
     public RegisterFunctionTests()
     {
         _mockAuth = Substitute.For<ICognitoAuthService>();
+        _mockFayda = Substitute.For<IFaydaOidcService>();
         _mockRepo = Substitute.For<IUserRepository>();
         _mockRateLimit = Substitute.For<IRateLimitService>();
-        _function = new RegisterFunction(_mockAuth, _mockRepo, _mockRateLimit);
+        _function = new RegisterFunction(_mockAuth, _mockFayda, _mockRepo, _mockRateLimit);
         _context = new TestLambdaContext();
 
         // Default: rate limit allows registration
         _mockRateLimit.CheckRegistrationAllowedAsync(Arg.Any<string>())
             .Returns(AuthResult<bool>.Success(true));
+
+        // Default: Fayda token is valid
+        _mockFayda.ValidateVerificationToken(Arg.Any<string>())
+            .Returns(AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
+            {
+                FaydaId = "FAYDA-123",
+                FullName = "Test User"
+            }));
+
+        // Default: admin confirm succeeds
+        _mockAuth.AdminConfirmSignUpAsync(Arg.Any<string>())
+            .Returns(AuthResult<bool>.Success(true));
+
+        // Default: login succeeds (returns tokens)
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(new CognitoAuthTokens
+            {
+                AccessToken = "access-token",
+                IdToken = "id-token",
+                RefreshToken = "refresh-token",
+                ExpiresIn = 3600
+            }));
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -44,7 +68,7 @@ public class RegisterFunctionTests
     };
 
     [Fact]
-    public async Task FunctionHandler_ValidRequest_Returns201WithUserId()
+    public async Task FunctionHandler_ValidRequest_Returns201WithTokens()
     {
         _mockAuth.RegisterAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -60,6 +84,7 @@ public class RegisterFunctionTests
             password = "secure123",
             role = "farmer",
             woreda = "Adama",
+            faydaVerificationToken = "valid-token",
             displayName = "Abebe",
             preferredLanguage = "am"
         });
@@ -68,6 +93,7 @@ public class RegisterFunctionTests
 
         Assert.Equal(201, response.StatusCode);
         Assert.Contains("user-abc", response.Body);
+        Assert.Contains("access-token", response.Body);
         Assert.Contains("nosniff", response.Headers["X-Content-Type-Options"]);
     }
 
@@ -88,12 +114,40 @@ public class RegisterFunctionTests
             password = "secure123",
             role = "farmer",
             woreda = "Adama",
+            faydaVerificationToken = "valid-token",
             preferredLanguage = "am"
         });
 
         await _function.FunctionHandler(request, _context);
 
         await _mockRateLimit.Received(1).RecordRegistrationAsync("+251912345678");
+    }
+
+    [Fact]
+    public async Task FunctionHandler_InvalidFaydaToken_Returns400()
+    {
+        _mockFayda.ValidateVerificationToken(Arg.Any<string>())
+            .Returns(AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_001",
+                "Invalid verification token.", "faydaVerificationToken"));
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123",
+            role = "farmer",
+            woreda = "Adama",
+            faydaVerificationToken = "bad-token",
+            preferredLanguage = "am"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_001", response.Body);
+        // Cognito should NOT have been called
+        await _mockAuth.DidNotReceive().RegisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
     }
 
     [Fact]
@@ -108,6 +162,7 @@ public class RegisterFunctionTests
             password = "secure123",
             role = "farmer",
             woreda = "Adama",
+            faydaVerificationToken = "valid-token",
             preferredLanguage = "am"
         });
 
@@ -140,7 +195,8 @@ public class RegisterFunctionTests
             phoneNumber = "invalid",
             password = "ab",
             role = "admin",
-            woreda = ""
+            woreda = "",
+            faydaVerificationToken = "token"
         });
 
         var response = await _function.FunctionHandler(request, _context);
@@ -163,6 +219,7 @@ public class RegisterFunctionTests
             password = "secure123",
             role = "farmer",
             woreda = "Adama",
+            faydaVerificationToken = "valid-token",
             preferredLanguage = "am"
         });
 
@@ -189,6 +246,7 @@ public class RegisterFunctionTests
             password = "secure123",
             role = "farmer",
             woreda = "Adama",
+            faydaVerificationToken = "valid-token",
             preferredLanguage = "am"
         });
 

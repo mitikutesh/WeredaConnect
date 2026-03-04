@@ -21,9 +21,12 @@ public sealed record UserDto
     public required string UserId { get; init; }
     public required string PhoneNumber { get; init; }
     public string? DisplayName { get; init; }
+    public string? FullName { get; init; }
     public required string Role { get; init; }
     public required string Woreda { get; init; }
     public string? FaydaId { get; init; }
+    public bool FaydaVerified { get; init; }
+    public string? FaydaVerifiedAt { get; init; }
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
     public string? ProfilePhotoRef { get; init; }
@@ -40,6 +43,7 @@ public sealed record MinimalUserDto
 {
     public required string UserId { get; init; }
     public string? DisplayName { get; init; }
+    public string? FullName { get; init; }
     public required string Role { get; init; }
     public required string Woreda { get; init; }
     public string? ProfilePhotoRef { get; init; }

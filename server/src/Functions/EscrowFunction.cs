@@ -53,7 +53,14 @@ public class EscrowFunction
             userRepo = new UserRepository(dynamoDb, usersTable);
         }
 
-        _escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo);
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
+        IOrderRepository? orderRepo = null;
+        if (!string.IsNullOrEmpty(ordersTable))
+        {
+            orderRepo = new OrderRepository(dynamoDb, ordersTable);
+        }
+
+        _escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo);
 
         // Fraud detection (F-14)
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";

@@ -36,6 +36,12 @@ public interface ICognitoAuthService
     Task<AuthResult<bool>> ConfirmSignUpAsync(string phone, string otpCode);
 
     /// <summary>
+    /// Admin-confirm a user signup and mark phone as verified.
+    /// Used for Fayda-verified registrations that skip OTP.
+    /// </summary>
+    Task<AuthResult<bool>> AdminConfirmSignUpAsync(string phone);
+
+    /// <summary>
     /// Authenticate user with phone + password. Returns tokens on success.
     /// </summary>
     Task<AuthResult<CognitoAuthTokens>> LoginAsync(string phone, string password);

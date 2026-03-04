@@ -69,6 +69,53 @@ public sealed class CognitoAuthService : ICognitoAuthService
         }
         catch (UsernameExistsException)
         {
+            // If a previous registration left the user UNCONFIRMED (e.g. client
+            // crashed before admin-confirm), delete the stale signup and retry.
+            if (_userPoolId != null)
+            {
+                try
+                {
+                    var existing = await _cognito.AdminGetUserAsync(new AdminGetUserRequest
+                    {
+                        UserPoolId = _userPoolId,
+                        Username = phone
+                    });
+
+                    if (existing.UserStatus == UserStatusType.UNCONFIRMED)
+                    {
+                        await _cognito.AdminDeleteUserAsync(new AdminDeleteUserRequest
+                        {
+                            UserPoolId = _userPoolId,
+                            Username = phone
+                        });
+
+                        // Retry signup after deleting the stale user
+                        var retryResponse = await _cognito.SignUpAsync(request);
+                        if (_userPoolId != null)
+                        {
+                            await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+                            {
+                                UserPoolId = _userPoolId,
+                                Username = phone,
+                                UserAttributes =
+                                [
+                                    new AttributeType { Name = "custom:role", Value = role }
+                                ]
+                            });
+                        }
+                        return AuthResult<string>.Success(retryResponse.UserSub);
+                    }
+                }
+                catch (UserNotFoundException)
+                {
+                    // Race condition — user was deleted between checks; fall through
+                }
+                catch (Exception)
+                {
+                    // If cleanup fails, return the original "already exists" error
+                }
+            }
+
             return AuthResult<string>.Failure(409, "AUTH_005",
                 "A user with this phone number already exists.", "phoneNumber");
         }
@@ -160,6 +207,63 @@ public sealed class CognitoAuthService : ICognitoAuthService
         {
             return AuthResult<bool>.Failure(404, "AUTH_013",
                 "User not found.", "userId");
+        }
+        catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (InternalErrorException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+        catch (AmazonServiceException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+    }
+
+    public async Task<AuthResult<bool>> AdminConfirmSignUpAsync(string phone)
+    {
+        if (_userPoolId == null)
+        {
+            return AuthResult<bool>.Failure(500, "AUTH_008",
+                "User pool ID not configured for admin operations.");
+        }
+
+        try
+        {
+            // Admin-confirm the user
+            await _cognito.AdminConfirmSignUpAsync(new AdminConfirmSignUpRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone
+            });
+
+            // Mark phone as verified so the phone sign-in alias is created
+            await _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone,
+                UserAttributes =
+                [
+                    new AttributeType { Name = "phone_number_verified", Value = "true" }
+                ]
+            });
+
+            return AuthResult<bool>.Success(true);
+        }
+        catch (UserNotFoundException)
+        {
+            return AuthResult<bool>.Failure(404, "AUTH_013",
+                "User not found.", "phoneNumber");
         }
         catch (TooManyRequestsException)
         {

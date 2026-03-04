@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-1.0.0
+2.0.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -14,6 +14,8 @@
 
 The authentication API enables phone-based registration and login for Ethiopian users. It uses a hybrid approach: AWS Cognito for online authentication and PBKDF2-based offline verification for cached credentials. All endpoints are accessed via API Gateway with rate limiting enforced at the gateway level.
 
+**Identity verification**: All users must verify their identity via **Fayda OIDC** (Ethiopia's national digital ID) before registration. Fayda verification replaces SMS OTP — there is no manual fallback.
+
 **Base path**: `/auth`
 
 ---
@@ -22,7 +24,9 @@ The authentication API enables phone-based registration and login for Ethiopian 
 
 ### 1. POST /auth/register
 
-Register a new user with Ethiopian phone number, password, role, and woreda.
+Register a new user with Ethiopian phone number, password, role, woreda, and Fayda verification token.
+
+**Prerequisites**: User must first verify identity via `POST /auth/fayda-verify` to obtain a `faydaVerificationToken`.
 
 **Authentication**: None (public endpoint)
 
@@ -35,7 +39,8 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
   "role": "farmer",
   "woreda": "Adama",
   "displayName": "Abebe Kebede",
-  "preferredLanguage": "am"
+  "preferredLanguage": "am",
+  "faydaVerificationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
 }
 ```
 
@@ -47,6 +52,7 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
 | `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name) |
 | `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. |
 | `preferredLanguage` | string | No | Enum: `en`, `am`, `om`. Default: `am` |
+| `faydaVerificationToken` | string | Yes | Short-lived JWT from `POST /auth/fayda-verify` (30-minute validity) |
 
 #### Success Response
 
@@ -56,11 +62,28 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
 {
   "userId": "550e8400-e29b-41d4-a716-446655440000",
   "phoneNumber": "+251912345678",
-  "otpRequired": true,
-  "otpExpiresAt": "2026-02-12T10:05:00Z",
-  "message": "OTP sent via SMS. Please verify your phone number."
+  "tokens": {
+    "accessToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6...",
+    "refreshToken": "eyJjdHkiOiJKV1QiLCJlbmMiOi...",
+    "idToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6...",
+    "expiresIn": 900,
+    "tokenType": "Bearer"
+  },
+  "user": {
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "phoneNumber": "+251912345678",
+    "displayName": "Abebe Kebede",
+    "role": "farmer",
+    "woreda": "Adama",
+    "isPhoneVerified": true,
+    "faydaVerified": true,
+    "faydaVerifiedAt": "2026-03-02T10:00:00Z",
+    "createdAt": "2026-03-02T10:00:00Z"
+  }
 }
 ```
+
+**Note**: Registration now returns tokens directly. The server auto-confirms the user in Cognito (no SMS OTP step) because identity was already verified via Fayda OIDC.
 
 #### Error Responses
 
@@ -70,6 +93,7 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
 | `400` | `AUTH_002` | Password does not meet requirements |
 | `400` | `AUTH_003` | Invalid role (must be farmer, trucker, or buyer) |
 | `400` | `AUTH_004` | Woreda is required |
+| `400` | `AUTH_021` | Missing or invalid Fayda verification token |
 | `409` | `AUTH_005` | Phone number already registered |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
@@ -89,27 +113,27 @@ Register a new user with Ethiopian phone number, password, role, and woreda.
 
 ---
 
-### 2. POST /auth/verify-otp
+### 2. POST /auth/fayda-verify
 
-Verify the SMS OTP code sent during registration.
+Exchange a Fayda OIDC authorization code for a short-lived verification token. This endpoint is called after the user completes Fayda eSignet authentication in their browser.
 
-**Authentication**: None (public endpoint, but requires valid userId from registration)
+**Authentication**: None (public endpoint)
 
 #### Request Body
 
 ```json
 {
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "phoneNumber": "+251912345678",
-  "otpCode": "123456"
+  "authorizationCode": "abc123...",
+  "state": "random-csrf-state",
+  "redirectUri": "weredaconnect://fayda-callback"
 }
 ```
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `userId` | string | Yes | UUID v4 returned from registration |
-| `phoneNumber` | string | Yes | Must match the registered phone number |
-| `otpCode` | string | Yes | Exactly 6 digits. Regex: `^[0-9]{6}$` |
+| `authorizationCode` | string | Yes | OIDC authorization code from Fayda callback |
+| `state` | string | Yes | CSRF state parameter (must match the value sent in the authorization request) |
+| `redirectUri` | string | Yes | Must match the redirect URI used in the authorization request |
 
 #### Success Response
 
@@ -118,36 +142,33 @@ Verify the SMS OTP code sent during registration.
 ```json
 {
   "verified": true,
-  "tokens": {
-    "accessToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6...",
-    "refreshToken": "eyJjdHkiOiJKV1QiLCJlbmMiOi...",
-    "idToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6...",
-    "expiresIn": 900,
-    "tokenType": "Bearer"
-  },
-  "user": {
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "phoneNumber": "+251912345678",
-    "displayName": "Abebe Kebede",
-    "role": "farmer",
-    "woreda": "Adama",
-    "isPhoneVerified": true,
-    "createdAt": "2026-02-12T10:00:00Z"
-  }
+  "faydaId": "FAYDA-123456789",
+  "verifiedName": "Abebe Kebede",
+  "verificationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
+  "expiresAt": "2026-03-02T10:30:00Z"
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `verified` | boolean | Always `true` on success |
+| `faydaId` | string | User's Fayda national ID |
+| `verifiedName` | string | Full name from Fayda identity record |
+| `verificationToken` | string | Short-lived JWT (30 min) to include in registration request |
+| `expiresAt` | string | ISO 8601 expiration timestamp of the verification token |
 
 #### Error Responses
 
 | Status | Error Code | Description |
 |--------|-----------|-------------|
-| `400` | `AUTH_009` | Invalid OTP format (must be 6 digits) |
-| `400` | `AUTH_010` | OTP expired (5-minute window exceeded) |
-| `400` | `AUTH_011` | Invalid OTP code (wrong code) |
-| `400` | `AUTH_012` | Maximum OTP attempts exceeded (3 attempts) |
-| `404` | `AUTH_013` | User not found or registration expired |
+| `400` | `FAYDA_001` | Invalid or expired authorization code |
+| `400` | `FAYDA_002` | State parameter mismatch (possible CSRF attack) |
+| `503` | `FAYDA_003` | Fayda service unavailable |
+| `409` | `FAYDA_004` | Fayda ID already linked to another account |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
+
+**Dev bypass**: When `DEV_FAYDA_BYPASS=true` (non-production), sending `authorizationCode: "test-code-123"` returns a mock verification token with `faydaId: "FAYDA-DEV-001"` and `verifiedName: "Test User"`.
 
 ---
 
@@ -452,7 +473,7 @@ After a successful online login or registration, the mobile client stores the fo
 | Endpoint | Rate Limit | Burst Limit | Per |
 |----------|-----------|-------------|-----|
 | `POST /auth/register` | 10 req/s | 20 | Account (IP-based) |
-| `POST /auth/verify-otp` | 10 req/s | 20 | Account (IP-based) |
+| `POST /auth/fayda-verify` | 10 req/s | 20 | Account (IP-based) |
 | `POST /auth/login` | 10 req/s | 20 | Account (IP-based) |
 | `POST /auth/refresh` | 10 req/s | 20 | Account (IP-based) |
 | `POST /auth/logout` | 10 req/s | 20 | Account (IP-based) |
@@ -462,8 +483,7 @@ After a successful online login or registration, the mobile client stores the fo
 | Rule | Configuration | Action |
 |------|---------------|--------|
 | Failed login lockout | 3 consecutive failures | 15-minute account lockout |
-| OTP attempts | 3 per OTP code | New OTP required |
-| OTP resend | 1 per 60 seconds | Prevent SMS spam |
+| Fayda verify flood | 10 per IP per hour | Prevent Fayda API abuse |
 | Registration flood | 5 registrations per phone per day | Block further attempts |
 
 ### WAF Level (Optional, Recommended)
@@ -487,18 +507,19 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_006` | 429 | Rate limit exceeded | Back off, retry with exponential delay |
 | `AUTH_007` | 500 | Internal server error | Show generic error, retry |
 | `AUTH_008` | 503 | Cognito service unavailable | Show connectivity error, suggest offline login |
-| `AUTH_009` | 400 | Invalid OTP format | Show OTP format hint (6 digits) |
-| `AUTH_010` | 400 | OTP expired | Offer to resend OTP |
-| `AUTH_011` | 400 | Invalid OTP code | Show remaining attempts |
-| `AUTH_012` | 400 | Maximum OTP attempts exceeded | Offer to resend new OTP |
 | `AUTH_013` | 404 | User/registration not found | Suggest re-registration |
 | `AUTH_014` | 401 | Invalid credentials | Show generic "incorrect phone or password" |
 | `AUTH_015` | 403 | Account locked (15-min lockout) | Show lockout timer |
-| `AUTH_016` | 403 | Phone not verified | Redirect to OTP verification |
+| `AUTH_016` | 403 | Phone not verified | Redirect to Fayda verification |
 | `AUTH_017` | 400 | Missing refresh token | Redirect to login |
 | `AUTH_018` | 401 | Refresh token expired | Redirect to login |
 | `AUTH_019` | 401 | Refresh token revoked | Redirect to login |
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
+| `AUTH_021` | 400 | Missing or invalid Fayda verification token | Redirect to Fayda verification |
+| `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
+| `FAYDA_002` | 400 | State parameter mismatch (CSRF) | Show error, restart Fayda flow |
+| `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
+| `FAYDA_004` | 409 | Fayda ID already linked to another account | Show "already registered" message |
 
 ---
 
@@ -523,15 +544,16 @@ After a successful online login or registration, the mobile client stores the fo
 
 **Note**: The Cognito User Pool password policy may be stricter (e.g., 8 chars, mixed case) for cloud-side storage. The mobile client should guide users to meet the Cognito requirements while keeping the UX simple. If the PO decides to lower Cognito's policy to 6 chars with no complexity, this contract supports that.
 
-### OTP Configuration
+### Fayda Verification Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| Length | 6 digits |
-| Expiry | 5 minutes |
-| Max attempts per code | 3 |
-| Resend cooldown | 60 seconds |
-| Delivery | SMS via AWS SNS to Ethio Telecom |
+| Protocol | OIDC Authorization Code Flow via Fayda eSignet |
+| Verification token validity | 30 minutes |
+| Verification token signing | HMAC-SHA256 with server-managed secret |
+| Redirect URI | `weredaconnect://fayda-callback` |
+| Required scopes | `openid`, `profile` |
+| Dev bypass code | `test-code-123` (when `DEV_FAYDA_BYPASS=true`) |
 
 ### Transport Security
 
@@ -568,7 +590,8 @@ Do **not** use: `Microsoft.AspNetCore.Authentication.JwtBearer` (banned per `AOT
 ### Cognito Integration
 
 - Use `AWSSDK.CognitoIdentityProvider` for Cognito API calls
-- Registration and OTP verification flow through Cognito `SignUp` and `ConfirmSignUp` APIs
+- Registration flow: `SignUp` → `AdminConfirmSignUp` → `AdminUpdateUserAttributes` (phone_number_verified=true) → `InitiateAuth` (USER_PASSWORD_AUTH) to get tokens immediately
+- No SMS OTP step — Cognito UserPool has `autoVerify: { phone: false }` to prevent SMS on SignUp
 - Login uses Cognito `InitiateAuth` with `USER_PASSWORD_AUTH` flow
 - Token refresh uses Cognito `InitiateAuth` with `REFRESH_TOKEN_AUTH` flow
 - Logout uses Cognito `RevokeToken` API
@@ -625,10 +648,11 @@ Authentication state should be managed via BLoC with the following states:
 | `AuthLoading` | Login/register in progress |
 | `AuthAuthenticated` | User logged in (online or offline) |
 | `AuthOffline` | User logged in via offline cache |
-| `AuthOtpRequired` | Registration requires OTP verification |
 | `AuthUnauthenticated` | No valid session, show login screen |
 | `AuthLocked` | Account locked due to failed attempts |
 | `AuthError` | Authentication failed with error message |
+
+**Note**: The `AuthOtpRequired` state has been removed. Registration now returns tokens directly after Fayda verification, so no separate OTP step is needed.
 
 ---
 
@@ -636,7 +660,7 @@ Authentication state should be managed via BLoC with the following states:
 
 These rules must always hold:
 
-1. **Registration requires internet.** A user cannot register offline. This is the only flow that requires connectivity.
+1. **Registration requires internet and Fayda verification.** A user cannot register offline. Registration also requires a valid Fayda verification token obtained via `POST /auth/fayda-verify`. There is no manual fallback.
 2. **Online login is preferred.** If the device has connectivity, always authenticate via Cognito (not cached credentials).
 3. **Offline login never creates new sessions.** Offline login only works if the user has previously logged in online and credentials are cached.
 4. **Tokens are never stored in plaintext.** All tokens and password hashes must be in `flutter_secure_storage` (hardware-backed).
@@ -665,8 +689,9 @@ Given Ethiopian mobile data costs:
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
+| 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
 
 ---
 
-**Last Updated**: 2026-02-12
-**Version**: 1.0.0
+**Last Updated**: 2026-03-02
+**Version**: 2.0.0

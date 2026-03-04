@@ -14,8 +14,8 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(MinimalUserDto))]
 [JsonSerializable(typeof(RegisterRequest))]
 [JsonSerializable(typeof(RegisterResponse))]
-[JsonSerializable(typeof(VerifyOtpRequest))]
-[JsonSerializable(typeof(VerifyOtpResponse))]
+[JsonSerializable(typeof(FaydaVerifyRequest))]
+[JsonSerializable(typeof(FaydaVerifyResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
 [JsonSerializable(typeof(TokenResponse))]
@@ -80,6 +80,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(EscrowError))]
 // Fraud detection DTOs (F-14)
 [JsonSerializable(typeof(FraudCheckResult))]
+// Order DTOs
+[JsonSerializable(typeof(OrderDto))]
+[JsonSerializable(typeof(List<OrderDto>))]
+[JsonSerializable(typeof(GetOrdersResponse))]
+[JsonSerializable(typeof(GetOrderResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

@@ -208,7 +208,7 @@ Total buyer pays: 330,750 Birr
 
 > **No money, no order. Period.** Pickup NEVER begins until payment is verified and order status is FUNDED.
 
-> **Current MVP:** Trucker creates a delivery record linking trip, crop listing, farmer, and buyer. Buyer then pays into escrow. See `specs/transaction-flow.md` for current implementation details.
+> **Current MVP:** Buyer creates a delivery record linking trip, crop listing, farmer, and trucker. Buyer then pays into escrow. See `specs/transaction-flow.md` for current implementation details.
 
 ### Step 3 — Farmer + Trucker Accept (Target Redesign)
 

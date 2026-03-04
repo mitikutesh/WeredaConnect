@@ -232,6 +232,18 @@
   "@fullName": {
     "description": "Full name input label"
   },
+  "displayName": "Display Name",
+  "@displayName": {
+    "description": "Label for user-chosen marketplace nickname"
+  },
+  "displayNameHelper": "Your marketplace nickname (visible to others)",
+  "@displayNameHelper": {
+    "description": "Helper text for display name field"
+  },
+  "verifiedLegalName": "Verified Legal Name",
+  "@verifiedLegalName": {
+    "description": "Label for Fayda-verified legal name card"
+  },
   "selectRole": "Select Role",
   "@selectRole": {
     "description": "Role selection label"
@@ -2422,5 +2434,312 @@
   "orderCompleted": "Completed",
   "@orderCompleted": {
     "description": "Order status label for completed orders"
-  }
+  },
+  "faydaVerifyTitle": "Fayda Identity Verification",
+  "@faydaVerifyTitle": {
+    "description": "Title for Fayda OIDC verification step"
+  },
+  "faydaVerifyDescription": "Verify your identity using your Fayda digital ID. You will be redirected to the Fayda portal.",
+  "@faydaVerifyDescription": {
+    "description": "Description for Fayda OIDC verification step"
+  },
+  "verifyWithFayda": "Verify with Fayda",
+  "@verifyWithFayda": {
+    "description": "Button label to start Fayda OIDC verification"
+  },
+  "faydaVerifying": "Verifying with Fayda...",
+  "@faydaVerifying": {
+    "description": "Loading text during Fayda verification"
+  },
+  "faydaVerifiedSuccess": "Identity Verified",
+  "@faydaVerifiedSuccess": {
+    "description": "Success message after Fayda verification"
+  },
+  "faydaVerificationFailed": "Fayda verification failed. Please try again.",
+  "@faydaVerificationFailed": {
+    "description": "Error message when Fayda verification fails"
+  },
+  "faydaRequired": "Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.",
+  "@faydaRequired": {
+    "description": "Message explaining Fayda verification is optional during registration"
+  },
+  "faydaUnavailable": "Fayda service is currently unavailable. Please try again later.",
+  "@faydaUnavailable": {
+    "description": "Error when Fayda service cannot be reached"
+  },
+  "faydaAlreadyLinked": "This Fayda ID is already linked to another account.",
+  "@faydaAlreadyLinked": {
+    "description": "Error when Fayda ID is already used by another user"
+  },
+  "placeOrder": "Place Order",
+  "@placeOrder": {
+    "description": "Button label to place a new order"
+  },
+  "cropCost": "Crop Cost",
+  "@cropCost": {
+    "description": "Label for the crop cost line in price breakdown"
+  },
+  "transportCost": "Transport Cost",
+  "@transportCost": {
+    "description": "Label for transport cost in price breakdown"
+  },
+  "platformCommission": "Platform Commission (5%)",
+  "@platformCommission": {
+    "description": "Label for platform commission in price breakdown"
+  },
+  "orderTotal": "Total",
+  "@orderTotal": {
+    "description": "Label for total order amount"
+  },
+  "payNow": "Pay Now",
+  "@payNow": {
+    "description": "Button label to pay for an order"
+  },
+  "payLater": "Pay Later",
+  "@payLater": {
+    "description": "Button label to skip payment for now"
+  },
+  "cbePaymentInstructions": "Transfer to the Commercial Bank of Ethiopia account below. Use the reference number so we can match your payment.",
+  "@cbePaymentInstructions": {
+    "description": "Instructions for CBE bank transfer payment"
+  },
+  "enterTransactionId": "Enter CBE Transaction ID",
+  "@enterTransactionId": {
+    "description": "Hint for CBE transaction ID input field"
+  },
+  "submitPayment": "Submit Payment",
+  "@submitPayment": {
+    "description": "Button label to submit payment proof"
+  },
+  "statusCreated": "Created",
+  "@statusCreated": {
+    "description": "Order status label for newly created orders"
+  },
+  "statusPendingPayment": "Pending Payment",
+  "@statusPendingPayment": {
+    "description": "Order status label for orders awaiting payment"
+  },
+  "statusPaymentSubmitted": "Payment Submitted",
+  "@statusPaymentSubmitted": {
+    "description": "Order status label for orders with submitted payment"
+  },
+  "statusFunded": "Funded",
+  "@statusFunded": {
+    "description": "Order status label for funded orders"
+  },
+  "statusPickupConfirmed": "Pickup Confirmed",
+  "@statusPickupConfirmed": {
+    "description": "Order status label for orders with confirmed pickup"
+  },
+  "statusInTransit": "In Transit",
+  "@statusInTransit": {
+    "description": "Order status label for orders in transit"
+  },
+  "statusDelivered": "Delivered",
+  "@statusDelivered": {
+    "description": "Order status label for delivered orders"
+  },
+  "statusDisbursing": "Disbursing",
+  "@statusDisbursing": {
+    "description": "Order status label for orders being disbursed"
+  },
+  "statusSettled": "Settled",
+  "@statusSettled": {
+    "description": "Order status label for settled orders"
+  },
+  "statusPaymentFailed": "Payment Failed",
+  "@statusPaymentFailed": {
+    "description": "Order status label for failed payment orders"
+  },
+  "statusDisputed": "Disputed",
+  "@statusDisputed": {
+    "description": "Order status label for disputed orders"
+  },
+  "statusDisputeResolved": "Dispute Resolved",
+  "@statusDisputeResolved": {
+    "description": "Order status label for resolved dispute orders"
+  },
+  "cancelOrder": "Cancel Order",
+  "@cancelOrder": {
+    "description": "Button label to cancel an order"
+  },
+  "cancelReason": "Reason for cancellation",
+  "@cancelReason": {
+    "description": "Hint for cancellation reason input"
+  },
+  "orderDetails": "Order Details",
+  "@orderDetails": {
+    "description": "Title for order detail screen"
+  },
+  "priceBreakdown": "Price Breakdown",
+  "@priceBreakdown": {
+    "description": "Section header for price breakdown"
+  },
+  "cbeAccountNumber": "Account: 1000XXXXXXXXXX",
+  "@cbeAccountNumber": {
+    "description": "CBE account number for payment"
+  },
+  "transferReference": "Reference",
+  "@transferReference": {
+    "description": "Label for transfer reference number"
+  },
+  "paymentAmount": "Amount",
+  "@paymentAmount": {
+    "description": "Label for payment amount"
+  },
+  "quantity": "Quantity (kg)",
+  "@quantity": {
+    "description": "Label for order quantity input"
+  },
+  "listingSummary": "Listing Summary",
+  "@listingSummary": {
+    "description": "Section header for listing summary in order screen"
+  },
+  "orderPlacedSuccess": "Order placed successfully!",
+  "@orderPlacedSuccess": {
+    "description": "Success message after placing an order"
+  },
+  "paymentSubmittedSuccess": "Payment submitted successfully!",
+  "@paymentSubmittedSuccess": {
+    "description": "Success message after submitting payment"
+  },
+  "orderCancelledSuccess": "Order cancelled.",
+  "@orderCancelledSuccess": {
+    "description": "Success message after cancelling an order"
+  },
+  "bankName": "Commercial Bank of Ethiopia",
+  "@bankName": {
+    "description": "Name of the bank for payments"
+  },
+  "paymentInstructions": "Payment Instructions",
+  "@paymentInstructions": {
+    "description": "Title for payment instructions screen"
+  },
+  "transactionIdRequired": "Transaction ID is required",
+  "@transactionIdRequired": {
+    "description": "Validation message for empty transaction ID"
+  },
+  "orderTimeline": "Order Timeline",
+  "@orderTimeline": {
+    "description": "Section header for order status timeline"
+  },
+  "etbCurrency": "{amount} ETB",
+  "@etbCurrency": {
+    "description": "Ethiopian Birr currency format",
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "quantityKg": "{amount} kg",
+  "@quantityKg": {
+    "description": "Quantity in kilograms format",
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingOrders": "Pending Orders",
+  "@pendingOrders": {
+    "description": "Label for pending orders count on home screen stats"
+  },
+  "activeOrders": "Active Orders",
+  "@activeOrders": {
+    "description": "Label for active orders count on home screen stats"
+  },
+  "listingNotFound": "Listing not found",
+  "@listingNotFound": {
+    "description": "Error message when a crop listing referenced by an order cannot be found locally"
+  },
+  "unauthorizedAccess": "You are not authorized to view this order.",
+  "@unauthorizedAccess": {
+    "description": "Message shown when a user tries to view an order they are not part of"
+  },
+  "whatDoYouNeed": "What do you need?",
+  "@whatDoYouNeed": { "description": "Title for buyer intent creation screen" },
+  "whatDoYouNeedSubtitle": "Tell us what you're looking for and we'll find matches",
+  "@whatDoYouNeedSubtitle": { "description": "Subtitle for buyer intent creation screen" },
+  "findMatches": "Find Matches",
+  "@findMatches": { "description": "Button to search for matching crop listings" },
+  "quantityNeeded": "Quantity needed (quintals)",
+  "@quantityNeeded": { "description": "Label for quantity input on intent form" },
+  "maxPrice": "Maximum price (ETB/kg)",
+  "@maxPrice": { "description": "Label for max price input on intent form" },
+  "deliverTo": "Deliver to",
+  "@deliverTo": { "description": "Label for delivery destination on intent form" },
+  "matchesFound": "{count} matches found",
+  "@matchesFound": { "description": "Count of matching listings", "placeholders": { "count": { "type": "int" } } },
+  "noMatchesYet": "No matches yet",
+  "@noMatchesYet": { "description": "Empty state when no listings match the intent" },
+  "suggestedTransport": "Suggested Transport",
+  "@suggestedTransport": { "description": "Section title for transport suggestions" },
+  "selectThisTrip": "Select This Trip",
+  "@selectThisTrip": { "description": "Button to select a trip for transport" },
+  "estimatedTotal": "Estimated Total",
+  "@estimatedTotal": { "description": "Label for total cost estimate" },
+  "tripsAvailable": "{count} trips available",
+  "@tripsAvailable": { "description": "Count of available trips", "placeholders": { "count": { "type": "int" } } },
+  "noTripsYet": "No trips yet",
+  "@noTripsYet": { "description": "Empty state when no trips match" },
+  "placeOrderWithTransport": "Place Order + Transport",
+  "@placeOrderWithTransport": { "description": "Button to place order with selected transport" },
+  "placeOrderNoTransport": "Place Order (no transport)",
+  "@placeOrderNoTransport": { "description": "Button to place order without transport" },
+  "activeBuyingIntents": "Active Buying Intents",
+  "@activeBuyingIntents": { "description": "Section title for active buyer intents on home screen" },
+  "newBuyingIntent": "New Buying Intent",
+  "@newBuyingIntent": { "description": "Button to create a new buying intent" },
+  "cropCostLabel": "Crop Cost",
+  "@cropCostLabel": { "description": "Label for crop cost in price breakdown" },
+  "transportCostLabel": "Transport Cost",
+  "@transportCostLabel": { "description": "Label for transport cost in price breakdown" },
+  "commissionLabel": "Commission (5%)",
+  "@commissionLabel": { "description": "Label for commission in price breakdown" },
+  "syncedAgo": "Synced {time} ago",
+  "@syncedAgo": { "description": "Stale data indicator", "placeholders": { "time": { "type": "String" } } },
+  "browseAllListings": "Browse All Listings",
+  "@browseAllListings": { "description": "Link to browse all crop listings" },
+  "browseAllTrips": "Browse All Trips",
+  "@browseAllTrips": { "description": "Link to browse all trips" },
+  "intentSaved": "Saved! We'll notify you of new matches",
+  "@intentSaved": { "description": "Confirmation after saving a buying intent" },
+  "newMatchesAvailable": "New matches available!",
+  "@newMatchesAvailable": { "description": "Badge text for new matches" },
+  "findCrops": "Find Crops",
+  "@findCrops": { "description": "Quick action label for buyer to find crops" },
+  "totalLabel": "Total",
+  "@totalLabel": { "description": "Total label in price breakdown" },
+
+  "startTrip": "Start Trip",
+  "@startTrip": { "description": "Button label to start a matched trip" },
+  "startTripConfirmation": "Start this trip? You are confirming pickup.",
+  "@startTripConfirmation": { "description": "Confirmation dialog text for starting a trip" },
+  "tripStartedSuccess": "Trip started! Drive safe.",
+  "@tripStartedSuccess": { "description": "Success message after starting a trip" },
+  "markDelivered": "Mark Delivered",
+  "@markDelivered": { "description": "Button label to mark a trip as delivered" },
+  "markDeliveredConfirmation": "Mark as delivered? Confirm drop-off.",
+  "@markDeliveredConfirmation": { "description": "Confirmation dialog text for marking delivery" },
+  "tripDeliveredSuccess": "Delivery confirmed!",
+  "@tripDeliveredSuccess": { "description": "Success message after confirming delivery" },
+
+  "waitingForMatch": "Waiting for match...",
+  "@waitingForMatch": { "description": "Hero card text when trip is posted but not matched" },
+  "headingTo": "Heading to {destination}",
+  "@headingTo": { "description": "Hero card text when trip is in transit", "placeholders": { "destination": { "type": "String" } } },
+  "postNextTrip": "Post Next Trip",
+  "@postNextTrip": { "description": "Button label to post another trip after delivery" },
+  "recentRoutes": "Recent Routes",
+  "@recentRoutes": { "description": "Label for recent route chips section" },
+  "noActiveTrip": "No active trip",
+  "@noActiveTrip": { "description": "Hero card text when trucker has no trips" },
+  "postATrip": "Post a Trip",
+  "@postATrip": { "description": "CTA button label for idle trucker" },
+
+  "repeatLastTrip": "Repeat Last Trip",
+  "@repeatLastTrip": { "description": "Button label to repeat a previous trip" },
+  "quickFill": "Quick Fill",
+  "@quickFill": { "description": "Label for quick-fill route chips on create trip screen" }
 }

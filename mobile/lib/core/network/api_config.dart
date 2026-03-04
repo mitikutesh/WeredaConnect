@@ -37,8 +37,8 @@ class ApiConfig {
   /// POST /auth/register - Register new user
   static const String registerEndpoint = '/auth/register';
 
-  /// POST /auth/verify-otp - Verify OTP code
-  static const String verifyOtpEndpoint = '/auth/verify-otp';
+  /// POST /auth/fayda-verify - Exchange Fayda auth code for verification token
+  static const String faydaVerifyEndpoint = '/auth/fayda-verify';
 
   /// POST /auth/login - Login with phone/password
   static const String loginEndpoint = '/auth/login';

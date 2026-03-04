@@ -101,20 +101,24 @@ public sealed class UserRepository : IUserRepository
             {
                 { "userId", new AttributeValue { S = user.UserId } }
             },
-            UpdateExpression = "SET #phone = :phone, #name = :name, #role = :role, " +
+            UpdateExpression = "SET #phone = :phone, #name = :name, #fullName = :fullName, #role = :role, " +
                                "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
-                               "#photo = :photo, #fayda = :fayda, #updated = :updated, #v = :newVersion",
+                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, " +
+                               "#updated = :updated, #v = :newVersion",
             ConditionExpression = "#v = :expectedVersion",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#phone", "phoneNumber" },
                 { "#name", "displayName" },
+                { "#fullName", "fullName" },
                 { "#role", "role" },
                 { "#woreda", "woreda" },
                 { "#lang", "preferredLanguage" },
                 { "#verified", "isPhoneVerified" },
                 { "#photo", "profilePhotoRef" },
                 { "#fayda", "faydaId" },
+                { "#faydaV", "faydaVerified" },
+                { "#faydaVAt", "faydaVerifiedAt" },
                 { "#updated", "updatedAt" },
                 { "#v", "version" }
             },
@@ -122,12 +126,15 @@ public sealed class UserRepository : IUserRepository
             {
                 { ":phone", new AttributeValue { S = user.PhoneNumber } },
                 { ":name", user.DisplayName != null ? new AttributeValue { S = user.DisplayName } : new AttributeValue { NULL = true } },
+                { ":fullName", user.FullName != null ? new AttributeValue { S = user.FullName } : new AttributeValue { NULL = true } },
                 { ":role", new AttributeValue { S = user.Role } },
                 { ":woreda", new AttributeValue { S = user.Woreda } },
                 { ":lang", new AttributeValue { S = user.PreferredLanguage } },
                 { ":verified", new AttributeValue { BOOL = user.IsPhoneVerified } },
                 { ":photo", user.ProfilePhotoRef != null ? new AttributeValue { S = user.ProfilePhotoRef } : new AttributeValue { NULL = true } },
                 { ":fayda", user.FaydaId != null ? new AttributeValue { S = user.FaydaId } : new AttributeValue { NULL = true } },
+                { ":faydaV", new AttributeValue { BOOL = user.FaydaVerified } },
+                { ":faydaVAt", user.FaydaVerifiedAt != null ? new AttributeValue { S = user.FaydaVerifiedAt } : new AttributeValue { NULL = true } },
                 { ":updated", new AttributeValue { S = now } },
                 { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                 { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
@@ -153,6 +160,31 @@ public sealed class UserRepository : IUserRepository
         }
     }
 
+    public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)
+    {
+        // Use FaydaIdIndex GSI — efficient key-based lookup instead of table scan.
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "FaydaIdIndex",
+            KeyConditionExpression = "faydaId = :fid",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":fid", new AttributeValue { S = faydaId } }
+            },
+            Limit = 1
+        };
+
+        var response = await _dynamoDb.QueryAsync(request);
+
+        if (response.Items == null || response.Items.Count == 0)
+        {
+            return null;
+        }
+
+        return FromItem(response.Items[0]);
+    }
+
     /// <summary>
     /// Marshal a UserDto to a DynamoDB item (Dictionary).
     /// </summary>
@@ -166,6 +198,7 @@ public sealed class UserRepository : IUserRepository
             { "woreda", new AttributeValue { S = user.Woreda } },
             { "preferredLanguage", new AttributeValue { S = user.PreferredLanguage } },
             { "isPhoneVerified", new AttributeValue { BOOL = user.IsPhoneVerified } },
+            { "faydaVerified", new AttributeValue { BOOL = user.FaydaVerified } },
             { "createdAt", new AttributeValue { S = user.CreatedAt } },
             { "updatedAt", new AttributeValue { S = user.UpdatedAt } },
             { "version", new AttributeValue { N = user.Version.ToString() } }
@@ -176,9 +209,19 @@ public sealed class UserRepository : IUserRepository
             item["displayName"] = new AttributeValue { S = user.DisplayName };
         }
 
+        if (user.FullName != null)
+        {
+            item["fullName"] = new AttributeValue { S = user.FullName };
+        }
+
         if (user.FaydaId != null)
         {
             item["faydaId"] = new AttributeValue { S = user.FaydaId };
+        }
+
+        if (user.FaydaVerifiedAt != null)
+        {
+            item["faydaVerifiedAt"] = new AttributeValue { S = user.FaydaVerifiedAt };
         }
 
         if (user.ProfilePhotoRef != null)
@@ -199,9 +242,12 @@ public sealed class UserRepository : IUserRepository
             UserId = item["userId"].S,
             PhoneNumber = item["phoneNumber"].S,
             DisplayName = item.TryGetValue("displayName", out var dn) && dn.S != null ? dn.S : null,
+            FullName = item.TryGetValue("fullName", out var fn) && fn.S != null ? fn.S : null,
             Role = item["role"].S,
             Woreda = item["woreda"].S,
             FaydaId = item.TryGetValue("faydaId", out var fid) && fid.S != null ? fid.S : null,
+            FaydaVerified = item.TryGetValue("faydaVerified", out var fv) && fv.BOOL,
+            FaydaVerifiedAt = item.TryGetValue("faydaVerifiedAt", out var fva) && fva.S != null ? fva.S : null,
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,

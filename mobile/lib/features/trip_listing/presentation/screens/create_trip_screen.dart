@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:isar/isar.dart';
 
+import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
@@ -13,20 +17,47 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for creating a new trip listing.
 ///
-/// Form-based UI following CreateCropListingScreen patterns:
-/// - Large touch targets (48dp min)
-/// - Localized labels and validation
-/// - BlocListener for state transitions
-/// - Loading spinner on submit
+/// Features:
+/// - Auto-fills trucker name/phone from user profile
+/// - Recent route chips for quick-fill
+/// - Stepper buttons for capacity and price
+/// - Repeat-last-trip factory constructor
+/// - 56dp touch targets for rural trucker usability
 class CreateTripScreen extends StatefulWidget {
   final String? truckerName;
   final String? truckerPhone;
+  final String? fromWoreda;
+  final String? toWoreda;
+  final double? capacity;
+  final double? pricePerQuintal;
+  final String? vehiclePlate;
+  final String? vehicleDescription;
 
   const CreateTripScreen({
     this.truckerName,
     this.truckerPhone,
+    this.fromWoreda,
+    this.toWoreda,
+    this.capacity,
+    this.pricePerQuintal,
+    this.vehiclePlate,
+    this.vehicleDescription,
     super.key,
   });
+
+  /// Create a trip screen pre-filled with data from an existing trip.
+  factory CreateTripScreen.fromTrip(Trip trip) {
+    return CreateTripScreen(
+      truckerName: trip.truckerName,
+      truckerPhone: trip.truckerPhone,
+      fromWoreda: trip.fromWoreda,
+      toWoreda: trip.toWoreda,
+      capacity: trip.capacity,
+      pricePerQuintal: trip.pricePerQuintal,
+      vehiclePlate: trip.vehiclePlate,
+      vehicleDescription: trip.vehicleDescription,
+    );
+  }
 
   @override
   State<CreateTripScreen> createState() => _CreateTripScreenState();
@@ -44,16 +75,85 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   final _priceController = TextEditingController();
 
   DateTime? _selectedDepartureDate;
+  List<({String from, String to})> _recentRoutes = [];
 
   @override
   void initState() {
     super.initState();
-    // Pre-fill trucker info if provided
+    // Pre-fill from constructor args
     if (widget.truckerName != null) {
       _truckerNameController.text = widget.truckerName!;
     }
     if (widget.truckerPhone != null) {
       _truckerPhoneController.text = widget.truckerPhone!;
+    }
+    if (widget.fromWoreda != null) {
+      _fromWoredaController.text = widget.fromWoreda!;
+    }
+    if (widget.toWoreda != null) {
+      _toWoredaController.text = widget.toWoreda!;
+    }
+    if (widget.capacity != null) {
+      _capacityController.text = widget.capacity!.toStringAsFixed(0);
+    }
+    if (widget.pricePerQuintal != null) {
+      _priceController.text = widget.pricePerQuintal!.toStringAsFixed(0);
+    }
+    if (widget.vehiclePlate != null) {
+      _vehiclePlateController.text = widget.vehiclePlate!;
+    }
+    if (widget.vehicleDescription != null) {
+      _vehicleDescriptionController.text = widget.vehicleDescription!;
+    }
+
+    _autoFillTruckerInfo();
+    _loadRecentRoutes();
+  }
+
+  /// Auto-fill trucker name/phone from Isar user profile.
+  Future<void> _autoFillTruckerInfo() async {
+    if (_truckerNameController.text.isNotEmpty &&
+        _truckerPhoneController.text.isNotEmpty) {
+      return;
+    }
+
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) return;
+
+    try {
+      final isar = IsarService.instance.db;
+      final user =
+          await isar.users.filter().userIdEqualTo(authState.userId).findFirst();
+      if (user != null && mounted) {
+        setState(() {
+          if (_truckerNameController.text.isEmpty) {
+            _truckerNameController.text = user.effectiveDisplayName;
+          }
+          if (_truckerPhoneController.text.isEmpty) {
+            _truckerPhoneController.text = user.phoneNumber;
+          }
+        });
+      }
+    } on Object {
+      // Silently ignore — fields stay empty for manual entry
+    }
+  }
+
+  /// Load recent routes for quick-fill chips.
+  Future<void> _loadRecentRoutes() async {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) return;
+
+    try {
+      final routes = await context
+          .read<TripListingBloc>()
+          .repository
+          .getRecentRoutes(authState.userId);
+      if (mounted) {
+        setState(() => _recentRoutes = routes);
+      }
+    } on Object {
+      // Silently ignore
     }
   }
 
@@ -83,6 +183,20 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         _selectedDepartureDate = picked;
       });
     }
+  }
+
+  /// Adjust a numeric text field by [delta], clamped to [min]..[max].
+  void _adjustValue(
+    TextEditingController controller,
+    double delta,
+    double min,
+    double max,
+  ) {
+    final current = double.tryParse(controller.text) ?? 0;
+    final newValue = (current + delta).clamp(min, max);
+    controller.text = newValue == newValue.roundToDouble()
+        ? newValue.toStringAsFixed(0)
+        : newValue.toStringAsFixed(2);
   }
 
   void _handleSave() {
@@ -166,6 +280,36 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            // Recent route chips
+                            if (_recentRoutes.isNotEmpty) ...[
+                              Text(
+                                l10n.quickFill,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _recentRoutes.map((route) {
+                                  return ActionChip(
+                                    label: Text('${route.from} → ${route.to}'),
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.padded,
+                                    onPressed: () {
+                                      setState(() {
+                                        _fromWoredaController.text = route.from;
+                                        _toWoredaController.text = route.to;
+                                      });
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             // Trucker name input
                             TextFormField(
                               controller: _truckerNameController,
@@ -334,77 +478,150 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // Capacity input
-                            TextFormField(
-                              controller: _capacityController,
-                              decoration: InputDecoration(
-                                labelText: l10n.capacity,
-                                prefixIcon: const Icon(Icons.local_shipping),
-                                suffixText: l10n.quintals,
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
+                            // Capacity input with stepper buttons
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                IconButton(
+                                  onPressed: () => _adjustValue(
+                                    _capacityController,
+                                    -10,
+                                    0.1,
+                                    1000,
+                                  ),
+                                  icon: const Icon(Icons.remove_circle_outline),
+                                  iconSize: 28,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 56,
+                                    minHeight: 56,
+                                  ),
                                 ),
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'^\d+\.?\d{0,2}'),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _capacityController,
+                                    decoration: InputDecoration(
+                                      labelText: l10n.capacity,
+                                      prefixIcon:
+                                          const Icon(Icons.local_shipping),
+                                      suffixText: l10n.quintals,
+                                      border: const OutlineInputBorder(),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 20,
+                                      ),
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d+\.?\d{0,2}'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return l10n.capacityRequired;
+                                      }
+                                      final capacity = double.tryParse(value);
+                                      if (capacity == null ||
+                                          capacity < 0.1 ||
+                                          capacity > 1000) {
+                                        return l10n.invalidCapacity;
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => _adjustValue(
+                                    _capacityController,
+                                    10,
+                                    0.1,
+                                    1000,
+                                  ),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  iconSize: 28,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 56,
+                                    minHeight: 56,
+                                  ),
                                 ),
                               ],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return l10n.capacityRequired;
-                                }
-                                final capacity = double.tryParse(value);
-                                if (capacity == null ||
-                                    capacity < 0.1 ||
-                                    capacity > 1000) {
-                                  return l10n.invalidCapacity;
-                                }
-                                return null;
-                              },
                             ),
                             const SizedBox(height: 16),
 
-                            // Price per quintal input
-                            TextFormField(
-                              controller: _priceController,
-                              decoration: InputDecoration(
-                                labelText: l10n.pricePerQuintal,
-                                prefixIcon: const Icon(Icons.payments),
-                                suffixText: 'ETB',
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
+                            // Price per quintal input with stepper buttons
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                IconButton(
+                                  onPressed: () => _adjustValue(
+                                    _priceController,
+                                    -10,
+                                    0.01,
+                                    10000,
+                                  ),
+                                  icon: const Icon(Icons.remove_circle_outline),
+                                  iconSize: 28,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 56,
+                                    minHeight: 56,
+                                  ),
                                 ),
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'^\d+\.?\d{0,2}'),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _priceController,
+                                    decoration: InputDecoration(
+                                      labelText: l10n.pricePerQuintal,
+                                      prefixIcon: const Icon(Icons.payments),
+                                      suffixText: 'ETB',
+                                      border: const OutlineInputBorder(),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 20,
+                                      ),
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d+\.?\d{0,2}'),
+                                      ),
+                                    ],
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return l10n.priceRequired;
+                                      }
+                                      final price = double.tryParse(value);
+                                      if (price == null ||
+                                          price < 0.01 ||
+                                          price > 10000) {
+                                        return l10n.invalidPrice;
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => _adjustValue(
+                                    _priceController,
+                                    10,
+                                    0.01,
+                                    10000,
+                                  ),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  iconSize: 28,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 56,
+                                    minHeight: 56,
+                                  ),
                                 ),
                               ],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return l10n.priceRequired;
-                                }
-                                final price = double.tryParse(value);
-                                if (price == null ||
-                                    price < 0.01 ||
-                                    price > 10000) {
-                                  return l10n.invalidPrice;
-                                }
-                                return null;
-                              },
                             ),
                             const SizedBox(height: 24),
 
@@ -415,7 +632,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
                                 ),
-                                minimumSize: const Size.fromHeight(48),
+                                minimumSize: const Size.fromHeight(56),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),

@@ -477,10 +477,38 @@ void main() {
         expect(result.failed, 1);
         expect(result.status, SyncBatchStatus.networkError);
 
-        // Operation should be reverted to pending with incremented retry count
+        // Operation should be reverted to pending without incrementing retry count
         final op = await syncQueue.getOperation('op-net');
-        expect(op!.retryCount, 1);
+        expect(op!.retryCount, 0);
         expect(op.status, SyncStatus.pending);
+      });
+
+      test('network errors never cause permanent failure', () async {
+        await enqueueTestOperation(operationId: 'op-resilient');
+
+        // Simulate 5 consecutive network errors on the same operation
+        for (var i = 0; i < 5; i++) {
+          dioAdapter.onPost(
+            '/sync',
+            (server) => server.throws(
+              0,
+              DioException(
+                requestOptions: RequestOptions(path: '/sync'),
+                type: DioExceptionType.connectionTimeout,
+                message: 'Connection timeout #$i',
+              ),
+            ),
+            data: Matchers.any,
+          );
+
+          final result = await executor.executeBatch();
+          expect(result.status, SyncBatchStatus.networkError);
+        }
+
+        // After 5 network errors, operation must still be pending with retryCount 0
+        final op = await syncQueue.getOperation('op-resilient');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 0);
       });
 
       test('handles 401 auth error', () async {
@@ -664,6 +692,51 @@ void main() {
         final result = await executor.syncNow();
 
         expect(result.status, SyncBatchStatus.noInternet);
+      });
+
+      test('syncNow breaks immediately on network error', () async {
+        await enqueueTestOperation(operationId: 'op-net-break');
+
+        dioAdapter.onGet(
+          '/health',
+          (server) => server.reply(200, {'status': 'ok'}),
+        );
+
+        var syncCallCount = 0;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              if (options.path == '/sync') {
+                syncCallCount++;
+              }
+              handler.next(options);
+            },
+          ),
+        );
+
+        dioAdapter.onPost(
+          '/sync',
+          (server) => server.throws(
+            0,
+            DioException(
+              requestOptions: RequestOptions(path: '/sync'),
+              type: DioExceptionType.connectionError,
+              message: 'No internet',
+            ),
+          ),
+          data: Matchers.any,
+        );
+
+        final result = await executor.syncNow();
+
+        // Should break immediately — only 1 call to /sync (no in-call retry)
+        expect(syncCallCount, 1);
+        expect(result.status, SyncBatchStatus.networkError);
+
+        // Operation remains pending with retryCount 0
+        final op = await syncQueue.getOperation('op-net-break');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 0);
       });
 
       test('processes all pending batches until queue empty', () async {

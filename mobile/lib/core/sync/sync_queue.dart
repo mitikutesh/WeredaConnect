@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
@@ -133,6 +135,29 @@ class SyncQueue {
         .findAll();
   }
 
+  /// Get pending operations belonging to a specific user.
+  ///
+  /// Filters by the userId prefix in the idempotency key (format: `{userId}:...`).
+  /// If [userId] is null or empty, falls back to [getPendingOperations] (all users).
+  ///
+  /// This prevents User B's sync session from processing User A's offline
+  /// operations on shared devices — a critical security requirement.
+  Future<List<SyncOperation>> getPendingOperationsForUser({
+    required String? userId,
+    int limit = 50,
+  }) async {
+    if (userId == null || userId.isEmpty) {
+      return getPendingOperations(limit: limit);
+    }
+    return _isar.syncOperations
+        .filter()
+        .statusEqualTo(SyncStatus.pending)
+        .idempotencyKeyStartsWith('$userId:')
+        .sortByCreatedAt()
+        .limit(limit)
+        .findAll();
+  }
+
   /// Mark an operation as currently being synced.
   ///
   /// Prevents the same operation from being picked up by concurrent
@@ -219,6 +244,33 @@ class SyncQueue {
     return failedOps.length;
   }
 
+  /// Recover operations stuck in [SyncStatus.syncing] from a previous crash.
+  ///
+  /// If the app is killed during sync, operations remain in `syncing` status
+  /// and are never picked up by [getPendingOperations] (which queries `pending`)
+  /// or [retryFailed] (which queries `failed`). This method resets them to
+  /// `pending` without incrementing [retryCount] so they are retried normally.
+  ///
+  /// Returns the number of operations recovered.
+  Future<int> recoverStaleSyncing() async {
+    final staleOps = await _isar.syncOperations
+        .filter()
+        .statusEqualTo(SyncStatus.syncing)
+        .findAll();
+
+    if (staleOps.isEmpty) return 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in staleOps) {
+        op.status = SyncStatus.pending;
+        op.retryCount = 0;
+        await _isar.syncOperations.put(op);
+      }
+    });
+
+    return staleOps.length;
+  }
+
   /// Get the count of pending operations (pending + syncing).
   ///
   /// Includes both [SyncStatus.pending] and [SyncStatus.syncing]
@@ -269,6 +321,61 @@ class SyncQueue {
   /// Get an operation by its operationId.
   Future<SyncOperation?> getOperation(String operationId) async {
     return _findByOperationId(operationId);
+  }
+
+  /// One-time migration: fix trip sync operations that contain fields
+  /// rejected by the server's whitelist (tripId, createdAt, updatedAt).
+  ///
+  /// These operations were created before the fix in trip_listing_repository
+  /// and will never succeed because the server rejects unknown fields.
+  /// This strips the bad fields from the JSON payload and resets the
+  /// operations to pending so they get retried with valid data.
+  ///
+  /// Returns the number of operations fixed.
+  Future<int> migrateBadTripSyncData() async {
+    // Find all trip operations that are failed or pending
+    final ops = await _isar.syncOperations
+        .filter()
+        .entityTypeEqualTo('trip')
+        .group(
+          (q) => q
+              .statusEqualTo(SyncStatus.failed)
+              .or()
+              .statusEqualTo(SyncStatus.pending),
+        )
+        .findAll();
+
+    if (ops.isEmpty) return 0;
+
+    var fixed = 0;
+
+    await _isar.writeTxn(() async {
+      for (final op in ops) {
+        final data = jsonDecode(op.data) as Map<String, dynamic>;
+
+        // Check if data contains the problematic fields
+        if (!data.containsKey('tripId') && !data.containsKey('createdAt')) {
+          continue;
+        }
+
+        // Strip server-managed fields that cause TRIP_VALIDATION errors
+        data.remove('tripId');
+        data.remove('createdAt');
+        data.remove('updatedAt');
+
+        op.data = jsonEncode(data);
+        op.status = SyncStatus.pending;
+        op.retryCount = 0;
+        await _isar.syncOperations.put(op);
+        fixed++;
+      }
+    });
+
+    if (fixed > 0) {
+      debugPrint('[SYNC] migrated $fixed trip operations with bad fields');
+    }
+
+    return fixed;
   }
 
   /// Release resources held by this queue.

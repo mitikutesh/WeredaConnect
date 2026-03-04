@@ -232,6 +232,18 @@
   "@fullName": {
     "description": "Full name input label"
   },
+  "displayName": "Maqaa Agarsiisaa",
+  "@displayName": {
+    "description": "Label for user-chosen marketplace nickname"
+  },
+  "displayNameHelper": "Maqaa gabaatti namoota birootiif mul'atu",
+  "@displayNameHelper": {
+    "description": "Helper text for display name field"
+  },
+  "verifiedLegalName": "Maqaa Seeraa Mirkanaa'e",
+  "@verifiedLegalName": {
+    "description": "Label for Fayda-verified legal name card"
+  },
   "selectRole": "Ga'ee Filadhu",
   "@selectRole": {
     "description": "Role selection label"
@@ -2079,5 +2091,119 @@
   "splashHeadline": "Oomishtuu. Geejjibsiistuu.\nBituu. Xumurameera.",
   "splashSubtitle": "Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.",
   "orderCancelled": "Haqame",
-  "orderCompleted": "Xumurameera"
+  "orderCompleted": "Xumurameera",
+  "faydaVerifyTitle": "Eenyummaa Faayidaan Mirkaneessuu",
+  "faydaVerifyDescription": "Eenyummaa keessan waraqaa eenyummaa Faayidaa dijitaalaa fayyadamuun mirkaneessaa. Gara portaalii Faayidaatti ni geeffamtu.",
+  "verifyWithFayda": "Faayidaan Mirkaneessuu",
+  "faydaVerifying": "Faayidaan mirkaneessaa jira...",
+  "faydaVerifiedSuccess": "Eenyummaan Mirkanaa'eera",
+  "faydaVerificationFailed": "Mirkaneessuu Faayidaa hin milkoofne. Irra deebi'aatii yaalaa.",
+  "faydaRequired": "Daldala birrii 10,000 ol ta'e banachuuf eenyummaa Faayidaa keessan mirkaneessaa. Irra darbuu fi booda mirkaneessuu dandeessu.",
+  "faydaUnavailable": "Tajaajilli Faayidaa yeroo ammaa hin argamu. Booda irra deebi'aatii yaalaa.",
+  "faydaAlreadyLinked": "Waraqaan eenyummaa Faayidaa kun herrega biraatti walqabatee jira.",
+  "pendingOrders": "Ajaja Eeggataa",
+  "activeOrders": "Ajaja Hojii Irra Jiran",
+  "placeOrder": "Ajaja Galmeessi",
+  "cropCost": "Gatii Midhaanii",
+  "transportCost": "Baasii Geejjibaa",
+  "platformCommission": "Komishiinii Waltajjii (5%)",
+  "orderTotal": "Waliigala",
+  "payNow": "Amma Kaffalii",
+  "payLater": "Booda Kaffalii",
+  "cbePaymentInstructions": "Gara herrega Baankii Daldalaa Itoophiyaa armaan gadiitti dabarsi. Kaffaltii kee walsimsiisuuf lakkoofsa wabii fayyadami.",
+  "enterTransactionId": "Lakkoofsa Daldala CBE Galchi",
+  "submitPayment": "Kaffaltii Galmeessi",
+  "statusCreated": "Uumame",
+  "statusPendingPayment": "Kaffaltii Eeggataa",
+  "statusPaymentSubmitted": "Kaffaltiin Galmeeffame",
+  "statusFunded": "Maallaqni Galee",
+  "statusPickupConfirmed": "Fudhannaan Mirkanaa'e",
+  "statusInTransit": "Geejjibarra Jira",
+  "statusDelivered": "Ga'eera",
+  "statusDisbursing": "Raabsamaa Jira",
+  "statusSettled": "Xumurameera",
+  "statusPaymentFailed": "Kaffaltiin Hin Milkoofne",
+  "statusDisputed": "Falmiirra Jira",
+  "statusDisputeResolved": "Falmiin Furameera",
+  "cancelOrder": "Ajaja Haquu",
+  "cancelReason": "Sababa haquuf",
+  "orderDetails": "Ibsa Ajajaa",
+  "priceBreakdown": "Caccabsaa Gatii",
+  "cbeAccountNumber": "Herrega: 1000XXXXXXXXXX",
+  "transferReference": "Wabii",
+  "paymentAmount": "Hamma",
+  "quantity": "Hamma (kg)",
+  "listingSummary": "Cuunfaa Tarree",
+  "orderPlacedSuccess": "Ajajni milkaa'inaan galmeeffame!",
+  "paymentSubmittedSuccess": "Kaffaltiin milkaa'inaan galmeeffame!",
+  "orderCancelledSuccess": "Ajajni haqameera.",
+  "bankName": "Baankii Daldalaa Itoophiyaa",
+  "paymentInstructions": "Qajeelfama Kaffaltii",
+  "transactionIdRequired": "Lakkoofsi daldala barbaachisaadha",
+  "orderTimeline": "Sarara Yeroo Ajajaa",
+  "etbCurrency": "Birrii {amount}",
+  "@etbCurrency": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "quantityKg": "{amount} kg",
+  "@quantityKg": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "listingNotFound": "Tarreen hin argamne",
+  "unauthorizedAccess": "Ajaja kana ilaaluuf hayyamni hin jiru.",
+  "whatDoYouNeed": "Maal barbaaddu?",
+  "whatDoYouNeedSubtitle": "Waan barbaaddan nutti himaa waan walsimatu isiniif barbaanna",
+  "findMatches": "Walsimatu Barbaadi",
+  "quantityNeeded": "Hamma barbaadamu (kuuntaalii)",
+  "maxPrice": "Gatii ol'aanaa (Birrii/kg)",
+  "deliverTo": "Bakka geejjibaa",
+  "matchesFound": "{count} walsimatu argame",
+  "@matchesFound": { "placeholders": { "count": { "type": "int" } } },
+  "noMatchesYet": "Hanga ammaatti walsimatu hin jiru",
+  "suggestedTransport": "Geejjiba Yaadame",
+  "selectThisTrip": "Imala Kana Fili",
+  "estimatedTotal": "Tilmaama Waliigalaa",
+  "tripsAvailable": "{count} imala ni jira",
+  "@tripsAvailable": { "placeholders": { "count": { "type": "int" } } },
+  "noTripsYet": "Hanga ammaatti imala hin jiru",
+  "placeOrderWithTransport": "Ajaja + Geejjiba",
+  "placeOrderNoTransport": "Ajaja (geejjiba malee)",
+  "activeBuyingIntents": "Fedhii Bittaa Hojii Irra Jiru",
+  "newBuyingIntent": "Fedhii Bittaa Haaraa",
+  "cropCostLabel": "Gatii Midhaan",
+  "transportCostLabel": "Gatii Geejjibaa",
+  "commissionLabel": "Komishinii (5%)",
+  "syncedAgo": "{time} dura walsiме",
+  "@syncedAgo": { "placeholders": { "time": { "type": "String" } } },
+  "browseAllListings": "Tarree Hunda Ilaali",
+  "browseAllTrips": "Imala Hunda Ilaali",
+  "intentSaved": "Kuufame! Yoo walsimatu haaraan jiraate isin beeksifna",
+  "newMatchesAvailable": "Walsimatu haaraa argameera!",
+  "findCrops": "Midhaan Barbaadi",
+  "totalLabel": "Waliigala",
+
+  "startTrip": "Imala Jalqabii",
+  "startTripConfirmation": "Imala kana jalqabdaa? Fe'annoo fudhachuu mirkaneessita.",
+  "tripStartedSuccess": "Imalaan jalqabame! Nagaan oofii.",
+  "markDelivered": "Geessuu Mirkaneessi",
+  "markDeliveredConfirmation": "Akka geeffameetti mallatteessi? Meeshaaleen buufamuu mirkaneessi.",
+  "tripDeliveredSuccess": "Geessuu mirkanaa'e!",
+
+  "waitingForMatch": "Walsimatu eegamaa jira...",
+  "headingTo": "Gara {destination} deemaa jira",
+  "postNextTrip": "Imala Itti Aanuu Maxxansi",
+  "recentRoutes": "Karaalee Dhiyoo",
+  "noActiveTrip": "Imalli hojjatamaa jiru hin jiru",
+  "postATrip": "Imala Maxxansi",
+
+  "repeatLastTrip": "Imala Darbe Irra Deebi'i",
+  "quickFill": "Guuttaa Ariifataa"
 }

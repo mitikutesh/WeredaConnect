@@ -175,8 +175,9 @@ class TripListingRepository {
     });
 
     // Enqueue sync operation
+    // Only include server-whitelisted fields in data payload.
+    // tripId is sent as entityId; createdAt/updatedAt are set server-side.
     final syncData = <String, dynamic>{
-      'tripId': tripId,
       'truckerId': truckerId,
       'truckerName': truckerName,
       'truckerPhone': truckerPhone,
@@ -187,7 +188,6 @@ class TripListingRepository {
       'pricePerQuintal': pricePerQuintal,
       'status': trip.status.name,
       'matchedListings': <String>[],
-      'createdAt': now.toIso8601String(),
       'version': 1,
     };
     if (vehiclePlate != null && vehiclePlate.isNotEmpty) {
@@ -237,16 +237,19 @@ class TripListingRepository {
     return query.sortByCreatedAtDesc().findAll();
   }
 
-  /// Cancel a trip (soft delete).
+  /// Shared trip status-transition logic.
   ///
-  /// Validates that the trip exists and is in a cancellable state
-  /// (not already delivered or cancelled). Sets status=cancelled,
-  /// updates timestamp and version, then enqueues a sync operation.
+  /// Looks up the trip, validates ownership and current status,
+  /// applies the new status, bumps version, and enqueues a sync op.
   ///
-  /// Throws [TripValidationException] if the trip cannot be cancelled.
-  Future<void> cancelTrip({
+  /// Throws [TripValidationException] on any validation failure.
+  Future<Trip> _transitionTrip({
     required String tripId,
     required String truckerId,
+    required bool Function(TripStatus) isValidStatus,
+    required String statusErrorMessage,
+    required TripStatus newStatus,
+    required String syncAction,
   }) async {
     final trip = await _isar.trips.filter().tripIdEqualTo(tripId).findFirst();
 
@@ -254,24 +257,21 @@ class TripListingRepository {
       throw TripValidationException('tripId', 'Trip not found.');
     }
 
-    // Block cancellation of terminal-state trips
-    if (trip.status == TripStatus.delivered) {
+    if (trip.truckerId != truckerId) {
       throw TripValidationException(
-        'status',
-        'Cannot cancel a delivered trip.',
+        'truckerId',
+        'Not authorized to modify this trip.',
       );
     }
-    if (trip.status == TripStatus.cancelled) {
-      throw TripValidationException(
-        'status',
-        'Trip is already cancelled.',
-      );
+
+    if (!isValidStatus(trip.status)) {
+      throw TripValidationException('status', statusErrorMessage);
     }
 
     final now = DateTime.now().toUtc();
 
     await _isar.writeTxn(() async {
-      trip.status = TripStatus.cancelled;
+      trip.status = newStatus;
       trip.updatedAt = now;
       trip.version += 1;
       await _isar.trips.put(trip);
@@ -281,14 +281,140 @@ class TripListingRepository {
       userId: truckerId,
       entityType: 'trip',
       entityId: tripId,
-      action: 'delete',
+      action: syncAction,
       data: jsonEncode({
-        'tripId': tripId,
-        'status': TripStatus.cancelled.name,
-        'updatedAt': now.toIso8601String(),
+        'status': newStatus.name,
         'version': trip.version,
       }),
       operationId: _uuid.v4(),
     );
+
+    return trip;
+  }
+
+  /// Cancel a trip (soft delete).
+  ///
+  /// Validates ownership, that the trip exists and is in a cancellable state
+  /// (not already delivered or cancelled). Sets status=cancelled.
+  ///
+  /// Throws [TripValidationException] if the trip cannot be cancelled.
+  Future<void> cancelTrip({
+    required String tripId,
+    required String truckerId,
+  }) async {
+    await _transitionTrip(
+      tripId: tripId,
+      truckerId: truckerId,
+      isValidStatus: (s) =>
+          s != TripStatus.delivered && s != TripStatus.cancelled,
+      statusErrorMessage: 'Trip cannot be cancelled in its current state.',
+      newStatus: TripStatus.cancelled,
+      syncAction: 'delete',
+    );
+  }
+
+  /// Start a trip (transition from matched → inTransit).
+  ///
+  /// Throws [TripValidationException] if the trip cannot be started.
+  Future<Trip> startTrip({
+    required String tripId,
+    required String truckerId,
+  }) async {
+    return _transitionTrip(
+      tripId: tripId,
+      truckerId: truckerId,
+      isValidStatus: (s) => s == TripStatus.matched,
+      statusErrorMessage: 'Only matched trips can be started.',
+      newStatus: TripStatus.inTransit,
+      syncAction: 'update',
+    );
+  }
+
+  /// Mark a trip as delivered (transition from inTransit → delivered).
+  ///
+  /// Throws [TripValidationException] if the trip cannot be marked delivered.
+  Future<Trip> markDelivered({
+    required String tripId,
+    required String truckerId,
+  }) async {
+    return _transitionTrip(
+      tripId: tripId,
+      truckerId: truckerId,
+      isValidStatus: (s) => s == TripStatus.inTransit,
+      statusErrorMessage: 'Only in-transit trips can be marked as delivered.',
+      newStatus: TripStatus.delivered,
+      syncAction: 'update',
+    );
+  }
+
+  /// Get recent distinct routes for a trucker.
+  ///
+  /// Returns up to [limit] unique (fromWoreda, toWoreda) pairs from
+  /// the trucker's most recent trips, useful for quick-fill chips.
+  Future<List<({String from, String to})>> getRecentRoutes(
+    String truckerId, {
+    int limit = 5,
+  }) async {
+    final trips = await _isar.trips
+        .filter()
+        .truckerIdEqualTo(truckerId)
+        .sortByCreatedAtDesc()
+        .limit(20)
+        .findAll();
+
+    final seen = <String>{};
+    final routes = <({String from, String to})>[];
+
+    for (final trip in trips) {
+      final key = '${trip.fromWoreda}|${trip.toWoreda}';
+      if (seen.add(key)) {
+        routes.add((from: trip.fromWoreda, to: trip.toWoreda));
+        if (routes.length >= limit) break;
+      }
+    }
+
+    return routes;
+  }
+
+  /// Get the most relevant trip for a trucker's current state.
+  ///
+  /// Priority order: inTransit > matched > open > recently delivered.
+  /// Returns null if the trucker has no trips.
+  Future<Trip?> getMostRelevantTrip(String truckerId) async {
+    // Check inTransit first (highest priority)
+    final inTransit = await _isar.trips
+        .filter()
+        .truckerIdEqualTo(truckerId)
+        .statusEqualTo(TripStatus.inTransit)
+        .sortByUpdatedAtDesc()
+        .findFirst();
+    if (inTransit != null) return inTransit;
+
+    // Then matched
+    final matched = await _isar.trips
+        .filter()
+        .truckerIdEqualTo(truckerId)
+        .statusEqualTo(TripStatus.matched)
+        .sortByUpdatedAtDesc()
+        .findFirst();
+    if (matched != null) return matched;
+
+    // Then open
+    final open = await _isar.trips
+        .filter()
+        .truckerIdEqualTo(truckerId)
+        .statusEqualTo(TripStatus.open)
+        .sortByCreatedAtDesc()
+        .findFirst();
+    if (open != null) return open;
+
+    // Finally, most recently delivered
+    final delivered = await _isar.trips
+        .filter()
+        .truckerIdEqualTo(truckerId)
+        .statusEqualTo(TripStatus.delivered)
+        .sortByUpdatedAtDesc()
+        .findFirst();
+    return delivered;
   }
 }
