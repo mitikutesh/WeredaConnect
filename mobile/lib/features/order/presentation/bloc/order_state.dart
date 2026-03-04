@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/models/order.dart';
 
 /// Base class for order states.
 abstract class OrderState extends Equatable {

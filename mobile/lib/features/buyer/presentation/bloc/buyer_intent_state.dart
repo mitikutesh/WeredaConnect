@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 
 /// Base class for buyer intent states.

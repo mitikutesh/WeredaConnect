@@ -1,7 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
-import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
+import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 
@@ -10,12 +10,12 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_sta
 /// Handles creating intents, loading active intents for the home screen,
 /// running on-device matching, and refreshing match counts after sync.
 class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
-  final BuyerIntentRepository _repository;
-  final MatchingService _matchingService;
+  final BaseBuyerIntentRepository _repository;
+  final BaseMatchingService _matchingService;
 
   BuyerIntentBloc({
-    required BuyerIntentRepository repository,
-    required MatchingService matchingService,
+    required BaseBuyerIntentRepository repository,
+    required BaseMatchingService matchingService,
   })  : _repository = repository,
         _matchingService = matchingService,
         super(const BuyerIntentInitial()) {
@@ -42,8 +42,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
       );
 
       // Immediately run matching against cached data
-      final matches =
-          await _matchingService.matchListingsForIntent(intent);
+      final matches = await _matchingService.matchListingsForIntent(intent);
 
       // Update match count
       await _repository.updateMatchCount(
@@ -84,8 +83,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         return;
       }
 
-      final matches =
-          await _matchingService.matchListingsForIntent(intent);
+      final matches = await _matchingService.matchListingsForIntent(intent);
 
       // Update match count and mark as viewed
       await _repository.updateMatchCount(

@@ -1,0 +1,139 @@
+---
+import type { Locale } from '../i18n';
+import { t, locales, localePath } from '../i18n';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const currentPath = Astro.url.pathname;
+
+const navLinks = [
+  { key: 'nav.home', path: '/' },
+  { key: 'nav.about', path: '/about/' },
+  { key: 'nav.howItWorks', path: '/how-it-works/' },
+  { key: 'nav.contact', path: '/contact/' },
+];
+---
+
+<header class="sticky top-0 z-50 bg-surface/95 backdrop-blur-sm border-b border-border-light">
+  <nav class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <!-- Logo -->
+    <a href={localePath(locale, '/')} class="flex items-center gap-2 font-bold text-lg text-primary">
+      <svg class="w-8 h-8" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="6" fill="currentColor"/>
+        <text x="16" y="22" text-anchor="middle" font-family="system-ui" font-weight="700" font-size="18" fill="white">W</text>
+      </svg>
+      <span>WeredaConnect</span>
+    </a>
+
+    <!-- Desktop Nav -->
+    <div class="hidden md:flex items-center gap-6">
+      {navLinks.map((link) => {
+        const href = localePath(locale, link.path);
+        const isActive = currentPath === href || (link.path !== '/' && currentPath.startsWith(href));
+        return (
+          <a
+            href={href}
+            class:list={[
+              'text-sm font-medium transition-colors hover:text-primary',
+              isActive ? 'text-primary' : 'text-text-muted',
+            ]}
+          >
+            {t(locale, link.key)}
+          </a>
+        );
+      })}
+
+      <!-- Language Switcher -->
+      <div class="flex items-center gap-1 ml-2 border-l border-border-light pl-4">
+        {locales.map((loc) => {
+          const href = localePath(loc.code, currentPath.replace(/^\/(am|om)/, '') || '/');
+          return (
+            <a
+              href={href}
+              class:list={[
+                'px-2 py-1 text-xs font-semibold rounded transition-colors',
+                locale === loc.code
+                  ? 'bg-primary text-white'
+                  : 'text-text-muted hover:bg-cream',
+              ]}
+            >
+              {loc.label}
+            </a>
+          );
+        })}
+      </div>
+
+      <a
+        href={localePath(locale, '/#download')}
+        class="ml-2 px-4 py-2 text-sm font-semibold bg-accent text-white rounded-lg hover:bg-accent-light transition-colors"
+      >
+        {t(locale, 'nav.download')}
+      </a>
+    </div>
+
+    <!-- Mobile Menu Button -->
+    <button
+      id="mobile-menu-btn"
+      class="md:hidden p-2 text-text-muted hover:text-primary"
+      aria-label="Toggle menu"
+    >
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path id="menu-open" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        <path id="menu-close" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </nav>
+
+  <!-- Mobile Menu -->
+  <div id="mobile-menu" class="hidden md:hidden border-t border-border-light bg-surface">
+    <div class="px-4 py-4 space-y-3">
+      {navLinks.map((link) => {
+        const href = localePath(locale, link.path);
+        return (
+          <a href={href} class="block text-sm font-medium text-text-dark hover:text-primary">
+            {t(locale, link.key)}
+          </a>
+        );
+      })}
+      <div class="flex gap-2 pt-2 border-t border-border-light">
+        {locales.map((loc) => {
+          const href = localePath(loc.code, currentPath.replace(/^\/(am|om)/, '') || '/');
+          return (
+            <a
+              href={href}
+              class:list={[
+                'px-3 py-1.5 text-xs font-semibold rounded',
+                locale === loc.code
+                  ? 'bg-primary text-white'
+                  : 'bg-cream text-text-muted',
+              ]}
+            >
+              {loc.label}
+            </a>
+          );
+        })}
+      </div>
+      <a
+        href={localePath(locale, '/#download')}
+        class="block text-center px-4 py-2 text-sm font-semibold bg-accent text-white rounded-lg"
+      >
+        {t(locale, 'nav.download')}
+      </a>
+    </div>
+  </div>
+</header>
+
+<script>
+  const btn = document.getElementById('mobile-menu-btn');
+  const menu = document.getElementById('mobile-menu');
+  const openIcon = document.getElementById('menu-open');
+  const closeIcon = document.getElementById('menu-close');
+  btn?.addEventListener('click', () => {
+    menu?.classList.toggle('hidden');
+    openIcon?.classList.toggle('hidden');
+    closeIcon?.classList.toggle('hidden');
+  });
+</script>

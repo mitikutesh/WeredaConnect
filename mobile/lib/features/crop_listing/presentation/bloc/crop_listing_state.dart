@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 
 /// Base class for crop listing states.
 abstract class CropListingState extends Equatable {

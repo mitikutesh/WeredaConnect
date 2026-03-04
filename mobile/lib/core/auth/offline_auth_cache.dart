@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/user.dart';
 
 /// Manages offline authentication cache with PBKDF2 password hashing.
 ///

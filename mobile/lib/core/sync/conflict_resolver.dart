@@ -1,12 +1,12 @@
 import 'package:isar/isar.dart';
 
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/core/database/schemas/order.dart';
-import 'package:wereda_connect/core/database/schemas/payment.dart';
-import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/user.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
 ///

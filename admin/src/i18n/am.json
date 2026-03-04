@@ -1,0 +1,165 @@
+{
+  "app": {
+    "title": "WeredaConnect አስተዳዳሪ",
+    "subtitle": "የመድረክ አስተዳደር"
+  },
+  "nav": {
+    "dashboard": "ዳሽቦርድ",
+    "escrows": "ኢስክሮዎች",
+    "disputes": "ክርክሮች",
+    "fraudReview": "ማጭበርበሪያ ግምገማ",
+    "users": "ተጠቃሚዎች",
+    "revenue": "ገቢ",
+    "transactions": "ግብይቶች",
+    "auditLog": "የኦዲት ምዝግብ",
+    "systemHealth": "የስርዓት ጤና",
+    "compliance": "ተገዢነት"
+  },
+  "auth": {
+    "login": "ግባ",
+    "logout": "ውጣ",
+    "phone": "ስልክ ቁጥር",
+    "password": "የይለፍ ቃል",
+    "loginTitle": "የአስተዳዳሪ መግቢያ",
+    "loginSubtitle": "ወደ WeredaConnect አስተዳዳሪ ይግቡ",
+    "invalidCredentials": "ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል",
+    "notAdmin": "መዳረሻ ተከልክሏል። የአስተዳዳሪ ፈቃድ ያስፈልጋል።",
+    "signingIn": "በመግባት ላይ..."
+  },
+  "dashboard": {
+    "title": "ዳሽቦርድ",
+    "activeEscrows": "ንቁ ኢስክሮዎች",
+    "totalRevenue": "ጠቅላላ ገቢ",
+    "openDisputes": "ክፍት ክርክሮች",
+    "fraudFlags": "የማጭበርበሪያ ምልክቶች",
+    "recentActivity": "የቅርብ ጊዜ እንቅስቃሴ",
+    "kpiCards": "ቁልፍ የአፈጻጸም አመልካቾች"
+  },
+  "escrows": {
+    "title": "ኢስክሮዎች",
+    "id": "የኢስክሮ መለያ",
+    "buyer": "ገዥ",
+    "seller": "ሻጭ",
+    "amount": "መጠን",
+    "status": "ሁኔታ",
+    "createdAt": "የተፈጠረበት",
+    "detail": "የኢስክሮ ዝርዝር",
+    "auditTrail": "የኦዲት ዱካ",
+    "initiated": "ተጀምሯል",
+    "funded": "ገንዘብ ገብቷል",
+    "released": "ተለቋል",
+    "disputed": "ክርክር ተነስቷል",
+    "refunded": "ተመላሽ ሆኗል",
+    "expired": "ጊዜው አልፏል"
+  },
+  "disputes": {
+    "title": "ክርክሮች",
+    "resolve": "ክርክር ፍቷ",
+    "farmerWins": "ገበሬው አሸናፊ",
+    "buyerWins": "ገዥው አሸናፊ",
+    "reason": "ምክንያት",
+    "resolution": "ውሳኔ",
+    "resolvedAt": "የተፈታበት",
+    "pending": "በመጠባበቅ ላይ",
+    "resolved": "ተፈትቷል"
+  },
+  "fraud": {
+    "title": "ማጭበርበሪያ ግምገማ",
+    "signalType": "የምልክት ዓይነት",
+    "severity": "ክብደት",
+    "approve": "ፍቀድ",
+    "reject": "ከልክል",
+    "whitelist": "ፍቀድ ዝርዝር",
+    "high": "ከፍተኛ",
+    "medium": "መካከለኛ",
+    "low": "ዝቅተኛ",
+    "reviewed": "ተገምግሟል",
+    "pending": "በመጠባበቅ ላይ"
+  },
+  "users": {
+    "title": "ተጠቃሚዎች",
+    "name": "ስም",
+    "phone": "ስልክ",
+    "role": "ሚና",
+    "status": "ሁኔታ",
+    "woreda": "ወረዳ",
+    "joined": "የተቀላቀለበት",
+    "detail": "የተጠቃሚ ዝርዝር",
+    "suspend": "አግድ",
+    "activate": "አንቃ",
+    "verify": "አረጋግጥ",
+    "changeRole": "ሚና ቀይር",
+    "farmer": "ገበሬ",
+    "trucker": "ሹፌር",
+    "buyer": "ገዥ",
+    "admin": "አስተዳዳሪ",
+    "transactionHistory": "የግብይት ታሪክ"
+  },
+  "revenue": {
+    "title": "የገቢ ትንተና",
+    "totalCommission": "ጠቅላላ ኮሚሽን",
+    "monthlyRevenue": "ወርሃዊ ገቢ",
+    "avgTransaction": "አማካኝ ግብይት",
+    "commissionRate": "የኮሚሽን ምጣኔ"
+  },
+  "transactions": {
+    "title": "የግብይት መጠን",
+    "totalVolume": "ጠቅላላ መጠን",
+    "dailyAvg": "ዕለታዊ አማካኝ",
+    "peakHour": "ከፍተኛ ሰዓት",
+    "successRate": "የስኬት ምጣኔ"
+  },
+  "audit": {
+    "title": "የኦዲት ምዝግብ",
+    "action": "ድርጊት",
+    "actor": "ፈጻሚ",
+    "target": "ዒላማ",
+    "timestamp": "ጊዜ",
+    "details": "ዝርዝሮች"
+  },
+  "health": {
+    "title": "የስርዓት ጤና",
+    "lambdaErrors": "የLambda ስህተቶች",
+    "apiLatency": "የAPI ዘግይት",
+    "cronStatus": "የCron ሁኔታ",
+    "healthy": "ጤናማ",
+    "degraded": "ያሽቆለቆለ",
+    "down": "ወድቋል"
+  },
+  "compliance": {
+    "title": "ተገዢነት",
+    "nbeLimits": "የNBE ገደቦች",
+    "kycTracker": "የKYC ክትትል",
+    "verified": "ተረጋግጧል",
+    "unverified": "አልተረጋገጠም",
+    "dailyLimit": "ዕለታዊ ገደብ",
+    "monthlyLimit": "ወርሃዊ ገደብ"
+  },
+  "common": {
+    "search": "ፈልግ",
+    "filter": "አጣራ",
+    "loading": "በመጫን ላይ...",
+    "error": "ስህተት ተከስቷል",
+    "retry": "እንደገና ሞክር",
+    "noData": "ምንም ውሂብ የለም",
+    "confirm": "አረጋግጥ",
+    "cancel": "ሰርዝ",
+    "save": "አስቀምጥ",
+    "delete": "ሰርዝ",
+    "edit": "አርትዕ",
+    "view": "ይመልከቱ",
+    "back": "ተመለስ",
+    "next": "ቀጣይ",
+    "previous": "ያለፈ",
+    "total": "ጠቅላላ",
+    "date": "ቀን",
+    "actions": "ድርጊቶች",
+    "etb": "ብር",
+    "birr": "ብር"
+  },
+  "language": {
+    "english": "English",
+    "amharic": "አማርኛ",
+    "oromiffa": "Afan Oromo"
+  }
+}

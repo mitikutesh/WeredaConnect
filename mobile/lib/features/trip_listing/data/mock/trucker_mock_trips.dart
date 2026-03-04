@@ -1,7 +1,7 @@
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 
 const _uuid = Uuid();
 

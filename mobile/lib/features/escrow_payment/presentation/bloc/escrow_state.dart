@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
-import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
 
 /// States for the Escrow BLoC.
 abstract class EscrowState extends Equatable {

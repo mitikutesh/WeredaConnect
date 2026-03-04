@@ -1,10 +1,12 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
+    if (dart.library.io) 'package:wereda_connect/core/network/cert_pinning_io.dart'
+    as cert_pinning;
 
 /// Singleton HTTP client with certificate pinning for secure API communication.
 ///
@@ -87,26 +89,9 @@ class ApiClient {
       dio.interceptors.addAll(interceptors);
     }
 
-    // Certificate pinning (foundation only - disabled by default)
-    if (enableCertPinning) {
-      dio.httpClientAdapter = IOHttpClientAdapter(
-        createHttpClient: () {
-          final client = HttpClient();
-          client.badCertificateCallback = (cert, host, port) {
-            // TODO: Implement actual certificate pinning verification
-            // This requires:
-            // 1. Extract certificate DER bytes: cert.der
-            // 2. Compute SHA-256 hash using package:crypto
-            // 3. Base64 encode the hash
-            // 4. Compare with certificatePins
-            //
-            // For now, return false to reject all certificates
-            // when pinning is enabled (prevents accidental production use)
-            return false;
-          };
-          return client;
-        },
-      );
+    // Certificate pinning (foundation only - disabled by default, mobile only)
+    if (enableCertPinning && !kIsWeb) {
+      cert_pinning.applyCertPinning(dio);
     }
   }
 

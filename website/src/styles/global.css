@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #1A6B5C;
+  --color-primary-light: #2D9B89;
+  --color-primary-dark: #14524A;
+  --color-accent: #D4804A;
+  --color-accent-light: #E09A6C;
+  --color-cream: #F5F3F0;
+  --color-surface: #FFFFFF;
+  --color-text-dark: #1E293B;
+  --color-text-muted: #64748B;
+  --color-border-light: #E2E8F0;
+}
+
+@font-face {
+  font-family: 'Noto Sans Ethiopic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/notosansethiopic/v47/7cHPv50vjIepfJVOZZgcpQ5B9FBTH9KGNfhSTgtoow1KVnIvyBoMSzUMacb-T35OKqDjJgR.woff2') format('woff2');
+  unicode-range: U+1200-137F, U+1380-139F, U+2D80-2DDF, U+AB00-AB2F, U+FE20-FE2F;
+}
+
+@font-face {
+  font-family: 'Noto Sans Ethiopic';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/notosansethiopic/v47/7cHPv50vjIepfJVOZZgcpQ5B9FBTH9KGNfhSTgtoow1KVnIvyBoMSzUMacb-T35OK9_jJgR.woff2') format('woff2');
+  unicode-range: U+1200-137F, U+1380-139F, U+2D80-2DDF, U+AB00-AB2F, U+FE20-FE2F;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Noto Sans Ethiopic', sans-serif;
+  color: var(--color-text-dark);
+  background-color: var(--color-cream);
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+}
+
+.animate-on-scroll.is-visible {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+
+.animate-on-scroll.slide-left.is-visible {
+  animation: slide-in-left 0.6s ease-out forwards;
+}
+
+.animate-on-scroll.slide-right.is-visible {
+  animation: slide-in-right 0.6s ease-out forwards;
+}
+
+.animate-on-scroll.fade.is-visible {
+  animation: fade-in 0.6s ease-out forwards;
+}
+
+.stagger-children .animate-on-scroll:nth-child(1) { animation-delay: 0ms; }
+.stagger-children .animate-on-scroll:nth-child(2) { animation-delay: 100ms; }
+.stagger-children .animate-on-scroll:nth-child(3) { animation-delay: 200ms; }
+.stagger-children .animate-on-scroll:nth-child(4) { animation-delay: 300ms; }
+.stagger-children .animate-on-scroll:nth-child(5) { animation-delay: 400ms; }
+.stagger-children .animate-on-scroll:nth-child(6) { animation-delay: 500ms; }

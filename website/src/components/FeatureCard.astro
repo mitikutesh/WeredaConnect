@@ -1,0 +1,17 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  icon: string;
+}
+
+const { title, description, icon } = Astro.props;
+---
+
+<div class="animate-on-scroll bg-surface rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow border border-border-light">
+  <div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4 text-2xl">
+    <Fragment set:html={icon} />
+  </div>
+  <h3 class="text-lg font-semibold text-text-dark mb-2">{title}</h3>
+  <p class="text-sm text-text-muted leading-relaxed">{description}</p>
+</div>

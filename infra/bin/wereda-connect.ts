@@ -3,6 +3,7 @@ import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { DatabaseStack } from "../lib/stacks/database-stack";
 import { ApiStack } from "../lib/stacks/api-stack";
+import { WebStack } from "../lib/stacks/web-stack";
 import { MonitoringStack } from "../lib/stacks/monitoring-stack";
 import { environments } from "../lib/config/environments";
 
@@ -52,7 +53,20 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
 });
 apiStack.addDependency(databaseStack);
 
-// 3. Monitoring stack (depends on API)
+// 3. Web stack (S3 + CloudFront — deployed in us-east-1 for ACM/CloudFront)
+const webStack = new WebStack(app, `${stackPrefix}-Web`, {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: "us-east-1", // CloudFront requires ACM certs in us-east-1
+  },
+  stackName: `wereda-connect-${envConfig.name}-web`,
+  description: `WeredaConnect ${envConfig.name} - S3 buckets and CloudFront distributions`,
+  tags: envConfig.tags,
+  crossRegionReferences: true,
+  envConfig,
+});
+
+// 4. Monitoring stack (depends on API)
 const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
   env: envProps,
   stackName: `wereda-connect-${envConfig.name}-monitoring`,

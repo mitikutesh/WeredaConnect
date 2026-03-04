@@ -72,6 +72,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new EscrowCronFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("AdminFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new AdminFunction().FunctionHandler, serializer),
+
             var h when h.Contains("EscrowFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new EscrowFunction().FunctionHandler, serializer),

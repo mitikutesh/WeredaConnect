@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Icon-based status indicator for deliveries.

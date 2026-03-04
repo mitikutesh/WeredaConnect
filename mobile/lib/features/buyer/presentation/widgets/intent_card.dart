@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';

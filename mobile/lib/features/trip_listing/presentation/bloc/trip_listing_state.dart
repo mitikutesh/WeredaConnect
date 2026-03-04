@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 
 /// Base class for trip listing states.
 abstract class TripListingState extends Equatable {

@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as apigateway from "aws-cdk-lib/aws-apigatewayv2";
+import { CorsHttpMethod } from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { HttpUserPoolAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as cognito from "aws-cdk-lib/aws-cognito";
@@ -547,9 +548,38 @@ export class ApiStack extends cdk.Stack {
 
     // ─── HTTP API Gateway ────────────────────────────────────────────
 
+    // CORS origins: prod uses exact subdomains, dev allows localhost + wildcard
+    const corsOrigins = envConfig.isProd
+      ? [
+          "https://app.weredaconnect.com",
+          "https://admin.weredaconnect.com",
+        ]
+      : [
+          "http://localhost:3000",
+          "http://localhost:4321",
+          "http://localhost:5173",
+          "http://localhost:8080",
+          `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+        ];
+
     const httpApi = new apigateway.HttpApi(this, "HttpApi", {
       apiName: `${prefix}-api`,
       description: "WeredaConnect HTTP API — optimized for Ethiopian context",
+      corsPreflight: {
+        allowOrigins: corsOrigins,
+        allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+        allowMethods: [
+          CorsHttpMethod.GET,
+          CorsHttpMethod.POST,
+          CorsHttpMethod.PUT,
+          CorsHttpMethod.PATCH,
+          CorsHttpMethod.DELETE,
+          CorsHttpMethod.OPTIONS,
+        ],
+        maxAge: cdk.Duration.hours(1),
+        allowCredentials: true,
+      },
     });
 
     this.httpApiUrl = httpApi.apiEndpoint;
@@ -834,6 +864,153 @@ export class ApiStack extends cdk.Stack {
       ),
     });
 
+    // ─── Admin Cognito Group ──────────────────────────────────────────
+    new cognito.CfnUserPoolGroup(this, "AdminGroup", {
+      userPoolId: this.userPool.userPoolId,
+      groupName: "admin",
+      description: "Platform administrators with access to /admin/* endpoints",
+    });
+
+    // ─── Admin App Client (longer token validity) ─────────────────────
+    const adminClient = this.userPool.addClient("AdminClient", {
+      userPoolClientName: `${prefix}-admin`,
+      authFlows: {
+        userSrp: true,
+        userPassword: true,
+      },
+      accessTokenValidity: cdk.Duration.minutes(60),
+      refreshTokenValidity: cdk.Duration.days(7),
+      idTokenValidity: cdk.Duration.minutes(60),
+      preventUserExistenceErrors: true,
+      writeAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({ phoneNumber: true })
+        .withCustomAttributes("woreda", "displayName", "preferredLanguage"),
+    });
+
+    // ─── Admin Lambda Function ────────────────────────────────────────
+
+    const adminFn = new WeredaLambda(this, "AdminFunction", {
+      functionName: `${prefix}-admin`,
+      description:
+        "Admin endpoints: dashboard stats, escrow management, fraud review, user management",
+      handlerName: "AdminFunction",
+      environment: {
+        ESCROWS_TABLE: props.escrowsTable.tableName,
+        ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        USERS_TABLE: props.usersTable.tableName,
+        CROPS_TABLE: props.cropsTable.tableName,
+        TRIPS_TABLE: props.tripsTable.tableName,
+        ORDERS_TABLE: props.ordersTable.tableName,
+        DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        PAYMENTS_TABLE: props.paymentsTable.tableName,
+        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      reservedConcurrentExecutions: 10,
+    });
+
+    // Pagination secret access
+    paginationSecret.grantRead(adminFn.function);
+
+    // Read access on all tables
+    props.escrowsTable.grantReadData(adminFn.function);
+    props.escrowAuditTable.grantReadData(adminFn.function);
+    props.usersTable.grantReadData(adminFn.function);
+    props.cropsTable.grantReadData(adminFn.function);
+    props.tripsTable.grantReadData(adminFn.function);
+    props.ordersTable.grantReadData(adminFn.function);
+    props.deliveriesTable.grantReadData(adminFn.function);
+    props.paymentsTable.grantReadData(adminFn.function);
+
+    // Write access on tables the admin mutates
+    props.escrowsTable.grantWriteData(adminFn.function);
+    props.escrowAuditTable.grantWriteData(adminFn.function);
+    props.fraudSignalsTable.grantReadWriteData(adminFn.function);
+    props.usersTable.grantWriteData(adminFn.function);
+
+    // Cognito admin permissions for user management
+    this.grantCognito(adminFn.function, [
+      "cognito-idp:AdminGetUser",
+      "cognito-idp:AdminDisableUser",
+      "cognito-idp:AdminEnableUser",
+      "cognito-idp:AdminUpdateUserAttributes",
+      "cognito-idp:ListUsers",
+      "cognito-idp:AdminListGroupsForUser",
+      "cognito-idp:AdminAddUserToGroup",
+      "cognito-idp:AdminRemoveUserFromGroup",
+    ]);
+
+    // ─── Admin Routes (all authenticated) ─────────────────────────────
+
+    const adminIntegration = new integrations.HttpLambdaIntegration(
+      "AdminInt",
+      adminFn.function,
+      {
+        payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+      },
+    );
+
+    // GET routes
+    const adminGetPaths = [
+      "/admin/dashboard/stats",
+      "/admin/escrows",
+      "/admin/escrows/{id}",
+      "/admin/escrows/{id}/audit",
+      "/admin/disputes",
+      "/admin/fraud-signals",
+      "/admin/users",
+      "/admin/users/{id}",
+      "/admin/health/overview",
+      "/admin/compliance/summary",
+      "/admin/analytics/revenue",
+      "/admin/analytics/transactions",
+    ];
+
+    for (const path of adminGetPaths) {
+      const integId = `Admin${path
+        .replace("/admin/", "")
+        .replace(/[/{}-]/g, "_")}GetInt`;
+      httpApi.addRoutes({
+        path,
+        methods: [apigateway.HttpMethod.GET],
+        authorizer: jwtAuthorizer,
+        integration: new integrations.HttpLambdaIntegration(
+          integId,
+          adminFn.function,
+          {
+            payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+          },
+        ),
+      });
+    }
+
+    // POST routes
+    const adminPostPaths = [
+      "/admin/disputes/{id}/resolve",
+      "/admin/fraud-signals/{id}/action",
+      "/admin/users/{id}/action",
+    ];
+
+    for (const path of adminPostPaths) {
+      const integId = `Admin${path
+        .replace("/admin/", "")
+        .replace(/[/{}-]/g, "_")}PostInt`;
+      httpApi.addRoutes({
+        path,
+        methods: [apigateway.HttpMethod.POST],
+        authorizer: jwtAuthorizer,
+        integration: new integrations.HttpLambdaIntegration(
+          integId,
+          adminFn.function,
+          {
+            payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+          },
+        ),
+      });
+    }
+
     // ─── API Gateway Throttling ──────────────────────────────────────
     const defaultStage = httpApi.defaultStage?.node
       .defaultChild as apigateway.CfnStage;
@@ -858,6 +1035,11 @@ export class ApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, "UserPoolClientId", {
       value: this.userPoolClient.userPoolClientId,
       description: "Cognito App Client ID",
+    });
+
+    new cdk.CfnOutput(this, "AdminClientId", {
+      value: adminClient.userPoolClientId,
+      description: "Cognito Admin App Client ID",
     });
   }
 

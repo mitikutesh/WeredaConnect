@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 
 /// Base class for delivery states.
 abstract class DeliveryState extends Equatable {

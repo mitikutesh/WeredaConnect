@@ -1,7 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart'
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart'
     as repo;
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 
@@ -9,14 +10,14 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 ///
 /// Handles payment initiation (online/offline), status viewing, history,
 /// dispute raising, and intent cancellation. Wires UI events to
-/// [EscrowRepository] for data operations.
+/// BaseEscrowRepository for data operations.
 class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
-  final repo.EscrowRepository _repository;
+  final BaseEscrowRepository _repository;
 
   /// Exposed for debug mock seeding (matches DeliveryBloc pattern).
-  repo.EscrowRepository get repository => _repository;
+  BaseEscrowRepository get repository => _repository;
 
-  EscrowBloc({required repo.EscrowRepository repository})
+  EscrowBloc({required BaseEscrowRepository repository})
       : _repository = repository,
         super(const EscrowInitial()) {
     on<InitiatePayment>(_onInitiatePayment);

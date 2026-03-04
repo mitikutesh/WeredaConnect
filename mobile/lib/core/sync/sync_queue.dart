@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 
-import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 
 /// Manages the offline sync queue using Isar as persistent storage.

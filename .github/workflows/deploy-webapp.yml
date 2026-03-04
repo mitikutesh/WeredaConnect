@@ -1,0 +1,90 @@
+name: Deploy Webapp (Flutter Web)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/deploy-webapp.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+concurrency:
+  group: deploy-webapp-${{ github.event.inputs.environment || 'prod' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & Deploy Webapp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build Flutter web
+        working-directory: mobile
+        run: |
+          flutter build web \
+            --release \
+            --web-renderer html \
+            --dart-define=ENVIRONMENT=${{ github.event.inputs.environment || 'prod' }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync mobile/build/web/ s3://${{ secrets.WEBAPP_S3_BUCKET }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html" \
+            --exclude "flutter_service_worker.js" \
+            --exclude "version.json"
+
+          aws s3 cp mobile/build/web/index.html \
+            s3://${{ secrets.WEBAPP_S3_BUCKET }}/index.html \
+            --cache-control "public, max-age=0, must-revalidate"
+
+          aws s3 cp mobile/build/web/flutter_service_worker.js \
+            s3://${{ secrets.WEBAPP_S3_BUCKET }}/flutter_service_worker.js \
+            --cache-control "public, max-age=0, must-revalidate"
+
+          aws s3 cp mobile/build/web/version.json \
+            s3://${{ secrets.WEBAPP_S3_BUCKET }}/version.json \
+            --cache-control "public, max-age=0, must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.WEBAPP_CF_DISTRIBUTION_ID }} \
+            --paths "/index.html" "/flutter_service_worker.js" "/version.json"

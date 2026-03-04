@@ -1,0 +1,149 @@
+{
+  "meta": {
+    "title": "WeredaConnect - Qonnaan Bultoota Itoophiyaa Gabaa Waliin Walqunnamsiisuu",
+    "description": "Marsariitii teeknooloojii qonnaa oflaayinii dursa — qonnaan bultoota, konkolaachisaa fi bitootaa walitti hidha. Malee interneetii hojjeta, kaffaltii Telebirr deeggara."
+  },
+  "nav": {
+    "home": "Fuula Jalqabaa",
+    "about": "Waa'ee Keenya",
+    "howItWorks": "Akkamitti Hojjeta",
+    "contact": "Nu Quunnamaa",
+    "download": "Appii Buufadhaa"
+  },
+  "hero": {
+    "title": "Qonnaan Bultoota Itoophiyaa Gabaa Waliin Walqunnamsiisuu",
+    "subtitle": "Marsariitii oflaayinii dursa kan qonnaan bultoota, geejjibsiisaa fi bitootaa magaalaa Itoophiyaa guutuu keessatti walqunnamsiisu.",
+    "cta": "Appii Buufadhaa",
+    "learnMore": "Dabalataan Baraa"
+  },
+  "features": {
+    "heading": "Maaliif WeredaConnect?",
+    "offline": {
+      "title": "Oflaayiniin Hojjeta",
+      "description": "Tajaajila guutuu malee interneetii. Yeroo walqunnamtan ofumaan walsimsiisa — baadiyyaa Itoophiyaaf mijataa."
+    },
+    "voice": {
+      "title": "Sagalee Afaan Keetiin",
+      "description": "Sagalee-gara-barreeffamaatti Afaan Amaaraa, Afaan Oromoo fi Ingiliffaan. Namaaf hundaaf kan qophaa'e."
+    },
+    "payment": {
+      "title": "Kaffaltii Telebirr",
+      "description": "Kaffaltii iskiroowii nageenya qabu Telebirriin. Meeshaan yeroo mirkanaa'utti qofa maallaqni gadhiifama."
+    },
+    "logistics": {
+      "title": "Loojistikii Ogummaa",
+      "description": "Konkolaataa argadhaa, karaa karoorsaa, qonnaa irraa gabaa geessutti hordofaa."
+    },
+    "lowData": {
+      "title": "Itti Fayyadama Deetaa Xiqqaa",
+      "description": "Deetaa mobaayilaa mi'aaf kan ijaarame. Baandwiidii xiqqaa, gatii guddaa."
+    },
+    "community": {
+      "title": "Amantaa Hawaasaa",
+      "description": "Sadarkaa kennuu, gamaaggama fi piroofaayilii mirkanaa'e qonnaan bultoota, konkolaachisaa fi bitootaa gidduutti amantaa ijaara."
+    }
+  },
+  "stats": {
+    "heading": "Dhiibbaa Guddachaa Jiru",
+    "farmers": "Qonnaan Bultoota Walqunnamsiifaman",
+    "trips": "Geejjibni Xumuraman",
+    "regions": "Naannoo Tajaajilaman",
+    "saved": "Baasii Geejjibaa Irratti Qusatame"
+  },
+  "testimonials": {
+    "heading": "Sagalee Dirree Irraa",
+    "farmer": {
+      "quote": "WeredaConnect dura, bitootaa argachuuf Finfinnee deemuu qaba ture. Amma ofumaanuu natti dhufu.",
+      "name": "Almaz Baqqalaa",
+      "role": "Qotiyyoo Buna, Jimmaa"
+    },
+    "trucker": {
+      "quote": "Kanaan dura yeroo walakkaa duwwaan deebi'a ture. Amma yeroo hundaa imalaa deebii meeshaa nan argadha.",
+      "name": "Daawit Hayilee",
+      "role": "Konkolaachisaa, Hawaasaa"
+    },
+    "buyer": {
+      "quote": "Oomisha qulqulluu kallattiin qonnaan bultoota irraa gatii haqa qabuun argachuu nan danda'a. Hunduu ni fayyadama.",
+      "name": "Saaraa Mohaammad",
+      "role": "Daldaalaa Jumulaa, Finfinnee"
+    }
+  },
+  "howItWorks": {
+    "heading": "Akkamitti Hojjeta",
+    "subtitle": "Tarkaanfii salphaa sadii fayyadamaa hundaaf",
+    "farmer": {
+      "title": "Qonnaan Bultootaaf",
+      "step1": { "title": "Oomisha Kee Galmeessi", "description": "Maal akka gurgurtu itti dabali — gosa, hamma fi gatii. Oflaayiniin hojjeta." },
+      "step2": { "title": "Walsimuu Argadhu", "description": "Bitooti tarree kee ilaalu. Dhiyeessii siif ta'u fudhuu." },
+      "step3": { "title": "Nageenya'n Kaffalamuu", "description": "Kaffaltiin iskiroowii Telebirriin qabama. Bitaan yeroo mirkaneessutti gadhiifama." }
+    },
+    "trucker": {
+      "title": "Konkolaachisaaf",
+      "step1": { "title": "Imalawwan Ilaali", "description": "Fe'umsawwan karaa kee bira jiran ilaali. Bakka ga'umsaa fi ulfaatinaan calalii." },
+      "step2": { "title": "Fudhuu fi Geejjibsuu", "description": "Bal'ina fudhannaa mirkaneessi. Adeemsa imala kee hordofi." },
+      "step3": { "title": "Geessitee Argadhu", "description": "Yeroo geessitutti kaffaltiin ni mirkanaa'a. Sadarkaa kennamuun maqaa kee ijaari." }
+    },
+    "buyer": {
+      "title": "Bitootaaf",
+      "step1": { "title": "Oomisha Barbaadi", "description": "Qonnaan bultoota gosa midhaan, naannoo fi gatiitiin barbaadi. Madda irraa qulqulluu." },
+      "step2": { "title": "Geejjiba Qopheessi", "description": "Kallattiin konkolaataa galmeessi yookaan qonnaan bultooti akka geessan godhuu." },
+      "step3": { "title": "Fudhuu fi Kaffaluu", "description": "Yeroo ga'utti sakatta'i. Geejjibni mirkanaa'uu isaa mirkaneessuun kaffaltii gadhiisi." }
+    }
+  },
+  "downloadCta": {
+    "heading": "Walqunnamuuf Qophiidhaa?",
+    "subtitle": "WeredaConnect buufadhaa qonnaan bultoota, konkolaachisaa fi bitootaa Itoophiyaa kumaatamaan lakkaa'amaniin makkalaa.",
+    "playStore": "Google Play Irraa Argadhaa",
+    "comingSoon": "Google Play Irratti Dhiyootti"
+  },
+  "about": {
+    "heading": "Waa'ee WeredaConnect",
+    "mission": {
+      "title": "Ergama Keenya",
+      "text": "WeredaConnect hubannoo salphaa irraa dhalatee: qonnaan bultooti Itoophiyaa hamma 40% galii isaanii daldaltoota giddu-galaa fi loojistikii bu'a-qabeessa hin taaneen dhabu. Teknooloojii qonnaan bultoota dursa godhu ijaaraa jirra — kallattiin bitootaa fi geejjiba waliin walqunnamsiisa, bakka interneetiin hin jirrettillee."
+    },
+    "problem": {
+      "title": "Qormaata",
+      "text": "Itoophiyaanonni 80% ol ta'an qonnaarra hirkattoota, garuu qonnaan bultooti baadiyyaa gufuuwwan guguddaa isaan mudatu: interneetii amansiisaa hin taane, qaqqabummaa gabaa murtaa'aa, geejjiba mi'aa fi diinagdee maallaqa qabatamaa saamicha saaxilu."
+    },
+    "solution": {
+      "title": "Mala Keenya",
+      "text": "WeredaConnect oflaayinii-dursa hojjeta. Amalli hunduu malee interneetii hojjeta, yeroo walqunnamtan walsimsiisa. Sagalee-gara-barreeffamaatti Afaan Amaaraa fi Afaan Oromoon qaqqabummaa mirkaneessa. Walitti hidhamiinsi Telebirr kaffaltii dijitaalaa nageenya qabu kenna."
+    },
+    "values": {
+      "title": "Duudhaalee Keenya",
+      "items": [
+        { "title": "Oflaayinii Dursa", "text": "Teknooloojii bakka namoonni jiran hojjetu, bakka neetwoorkiin jiru miti." },
+        { "title": "Afaan Biyyaa", "text": "Afaan kee, sagalee kee, karaa daldalaa kee." },
+        { "title": "Gabaa Haqa Qabu", "text": "Gatii ifaa qonnaan bultootaa fi bitootaa walqixa fayyaduu." },
+        { "title": "Qaqqabummaa Baadiyyaa", "text": "Bilbila $50 fi walqunnamtii 2G'f kan qophaa'e." }
+      ]
+    }
+  },
+  "contact": {
+    "heading": "Nu Quunnamaa",
+    "subtitle": "Gaaffii qabduu? Nuu waliin hojjechuuf barbaadduu? Isin irraa dhagahuuf ni jaalanna.",
+    "name": "Maqaa Keessan",
+    "email": "Imeelii Keessan",
+    "message": "Ergaa Keessan",
+    "send": "Ergaa Ergaa",
+    "success": "Galatoomaa! Dhiyootti deebii isiniif kennina.",
+    "info": {
+      "email": "hello@weredaconnect.com",
+      "location": "Finfinnee, Itoophiyaa"
+    }
+  },
+  "notFound": {
+    "title": "Fuulli Hin Argamne",
+    "message": "Fuulli barbaaddan hin jiru yookaan jijjiiramee jira.",
+    "back": "Gara Fuula Jalqabaatti Deebi'i"
+  },
+  "footer": {
+    "tagline": "Qonnaan bultoota, konkolaachisaa fi bitootaa walitti hidhuu.",
+    "links": "Geessituu Ariifataa",
+    "legal": "Seeraa",
+    "privacy": "Imaammata Dhuunfaa",
+    "terms": "Haala Tajaajilaa",
+    "copyright": "WeredaConnect. Mirgi hunduu kan eegameedha."
+  }
+}

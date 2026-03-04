@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Validation error thrown when trip data fails client-side checks.
 ///
@@ -27,7 +28,7 @@ final _phoneRegex = RegExp(r'^\+251\d{9}$');
 ///
 /// All writes go to local Isar first, then enqueue a sync operation.
 /// Reads are always from Isar (fast, works offline).
-class TripListingRepository {
+class TripListingRepository extends BaseTripListingRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
@@ -127,6 +128,7 @@ class TripListingRepository {
   /// and version=1, then enqueues a sync operation for server upload.
   ///
   /// Throws [TripValidationException] if input data is invalid.
+  @override
   Future<Trip> createTrip({
     required String truckerId,
     required String truckerName,
@@ -211,6 +213,7 @@ class TripListingRepository {
   }
 
   /// Get all trips for a specific trucker, sorted by createdAt descending.
+  @override
   Future<List<Trip>> getTripsByTrucker(String truckerId) async {
     return _isar.trips
         .filter()
@@ -220,6 +223,7 @@ class TripListingRepository {
   }
 
   /// Get all open trips, optionally filtered by origin and/or destination woreda.
+  @override
   Future<List<Trip>> getOpenTrips({
     String? fromWoreda,
     String? toWoreda,
@@ -298,6 +302,7 @@ class TripListingRepository {
   /// (not already delivered or cancelled). Sets status=cancelled.
   ///
   /// Throws [TripValidationException] if the trip cannot be cancelled.
+  @override
   Future<void> cancelTrip({
     required String tripId,
     required String truckerId,
@@ -313,9 +318,10 @@ class TripListingRepository {
     );
   }
 
-  /// Start a trip (transition from matched → inTransit).
+  /// Start a trip (transition from matched -> inTransit).
   ///
   /// Throws [TripValidationException] if the trip cannot be started.
+  @override
   Future<Trip> startTrip({
     required String tripId,
     required String truckerId,
@@ -330,9 +336,10 @@ class TripListingRepository {
     );
   }
 
-  /// Mark a trip as delivered (transition from inTransit → delivered).
+  /// Mark a trip as delivered (transition from inTransit -> delivered).
   ///
   /// Throws [TripValidationException] if the trip cannot be marked delivered.
+  @override
   Future<Trip> markDelivered({
     required String tripId,
     required String truckerId,
@@ -351,6 +358,7 @@ class TripListingRepository {
   ///
   /// Returns up to [limit] unique (fromWoreda, toWoreda) pairs from
   /// the trucker's most recent trips, useful for quick-fill chips.
+  @override
   Future<List<({String from, String to})>> getRecentRoutes(
     String truckerId, {
     int limit = 5,
@@ -380,6 +388,7 @@ class TripListingRepository {
   ///
   /// Priority order: inTransit > matched > open > recently delivered.
   /// Returns null if the trucker has no trips.
+  @override
   Future<Trip?> getMostRelevantTrip(String truckerId) async {
     // Check inTransit first (highest priority)
     final inTransit = await _isar.trips

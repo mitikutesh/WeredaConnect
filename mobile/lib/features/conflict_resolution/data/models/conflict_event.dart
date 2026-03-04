@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
 
 /// Represents a sync conflict that was auto-resolved by the server.
 ///

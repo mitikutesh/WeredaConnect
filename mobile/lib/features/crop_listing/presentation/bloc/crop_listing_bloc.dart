@@ -1,17 +1,17 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 
 /// BLoC for managing crop listing state.
 ///
 /// Handles creating, loading, filtering, and deleting crop listings.
-/// All operations go through the offline-first CropListingRepository.
+/// All operations go through the BaseCropListingRepository (mobile or web).
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
-  final CropListingRepository _repository;
+  final BaseCropListingRepository _repository;
 
-  CropListingBloc({required CropListingRepository repository})
+  CropListingBloc({required BaseCropListingRepository repository})
       : _repository = repository,
         super(const CropListingInitial()) {
     on<LoadCropListings>(_onLoadCropListings);

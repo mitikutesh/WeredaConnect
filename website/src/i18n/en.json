@@ -1,0 +1,149 @@
+{
+  "meta": {
+    "title": "WeredaConnect - Connecting Ethiopian Farmers to Markets",
+    "description": "Offline-first agritech platform connecting Ethiopian farmers, truckers, and buyers. Works without internet, supports Telebirr payments."
+  },
+  "nav": {
+    "home": "Home",
+    "about": "About",
+    "howItWorks": "How It Works",
+    "contact": "Contact",
+    "download": "Download App"
+  },
+  "hero": {
+    "title": "Connecting Ethiopian Farmers to Markets",
+    "subtitle": "An offline-first platform that bridges the gap between farmers, transport providers, and urban buyers across Ethiopia.",
+    "cta": "Download the App",
+    "learnMore": "Learn More"
+  },
+  "features": {
+    "heading": "Why WeredaConnect?",
+    "offline": {
+      "title": "Works Offline",
+      "description": "Full functionality without internet. Syncs automatically when connected — perfect for rural Ethiopia."
+    },
+    "voice": {
+      "title": "Voice in Your Language",
+      "description": "Voice-to-text in Amharic, Afan Oromo, and English. Designed for everyone, regardless of literacy."
+    },
+    "payment": {
+      "title": "Telebirr Payment",
+      "description": "Secure escrow payments through Telebirr. Funds released only when delivery is confirmed."
+    },
+    "logistics": {
+      "title": "Smart Logistics",
+      "description": "Find available trucks, plan routes, and track deliveries from farm to market."
+    },
+    "lowData": {
+      "title": "Low Data Usage",
+      "description": "Built for expensive mobile data. Minimal bandwidth, maximum value."
+    },
+    "community": {
+      "title": "Community Trust",
+      "description": "Ratings, reviews, and verified profiles build trust between farmers, truckers, and buyers."
+    }
+  },
+  "stats": {
+    "heading": "Growing Impact",
+    "farmers": "Farmers Connected",
+    "trips": "Deliveries Completed",
+    "regions": "Regions Served",
+    "saved": "Saved in Transport Costs"
+  },
+  "testimonials": {
+    "heading": "Voices from the Field",
+    "farmer": {
+      "quote": "Before WeredaConnect, I had to travel to Addis to find buyers. Now they come to me.",
+      "name": "Almaz Bekele",
+      "role": "Coffee Farmer, Jimma"
+    },
+    "trucker": {
+      "quote": "I used to drive back empty half the time. Now I always find cargo for the return trip.",
+      "name": "Dawit Haile",
+      "role": "Truck Driver, Hawassa"
+    },
+    "buyer": {
+      "quote": "I can source fresh produce directly from farmers at fair prices. Everyone wins.",
+      "name": "Sara Mohammed",
+      "role": "Wholesaler, Addis Ababa"
+    }
+  },
+  "howItWorks": {
+    "heading": "How It Works",
+    "subtitle": "Three simple steps for each user",
+    "farmer": {
+      "title": "For Farmers",
+      "step1": { "title": "List Your Produce", "description": "Add what you're selling — type, quantity, and price. Works offline." },
+      "step2": { "title": "Get Matched", "description": "Buyers browse your listings. Accept offers that work for you." },
+      "step3": { "title": "Get Paid Securely", "description": "Payment held in Telebirr escrow. Released when buyer confirms delivery." }
+    },
+    "trucker": {
+      "title": "For Truckers",
+      "step1": { "title": "Browse Trips", "description": "See available cargo near your route. Filter by destination and weight." },
+      "step2": { "title": "Accept & Transport", "description": "Confirm pickup details. Track your trip progress in the app." },
+      "step3": { "title": "Earn on Delivery", "description": "Payment confirmed on delivery. Build your reputation with ratings." }
+    },
+    "buyer": {
+      "title": "For Buyers",
+      "step1": { "title": "Search Produce", "description": "Browse farmers by crop type, region, and price. Fresh from the source." },
+      "step2": { "title": "Arrange Transport", "description": "Book a truck directly or let farmers arrange delivery." },
+      "step3": { "title": "Receive & Pay", "description": "Inspect on arrival. Confirm delivery to release escrow payment." }
+    }
+  },
+  "downloadCta": {
+    "heading": "Ready to Connect?",
+    "subtitle": "Download WeredaConnect and join thousands of Ethiopian farmers, truckers, and buyers.",
+    "playStore": "Get it on Google Play",
+    "comingSoon": "Coming Soon on Google Play"
+  },
+  "about": {
+    "heading": "About WeredaConnect",
+    "mission": {
+      "title": "Our Mission",
+      "text": "WeredaConnect was born from a simple observation: Ethiopian farmers lose up to 40% of their income to middlemen and inefficient logistics. We're building technology that puts farmers first — connecting them directly to buyers and transport, even in areas with no internet."
+    },
+    "problem": {
+      "title": "The Challenge",
+      "text": "Over 80% of Ethiopians depend on agriculture, yet rural farmers face enormous barriers: unreliable internet, limited market access, expensive transport, and a cash economy vulnerable to exploitation. Traditional solutions assume connectivity that doesn't exist."
+    },
+    "solution": {
+      "title": "Our Approach",
+      "text": "WeredaConnect works offline-first. Every feature functions without internet, syncing when connected. Voice-to-text in Amharic and Afan Oromo ensures accessibility. Telebirr integration provides secure digital payments. We built for Ethiopia's reality, not Silicon Valley's assumptions."
+    },
+    "values": {
+      "title": "Our Values",
+      "items": [
+        { "title": "Offline First", "text": "Technology that works where people are, not where networks are." },
+        { "title": "Local Languages", "text": "Your language, your voice, your way of doing business." },
+        { "title": "Fair Markets", "text": "Transparent pricing that benefits farmers and buyers equally." },
+        { "title": "Rural Access", "text": "Designed for $50 phones and 2G connections." }
+      ]
+    }
+  },
+  "contact": {
+    "heading": "Get in Touch",
+    "subtitle": "Have questions? Want to partner with us? We'd love to hear from you.",
+    "name": "Your Name",
+    "email": "Your Email",
+    "message": "Your Message",
+    "send": "Send Message",
+    "success": "Thank you! We'll get back to you soon.",
+    "info": {
+      "email": "hello@weredaconnect.com",
+      "location": "Addis Ababa, Ethiopia"
+    }
+  },
+  "notFound": {
+    "title": "Page Not Found",
+    "message": "The page you're looking for doesn't exist or has been moved.",
+    "back": "Back to Home"
+  },
+  "footer": {
+    "tagline": "Connecting Ethiopian farmers, truckers, and buyers.",
+    "links": "Quick Links",
+    "legal": "Legal",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "copyright": "WeredaConnect. All rights reserved."
+  }
+}

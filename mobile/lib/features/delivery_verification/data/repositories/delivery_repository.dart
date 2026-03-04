@@ -3,18 +3,19 @@ import 'dart:convert';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Offline-first repository for delivery CRUD operations.
 ///
 /// All writes go to local Isar first, then enqueue a sync operation.
 /// Reads are always from Isar (fast, works offline).
-class DeliveryRepository {
+class DeliveryRepository extends BaseDeliveryRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
@@ -216,6 +217,7 @@ class DeliveryRepository {
   }
 
   /// Create a new delivery.
+  @override
   Future<Delivery> createDelivery({
     required String tripId,
     required String listingId,
@@ -284,6 +286,7 @@ class DeliveryRepository {
   ///
   /// Called by the QR generator after creating a token. The nonce is
   /// saved to the local delivery record and enqueued for sync.
+  @override
   Future<void> persistQrNonce({
     required String deliveryId,
     required String qrNonce,
@@ -325,6 +328,7 @@ class DeliveryRepository {
   }
 
   /// Confirm pickup by trucker. Status → pickedUp.
+  @override
   Future<void> confirmPickup({
     required String deliveryId,
     required String truckerId,
@@ -405,6 +409,7 @@ class DeliveryRepository {
   }
 
   /// Confirm delivery by buyer. Status → delivered.
+  @override
   Future<void> confirmDelivery({
     required String deliveryId,
     required String buyerId,
@@ -490,6 +495,7 @@ class DeliveryRepository {
   }
 
   /// Mark delivery as in transit by trucker. Status → inTransit.
+  @override
   Future<void> markInTransit({
     required String deliveryId,
     required String truckerId,
@@ -531,6 +537,7 @@ class DeliveryRepository {
   ///
   /// [reason] must be 1-500 characters.
   /// Throws [DeliveryValidationException] if validation fails.
+  @override
   Future<void> raiseDispute({
     required String deliveryId,
     required String userId,
@@ -577,6 +584,7 @@ class DeliveryRepository {
   }
 
   /// Cancel a delivery. Status → cancelled (soft delete).
+  @override
   Future<void> cancelDelivery({
     required String deliveryId,
     required String userId,
@@ -621,6 +629,7 @@ class DeliveryRepository {
   }
 
   /// Get all deliveries for a specific trip, scoped to a user.
+  @override
   Future<List<Delivery>> getDeliveriesByTrip(
     String tripId, {
     required String userId,
@@ -641,6 +650,7 @@ class DeliveryRepository {
   }
 
   /// Get deliveries filtered by status, scoped to a user.
+  @override
   Future<List<Delivery>> getDeliveriesByStatus(
     DeliveryStatus status, {
     required String userId,
@@ -663,6 +673,7 @@ class DeliveryRepository {
   /// Get a single delivery by its ID, verifying user is a participant.
   ///
   /// Returns null if the delivery doesn't exist or user is not a participant.
+  @override
   Future<Delivery?> getDeliveryById(
     String deliveryId, {
     required String userId,
@@ -684,6 +695,7 @@ class DeliveryRepository {
   /// Queries Isar by farmerId, truckerId, or buyerId.
   /// Optional role filter: 'farmer', 'trucker', 'buyer'.
   /// Optional statusFilter: matches DeliveryStatus enum name.
+  @override
   Future<List<Delivery>> getDeliveriesByUser(
     String userId, {
     String? role,

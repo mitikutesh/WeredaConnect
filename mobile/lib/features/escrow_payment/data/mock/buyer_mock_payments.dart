@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 
 const _uuid = Uuid();
 

@@ -1,19 +1,21 @@
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 
 /// Offline-first repository for buyer intent CRUD operations.
 ///
 /// BuyerIntent is local-only for MVP — no server sync needed.
 /// All reads and writes go directly to Isar.
-class BuyerIntentRepository {
+class BuyerIntentRepository extends BaseBuyerIntentRepository {
   final Isar _isar;
   static const _uuid = Uuid();
 
   BuyerIntentRepository({required Isar isar}) : _isar = isar;
 
   /// Create a new buyer intent.
+  @override
   Future<BuyerIntent> createIntent({
     required String buyerId,
     required String cropType,
@@ -45,6 +47,7 @@ class BuyerIntentRepository {
   }
 
   /// Get all active intents for a buyer, sorted by most recent first.
+  @override
   Future<List<BuyerIntent>> getActiveIntents(String buyerId) async {
     return _isar.buyerIntents
         .filter()
@@ -55,23 +58,20 @@ class BuyerIntentRepository {
   }
 
   /// Get a single intent by its intentId.
+  @override
   Future<BuyerIntent?> getIntentById(String intentId) async {
-    return _isar.buyerIntents
-        .filter()
-        .intentIdEqualTo(intentId)
-        .findFirst();
+    return _isar.buyerIntents.filter().intentIdEqualTo(intentId).findFirst();
   }
 
   /// Update the cached match count and last matched timestamp.
+  @override
   Future<void> updateMatchCount(
     String intentId,
     int count,
     DateTime lastMatchedAt,
   ) async {
-    final intent = await _isar.buyerIntents
-        .filter()
-        .intentIdEqualTo(intentId)
-        .findFirst();
+    final intent =
+        await _isar.buyerIntents.filter().intentIdEqualTo(intentId).findFirst();
 
     if (intent == null) return;
 
@@ -84,11 +84,10 @@ class BuyerIntentRepository {
   }
 
   /// Mark an intent's match results as viewed (clears "new matches" badge).
+  @override
   Future<void> updateLastViewed(String intentId) async {
-    final intent = await _isar.buyerIntents
-        .filter()
-        .intentIdEqualTo(intentId)
-        .findFirst();
+    final intent =
+        await _isar.buyerIntents.filter().intentIdEqualTo(intentId).findFirst();
 
     if (intent == null) return;
 
@@ -100,11 +99,10 @@ class BuyerIntentRepository {
   }
 
   /// Mark an intent as fulfilled (buyer placed an order).
+  @override
   Future<void> fulfillIntent(String intentId) async {
-    final intent = await _isar.buyerIntents
-        .filter()
-        .intentIdEqualTo(intentId)
-        .findFirst();
+    final intent =
+        await _isar.buyerIntents.filter().intentIdEqualTo(intentId).findFirst();
 
     if (intent == null) return;
 
@@ -117,11 +115,10 @@ class BuyerIntentRepository {
   }
 
   /// Delete an intent.
+  @override
   Future<void> deleteIntent(String intentId) async {
-    final intent = await _isar.buyerIntents
-        .filter()
-        .intentIdEqualTo(intentId)
-        .findFirst();
+    final intent =
+        await _isar.buyerIntents.filter().intentIdEqualTo(intentId).findFirst();
 
     if (intent == null) return;
 

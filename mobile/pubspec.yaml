@@ -36,6 +36,9 @@ dependencies:
   equatable: ^2.0.5
   provider: ^6.1.0
 
+  # Routing (web-friendly)
+  go_router: ^14.0.0
+
   # Localization
   intl: any # version provided by flutter_localizations
 
@@ -60,6 +63,9 @@ dependencies:
   # Fayda OIDC deep link + browser launch
   url_launcher: ^6.2.0
   app_links: ^6.0.0
+
+  # Web platform
+  web: ^1.1.0
 
 dev_dependencies:
   flutter_test:
