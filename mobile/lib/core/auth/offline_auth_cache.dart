@@ -384,16 +384,17 @@ class OfflineAuthCache {
   }
 
   /// Constant-time string comparison to prevent timing attacks.
+  ///
+  /// Iterates over the longer string using 0 as fill for the shorter one,
+  /// so the loop duration does not leak the length of either input.
   bool _constantTimeEquals(String a, String b) {
-    if (a.length != b.length) {
-      return false;
+    final maxLen = a.length > b.length ? a.length : b.length;
+    int result = a.length ^ b.length;
+    for (int i = 0; i < maxLen; i++) {
+      final ca = i < a.length ? a.codeUnitAt(i) : 0;
+      final cb = i < b.length ? b.codeUnitAt(i) : 0;
+      result |= ca ^ cb;
     }
-
-    int result = 0;
-    for (int i = 0; i < a.length; i++) {
-      result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
-    }
-
     return result == 0;
   }
 

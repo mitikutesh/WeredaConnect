@@ -175,6 +175,7 @@ Future<void> main() async {
     clientId: 'mobile-${DateTime.now().millisecondsSinceEpoch}',
     conflictResolver: ConflictResolver(IsarService.instance.db),
     conflictNotificationService: conflictNotificationService,
+    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,

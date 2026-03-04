@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
@@ -42,6 +43,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
   static const _currentUserPhoneKey = 'current_user_phone';
+
+  /// Secure storage key for the current user's ID.
+  /// Exposed for use by SyncExecutor wiring in main.dart.
+  static const currentUserIdKey = 'current_user_id';
   static const _activeAccessTokenKey = 'access_token';
   static const _activeRefreshTokenKey = 'refresh_token';
 
@@ -64,12 +69,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
   }
 
-  /// Save the current session phone number to secure storage.
-  Future<void> _saveSession(String phoneNumber) async {
+  /// Save the current session phone number and user ID to secure storage.
+  Future<void> _saveSession(String phoneNumber, String userId) async {
     _currentPhoneNumber = phoneNumber;
     await _secureStorage.write(
       key: _currentUserPhoneKey,
       value: phoneNumber,
+    );
+    await _secureStorage.write(
+      key: currentUserIdKey,
+      value: userId,
     );
   }
 
@@ -92,6 +101,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _clearSession() async {
     _currentPhoneNumber = null;
     await _secureStorage.delete(key: _currentUserPhoneKey);
+    await _secureStorage.delete(key: currentUserIdKey);
     await _secureStorage.delete(key: _activeAccessTokenKey);
     await _secureStorage.delete(key: _activeRefreshTokenKey);
   }
@@ -137,6 +147,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Offline-first: let user in even with expired tokens.
       // Token refresh happens lazily on API calls.
       await _saveActiveTokens(tokens);
+      // Ensure current_user_id is set for per-user sync filtering
+      // (may be missing on upgrade from older version without this key).
+      await _secureStorage.write(key: currentUserIdKey, value: user.userId);
       emit(
         AuthAuthenticated(
           userId: user.userId,
@@ -192,7 +205,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
-        await _saveSession(event.phoneNumber);
+        await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
 
         emit(
@@ -245,7 +258,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
-        await _saveSession(event.phoneNumber);
+        await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
 
         final user = await _offlineCache.getCachedUser(event.phoneNumber);
@@ -302,7 +315,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
-        await _saveSession(event.phoneNumber);
+        await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
 
         final user = await _offlineCache.getCachedUser(event.phoneNumber);
@@ -357,7 +370,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
-        await _saveSession(event.phoneNumber);
+        await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
 
         final user = await _offlineCache.getCachedUser(event.phoneNumber);
@@ -529,6 +542,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         paymentIds.add(p.id);
       }
       await isar.payments.deleteAll(paymentIds.toList());
+
+      // Delete orders where user is a participant
+      final buyerOrders =
+          await isar.orders.filter().buyerIdEqualTo(userId).findAll();
+      final farmerOrders =
+          await isar.orders.filter().farmerIdEqualTo(userId).findAll();
+      final orderIds = <int>{};
+      for (final o in [...buyerOrders, ...farmerOrders]) {
+        orderIds.add(o.id);
+      }
+      await isar.orders.deleteAll(orderIds.toList());
     });
   }
 }

@@ -135,6 +135,29 @@ class SyncQueue {
         .findAll();
   }
 
+  /// Get pending operations belonging to a specific user.
+  ///
+  /// Filters by the userId prefix in the idempotency key (format: `{userId}:...`).
+  /// If [userId] is null or empty, falls back to [getPendingOperations] (all users).
+  ///
+  /// This prevents User B's sync session from processing User A's offline
+  /// operations on shared devices — a critical security requirement.
+  Future<List<SyncOperation>> getPendingOperationsForUser({
+    required String? userId,
+    int limit = 50,
+  }) async {
+    if (userId == null || userId.isEmpty) {
+      return getPendingOperations(limit: limit);
+    }
+    return _isar.syncOperations
+        .filter()
+        .statusEqualTo(SyncStatus.pending)
+        .idempotencyKeyStartsWith('$userId:')
+        .sortByCreatedAt()
+        .limit(limit)
+        .findAll();
+  }
+
   /// Mark an operation as currently being synced.
   ///
   /// Prevents the same operation from being picked up by concurrent

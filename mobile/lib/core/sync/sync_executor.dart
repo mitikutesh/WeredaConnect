@@ -30,6 +30,13 @@ typedef ConflictHandler = Future<void> Function(
   int serverVersion,
 );
 
+/// Callback that returns the currently authenticated user's ID.
+///
+/// Used by [SyncExecutor] to filter sync operations per user,
+/// preventing User A's offline ops from being sent with User B's token
+/// on shared devices.
+typedef GetCurrentUserIdCallback = Future<String?> Function();
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   /// All operations in the batch succeeded or resolved conflicts.
@@ -196,6 +203,7 @@ class SyncExecutor {
   final ConflictResolver? _conflictResolver;
   final ConflictNotificationService? _conflictNotificationService;
   final VoidCallback? _onSyncComplete;
+  final GetCurrentUserIdCallback? _getCurrentUserId;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _enqueueSubscription;
@@ -248,6 +256,7 @@ class SyncExecutor {
     ConflictResolver? conflictResolver,
     ConflictNotificationService? conflictNotificationService,
     VoidCallback? onSyncComplete,
+    GetCurrentUserIdCallback? getCurrentUserId,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -255,7 +264,8 @@ class SyncExecutor {
         _onConflict = onConflict,
         _conflictResolver = conflictResolver,
         _conflictNotificationService = conflictNotificationService,
-        _onSyncComplete = onSyncComplete;
+        _onSyncComplete = onSyncComplete,
+        _getCurrentUserId = getCurrentUserId;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -418,7 +428,10 @@ class SyncExecutor {
   ///
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
-    final pending = await _syncQueue.getPendingOperations();
+    final currentUserId = await _getCurrentUserId?.call();
+    final pending = await _syncQueue.getPendingOperationsForUser(
+      userId: currentUserId,
+    );
     if (pending.isEmpty) return const SyncBatchResult.empty();
 
     // Mark all as syncing to prevent concurrent processing
@@ -583,10 +596,12 @@ class SyncExecutor {
       }
     }
 
-    // Operations not in the response were not processed by the server
+    // Operations not in the response may not have been received by the server
+    // (partial response). Revert to pending without burning retry count so
+    // they are retried in the next batch.
     for (final op in operations) {
       if (!processed.contains(op.operationId)) {
-        await _syncQueue.markAsFailed(op.operationId);
+        await _syncQueue.revertToPending(op.operationId);
         failed++;
       }
     }

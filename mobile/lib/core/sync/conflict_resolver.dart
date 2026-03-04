@@ -3,8 +3,10 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
 ///
@@ -69,11 +71,10 @@ class ConflictResolver {
         return _resolveOrder(operation, serverData, serverVersion);
 
       case 'payment':
+        return _resolvePayment(operation, serverData, serverVersion);
+
       case 'user':
-        // Future entity types - not yet implemented
-        throw ConflictResolutionException(
-          'Conflict resolution not yet implemented for ${operation.entityType}',
-        );
+        return _resolveUser(operation, serverData, serverVersion);
 
       default:
         throw ConflictResolutionException(
@@ -89,55 +90,50 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
-      // Find the local CropListing entity
-      final listing = await _isar.cropListings
+      // Find the local CropListing entity (may be null if deleted locally)
+      var listing = await _isar.cropListings
           .filter()
           .listingIdEqualTo(operation.entityId)
           .findFirst();
 
-      if (listing == null) {
-        throw ConflictResolutionException(
-          'CropListing not found in local database: ${operation.entityId}',
-        );
-      }
-
-      // Update local entity with server data
+      // Update or create local entity with server data
       await _isar.writeTxn(() async {
-        // Update all fields from server
-        listing.farmerId = serverData['farmerId'] as String;
-        listing.cropType = serverData['cropType'] as String;
-        listing.quantity = (serverData['quantity'] as num).toDouble();
-        listing.pricePerKg = (serverData['pricePerKg'] as num).toDouble();
+        listing ??= CropListing()..listingId = operation.entityId;
+
+        listing!.farmerId = serverData['farmerId'] as String;
+        listing!.cropType = serverData['cropType'] as String;
+        listing!.quantity = (serverData['quantity'] as num).toDouble();
+        listing!.pricePerKg = (serverData['pricePerKg'] as num).toDouble();
 
         // Update location if present
         final locationData = serverData['location'] as Map<String, dynamic>?;
         if (locationData != null) {
-          listing.location = LatLng()
+          listing!.location = LatLng()
             ..latitude = (locationData['latitude'] as num).toDouble()
             ..longitude = (locationData['longitude'] as num).toDouble();
         }
 
-        listing.description = serverData['description'] as String;
-        listing.locationName = (serverData['locationName'] as String?) ?? '';
-        listing.audioNoteRef = serverData['audioNoteRef'] as String?;
+        listing!.description = serverData['description'] as String;
+        listing!.locationName = (serverData['locationName'] as String?) ?? '';
+        listing!.audioNoteRef = serverData['audioNoteRef'] as String?;
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
-        listing.status = ListingStatus.values.firstWhere(
+        listing!.status = ListingStatus.values.firstWhere(
           (e) => e.name == statusStr,
           orElse: () => ListingStatus.draft,
         );
 
         // Update timestamps (ensure UTC)
-        listing.createdAt =
+        listing!.createdAt =
             DateTime.parse(serverData['createdAt'] as String).toUtc();
-        listing.updatedAt =
+        listing!.updatedAt =
             DateTime.parse(serverData['updatedAt'] as String).toUtc();
 
         // CRITICAL: Update version to server version
-        listing.version = serverVersion;
+        listing!.version = serverVersion;
 
-        await _isar.cropListings.put(listing);
+        await _isar.cropListings.put(listing!);
       });
 
       // Return resolved data for audit logging
@@ -164,31 +160,27 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
-      final delivery = await _isar.deliverys
+      var delivery = await _isar.deliverys
           .filter()
           .deliveryIdEqualTo(operation.entityId)
           .findFirst();
 
-      if (delivery == null) {
-        throw ConflictResolutionException(
-          'Delivery not found in local database: ${operation.entityId}',
-        );
-      }
-
       await _isar.writeTxn(() async {
-        delivery.tripId = serverData['tripId'] as String;
-        delivery.listingId = serverData['listingId'] as String;
-        delivery.farmerId = serverData['farmerId'] as String;
-        delivery.farmerName = serverData['farmerName'] as String;
-        delivery.truckerId = serverData['truckerId'] as String;
-        delivery.truckerName = serverData['truckerName'] as String;
-        delivery.buyerId = serverData['buyerId'] as String;
-        delivery.buyerName = serverData['buyerName'] as String;
-        delivery.qrToken = serverData['qrToken'] as String;
+        delivery ??= Delivery()..deliveryId = operation.entityId;
+
+        delivery!.tripId = serverData['tripId'] as String;
+        delivery!.listingId = serverData['listingId'] as String;
+        delivery!.farmerId = serverData['farmerId'] as String;
+        delivery!.farmerName = serverData['farmerName'] as String;
+        delivery!.truckerId = serverData['truckerId'] as String;
+        delivery!.truckerName = serverData['truckerName'] as String;
+        delivery!.buyerId = serverData['buyerId'] as String;
+        delivery!.buyerName = serverData['buyerName'] as String;
+        delivery!.qrToken = serverData['qrToken'] as String;
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
-        delivery.status = DeliveryStatus.values.firstWhere(
+        delivery!.status = DeliveryStatus.values.firstWhere(
           (e) => e.name == statusStr,
           orElse: () => DeliveryStatus.pending,
         );
@@ -196,45 +188,45 @@ class ConflictResolver {
         // GPS fields
         final pickupData = serverData['gpsPickup'] as Map<String, dynamic>?;
         if (pickupData != null) {
-          delivery.gpsPickup = LatLng()
+          delivery!.gpsPickup = LatLng()
             ..latitude = (pickupData['latitude'] as num).toDouble()
             ..longitude = (pickupData['longitude'] as num).toDouble();
         } else {
-          delivery.gpsPickup = null;
+          delivery!.gpsPickup = null;
         }
 
         final dropoffData = serverData['gpsDropoff'] as Map<String, dynamic>?;
         if (dropoffData != null) {
-          delivery.gpsDropoff = LatLng()
+          delivery!.gpsDropoff = LatLng()
             ..latitude = (dropoffData['latitude'] as num).toDouble()
             ..longitude = (dropoffData['longitude'] as num).toDouble();
         } else {
-          delivery.gpsDropoff = null;
+          delivery!.gpsDropoff = null;
         }
 
-        delivery.pickupPhotoRef = serverData['pickupPhotoRef'] as String?;
-        delivery.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String?;
-        delivery.disputeReason = serverData['disputeReason'] as String?;
+        delivery!.pickupPhotoRef = serverData['pickupPhotoRef'] as String?;
+        delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String?;
+        delivery!.disputeReason = serverData['disputeReason'] as String?;
 
         // Timestamps
         final pickedUpAtStr = serverData['pickedUpAt'] as String?;
-        delivery.pickedUpAt = pickedUpAtStr != null
+        delivery!.pickedUpAt = pickedUpAtStr != null
             ? DateTime.parse(pickedUpAtStr).toUtc()
             : null;
 
         final confirmedAtStr = serverData['confirmedAt'] as String?;
-        delivery.confirmedAt = confirmedAtStr != null
+        delivery!.confirmedAt = confirmedAtStr != null
             ? DateTime.parse(confirmedAtStr).toUtc()
             : null;
 
-        delivery.createdAt =
+        delivery!.createdAt =
             DateTime.parse(serverData['createdAt'] as String).toUtc();
-        delivery.updatedAt =
+        delivery!.updatedAt =
             DateTime.parse(serverData['updatedAt'] as String).toUtc();
 
-        delivery.version = serverVersion;
+        delivery!.version = serverVersion;
 
-        await _isar.deliverys.put(delivery);
+        await _isar.deliverys.put(delivery!);
       });
 
       return {
@@ -260,52 +252,48 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
-      final trip = await _isar.trips
+      var trip = await _isar.trips
           .filter()
           .tripIdEqualTo(operation.entityId)
           .findFirst();
 
-      if (trip == null) {
-        throw ConflictResolutionException(
-          'Trip not found in local database: ${operation.entityId}',
-        );
-      }
-
       await _isar.writeTxn(() async {
-        trip.truckerId = serverData['truckerId'] as String;
-        trip.truckerName = serverData['truckerName'] as String;
-        trip.truckerPhone = serverData['truckerPhone'] as String;
-        trip.fromWoreda = serverData['fromWoreda'] as String;
-        trip.toWoreda = serverData['toWoreda'] as String;
-        trip.departureDate =
+        trip ??= Trip()..tripId = operation.entityId;
+
+        trip!.truckerId = serverData['truckerId'] as String;
+        trip!.truckerName = serverData['truckerName'] as String;
+        trip!.truckerPhone = serverData['truckerPhone'] as String;
+        trip!.fromWoreda = serverData['fromWoreda'] as String;
+        trip!.toWoreda = serverData['toWoreda'] as String;
+        trip!.departureDate =
             DateTime.parse(serverData['departureDate'] as String).toUtc();
-        trip.capacity = (serverData['capacity'] as num).toDouble();
-        trip.pricePerQuintal =
+        trip!.capacity = (serverData['capacity'] as num).toDouble();
+        trip!.pricePerQuintal =
             (serverData['pricePerQuintal'] as num).toDouble();
-        trip.vehiclePlate = serverData['vehiclePlate'] as String?;
-        trip.vehicleDescription = serverData['vehicleDescription'] as String?;
+        trip!.vehiclePlate = serverData['vehiclePlate'] as String?;
+        trip!.vehicleDescription = serverData['vehicleDescription'] as String?;
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
-        trip.status = TripStatus.values.firstWhere(
+        trip!.status = TripStatus.values.firstWhere(
           (e) => e.name == statusStr,
           orElse: () => TripStatus.open,
         );
 
         // Parse matched listings
         final matchedRaw = serverData['matchedListings'] as List<dynamic>?;
-        trip.matchedListings = matchedRaw?.cast<String>() ?? <String>[];
+        trip!.matchedListings = matchedRaw?.cast<String>() ?? <String>[];
 
         // Timestamps
-        trip.createdAt =
+        trip!.createdAt =
             DateTime.parse(serverData['createdAt'] as String).toUtc();
-        trip.updatedAt =
+        trip!.updatedAt =
             DateTime.parse(serverData['updatedAt'] as String).toUtc();
 
         // CRITICAL: Update version to server version
-        trip.version = serverVersion;
+        trip!.version = serverVersion;
 
-        await _isar.trips.put(trip);
+        await _isar.trips.put(trip!);
       });
 
       return {
@@ -331,80 +319,77 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
-      final order = await _isar.orders
+      var order = await _isar.orders
           .filter()
           .orderIdEqualTo(operation.entityId)
           .findFirst();
 
-      if (order == null) {
-        throw ConflictResolutionException(
-          'Order not found in local database: ${operation.entityId}',
-        );
-      }
-
       await _isar.writeTxn(() async {
-        order.listingId = serverData['listingId'] as String;
-        order.buyerId = serverData['buyerId'] as String;
-        order.farmerId = serverData['farmerId'] as String;
-        order.buyerName = serverData['buyerName'] as String;
-        order.farmerName = serverData['farmerName'] as String;
-        order.cropType = serverData['cropType'] as String;
-        order.quantity = (serverData['quantity'] as num).toDouble();
-        order.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
-        order.totalPrice = (serverData['totalPrice'] as num).toDouble();
+        order ??= Order()..orderId = operation.entityId;
+
+        order!.listingId = serverData['listingId'] as String;
+        order!.buyerId = serverData['buyerId'] as String;
+        order!.farmerId = serverData['farmerId'] as String;
+        order!.buyerName = serverData['buyerName'] as String;
+        order!.farmerName = serverData['farmerName'] as String;
+        order!.cropType = serverData['cropType'] as String;
+        order!.quantity = (serverData['quantity'] as num).toDouble();
+        order!.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
+        order!.totalPrice = (serverData['totalPrice'] as num).toDouble();
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
-        order.status = OrderStatus.values.firstWhere(
+        order!.status = OrderStatus.values.firstWhere(
           (e) => e.name == statusStr,
           orElse: () => OrderStatus.created,
         );
 
         // Timestamps
-        order.createdAt =
+        order!.createdAt =
             DateTime.parse(serverData['createdAt'] as String).toUtc();
 
         final updatedAtStr = serverData['updatedAt'] as String?;
-        order.updatedAt =
+        order!.updatedAt =
             updatedAtStr != null ? DateTime.parse(updatedAtStr).toUtc() : null;
 
         final respondedAtStr = serverData['respondedAt'] as String?;
-        order.respondedAt = respondedAtStr != null
+        order!.respondedAt = respondedAtStr != null
             ? DateTime.parse(respondedAtStr).toUtc()
             : null;
 
         final cancelledAtStr = serverData['cancelledAt'] as String?;
-        order.cancelledAt = cancelledAtStr != null
+        order!.cancelledAt = cancelledAtStr != null
             ? DateTime.parse(cancelledAtStr).toUtc()
             : null;
 
         final paymentVerifiedAtStr = serverData['paymentVerifiedAt'] as String?;
-        order.paymentVerifiedAt = paymentVerifiedAtStr != null
+        order!.paymentVerifiedAt = paymentVerifiedAtStr != null
             ? DateTime.parse(paymentVerifiedAtStr).toUtc()
             : null;
 
         // Optional fields
-        order.rejectionReason = serverData['rejectionReason'] as String?;
-        order.cancelReason = serverData['cancelReason'] as String?;
-        order.tripId = serverData['tripId'] as String?;
-        order.truckerId = serverData['truckerId'] as String?;
-        order.truckerName = serverData['truckerName'] as String?;
-        order.paymentMethod = serverData['paymentMethod'] as String?;
-        order.cbeTransactionId = serverData['cbeTransactionId'] as String?;
+        order!.rejectionReason = serverData['rejectionReason'] as String?;
+        order!.cancelReason = serverData['cancelReason'] as String?;
+        order!.tripId = serverData['tripId'] as String?;
+        order!.truckerId = serverData['truckerId'] as String?;
+        order!.truckerName = serverData['truckerName'] as String?;
+        order!.paymentMethod = serverData['paymentMethod'] as String?;
+        order!.cbeTransactionId = serverData['cbeTransactionId'] as String?;
 
         // Numeric optional fields
-        order.cropCost = (serverData['cropCost'] as num?)?.toDouble();
-        order.transportCost = (serverData['transportCost'] as num?)?.toDouble();
-        order.commissionRate =
+        order!.cropCost = (serverData['cropCost'] as num?)?.toDouble();
+        order!.transportCost =
+            (serverData['transportCost'] as num?)?.toDouble();
+        order!.commissionRate =
             (serverData['commissionRate'] as num?)?.toDouble();
-        order.commissionAmount =
+        order!.commissionAmount =
             (serverData['commissionAmount'] as num?)?.toDouble();
-        order.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
+        order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
 
         // CRITICAL: Update version to server version
-        order.version = serverVersion;
+        order!.version = serverVersion;
 
-        await _isar.orders.put(order);
+        await _isar.orders.put(order!);
       });
 
       return {
@@ -419,6 +404,159 @@ class ConflictResolver {
     } on Object catch (e) {
       throw ConflictResolutionException(
         'Failed to resolve Order conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve a Payment conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolvePayment(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      var payment = await _isar.payments
+          .filter()
+          .paymentIdEqualTo(operation.entityId)
+          .findFirst();
+
+      await _isar.writeTxn(() async {
+        payment ??= Payment()..paymentId = operation.entityId;
+
+        payment!.deliveryId = serverData['deliveryId'] as String;
+        payment!.farmerId = serverData['farmerId'] as String;
+        payment!.buyerId = serverData['buyerId'] as String;
+        payment!.amount = (serverData['amount'] as num).toDouble();
+        payment!.commission = (serverData['commission'] as num).toDouble();
+        payment!.commissionRate =
+            (serverData['commissionRate'] as num).toDouble();
+        payment!.farmerPayout = (serverData['farmerPayout'] as num).toDouble();
+        payment!.telebirrRef = serverData['telebirrRef'] as String?;
+
+        // Parse status enum
+        final statusStr = serverData['status'] as String;
+        payment!.status = PaymentStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => PaymentStatus.initiated,
+        );
+
+        // Timestamps
+        payment!.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+        payment!.updatedAt =
+            DateTime.parse(serverData['updatedAt'] as String).toUtc();
+
+        final expiresAtStr = serverData['expiresAt'] as String?;
+        payment!.expiresAt =
+            expiresAtStr != null ? DateTime.parse(expiresAtStr).toUtc() : null;
+
+        final disputeWindowEndsAtStr =
+            serverData['disputeWindowEndsAt'] as String?;
+        payment!.disputeWindowEndsAt = disputeWindowEndsAtStr != null
+            ? DateTime.parse(disputeWindowEndsAtStr).toUtc()
+            : null;
+
+        final releasedAtStr = serverData['releasedAt'] as String?;
+        payment!.releasedAt = releasedAtStr != null
+            ? DateTime.parse(releasedAtStr).toUtc()
+            : null;
+
+        final refundedAtStr = serverData['refundedAt'] as String?;
+        payment!.refundedAt = refundedAtStr != null
+            ? DateTime.parse(refundedAtStr).toUtc()
+            : null;
+
+        final completedAtStr = serverData['completedAt'] as String?;
+        payment!.completedAt = completedAtStr != null
+            ? DateTime.parse(completedAtStr).toUtc()
+            : null;
+
+        // Dispute fields
+        payment!.disputeReason = serverData['disputeReason'] as String?;
+        payment!.disputeDescription =
+            serverData['disputeDescription'] as String?;
+
+        payment!.version = serverVersion;
+
+        await _isar.payments.put(payment!);
+      });
+
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve Payment conflict: $e',
+      );
+    }
+  }
+
+  /// Resolve a User conflict by accepting server version.
+  Future<Map<String, dynamic>> _resolveUser(
+    SyncOperation operation,
+    Map<String, dynamic> serverData,
+    int serverVersion,
+  ) async {
+    try {
+      var user = await _isar.users
+          .filter()
+          .userIdEqualTo(operation.entityId)
+          .findFirst();
+
+      await _isar.writeTxn(() async {
+        user ??= User()..userId = operation.entityId;
+
+        user!.phoneNumber = serverData['phoneNumber'] as String;
+        user!.name = serverData['name'] as String;
+        user!.fullName = serverData['fullName'] as String?;
+        user!.displayName = serverData['displayName'] as String?;
+
+        // Parse role enum
+        final roleStr = serverData['role'] as String;
+        user!.role = UserRole.values.firstWhere(
+          (e) => e.name == roleStr,
+          orElse: () => UserRole.farmer,
+        );
+
+        user!.woreda = serverData['woreda'] as String;
+        user!.faydaId = serverData['faydaId'] as String?;
+        user!.isVerified = serverData['isVerified'] as bool? ?? false;
+        user!.faydaVerified = serverData['faydaVerified'] as bool? ?? false;
+
+        final faydaVerifiedAtStr = serverData['faydaVerifiedAt'] as String?;
+        user!.faydaVerifiedAt = faydaVerifiedAtStr != null
+            ? DateTime.parse(faydaVerifiedAtStr).toUtc()
+            : null;
+
+        // Timestamps
+        user!.createdAt =
+            DateTime.parse(serverData['createdAt'] as String).toUtc();
+        user!.updatedAt =
+            DateTime.parse(serverData['updatedAt'] as String).toUtc();
+
+        user!.version = serverVersion;
+
+        await _isar.users.put(user!);
+      });
+
+      return {
+        'entityType': operation.entityType,
+        'entityId': operation.entityId,
+        'action': operation.action,
+        'serverVersion': serverVersion,
+        'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+    } on ConflictResolutionException {
+      rethrow;
+    } on Object catch (e) {
+      throw ConflictResolutionException(
+        'Failed to resolve User conflict: $e',
       );
     }
   }
