@@ -134,10 +134,11 @@ class OfflineAuthCache {
   }) async {
     final isar = IsarService.instance.db;
     await isar.writeTxn(() async {
-      // Preserve existing createdAt if user already exists
+      // Preserve existing Isar id and createdAt if user already exists
       final existing =
           await isar.users.where().userIdEqualTo(userId).findFirst();
       final user = User()
+        ..id = existing?.id ?? Isar.autoIncrement
         ..userId = userId
         ..phoneNumber = phoneNumber
         ..name = name

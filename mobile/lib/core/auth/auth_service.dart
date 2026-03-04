@@ -135,7 +135,7 @@ class AuthService {
           fullName: fullName,
           displayName: name,
         );
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
@@ -221,7 +221,7 @@ class AuthService {
           fullName: fullName,
           displayName: (user['displayName'] as String?) ?? '',
         );
-      } on Exception catch (e) {
+      } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
