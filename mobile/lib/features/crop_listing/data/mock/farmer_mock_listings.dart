@@ -1,7 +1,7 @@
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 
 const _uuid = Uuid();
 

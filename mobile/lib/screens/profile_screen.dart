@@ -1,16 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:isar/isar.dart';
-
-import 'package:wereda_connect/core/database/isar_service.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/core/database/schemas/order.dart';
-import 'package:wereda_connect/core/database/schemas/payment.dart';
-import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/database/isar_service.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';

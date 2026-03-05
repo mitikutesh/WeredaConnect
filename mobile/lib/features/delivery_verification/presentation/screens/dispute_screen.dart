@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';

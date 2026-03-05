@@ -5,6 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
+export 'package:isar/isar.dart';
+
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';

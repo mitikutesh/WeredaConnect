@@ -1,0 +1,50 @@
+---
+import type { Locale } from '../i18n';
+import { t, localePath } from '../i18n';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+---
+
+<section class="relative overflow-hidden bg-gradient-to-br from-primary-dark via-primary to-primary-light text-white">
+  <div class="absolute inset-0 opacity-10">
+    <svg class="w-full h-full" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="200" cy="150" r="120" fill="white"/>
+      <circle cx="650" cy="400" r="180" fill="white"/>
+      <circle cx="400" cy="500" r="80" fill="white"/>
+    </svg>
+  </div>
+  <div class="relative max-w-6xl mx-auto px-4 sm:px-6 py-20 md:py-32">
+    <div class="max-w-2xl">
+      <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight mb-6 animate-on-scroll">
+        {t(locale, 'hero.title')}
+      </h1>
+      <p class="text-lg md:text-xl text-white/80 mb-8 animate-on-scroll">
+        {t(locale, 'hero.subtitle')}
+      </p>
+      <div class="flex flex-wrap gap-4 animate-on-scroll">
+        <a
+          href={localePath(locale, '/#download')}
+          class="inline-flex items-center px-6 py-3 bg-accent hover:bg-accent-light text-white font-semibold rounded-lg transition-colors"
+        >
+          {t(locale, 'hero.cta')}
+          <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+        </a>
+        <a
+          href={localePath(locale, '/about/')}
+          class="inline-flex items-center px-6 py-3 border-2 border-white/30 hover:bg-white/10 text-white font-semibold rounded-lg transition-colors"
+        >
+          {t(locale, 'hero.learnMore')}
+          <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

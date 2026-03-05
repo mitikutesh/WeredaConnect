@@ -1,21 +1,21 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
 /// BLoC for managing trip listing state.
 ///
 /// Handles creating, loading, filtering, and cancelling trip listings.
-/// All operations go through the offline-first TripListingRepository.
+/// All operations go through the BaseTripListingRepository (mobile or web).
 class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
-  final TripListingRepository _repository;
+  final BaseTripListingRepository _repository;
 
   /// Exposed for screens that need to query trips directly
   /// (e.g., CreateDeliveryScreen loading trucker's open trips).
-  TripListingRepository get repository => _repository;
+  BaseTripListingRepository get repository => _repository;
 
-  TripListingBloc({required TripListingRepository repository})
+  TripListingBloc({required BaseTripListingRepository repository})
       : _repository = repository,
         super(const TripListingInitial()) {
     on<LoadTrips>(_onLoadTrips);

@@ -7,7 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';

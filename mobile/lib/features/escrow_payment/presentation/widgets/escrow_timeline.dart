@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Visual timeline of escrow state transitions.

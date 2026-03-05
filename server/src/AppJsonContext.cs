@@ -85,6 +85,27 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(List<OrderDto>))]
 [JsonSerializable(typeof(GetOrdersResponse))]
 [JsonSerializable(typeof(GetOrderResponse))]
+// Admin endpoint DTOs
+[JsonSerializable(typeof(AdminDashboardStatsResponse))]
+[JsonSerializable(typeof(AdminEscrowListResponse))]
+[JsonSerializable(typeof(AdminEscrowDetailResponse))]
+[JsonSerializable(typeof(AdminEscrowAuditResponse))]
+[JsonSerializable(typeof(AdminDisputeListResponse))]
+[JsonSerializable(typeof(ResolveDisputeRequest))]
+[JsonSerializable(typeof(ResolveDisputeResponse))]
+[JsonSerializable(typeof(FraudSignalDto))]
+[JsonSerializable(typeof(List<FraudSignalDto>))]
+[JsonSerializable(typeof(AdminFraudSignalListResponse))]
+[JsonSerializable(typeof(FraudActionRequest))]
+[JsonSerializable(typeof(FraudActionResponse))]
+[JsonSerializable(typeof(AdminUserListResponse))]
+[JsonSerializable(typeof(AdminUserDetailResponse))]
+[JsonSerializable(typeof(UserActionRequest))]
+[JsonSerializable(typeof(UserActionResponse))]
+[JsonSerializable(typeof(AdminHealthOverviewResponse))]
+[JsonSerializable(typeof(AdminComplianceSummaryResponse))]
+[JsonSerializable(typeof(AdminRevenueAnalyticsResponse))]
+[JsonSerializable(typeof(AdminTransactionAnalyticsResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

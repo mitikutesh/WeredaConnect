@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';

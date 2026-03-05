@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:isar/isar.dart';
-
-import 'package:wereda_connect/core/database/isar_service.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
-import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
+import 'package:wereda_connect/core/database/isar_service.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
+    if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';

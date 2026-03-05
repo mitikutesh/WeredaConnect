@@ -1,23 +1,23 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
-import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 
 /// BLoC for managing delivery verification state.
 ///
 /// Handles creating, loading, confirming, disputing, and cancelling deliveries.
-/// All operations go through the offline-first DeliveryRepository.
+/// All operations go through the BaseDeliveryRepository (mobile or web).
 class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
-  final DeliveryRepository _repository;
+  final BaseDeliveryRepository _repository;
 
   /// Exposed for sub-screens that need to call repository methods directly
   /// (e.g., QrGenerateScreen persisting nonces).
-  DeliveryRepository get repository => _repository;
+  BaseDeliveryRepository get repository => _repository;
 
-  DeliveryBloc({required DeliveryRepository repository})
+  DeliveryBloc({required BaseDeliveryRepository repository})
       : _repository = repository,
         super(const DeliveryInitial()) {
     on<LoadDeliveries>(_onLoadDeliveries);

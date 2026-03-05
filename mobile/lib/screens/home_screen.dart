@@ -1,17 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:isar/isar.dart';
-
-import 'package:wereda_connect/core/database/isar_service.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/core/database/schemas/order.dart';
-import 'package:wereda_connect/core/database/schemas/payment.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
-import 'package:wereda_connect/core/sync/sync_executor.dart';
-import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/core/database/isar_service.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -20,7 +22,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_sta
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
@@ -672,12 +674,13 @@ class _OverviewStatsState extends State<_OverviewStats> {
   }
 
   Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
+    if (kIsWeb) return <String, int>{};
     try {
       final isar = IsarService.instance.db;
       final result = <String, int>{};
 
       if (role == UserRole.farmer && userId.isNotEmpty) {
-        final futures = await Future.wait([
+        final futures = await Future.wait<int>([
           isar.cropListings.where().farmerIdEqualTo(userId).count(),
           isar.payments.where().filter().farmerIdEqualTo(userId).count(),
           isar.orders
@@ -686,13 +689,13 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .statusEqualTo(OrderStatus.funded)
               .count(),
           isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
-        ]);
+        ].cast<Future<int>>());
         result['listings'] = futures[0];
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
         result['deliveries'] = futures[3];
       } else if (role == UserRole.buyer && userId.isNotEmpty) {
-        final futures = await Future.wait([
+        final futures = await Future.wait<int>([
           isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
           isar.payments.where().filter().buyerIdEqualTo(userId).count(),
           isar.orders
@@ -712,13 +715,13 @@ class _OverviewStatsState extends State<_OverviewStats> {
               )
               .count(),
           isar.cropListings.count(),
-        ]);
+        ].cast<Future<int>>());
         result['deliveries'] = futures[0];
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
         result['listings'] = futures[3];
       } else if (role == UserRole.trucker && userId.isNotEmpty) {
-        final futures = await Future.wait([
+        final futures = await Future.wait<int>([
           isar.trips.filter().truckerIdEqualTo(userId).count(),
           isar.trips
               .filter()
@@ -731,7 +734,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .statusEqualTo(TripStatus.matched)
               .count(),
           isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
-        ]);
+        ].cast<Future<int>>());
         result['trips'] = futures[0];
         result['inTransit'] = futures[1];
         result['matched'] = futures[2];
@@ -903,6 +906,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
   }
 
   Future<List<_ActivityItem>> _loadActivity() async {
+    if (kIsWeb) return [];
     try {
       final isar = IsarService.instance.db;
       final items = <_ActivityItem>[];
@@ -1555,6 +1559,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
   }
 
   Future<void> _loadNotifications() async {
+    if (kIsWeb) return;
     final items = <_NotifItem>[];
     try {
       final isar = IsarService.instance.db;

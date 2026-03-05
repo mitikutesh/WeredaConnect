@@ -1,10 +1,11 @@
 import 'package:isar/isar.dart';
 
-import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
-import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
+import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 
 /// On-device matching service for buyer intents.
 ///
@@ -15,7 +16,7 @@ import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 /// - Works 100% offline on cached Isar data
 /// - Trip matching uses exact woreda name comparison (case-insensitive)
 /// - Commission rate is 5% (platform fee)
-class MatchingService {
+class MatchingService extends BaseMatchingService {
   final Isar _isar;
 
   static const double commissionRate = 0.05;
@@ -31,6 +32,7 @@ class MatchingService {
   ///
   /// For each match, finds available trips and computes estimated total.
   /// Results sorted by price ASC (cheapest first).
+  @override
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
   ) async {
@@ -132,9 +134,10 @@ class MatchingService {
   ///
   /// Called after sync completes to update cached matchCount values.
   /// If matchCount increased since lastViewedAt, the badge will show.
+  @override
   Future<void> refreshMatchCounts(
     String buyerId,
-    BuyerIntentRepository repository,
+    BaseBuyerIntentRepository repository,
   ) async {
     final intents = await repository.getActiveIntents(buyerId);
     final now = DateTime.now().toUtc();

@@ -5,9 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
-import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
+    if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/config/environment.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 

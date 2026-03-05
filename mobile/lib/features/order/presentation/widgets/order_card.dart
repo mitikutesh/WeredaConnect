@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Card displaying a single order in a list.

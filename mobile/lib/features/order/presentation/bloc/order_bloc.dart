@@ -1,6 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 
@@ -8,11 +8,11 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 ///
 /// Handles loading, filtering, accepting, rejecting, creating,
 /// payment submission, and cancellation of orders.
-/// All operations go through the offline-first OrderRepository.
+/// All operations go through the BaseOrderRepository (mobile or web).
 class OrderBloc extends Bloc<OrderEvent, OrderState> {
-  final OrderRepository _repository;
+  final BaseOrderRepository _repository;
 
-  OrderBloc({required OrderRepository repository})
+  OrderBloc({required BaseOrderRepository repository})
       : _repository = repository,
         super(const OrderInitial()) {
     on<LoadUserOrders>(_onLoadUserOrders);

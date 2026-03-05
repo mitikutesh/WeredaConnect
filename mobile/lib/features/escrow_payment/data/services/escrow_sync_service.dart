@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:isar/isar.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
-import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
 
 /// Processes queued [PaymentIntent]s when connectivity returns.
 ///

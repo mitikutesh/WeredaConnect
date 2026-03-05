@@ -1,0 +1,190 @@
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+
+/// Web-only escrow repository.
+///
+/// All operations use HTTP calls via ApiClient. No Isar dependency.
+/// Web always has connectivity, so no offline queuing is needed.
+class WebEscrowRepository extends BaseEscrowRepository {
+  final ApiClient _api;
+
+  WebEscrowRepository({required ApiClient api}) : _api = api;
+
+  @override
+  Future<EscrowResult> initiatePayment({
+    required String deliveryId,
+    required String buyerId,
+    required String farmerId,
+    required double amount,
+  }) async {
+    try {
+      final data = await _api.post<Map<String, dynamic>>(
+        '/escrow/initiate',
+        data: {
+          'deliveryId': deliveryId,
+          'buyerId': buyerId,
+          'farmerId': farmerId,
+          'amount': amount,
+          'idempotencyKey':
+              '$buyerId:$deliveryId:initiate:${DateTime.now().millisecondsSinceEpoch}',
+        },
+      );
+      return EscrowSuccess(_parsePayment(data));
+    } on Exception catch (e) {
+      return EscrowError('ESCROW_CLIENT', e.toString());
+    }
+  }
+
+  @override
+  Future<EscrowResult> raiseDispute({
+    required String escrowId,
+    required String disputedBy,
+    required String reason,
+    String? description,
+    List<String>? evidenceRefs,
+  }) async {
+    try {
+      final data = await _api.post<Map<String, dynamic>>(
+        '/escrow/dispute',
+        data: {
+          'escrowId': escrowId,
+          'disputedBy': disputedBy,
+          'reason': reason,
+          if (description != null) 'description': description,
+          if (evidenceRefs != null) 'evidenceRefs': evidenceRefs,
+        },
+      );
+      return EscrowSuccess(_parsePayment(data));
+    } on Exception catch (e) {
+      return EscrowError('ESCROW_CLIENT', e.toString());
+    }
+  }
+
+  @override
+  Future<void> cancelIntent(String idempotencyKey) async {
+    // No local intents on web — nothing to cancel
+  }
+
+  @override
+  Future<Payment?> getEscrow(String escrowId) async {
+    try {
+      final data = await _api.get<Map<String, dynamic>>('/escrow/$escrowId');
+      return _parsePayment(data);
+    } on Exception {
+      return null;
+    }
+  }
+
+  @override
+  Future<Payment?> getEscrowByDelivery(String deliveryId) async {
+    try {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/escrow/history',
+        queryParameters: {'deliveryId': deliveryId, 'limit': '1'},
+      );
+      final items = data['items'] as List<dynamic>? ?? [];
+      if (items.isEmpty) return null;
+      return _parsePaymentMap(items.first as Map<String, dynamic>);
+    } on Exception {
+      return null;
+    }
+  }
+
+  @override
+  Future<List<Payment>> getHistory({
+    required String userId,
+    String? statusFilter,
+    String? roleFilter,
+  }) async {
+    return refreshHistory(
+      userId: userId,
+      statusFilter: statusFilter,
+      roleFilter: roleFilter,
+    );
+  }
+
+  @override
+  Future<Payment?> refreshEscrow(String escrowId) async {
+    return getEscrow(escrowId);
+  }
+
+  @override
+  Future<List<Payment>> refreshHistory({
+    required String userId,
+    String? statusFilter,
+    String? roleFilter,
+    int limit = 20,
+    String? nextToken,
+  }) async {
+    final params = <String, dynamic>{'limit': '$limit'};
+    if (roleFilter == 'farmer') {
+      params['farmerId'] = userId;
+    } else {
+      params['buyerId'] = userId;
+    }
+    if (statusFilter != null) params['status'] = statusFilter;
+    if (nextToken != null) params['nextToken'] = nextToken;
+
+    final data = await _api.get<Map<String, dynamic>>(
+      '/escrow/history',
+      queryParameters: params,
+    );
+    final items = data['items'] as List<dynamic>? ?? [];
+    return items
+        .map((item) => _parsePaymentMap(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<List<PaymentIntent>> getPendingIntents() async {
+    // No local payment intents on web
+    return [];
+  }
+
+  Payment _parsePayment(Map<String, dynamic> data) {
+    if (data.containsKey('paymentId') || data.containsKey('escrowId')) {
+      return _parsePaymentMap(data);
+    }
+    if (data.containsKey('escrow')) {
+      return _parsePaymentMap(data['escrow'] as Map<String, dynamic>);
+    }
+    return _parsePaymentMap(data);
+  }
+
+  Payment _parsePaymentMap(Map<String, dynamic> m) {
+    return Payment()
+      ..paymentId = m['paymentId'] as String? ?? m['escrowId'] as String? ?? ''
+      ..deliveryId = m['deliveryId'] as String? ?? ''
+      ..farmerId = m['farmerId'] as String? ?? ''
+      ..buyerId = m['buyerId'] as String? ?? ''
+      ..amount = (m['amount'] as num?)?.toDouble() ?? 0
+      ..commission = (m['commission'] as num?)?.toDouble() ?? 0
+      ..commissionRate = (m['commissionRate'] as num?)?.toDouble() ?? 0.025
+      ..farmerPayout = (m['farmerPayout'] as num?)?.toDouble() ?? 0
+      ..telebirrRef = m['telebirrRef'] as String?
+      ..status = _parsePaymentStatus(m['status'] as String?)
+      ..createdAt =
+          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
+      ..updatedAt =
+          DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
+      ..expiresAt = DateTime.tryParse(m['expiresAt'] as String? ?? '')
+      ..disputeWindowEndsAt =
+          DateTime.tryParse(m['disputeWindowEndsAt'] as String? ?? '')
+      ..releasedAt = DateTime.tryParse(m['releasedAt'] as String? ?? '')
+      ..refundedAt = DateTime.tryParse(m['refundedAt'] as String? ?? '')
+      ..completedAt = DateTime.tryParse(m['completedAt'] as String? ?? '')
+      ..disputeReason = m['disputeReason'] as String?
+      ..disputeDescription = m['disputeDescription'] as String?
+      ..version = (m['version'] as num?)?.toInt() ?? 1;
+  }
+
+  PaymentStatus _parsePaymentStatus(String? s) {
+    return PaymentStatus.values.firstWhere(
+      (e) => e.name == s,
+      orElse: () => PaymentStatus.initiated,
+    );
+  }
+}

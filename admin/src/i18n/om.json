@@ -1,0 +1,165 @@
+{
+  "app": {
+    "title": "WeredaConnect Bulchiinsa",
+    "subtitle": "Bulchiinsa Mala'ummaa"
+  },
+  "nav": {
+    "dashboard": "Daashboordii",
+    "escrows": "Eeskiroo",
+    "disputes": "Waldhabdee",
+    "fraudReview": "Gamaaggama Gosoota",
+    "users": "Fayyadamtoota",
+    "revenue": "Galii",
+    "transactions": "Daldala",
+    "auditLog": "Galmee Odiitii",
+    "systemHealth": "Fayyaa Sirna",
+    "compliance": "Hordoffii"
+  },
+  "auth": {
+    "login": "Seeni",
+    "logout": "Ba'i",
+    "phone": "Lakkoofsa Bilbilaa",
+    "password": "Jecha Icciitii",
+    "loginTitle": "Seensa Bulchituu",
+    "loginSubtitle": "Gara WeredaConnect Bulchiinsaatti seeni",
+    "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
+    "notAdmin": "Hayyamni dhorkameera. Mirga bulchitummaa barbaachisa.",
+    "signingIn": "Seenaa jira..."
+  },
+  "dashboard": {
+    "title": "Daashboordii",
+    "activeEscrows": "Eeskiroo Hojjatamaa",
+    "totalRevenue": "Galii Waliigalaa",
+    "openDisputes": "Waldhabdee Banaa",
+    "fraudFlags": "Mallattoo Gosoota",
+    "recentActivity": "Sochii Dhiyoo",
+    "kpiCards": "Agarsiistuu Raawwii Ijoo"
+  },
+  "escrows": {
+    "title": "Eeskiroo",
+    "id": "ID Eeskiroo",
+    "buyer": "Bitaa",
+    "seller": "Gurgurtaa",
+    "amount": "Hanga",
+    "status": "Haala",
+    "createdAt": "Guyyaa Uumamee",
+    "detail": "Ibsa Eeskiroo",
+    "auditTrail": "Adeemsa Odiitii",
+    "initiated": "Jalqabame",
+    "funded": "Maallaqni Galera",
+    "released": "Gadi Lakkifame",
+    "disputed": "Waldhabdeen Ka'era",
+    "refunded": "Deebifamera",
+    "expired": "Yeroon Darbera"
+  },
+  "disputes": {
+    "title": "Waldhabdee",
+    "resolve": "Waldhabdee Furi",
+    "farmerWins": "Qotee Bulaan Mo'a",
+    "buyerWins": "Bitaan Mo'a",
+    "reason": "Sababa",
+    "resolution": "Furmaata",
+    "resolvedAt": "Guyyaa Furamee",
+    "pending": "Eeggatamaa",
+    "resolved": "Furamee"
+  },
+  "fraud": {
+    "title": "Gamaaggama Gosoota",
+    "signalType": "Gosa Mallattoo",
+    "severity": "Cimina",
+    "approve": "Fudhu",
+    "reject": "Didu",
+    "whitelist": "Galmee Adii",
+    "high": "Ol'aanaa",
+    "medium": "Giddugaleessa",
+    "low": "Gadi Aanaa",
+    "reviewed": "Gamaaggamameera",
+    "pending": "Eeggatamaa"
+  },
+  "users": {
+    "title": "Fayyadamtoota",
+    "name": "Maqaa",
+    "phone": "Bilbila",
+    "role": "Gahee",
+    "status": "Haala",
+    "woreda": "Aanaa",
+    "joined": "Guyyaa Makamee",
+    "detail": "Ibsa Fayyadamtuu",
+    "suspend": "Dhaabi",
+    "activate": "Hojjachisi",
+    "verify": "Mirkaneessi",
+    "changeRole": "Gahee Jijjiiri",
+    "farmer": "Qotee Bulaa",
+    "trucker": "Konkolaachisaa",
+    "buyer": "Bitaa",
+    "admin": "Bulchituu",
+    "transactionHistory": "Seenaa Daldala"
+  },
+  "revenue": {
+    "title": "Xiinxala Galii",
+    "totalCommission": "Koomishinii Waliigalaa",
+    "monthlyRevenue": "Galii Ji'aa",
+    "avgTransaction": "Giddugaleessa Daldala",
+    "commissionRate": "Hanga Koomishinii"
+  },
+  "transactions": {
+    "title": "Hanga Daldala",
+    "totalVolume": "Hanga Waliigalaa",
+    "dailyAvg": "Giddugaleessa Guyyaa",
+    "peakHour": "Sa'aatii Ol'aanaa",
+    "successRate": "Hanga Milkaa'inaa"
+  },
+  "audit": {
+    "title": "Galmee Odiitii",
+    "action": "Gocha",
+    "actor": "Raawwataa",
+    "target": "Xiyyeeffannaa",
+    "timestamp": "Yeroo",
+    "details": "Ibsa"
+  },
+  "health": {
+    "title": "Fayyaa Sirna",
+    "lambdaErrors": "Dogoggora Lambda",
+    "apiLatency": "Turtii API",
+    "cronStatus": "Haala Cron",
+    "healthy": "Fayyaa",
+    "degraded": "Hir'atee",
+    "down": "Kufee"
+  },
+  "compliance": {
+    "title": "Hordoffii",
+    "nbeLimits": "Daangaa NBE",
+    "kycTracker": "Hordoffii KYC",
+    "verified": "Mirkanaa'era",
+    "unverified": "Hin Mirkanaa'in",
+    "dailyLimit": "Daangaa Guyyaa",
+    "monthlyLimit": "Daangaa Ji'aa"
+  },
+  "common": {
+    "search": "Barbaadi",
+    "filter": "Calaltu",
+    "loading": "Fe'aa jira...",
+    "error": "Dogoggorri uumameera",
+    "retry": "Irra deebi'i yaali",
+    "noData": "Daataan hin jiru",
+    "confirm": "Mirkaneessi",
+    "cancel": "Dhiisi",
+    "save": "Olkaa'i",
+    "delete": "Haqi",
+    "edit": "Gulaal",
+    "view": "Ilaali",
+    "back": "Duuba",
+    "next": "Itti Aanee",
+    "previous": "Dura",
+    "total": "Waliigala",
+    "date": "Guyyaa",
+    "actions": "Gochoota",
+    "etb": "Birrii",
+    "birr": "Birrii"
+  },
+  "language": {
+    "english": "English",
+    "amharic": "አማርኛ",
+    "oromiffa": "Afan Oromo"
+  }
+}

@@ -1,0 +1,58 @@
+---
+import type { Locale } from '../i18n';
+import { t } from '../i18n';
+
+interface Props {
+  locale: Locale;
+  full?: boolean;
+}
+
+const { locale, full = false } = Astro.props;
+
+const userTypes = [
+  { key: 'farmer', icon: '🌾', color: 'border-primary', bg: 'bg-primary/5' },
+  { key: 'trucker', icon: '🚛', color: 'border-accent', bg: 'bg-accent/5' },
+  { key: 'buyer', icon: '🛒', color: 'border-primary-light', bg: 'bg-primary-light/5' },
+];
+---
+
+<section class="py-16 md:py-24 bg-surface" id="how-it-works">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <div class="text-center mb-12">
+      <h2 class="text-2xl md:text-3xl font-bold mb-3 animate-on-scroll">
+        {t(locale, 'howItWorks.heading')}
+      </h2>
+      <p class="text-text-muted animate-on-scroll">
+        {t(locale, 'howItWorks.subtitle')}
+      </p>
+    </div>
+
+    <div class="space-y-12">
+      {userTypes.map((type) => (
+        <div class={`animate-on-scroll rounded-xl p-6 md:p-8 ${type.bg} border-l-4 ${type.color}`}>
+          <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+            <span class="text-2xl">{type.icon}</span>
+            {t(locale, `howItWorks.${type.key}.title`)}
+          </h3>
+          <div class="grid md:grid-cols-3 gap-6">
+            {[1, 2, 3].map((step) => (
+              <div class="flex gap-3">
+                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-surface border-2 border-current flex items-center justify-center text-sm font-bold">
+                  {step}
+                </div>
+                <div>
+                  <h4 class="font-semibold text-sm mb-1">
+                    {t(locale, `howItWorks.${type.key}.step${step}.title`)}
+                  </h4>
+                  <p class="text-sm text-text-muted">
+                    {t(locale, `howItWorks.${type.key}.step${step}.description`)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

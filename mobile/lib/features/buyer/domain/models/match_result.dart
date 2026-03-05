@@ -1,5 +1,5 @@
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
-import 'package:wereda_connect/core/database/schemas/trip.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 
 /// Result of matching a buyer intent against crop listings and trips.
 ///

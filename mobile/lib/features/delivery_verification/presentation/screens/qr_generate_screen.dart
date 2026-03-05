@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -14,7 +14,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 class QrGenerateScreen extends StatefulWidget {
   final Delivery delivery;
   final QrVerificationService qrService;
-  final DeliveryRepository repository;
+  final BaseDeliveryRepository repository;
   final String userId;
 
   const QrGenerateScreen({

@@ -13,7 +13,7 @@ import 'package:wereda_connect/core/sync/sync_worker.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
-import 'package:wereda_connect/main.dart';
+import 'package:wereda_connect/app/run_mobile.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 class _MockEscrowSyncService extends Mock implements EscrowSyncService {}

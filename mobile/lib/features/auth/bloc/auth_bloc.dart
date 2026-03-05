@@ -1,17 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:isar/isar.dart';
-
+import 'package:isar/isar.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/isar_stub.dart';
 import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
-import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
-import 'package:wereda_connect/core/database/schemas/order.dart';
-import 'package:wereda_connect/core/database/schemas/payment.dart';
-import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
-import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
+    if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -493,6 +494,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Only cancels intents where [buyerId] matches the logging-out user,
   /// preserving other users' queued payments on shared devices.
   Future<void> _cancelUserPendingIntents(Isar isar, String userId) async {
+    if (kIsWeb) return;
     await isar.writeTxn(() async {
       final pending = await isar.paymentIntents
           .filter()
@@ -513,6 +515,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Preserves: crop listings and trip listings (public marketplace data that
   /// other users on this device should still be able to browse).
   Future<void> _clearUserBusinessData(Isar isar, String userId) async {
+    if (kIsWeb) return;
     await isar.writeTxn(() async {
       // NOTE: Crop listings and trip listings are intentionally NOT cleared.
       // They are public marketplace data visible to all users. Clearing them

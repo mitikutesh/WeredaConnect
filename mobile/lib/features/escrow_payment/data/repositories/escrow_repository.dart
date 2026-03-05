@@ -1,41 +1,16 @@
 import 'package:isar/isar.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
-import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 
-/// Result type for escrow operations.
-///
-/// Uses sealed class pattern for exhaustive switch matching:
-/// - [EscrowSuccess]: Server confirmed the operation.
-/// - [EscrowQueued]: Intent queued locally for offline sync.
-/// - [EscrowError]: Operation failed with an error code.
-sealed class EscrowResult {
-  const EscrowResult();
-}
-
-/// Server confirmed the escrow operation.
-class EscrowSuccess extends EscrowResult {
-  final Payment payment;
-  const EscrowSuccess(this.payment);
-}
-
-/// Payment intent queued locally (offline, will sync when online).
-class EscrowQueued extends EscrowResult {
-  final PaymentIntent intent;
-  const EscrowQueued(this.intent);
-}
-
-/// Escrow operation failed.
-class EscrowError extends EscrowResult {
-  final String code;
-  final String message;
-  const EscrowError(this.code, this.message);
-}
+export 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 
 /// Online-first repository for escrow payment operations.
 ///
@@ -48,7 +23,7 @@ class EscrowError extends EscrowResult {
 /// [EscrowSyncService] when connectivity returns.
 ///
 /// Disputes are online-only (time-sensitive 48h window).
-class EscrowRepository {
+class EscrowRepository extends BaseEscrowRepository {
   final Isar _isar;
   final ApiClient _apiClient;
   final ConnectivityMonitor _connectivityMonitor;
@@ -81,6 +56,7 @@ class EscrowRepository {
   /// - MH1: Amount validation 100-500,000 ETB
   /// - MH3/MH5: Self-trading check (buyerId != farmerId)
   /// - MH2: Idempotency key generated ONCE and persisted before API call
+  @override
   Future<EscrowResult> initiatePayment({
     required String deliveryId,
     required String buyerId,
@@ -131,6 +107,7 @@ class EscrowRepository {
   ///
   /// Online-only: POST /escrow/dispute -> update local [Payment].
   /// Offline: Returns error (disputes are time-sensitive, 48h window).
+  @override
   Future<EscrowResult> raiseDispute({
     required String escrowId,
     required String disputedBy,
@@ -200,6 +177,7 @@ class EscrowRepository {
   /// Cancel a pending_sync intent before it syncs.
   ///
   /// Local-only operation: updates [PaymentIntent] status to cancelled.
+  @override
   Future<void> cancelIntent(String idempotencyKey) async {
     final intent = await _isar.paymentIntents
         .filter()
@@ -217,11 +195,13 @@ class EscrowRepository {
   // ── Reads (local cache with remote refresh) ────────────────────────
 
   /// Get single escrow by ID. Local first, remote refresh if online.
+  @override
   Future<Payment?> getEscrow(String escrowId) async {
     return _isar.payments.filter().paymentIdEqualTo(escrowId).findFirst();
   }
 
   /// Get escrow by delivery ID (1:1 relationship).
+  @override
   Future<Payment?> getEscrowByDelivery(String deliveryId) async {
     return _isar.payments.filter().deliveryIdEqualTo(deliveryId).findFirst();
   }
@@ -229,6 +209,7 @@ class EscrowRepository {
   /// Get payment history from local cache, scoped by userId.
   ///
   /// Returns only payments where [userId] is the farmer or buyer.
+  @override
   Future<List<Payment>> getHistory({
     required String userId,
     String? statusFilter,
@@ -250,6 +231,7 @@ class EscrowRepository {
   }
 
   /// Refresh single escrow from server. Updates local cache.
+  @override
   Future<Payment?> refreshEscrow(String escrowId) async {
     final isOnline = await _connectivityMonitor.isConnected();
     if (!isOnline) return getEscrow(escrowId);
@@ -273,6 +255,7 @@ class EscrowRepository {
   }
 
   /// Refresh payment history from server. Updates local cache.
+  @override
   Future<List<Payment>> refreshHistory({
     required String userId,
     String? statusFilter,
@@ -331,6 +314,7 @@ class EscrowRepository {
   // ── Intent queue management ────────────────────────────────────────
 
   /// Get all pending intents for display.
+  @override
   Future<List<PaymentIntent>> getPendingIntents() async {
     return _isar.paymentIntents
         .filter()

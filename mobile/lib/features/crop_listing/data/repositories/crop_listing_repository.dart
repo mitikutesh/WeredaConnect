@@ -3,14 +3,15 @@ import 'dart:convert';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 
 /// Offline-first repository for crop listing CRUD operations.
 ///
 /// All writes go to local Isar first, then enqueue a sync operation.
 /// Reads are always from Isar (fast, works offline).
-class CropListingRepository {
+class CropListingRepository extends BaseCropListingRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
@@ -25,6 +26,7 @@ class CropListingRepository {
   ///
   /// Generates a UUID, saves to Isar with status=active and version=1,
   /// then enqueues a sync operation for server upload.
+  @override
   Future<CropListing> createListing({
     required String farmerId,
     required String cropType,
@@ -94,6 +96,7 @@ class CropListingRepository {
   }
 
   /// Get all listings for a specific farmer, sorted by createdAt descending.
+  @override
   Future<List<CropListing>> getListingsByFarmer(String farmerId) async {
     return _isar.cropListings
         .filter()
@@ -103,6 +106,7 @@ class CropListingRepository {
   }
 
   /// Get listings for a farmer, optionally filtered by status and crop type.
+  @override
   Future<List<CropListing>> getListingsByFarmerFiltered({
     required String farmerId,
     String? statusFilter,
@@ -127,6 +131,7 @@ class CropListingRepository {
   /// [cropTypeFilter] — exact match on crop type key.
   /// [weredaFilter] — case-insensitive substring match on locationName.
   /// [priceMin] / [priceMax] — price per kg range in ETB.
+  @override
   Future<List<CropListing>> getActiveListings({
     String? cropTypeFilter,
     String? weredaFilter,
@@ -155,6 +160,7 @@ class CropListingRepository {
   }
 
   /// Mark a listing as expired (soft delete).
+  @override
   Future<void> deleteListing({
     required String listingId,
     required String farmerId,

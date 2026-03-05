@@ -3,14 +3,15 @@ import 'dart:convert';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Offline-first repository for order CRUD operations.
 ///
 /// All writes go to local Isar first, then enqueue a sync operation.
 /// Reads are always from Isar (fast, works offline).
-class OrderRepository {
+class OrderRepository extends BaseOrderRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
@@ -22,6 +23,7 @@ class OrderRepository {
         _syncQueue = syncQueue;
 
   /// Get orders for a farmer, optionally filtered by status.
+  @override
   Future<List<Order>> getOrdersByFarmer(
     String farmerId, {
     String? statusFilter,
@@ -40,6 +42,7 @@ class OrderRepository {
   }
 
   /// Get orders placed by a buyer, optionally filtered by status.
+  @override
   Future<List<Order>> getOrdersByBuyer(
     String buyerId, {
     String? statusFilter,
@@ -58,6 +61,7 @@ class OrderRepository {
   }
 
   /// Get all orders for a user (as farmer or buyer).
+  @override
   Future<List<Order>> getOrdersByUser(
     String userId, {
     String? role,
@@ -86,11 +90,13 @@ class OrderRepository {
   }
 
   /// Get a single order by its orderId.
+  @override
   Future<Order?> getOrderById(String orderId) async {
     return _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
   }
 
   /// Create a new order (buyer action).
+  @override
   Future<Order> createOrder({
     required String listingId,
     required String buyerId,
@@ -180,6 +186,7 @@ class OrderRepository {
   }
 
   /// Submit payment proof (buyer action).
+  @override
   Future<void> submitPayment(
     String orderId,
     String cbeTransactionId,
@@ -216,6 +223,7 @@ class OrderRepository {
   }
 
   /// Cancel an order (buyer or farmer action).
+  @override
   Future<void> cancelOrder(
     String orderId,
     String userId, {
@@ -256,6 +264,7 @@ class OrderRepository {
   }
 
   /// Accept an order (farmer action).
+  @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final order =
         await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
@@ -290,6 +299,7 @@ class OrderRepository {
   }
 
   /// Reject an order (farmer action).
+  @override
   Future<void> rejectOrder(
     String orderId,
     String farmerId, {

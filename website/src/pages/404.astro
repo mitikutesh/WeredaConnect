@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n';
+
+const locale = 'en';
+---
+
+<Layout locale={locale} title="404 | WeredaConnect">
+  <section class="py-24 md:py-32 text-center">
+    <div class="max-w-md mx-auto px-4">
+      <div class="text-8xl font-bold text-primary/20 mb-4">404</div>
+      <h1 class="text-2xl font-bold mb-3">{t(locale, 'notFound.title')}</h1>
+      <p class="text-text-muted mb-8">{t(locale, 'notFound.message')}</p>
+      <a
+        href="/"
+        class="inline-flex px-6 py-3 bg-primary hover:bg-primary-light text-white font-semibold rounded-lg transition-colors"
+      >
+        {t(locale, 'notFound.back')}
+      </a>
+    </div>
+  </section>
+</Layout>

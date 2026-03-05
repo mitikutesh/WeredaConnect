@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
-import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';

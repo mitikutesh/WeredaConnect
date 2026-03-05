@@ -3,7 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 

@@ -1,0 +1,165 @@
+{
+  "app": {
+    "title": "WeredaConnect Admin",
+    "subtitle": "Platform Administration"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "escrows": "Escrows",
+    "disputes": "Disputes",
+    "fraudReview": "Fraud Review",
+    "users": "Users",
+    "revenue": "Revenue",
+    "transactions": "Transactions",
+    "auditLog": "Audit Log",
+    "systemHealth": "System Health",
+    "compliance": "Compliance"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "phone": "Phone Number",
+    "password": "Password",
+    "loginTitle": "Admin Login",
+    "loginSubtitle": "Sign in to WeredaConnect Admin",
+    "invalidCredentials": "Invalid phone number or password",
+    "notAdmin": "Access denied. Admin privileges required.",
+    "signingIn": "Signing in..."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "activeEscrows": "Active Escrows",
+    "totalRevenue": "Total Revenue",
+    "openDisputes": "Open Disputes",
+    "fraudFlags": "Fraud Flags",
+    "recentActivity": "Recent Activity",
+    "kpiCards": "Key Performance Indicators"
+  },
+  "escrows": {
+    "title": "Escrows",
+    "id": "Escrow ID",
+    "buyer": "Buyer",
+    "seller": "Seller",
+    "amount": "Amount",
+    "status": "Status",
+    "createdAt": "Created",
+    "detail": "Escrow Detail",
+    "auditTrail": "Audit Trail",
+    "initiated": "Initiated",
+    "funded": "Funded",
+    "released": "Released",
+    "disputed": "Disputed",
+    "refunded": "Refunded",
+    "expired": "Expired"
+  },
+  "disputes": {
+    "title": "Disputes",
+    "resolve": "Resolve Dispute",
+    "farmerWins": "Farmer Wins",
+    "buyerWins": "Buyer Wins",
+    "reason": "Reason",
+    "resolution": "Resolution",
+    "resolvedAt": "Resolved At",
+    "pending": "Pending",
+    "resolved": "Resolved"
+  },
+  "fraud": {
+    "title": "Fraud Review",
+    "signalType": "Signal Type",
+    "severity": "Severity",
+    "approve": "Approve",
+    "reject": "Reject",
+    "whitelist": "Whitelist",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "reviewed": "Reviewed",
+    "pending": "Pending"
+  },
+  "users": {
+    "title": "Users",
+    "name": "Name",
+    "phone": "Phone",
+    "role": "Role",
+    "status": "Status",
+    "woreda": "Woreda",
+    "joined": "Joined",
+    "detail": "User Detail",
+    "suspend": "Suspend",
+    "activate": "Activate",
+    "verify": "Verify",
+    "changeRole": "Change Role",
+    "farmer": "Farmer",
+    "trucker": "Trucker",
+    "buyer": "Buyer",
+    "admin": "Admin",
+    "transactionHistory": "Transaction History"
+  },
+  "revenue": {
+    "title": "Revenue Analytics",
+    "totalCommission": "Total Commission",
+    "monthlyRevenue": "Monthly Revenue",
+    "avgTransaction": "Avg. Transaction",
+    "commissionRate": "Commission Rate"
+  },
+  "transactions": {
+    "title": "Transaction Volume",
+    "totalVolume": "Total Volume",
+    "dailyAvg": "Daily Average",
+    "peakHour": "Peak Hour",
+    "successRate": "Success Rate"
+  },
+  "audit": {
+    "title": "Audit Log",
+    "action": "Action",
+    "actor": "Actor",
+    "target": "Target",
+    "timestamp": "Timestamp",
+    "details": "Details"
+  },
+  "health": {
+    "title": "System Health",
+    "lambdaErrors": "Lambda Errors",
+    "apiLatency": "API Latency",
+    "cronStatus": "Cron Status",
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "down": "Down"
+  },
+  "compliance": {
+    "title": "Compliance",
+    "nbeLimits": "NBE Limits",
+    "kycTracker": "KYC Tracker",
+    "verified": "Verified",
+    "unverified": "Unverified",
+    "dailyLimit": "Daily Limit",
+    "monthlyLimit": "Monthly Limit"
+  },
+  "common": {
+    "search": "Search",
+    "filter": "Filter",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "noData": "No data available",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "total": "Total",
+    "date": "Date",
+    "actions": "Actions",
+    "etb": "ETB",
+    "birr": "Birr"
+  },
+  "language": {
+    "english": "English",
+    "amharic": "Amharic",
+    "oromiffa": "Afan Oromo"
+  }
+}

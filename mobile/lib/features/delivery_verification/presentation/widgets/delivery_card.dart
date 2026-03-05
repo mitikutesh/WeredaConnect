@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_status_indicator.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
