@@ -171,6 +171,7 @@ class _MainNavigationState extends State<MainNavigation> {
             body: screens[_currentIndex],
             floatingActionButton: FloatingActionButton(
               onPressed: () => _onFabPressed(context, role),
+              tooltip: 'Create New',
               child: const Icon(Icons.add),
             ),
             floatingActionButtonLocation:
