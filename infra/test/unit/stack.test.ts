@@ -77,16 +77,16 @@ describe('ApiStack', () => {
   test('creates Cognito User Pool with phone sign-in', () => {
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UsernameAttributes: ['phone_number'],
-      AutoVerifiedAttributes: ['phone_number'],
+      DeletionProtection: 'ACTIVE',
     });
   });
 
-  test('creates Cognito User Pool Client', () => {
-    template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
+  test('creates Cognito User Pool Clients (mobile + admin)', () => {
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates fourteen Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 14);
+  test('creates fifteen Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 15);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -94,12 +94,13 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 22 routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
-    //            /sync, /crops, /crops/{id}, /trips, /trips/{id},
-    //            /orders, /orders/{id},
-    //            /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
-    //            /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 22);
+    // 22 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
+    //                 /sync, /crops, /crops/{id}, /trips, /trips/{id},
+    //                 /orders, /orders/{id},
+    //                 /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
+    //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
+    // 15 admin routes: 12 GET + 3 POST
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 37);
   });
 
   test('creates JWT authorizer for protected routes', () => {

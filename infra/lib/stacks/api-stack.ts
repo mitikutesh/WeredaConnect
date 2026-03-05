@@ -66,16 +66,17 @@ export class ApiStack extends cdk.Stack {
         preferredLanguage: new cognito.StringAttribute({ mutable: true }),
       },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 12,
         requireLowercase: true,
-        requireUppercase: false,
+        requireUppercase: true,
         requireDigits: true,
-        requireSymbols: false,
+        requireSymbols: true,
         tempPasswordValidity: cdk.Duration.days(7),
       },
       removalPolicy: envConfig.isProd
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
+      deletionProtection: true,
     });
 
     this.userPoolClient = this.userPool.addClient("MobileClient", {
@@ -84,8 +85,16 @@ export class ApiStack extends cdk.Stack {
         userSrp: true,
         userPassword: true,
       },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+          implicitCodeGrant: false,
+        },
+        callbackUrls: ["myapp://auth/callback"],
+        logoutUrls: ["myapp://auth/logout"],
+      },
       accessTokenValidity: cdk.Duration.minutes(15),
-      refreshTokenValidity: cdk.Duration.days(30),
+      refreshTokenValidity: cdk.Duration.days(7),
       idTokenValidity: cdk.Duration.minutes(15),
       preventUserExistenceErrors: true,
       // SEC-VULN-001: Exclude custom:role from client-writable attributes
@@ -877,6 +886,18 @@ export class ApiStack extends cdk.Stack {
       authFlows: {
         userSrp: true,
         userPassword: true,
+      },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+          implicitCodeGrant: false,
+        },
+        callbackUrls: [
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}/auth/callback`,
+        ],
+        logoutUrls: [
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+        ],
       },
       accessTokenValidity: cdk.Duration.minutes(60),
       refreshTokenValidity: cdk.Duration.days(7),
