@@ -8,11 +8,15 @@ import { EnvironmentConfig } from "../config/environments";
 
 export interface WebStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
+  readonly certificate: acm.ICertificate;
 }
 
 /**
  * Web stack: S3 buckets + CloudFront distributions for website, webapp, and admin.
- * ACM certificate is created in us-east-1 (required for CloudFront).
+ *
+ * Deployed in me-south-1 (Bahrain) for regional consistency. The ACM certificate
+ * is created in a separate stack in us-east-1 (hard AWS requirement for CloudFront)
+ * and passed here via cross-region references.
  */
 export class WebStack extends cdk.Stack {
   public readonly websiteDistributionId: string;
@@ -25,16 +29,9 @@ export class WebStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WebStackProps) {
     super(scope, id, props);
 
-    const { envConfig } = props;
+    const { envConfig, certificate } = props;
     const prefix = `wereda-connect-${envConfig.name}`;
     const { domain } = envConfig;
-
-    // ─── ACM Certificate (us-east-1, required for CloudFront) ─────
-    const certificate = new acm.Certificate(this, "WebCertificate", {
-      domainName: domain.zoneName,
-      subjectAlternativeNames: [`*.${domain.zoneName}`],
-      validation: acm.CertificateValidation.fromDns(),
-    });
 
     // ─── CloudFront Function: rewrite /path/ → /path/index.html ───
     const urlRewriteFunction = new cloudfront.Function(

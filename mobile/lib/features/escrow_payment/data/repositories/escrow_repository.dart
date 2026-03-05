@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 
 export 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 

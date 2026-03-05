@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -7,6 +8,7 @@ import 'package:wereda_connect/features/delivery_verification/domain/repositorie
 ///
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 class WebDeliveryRepository extends BaseDeliveryRepository {
+  static const _uuid = Uuid();
   final ApiClient _api;
 
   WebDeliveryRepository({required ApiClient api}) : _api = api;
@@ -30,12 +32,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'create',
+            'action': 'create',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_create_$deliveryId',
             'data': {
               'tripId': tripId,
@@ -101,12 +106,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_pickup_${deliveryId}_$now',
             'data': data,
           },
@@ -136,12 +144,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_delivery_${deliveryId}_$now',
             'data': data,
           },
@@ -159,12 +170,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_transit_${deliveryId}_$now',
             'data': {'status': 'inTransit', 'truckerId': truckerId},
           },
@@ -183,12 +197,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_dispute_${deliveryId}_$now',
             'data': {
               'status': 'disputed',
@@ -209,12 +226,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'delivery',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': deliveryId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_cancel_${deliveryId}_$now',
             'data': {'status': 'cancelled'},
           },

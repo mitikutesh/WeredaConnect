@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
@@ -6,6 +7,7 @@ import 'package:wereda_connect/features/trip_listing/domain/repositories/base_tr
 ///
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 class WebTripListingRepository extends BaseTripListingRepository {
+  static const _uuid = Uuid();
   final ApiClient _api;
 
   WebTripListingRepository({required ApiClient api}) : _api = api;
@@ -44,12 +46,15 @@ class WebTripListingRepository extends BaseTripListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'trip',
-            'operationType': 'create',
+            'action': 'create',
             'entityId': tripId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_create_$tripId',
             'data': payload,
           },
@@ -110,12 +115,15 @@ class WebTripListingRepository extends BaseTripListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'trip',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': tripId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_cancel_${tripId}_$now',
             'data': {'status': 'cancelled', 'truckerId': truckerId},
           },
@@ -133,12 +141,15 @@ class WebTripListingRepository extends BaseTripListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'trip',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': tripId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_start_${tripId}_$now',
             'data': {'status': 'inTransit', 'truckerId': truckerId},
           },
@@ -160,12 +171,15 @@ class WebTripListingRepository extends BaseTripListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'trip',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': tripId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_deliver_${tripId}_$now',
             'data': {'status': 'delivered', 'truckerId': truckerId},
           },

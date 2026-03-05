@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
@@ -7,6 +8,7 @@ import 'package:wereda_connect/features/crop_listing/domain/repositories/base_cr
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 /// Write operations POST to /sync (same endpoint as mobile offline sync).
 class WebCropListingRepository extends BaseCropListingRepository {
+  static const _uuid = Uuid();
   final ApiClient _api;
 
   WebCropListingRepository({required ApiClient api}) : _api = api;
@@ -47,12 +49,15 @@ class WebCropListingRepository extends BaseCropListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'crop_listing',
-            'operationType': 'create',
+            'action': 'create',
             'entityId': listingId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_create_$listingId',
             'data': payload,
           },
@@ -139,12 +144,15 @@ class WebCropListingRepository extends BaseCropListingRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'crop_listing',
-            'operationType': 'delete',
+            'action': 'delete',
             'entityId': listingId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_delete_${listingId}_$now',
             'data': {'farmerId': farmerId},
           },

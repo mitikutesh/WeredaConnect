@@ -1,11 +1,11 @@
 {
-    "name": "wereda_connect",
-    "short_name": "wereda_connect",
+    "name": "WeredaConnect",
+    "short_name": "WeredaConnect",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#1A6B5C",
+    "description": "Offline-first agritech logistics for Ethiopian rural communities",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

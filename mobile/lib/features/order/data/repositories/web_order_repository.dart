@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
@@ -6,6 +7,7 @@ import 'package:wereda_connect/features/order/domain/repositories/base_order_rep
 ///
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 class WebOrderRepository extends BaseOrderRepository {
+  static const _uuid = Uuid();
   final ApiClient _api;
 
   WebOrderRepository({required ApiClient api}) : _api = api;
@@ -103,12 +105,15 @@ class WebOrderRepository extends BaseOrderRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'order',
-            'operationType': 'create',
+            'action': 'create',
             'entityId': orderId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_create_$orderId',
             'data': payload,
           },
@@ -150,12 +155,15 @@ class WebOrderRepository extends BaseOrderRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'order',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': orderId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_payment_${orderId}_$now',
             'data': {
               'status': 'paymentSubmitted',
@@ -178,12 +186,15 @@ class WebOrderRepository extends BaseOrderRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'order',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': orderId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_cancel_${orderId}_$now',
             'data': {
               'status': 'cancelled',
@@ -201,12 +212,15 @@ class WebOrderRepository extends BaseOrderRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'order',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': orderId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_accept_${orderId}_$now',
             'data': {'status': 'accepted'},
           },
@@ -225,12 +239,15 @@ class WebOrderRepository extends BaseOrderRepository {
     await _api.post<dynamic>(
       '/sync',
       data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
         'operations': [
           {
+            'operationId': _uuid.v4(),
             'entityType': 'order',
-            'operationType': 'update',
+            'action': 'update',
             'entityId': orderId,
-            'clientTimestamp': now,
+            'timestamp': now,
             'idempotencyKey': 'web_reject_${orderId}_$now',
             'data': {
               'status': 'rejected',

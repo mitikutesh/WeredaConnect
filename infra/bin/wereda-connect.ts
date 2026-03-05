@@ -4,6 +4,7 @@ import * as cdk from "aws-cdk-lib";
 import { DatabaseStack } from "../lib/stacks/database-stack";
 import { ApiStack } from "../lib/stacks/api-stack";
 import { WebStack } from "../lib/stacks/web-stack";
+import { CertificateStack } from "../lib/stacks/certificate-stack";
 import { MonitoringStack } from "../lib/stacks/monitoring-stack";
 import { environments } from "../lib/config/environments";
 
@@ -53,18 +54,30 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
 });
 apiStack.addDependency(databaseStack);
 
-// 3. Web stack (S3 + CloudFront — deployed in us-east-1 for ACM/CloudFront)
-const webStack = new WebStack(app, `${stackPrefix}-Web`, {
+// 3a. Certificate stack (us-east-1 — hard AWS requirement for CloudFront)
+const certStack = new CertificateStack(app, `${stackPrefix}-Certificate`, {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: "us-east-1", // CloudFront requires ACM certs in us-east-1
+    region: "us-east-1",
   },
+  stackName: `wereda-connect-${envConfig.name}-certificate`,
+  description: `WeredaConnect ${envConfig.name} - ACM certificate (us-east-1, required by CloudFront)`,
+  tags: envConfig.tags,
+  crossRegionReferences: true,
+  envConfig,
+});
+
+// 3b. Web stack (me-south-1 — S3 buckets + CloudFront in Bahrain)
+const webStack = new WebStack(app, `${stackPrefix}-Web`, {
+  env: envProps,
   stackName: `wereda-connect-${envConfig.name}-web`,
   description: `WeredaConnect ${envConfig.name} - S3 buckets and CloudFront distributions`,
   tags: envConfig.tags,
   crossRegionReferences: true,
   envConfig,
+  certificate: certStack.certificate,
 });
+webStack.addDependency(certStack);
 
 // 4. Monitoring stack (depends on API)
 const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
