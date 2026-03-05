@@ -36,8 +36,8 @@ export function SystemHealthPage() {
         <Card>
           <p className="text-sm text-text-muted">{t("health.cronStatus")}</p>
           <div className="mt-1">
-            <Badge variant={statusVariant[String(health.cronStatus)] || "default"}>
-              {t(`health.${health.cronStatus}`) || String(health.cronStatus || "")}
+            <Badge variant={statusVariant[String(health.cronStatus ?? "")] || "default"}>
+              {health.cronStatus ? t(`health.${health.cronStatus}`) : t("common.noData")}
             </Badge>
           </div>
         </Card>
@@ -50,8 +50,8 @@ export function SystemHealthPage() {
             {services.map((svc, i) => (
               <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
                 <span className="text-sm font-medium">{String(svc.name || "")}</span>
-                <Badge variant={statusVariant[String(svc.status)] || "default"}>
-                  {t(`health.${svc.status}`) || String(svc.status || "")}
+                <Badge variant={statusVariant[String(svc.status ?? "")] || "default"}>
+                  {svc.status ? t(`health.${svc.status}`) : t("common.noData")}
                 </Badge>
               </div>
             ))}

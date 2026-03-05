@@ -35,21 +35,31 @@ class LanguageSelectionDialog extends StatelessWidget {
             groupValue: currentLocale,
             onChanged: (Locale? newLocale) async {
               if (newLocale != null) {
+                // Capture messenger before popping dialog
+                final messenger = ScaffoldMessenger.of(context);
                 await languageProvider.setLocale(newLocale);
                 if (context.mounted) {
                   Navigator.of(context).pop();
+                }
 
-                  // Show confirmation in the new language
-                  final newL10n = AppLocalizations.of(context)!;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                // Show confirmation after locale rebuild so the label
+                // uses the TARGET language, not the previous one.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final langLabel = const {
+                        'en': 'Language',
+                        'am': 'ቋንቋ',
+                        'om': 'Afaan',
+                      }[newLocale.languageCode] ??
+                      'Language';
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text(
-                        '${newL10n.language}: ${languageProvider.getLanguageName(newLocale)}',
+                        '$langLabel: ${languageProvider.getLanguageName(newLocale)}',
                       ),
                       duration: const Duration(seconds: 2),
                     ),
                   );
-                }
+                });
               }
             },
             title: Text(

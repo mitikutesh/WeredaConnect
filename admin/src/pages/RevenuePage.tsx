@@ -46,7 +46,7 @@ export function RevenuePage() {
         />
         <KpiCard
           label={t("revenue.commissionRate")}
-          value={`${Number(stats.commissionRate) || 5}%`}
+          value={`${Number(stats.commissionRate) || 2.5}%`}
           icon={<Percent size={20} />}
         />
       </div>

@@ -262,6 +262,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
               ),
               obscureText: _obscureConfirm,
               validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return l10n.fieldRequired;
+                }
                 if (value != _passwordController.text) {
                   return l10n.passwordsDoNotMatch;
                 }

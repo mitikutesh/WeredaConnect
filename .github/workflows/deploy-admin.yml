@@ -53,6 +53,10 @@ jobs:
         run: npm run build
         env:
           VITE_ENVIRONMENT: ${{ github.event.inputs.environment || 'prod' }}
+          VITE_API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_ADMIN_CLIENT_ID: ${{ secrets.COGNITO_ADMIN_CLIENT_ID }}
+          VITE_COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
