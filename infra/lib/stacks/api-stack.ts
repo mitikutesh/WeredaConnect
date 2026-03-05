@@ -41,6 +41,7 @@ export class ApiStack extends cdk.Stack {
   public readonly httpApiUrl: string;
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
+  public readonly adminUserPool: cognito.UserPool;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -54,7 +55,11 @@ export class ApiStack extends cdk.Stack {
       selfSignUpEnabled: true,
       signInAliases: { phone: true },
       autoVerify: { phone: false },
-      mfa: cognito.Mfa.OFF,
+      mfa: cognito.Mfa.OPTIONAL,
+      mfaSecondFactor: {
+        sms: true,
+        otp: true,
+      },
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
       standardAttributes: {
         phoneNumber: { required: true, mutable: false },
@@ -102,6 +107,74 @@ export class ApiStack extends cdk.Stack {
       writeAttributes: new cognito.ClientAttributes()
         .withStandardAttributes({ phoneNumber: true })
         .withCustomAttributes("woreda", "displayName", "preferredLanguage"),
+    });
+
+    // ─── Admin Cognito User Pool (separate, no self-registration) ─────
+    this.adminUserPool = new cognito.UserPool(this, "AdminUserPool", {
+      userPoolName: `${prefix}-admins`,
+      selfSignUpEnabled: false,
+      signInAliases: { phone: true },
+      autoVerify: { phone: false },
+      mfa: cognito.Mfa.REQUIRED,
+      mfaSecondFactor: {
+        sms: false,
+        otp: true,
+      },
+      accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
+      standardAttributes: {
+        phoneNumber: { required: true, mutable: false },
+      },
+      customAttributes: {
+        role: new cognito.StringAttribute({ mutable: true }),
+        displayName: new cognito.StringAttribute({ mutable: true }),
+      },
+      passwordPolicy: {
+        minLength: 12,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: true,
+        tempPasswordValidity: cdk.Duration.days(7),
+      },
+      removalPolicy: envConfig.isProd
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+      deletionProtection: true,
+    });
+
+    // ─── Admin App Client (on admin pool, longer token validity) ──────
+    const adminClient = this.adminUserPool.addClient("AdminClient", {
+      userPoolClientName: `${prefix}-admin`,
+      authFlows: {
+        userSrp: true,
+        userPassword: true,
+      },
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+          implicitCodeGrant: false,
+        },
+        callbackUrls: [
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}/auth/callback`,
+        ],
+        logoutUrls: [
+          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+        ],
+      },
+      accessTokenValidity: cdk.Duration.minutes(60),
+      refreshTokenValidity: cdk.Duration.days(7),
+      idTokenValidity: cdk.Duration.minutes(60),
+      preventUserExistenceErrors: true,
+      writeAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({ phoneNumber: true })
+        .withCustomAttributes("displayName"),
+    });
+
+    // ─── Admin Cognito Group ──────────────────────────────────────────
+    new cognito.CfnUserPoolGroup(this, "AdminGroup", {
+      userPoolId: this.adminUserPool.userPoolId,
+      groupName: "admin",
+      description: "Platform administrators with access to /admin/* endpoints",
     });
 
     // ─── Shared environment variables ────────────────────────────────
@@ -593,12 +666,21 @@ export class ApiStack extends cdk.Stack {
 
     this.httpApiUrl = httpApi.apiEndpoint;
 
-    // ─── JWT Authorizer ──────────────────────────────────────────────
+    // ─── JWT Authorizer (mobile) ─────────────────────────────────────
     const jwtAuthorizer = new HttpUserPoolAuthorizer(
       "CognitoAuthorizer",
       this.userPool,
       {
         userPoolClients: [this.userPoolClient],
+      },
+    );
+
+    // ─── JWT Authorizer (admin) ───────────────────────────────────────
+    const adminJwtAuthorizer = new HttpUserPoolAuthorizer(
+      "AdminCognitoAuthorizer",
+      this.adminUserPool,
+      {
+        userPoolClients: [adminClient],
       },
     );
 
@@ -873,41 +955,6 @@ export class ApiStack extends cdk.Stack {
       ),
     });
 
-    // ─── Admin Cognito Group ──────────────────────────────────────────
-    new cognito.CfnUserPoolGroup(this, "AdminGroup", {
-      userPoolId: this.userPool.userPoolId,
-      groupName: "admin",
-      description: "Platform administrators with access to /admin/* endpoints",
-    });
-
-    // ─── Admin App Client (longer token validity) ─────────────────────
-    const adminClient = this.userPool.addClient("AdminClient", {
-      userPoolClientName: `${prefix}-admin`,
-      authFlows: {
-        userSrp: true,
-        userPassword: true,
-      },
-      oAuth: {
-        flows: {
-          authorizationCodeGrant: true,
-          implicitCodeGrant: false,
-        },
-        callbackUrls: [
-          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}/auth/callback`,
-        ],
-        logoutUrls: [
-          `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
-        ],
-      },
-      accessTokenValidity: cdk.Duration.minutes(60),
-      refreshTokenValidity: cdk.Duration.days(7),
-      idTokenValidity: cdk.Duration.minutes(60),
-      preventUserExistenceErrors: true,
-      writeAttributes: new cognito.ClientAttributes()
-        .withStandardAttributes({ phoneNumber: true })
-        .withCustomAttributes("woreda", "displayName", "preferredLanguage"),
-    });
-
     // ─── Admin Lambda Function ────────────────────────────────────────
 
     const adminFn = new WeredaLambda(this, "AdminFunction", {
@@ -951,7 +998,18 @@ export class ApiStack extends cdk.Stack {
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
     props.usersTable.grantWriteData(adminFn.function);
 
-    // Cognito admin permissions for user management
+    // Admin pool permissions (admin auth)
+    adminFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
+        ],
+        resources: [this.adminUserPool.userPoolArn],
+      }),
+    );
+
+    // Mobile pool permissions (user management)
     this.grantCognito(adminFn.function, [
       "cognito-idp:AdminGetUser",
       "cognito-idp:AdminDisableUser",
@@ -996,7 +1054,7 @@ export class ApiStack extends cdk.Stack {
       httpApi.addRoutes({
         path,
         methods: [apigateway.HttpMethod.GET],
-        authorizer: jwtAuthorizer,
+        authorizer: adminJwtAuthorizer,
         integration: new integrations.HttpLambdaIntegration(
           integId,
           adminFn.function,
@@ -1021,7 +1079,7 @@ export class ApiStack extends cdk.Stack {
       httpApi.addRoutes({
         path,
         methods: [apigateway.HttpMethod.POST],
-        authorizer: jwtAuthorizer,
+        authorizer: adminJwtAuthorizer,
         integration: new integrations.HttpLambdaIntegration(
           integId,
           adminFn.function,
@@ -1056,6 +1114,11 @@ export class ApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, "UserPoolClientId", {
       value: this.userPoolClient.userPoolClientId,
       description: "Cognito App Client ID",
+    });
+
+    new cdk.CfnOutput(this, "AdminUserPoolId", {
+      value: this.adminUserPool.userPoolId,
+      description: "Cognito Admin User Pool ID",
     });
 
     new cdk.CfnOutput(this, "AdminClientId", {

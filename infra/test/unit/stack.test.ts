@@ -74,7 +74,8 @@ describe('ApiStack', () => {
     });
   });
 
-  test('creates Cognito User Pool with phone sign-in', () => {
+  test('creates Cognito User Pools (mobile + admin) with phone sign-in and deletion protection', () => {
+    template.resourceCountIs('AWS::Cognito::UserPool', 2);
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UsernameAttributes: ['phone_number'],
       DeletionProtection: 'ACTIVE',
@@ -103,8 +104,8 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Route', 37);
   });
 
-  test('creates JWT authorizer for protected routes', () => {
-    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 1);
+  test('creates JWT authorizers for mobile and admin routes', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'JWT',
     });
