@@ -2371,13 +2371,16 @@ public partial class SyncFunction
                         }
                     }
 
+                    // Sort key is tripId (not createdAt) per database-stack.ts
+                    var existingTripIdForKey = existing.TryGetValue("tripId", out var tripIdForKey)
+                        ? tripIdForKey.S : "";
                     var updateRequest = new UpdateItemRequest
                     {
                         TableName = _deliveriesTable,
                         Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
-                        { "createdAt", new AttributeValue { S = createdAt } }
+                        { "tripId", new AttributeValue { S = existingTripIdForKey } }
                     },
                         UpdateExpression = "SET " + string.Join(", ", updateParts),
                         ConditionExpression = "#v = :expectedVersion",
@@ -2475,13 +2478,15 @@ public partial class SyncFunction
                     var newVersion = clientVersion + 1;
 
                     // Soft delete: set deletedAt and status=cancelled
+                    var existingTripIdForDeleteKey = existing.TryGetValue("tripId", out var deleteTripId)
+                        ? deleteTripId.S : "";
                     var deleteRequest = new UpdateItemRequest
                     {
                         TableName = _deliveriesTable,
                         Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
-                        { "createdAt", new AttributeValue { S = createdAt } }
+                        { "tripId", new AttributeValue { S = existingTripIdForDeleteKey } }
                     },
                         UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
                         ConditionExpression = "#v = :expectedVersion",

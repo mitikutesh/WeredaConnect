@@ -1,0 +1,28 @@
+appId: et.wereda.connect
+name: "10 - Navigation Tabs"
+---
+
+# Launch app (already logged in from previous state)
+- launchApp
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 15000
+
+# Tab 1: Home (already visible)
+- takeScreenshot: "10_tab_home"
+
+# Tab 2: Orders
+- tapOn: "Orders"
+- takeScreenshot: "10_tab_orders"
+
+# Tab 3: Deliveries
+- tapOn: "Deliveries"
+- takeScreenshot: "10_tab_deliveries"
+
+# Tab 4: Payments
+- tapOn: "Payments"
+- takeScreenshot: "10_tab_payments"
+
+# Back to Home
+- tapOn: "Home"
+- takeScreenshot: "10_tab_home_return"

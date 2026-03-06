@@ -19,52 +19,57 @@ class RoleSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.selectRole,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textDark,
-            ),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.selectRole,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.selectRoleDescription,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 32),
+              _RoleCard(
+                icon: Icons.agriculture,
+                title: l10n.farmer,
+                description: l10n.farmerDescription,
+                isSelected: selectedRole == UserRole.farmer,
+                onTap: () => onRoleSelected(UserRole.farmer),
+              ),
+              const SizedBox(height: 16),
+              _RoleCard(
+                icon: Icons.local_shipping,
+                title: l10n.trucker,
+                description: l10n.truckerDescription,
+                isSelected: selectedRole == UserRole.trucker,
+                onTap: () => onRoleSelected(UserRole.trucker),
+              ),
+              const SizedBox(height: 16),
+              _RoleCard(
+                icon: Icons.shopping_bag,
+                title: l10n.buyer,
+                description: l10n.buyerDescription,
+                isSelected: selectedRole == UserRole.buyer,
+                onTap: () => onRoleSelected(UserRole.buyer),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.selectRoleDescription,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textMuted,
-            ),
-          ),
-          const SizedBox(height: 32),
-          _RoleCard(
-            icon: Icons.agriculture,
-            title: l10n.farmer,
-            description: l10n.farmerDescription,
-            isSelected: selectedRole == UserRole.farmer,
-            onTap: () => onRoleSelected(UserRole.farmer),
-          ),
-          const SizedBox(height: 16),
-          _RoleCard(
-            icon: Icons.local_shipping,
-            title: l10n.trucker,
-            description: l10n.truckerDescription,
-            isSelected: selectedRole == UserRole.trucker,
-            onTap: () => onRoleSelected(UserRole.trucker),
-          ),
-          const SizedBox(height: 16),
-          _RoleCard(
-            icon: Icons.shopping_bag,
-            title: l10n.buyer,
-            description: l10n.buyerDescription,
-            isSelected: selectedRole == UserRole.buyer,
-            onTap: () => onRoleSelected(UserRole.buyer),
-          ),
-        ],
+        ),
       ),
     );
   }

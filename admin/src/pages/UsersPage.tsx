@@ -60,7 +60,7 @@ export function UsersPage() {
     <div>
       <h2 className="mb-6 text-xl font-bold">{t("users.title")}</h2>
       <Card>
-        <div className="mb-4 max-w-sm">
+        <div className="mb-4 max-w-full md:max-w-sm">
           <SearchInput value={search} onChange={setSearch} />
         </div>
         <DataTable

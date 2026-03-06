@@ -32,77 +32,84 @@ class WelcomeScreen extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 32),
-
-              // Hero illustration
-              Icon(
-                Icons.agriculture,
-                size: 120,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
-
-              // App title
-              Text(
-                'WeredaConnect',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-
-              // Language selector card
-              const LanguageSelectorCard(),
-              const SizedBox(height: 24),
-
-              // Tagline
-              Text(
-                l10n.aboutTagline,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-
-              // Value propositions
-              const ValuePropositionList(),
-              const SizedBox(height: 32),
-
-              // Action buttons
-              WelcomeActions(
-                onWelcomeComplete: () {
-                  // Mark welcome as seen when user proceeds to login/register
-                  context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Info chips at bottom
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _InfoChip(
-                    icon: Icons.help_outline,
-                    label: l10n.howItWorks,
-                    onTap: () => _showHowItWorksInfo(context, l10n),
+                  const SizedBox(height: 32),
+
+                  // Hero illustration
+                  Icon(
+                    Icons.agriculture,
+                    size: 120,
+                    color: theme.colorScheme.primary,
                   ),
-                  const SizedBox(width: 12),
-                  _InfoChip(
-                    icon: Icons.cloud_off,
-                    label: l10n.offlineMode,
-                    onTap: () => _showOfflineModeInfo(context, l10n),
+                  const SizedBox(height: 16),
+
+                  // App title
+                  Text(
+                    'WeredaConnect',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
+                  const SizedBox(height: 24),
+
+                  // Language selector card
+                  const LanguageSelectorCard(),
+                  const SizedBox(height: 24),
+
+                  // Tagline
+                  Text(
+                    l10n.aboutTagline,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Value propositions
+                  const ValuePropositionList(),
+                  const SizedBox(height: 32),
+
+                  // Action buttons
+                  WelcomeActions(
+                    onWelcomeComplete: () {
+                      // Mark welcome as seen when user proceeds to login/register
+                      context
+                          .read<OnboardingBloc>()
+                          .add(const MarkWelcomeSeen());
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Info chips at bottom
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _InfoChip(
+                        icon: Icons.help_outline,
+                        label: l10n.howItWorks,
+                        onTap: () => _showHowItWorksInfo(context, l10n),
+                      ),
+                      const SizedBox(width: 12),
+                      _InfoChip(
+                        icon: Icons.cloud_off,
+                        label: l10n.offlineMode,
+                        onTap: () => _showOfflineModeInfo(context, l10n),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
         ),
       ),

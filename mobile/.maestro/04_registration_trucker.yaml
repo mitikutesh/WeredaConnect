@@ -1,0 +1,31 @@
+appId: et.wereda.connect
+name: "04 - Registration Flow (Trucker Role)"
+---
+
+# Clear app data for fresh start
+- clearState
+- launchApp
+
+# Navigate past splash to welcome
+- tapOn: "Get Started"
+
+# Tap Sign Up
+- tapOn: "Sign Up"
+
+# Step 1: Select Trucker role (middle card ~45% from top)
+- tapOn:
+    point: "50%,44%"
+
+- takeScreenshot: "04_trucker_selected"
+- tapOn: "Continue"
+
+# Step 2: Fayda - Skip
+- tapOn: "Continue"
+
+# Step 3: Role Details (truckers get license upload screen)
+- takeScreenshot: "04_trucker_role_details"
+- tapOn: "Continue"
+
+# Step 4: Personal Info
+- assertVisible: "Personal Info"
+- takeScreenshot: "04_trucker_personal_info"

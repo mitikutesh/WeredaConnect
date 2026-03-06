@@ -1,7 +1,8 @@
 {
   "app": {
     "title": "WeredaConnect Bulchiinsa",
-    "subtitle": "Bulchiinsa Mala'ummaa"
+    "subtitle": "Bulchiinsa Mala'ummaa",
+    "tagline": "Mala'ummaa Loojistiiksii Qonnaa Hawaasa Baadiyyaa Itoophiyaa"
   },
   "nav": {
     "dashboard": "Daashboordii",

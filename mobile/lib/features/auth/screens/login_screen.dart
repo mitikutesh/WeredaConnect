@@ -170,230 +170,238 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: Builder(
-                builder: (context) {
-                  final isLoading =
-                      context.watch<AuthBloc>().state is AuthLoading;
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24.0),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Form(
+                  key: _formKey,
+                  child: Builder(
+                    builder: (context) {
+                      final isLoading =
+                          context.watch<AuthBloc>().state is AuthLoading;
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // App logo/icon
-                      const SizedBox(height: 32),
-                      Icon(
-                        Icons.agriculture,
-                        size: 80,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Welcome message
-                      Text(
-                        l10n.welcomeMessage,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 48),
-
-                      // Phone number input
-                      TextFormField(
-                        controller: _phoneController,
-                        decoration: InputDecoration(
-                          labelText: l10n.phoneNumber,
-                          prefixIcon: const Icon(Icons.phone),
-                          hintText: l10n.ethiopianPhoneExample,
-                          border: const OutlineInputBorder(),
-                          // Large touch target
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // App logo/icon
+                          const SizedBox(height: 32),
+                          Icon(
+                            Icons.agriculture,
+                            size: 80,
+                            color: theme.colorScheme.primary,
                           ),
-                        ),
-                        keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          // Ensure +251 prefix is always present
-                          FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-                        ],
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return l10n.phoneNumber;
-                          }
-                          // Ethiopian phone format: +251XXXXXXXXX
-                          if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
-                            return l10n.invalidPhoneFormat;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                      // Password input
-                      TextFormField(
-                        controller: _passwordController,
-                        decoration: InputDecoration(
-                          labelText: l10n.password,
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                          // Welcome message
+                          Text(
+                            l10n.welcomeMessage,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                            // Large touch target
-                            iconSize: 24,
-                            padding: const EdgeInsets.all(12),
+                            textAlign: TextAlign.center,
                           ),
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
-                          ),
-                        ),
-                        obscureText: _obscurePassword,
-                        maxLength: 128,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return l10n.password;
-                          }
-                          if (value.length < 8) {
-                            return l10n.passwordRequirements;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 8),
+                          const SizedBox(height: 48),
 
-                      // Forgot password link
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () {
-                            showDialog<void>(
-                              context: context,
-                              builder: (context) {
-                                final l10n = AppLocalizations.of(context)!;
-                                return AlertDialog(
-                                  title: Text(l10n.forgotPassword),
-                                  content: Text(
-                                    l10n.forgotPasswordContactSupport,
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: Text(l10n.ok),
-                                    ),
-                                  ],
+                          // Phone number input
+                          TextFormField(
+                            controller: _phoneController,
+                            decoration: InputDecoration(
+                              labelText: l10n.phoneNumber,
+                              prefixIcon: const Icon(Icons.phone),
+                              hintText: l10n.ethiopianPhoneExample,
+                              border: const OutlineInputBorder(),
+                              // Large touch target
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 20,
+                              ),
+                            ),
+                            keyboardType: TextInputType.phone,
+                            inputFormatters: [
+                              // Ensure +251 prefix is always present
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'[+\d]')),
+                            ],
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return l10n.phoneNumber;
+                              }
+                              // Ethiopian phone format: +251XXXXXXXXX
+                              if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
+                                return l10n.invalidPhoneFormat;
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Password input
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: l10n.password,
+                              prefixIcon: const Icon(Icons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                                // Large touch target
+                                iconSize: 24,
+                                padding: const EdgeInsets.all(12),
+                              ),
+                              border: const OutlineInputBorder(),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 20,
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            maxLength: 128,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return l10n.password;
+                              }
+                              if (value.length < 8) {
+                                return l10n.passwordRequirements;
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Forgot password link
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () {
+                                showDialog<void>(
+                                  context: context,
+                                  builder: (context) {
+                                    final l10n = AppLocalizations.of(context)!;
+                                    return AlertDialog(
+                                      title: Text(l10n.forgotPassword),
+                                      content: Text(
+                                        l10n.forgotPasswordContactSupport,
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: Text(l10n.ok),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 );
                               },
-                            );
-                          },
-                          child: Text(l10n.forgotPassword),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Error message
-                      if (_errorMessage != null)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.errorContainer,
-                            border: Border.all(
-                              color: AppTheme.statusError.withAlpha(80),
+                              child: Text(l10n.forgotPassword),
                             ),
-                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                color: theme.colorScheme.error,
+                          const SizedBox(height: 24),
+
+                          // Error message
+                          if (_errorMessage != null)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.errorContainer,
+                                border: Border.all(
+                                  color: AppTheme.statusError.withAlpha(80),
+                                ),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: TextStyle(
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
                                     color: theme.colorScheme.error,
                                   ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Login button
-                      ElevatedButton(
-                        onPressed: isLoading ? null : _handleLogin,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          minimumSize:
-                              const Size.fromHeight(48), // Large touch target
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: isLoading
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: TextStyle(
+                                        color: theme.colorScheme.error,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    l10n.pleaseWait,
+                                ],
+                              ),
+                            ),
+
+                          // Login button
+                          ElevatedButton(
+                            onPressed: isLoading ? null : _handleLogin,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              minimumSize: const Size.fromHeight(
+                                  48), // Large touch target
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: isLoading
+                                ? Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        l10n.pleaseWait,
+                                        style: const TextStyle(fontSize: 16),
+                                      ),
+                                    ],
+                                  )
+                                : Text(
+                                    l10n.login,
                                     style: const TextStyle(fontSize: 16),
                                   ),
-                                ],
-                              )
-                            : Text(
-                                l10n.login,
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                      ),
-                      const SizedBox(height: 24),
+                          ),
+                          const SizedBox(height: 24),
 
-                      // Register link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(l10n.dontHaveAccount),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => const RegisterScreen(),
-                                ),
-                              );
-                            },
-                            child: Text(l10n.register),
+                          // Register link
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(l10n.dontHaveAccount),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const RegisterScreen(),
+                                    ),
+                                  );
+                                },
+                                child: Text(l10n.register),
+                              ),
+                            ],
                           ),
                         ],
-                      ),
-                    ],
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),

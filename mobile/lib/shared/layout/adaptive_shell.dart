@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/responsive_center.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Adaptive shell that switches between side navigation and bottom navigation.
@@ -104,7 +105,12 @@ class AdaptiveShell extends StatelessWidget {
                   .toList(),
             ),
             const VerticalDivider(thickness: 1, width: 1),
-            Expanded(child: child),
+            Expanded(
+              child: ResponsiveCenter(
+                maxWidth: 900,
+                child: child,
+              ),
+            ),
           ],
         ),
       );

@@ -50,7 +50,7 @@ export function UserDetailPage() {
             </div>
           </dl>
 
-          <div className="mt-6 flex gap-2">
+          <div className="mt-6 flex flex-wrap gap-2">
             <button
               onClick={() => handleAction(user.isActive ? "suspend" : "activate")}
               className={`rounded px-3 py-1.5 text-sm text-white ${user.isActive ? "bg-danger" : "bg-success"}`}

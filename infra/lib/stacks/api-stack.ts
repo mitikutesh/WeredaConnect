@@ -55,11 +55,13 @@ export class ApiStack extends cdk.Stack {
       selfSignUpEnabled: true,
       signInAliases: { phone: true },
       autoVerify: { phone: false },
-      mfa: cognito.Mfa.OPTIONAL,
-      mfaSecondFactor: {
-        sms: true,
-        otp: true,
-      },
+      mfa: envConfig.isProd ? cognito.Mfa.OPTIONAL : cognito.Mfa.OFF,
+      ...(envConfig.isProd ? {
+        mfaSecondFactor: {
+          sms: true,
+          otp: true,
+        },
+      } : {}),
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
       standardAttributes: {
         phoneNumber: { required: true, mutable: false },
@@ -70,12 +72,17 @@ export class ApiStack extends cdk.Stack {
         displayName: new cognito.StringAttribute({ mutable: true }),
         preferredLanguage: new cognito.StringAttribute({ mutable: true }),
       },
-      passwordPolicy: {
+      passwordPolicy: envConfig.isProd ? {
         minLength: 12,
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
         requireSymbols: true,
+        tempPasswordValidity: cdk.Duration.days(7),
+      } : {
+        minLength: 8,
+        requireLowercase: true,
+        requireDigits: true,
         tempPasswordValidity: cdk.Duration.days(7),
       },
       removalPolicy: envConfig.isProd
@@ -115,11 +122,14 @@ export class ApiStack extends cdk.Stack {
       selfSignUpEnabled: false,
       signInAliases: { phone: true },
       autoVerify: { phone: false },
-      mfa: cognito.Mfa.REQUIRED,
-      mfaSecondFactor: {
-        sms: false,
-        otp: true,
-      },
+      // MFA required in prod, off in dev for easier testing
+      mfa: envConfig.isProd ? cognito.Mfa.REQUIRED : cognito.Mfa.OFF,
+      ...(envConfig.isProd ? {
+        mfaSecondFactor: {
+          sms: true,
+          otp: true,
+        },
+      } : {}),
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
       standardAttributes: {
         phoneNumber: { required: true, mutable: false },
@@ -128,12 +138,17 @@ export class ApiStack extends cdk.Stack {
         role: new cognito.StringAttribute({ mutable: true }),
         displayName: new cognito.StringAttribute({ mutable: true }),
       },
-      passwordPolicy: {
+      passwordPolicy: envConfig.isProd ? {
         minLength: 12,
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
         requireSymbols: true,
+        tempPasswordValidity: cdk.Duration.days(7),
+      } : {
+        minLength: 8,
+        requireLowercase: true,
+        requireDigits: true,
         tempPasswordValidity: cdk.Duration.days(7),
       },
       removalPolicy: envConfig.isProd

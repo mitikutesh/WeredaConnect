@@ -76,203 +76,213 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
-        key: widget.formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              l10n.personalInfo,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textDark,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.personalInfoDescription,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppTheme.textMuted,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Phone
-            TextFormField(
-              controller: _phoneController,
-              decoration: InputDecoration(
-                labelText: l10n.phoneNumber,
-                prefixIcon: const Icon(Icons.phone),
-                hintText: l10n.ethiopianPhoneExample,
-              ),
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-              ],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.fieldRequired;
-                }
-                if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
-                  return l10n.invalidPhoneFormat;
-                }
-                return null;
-              },
-              onChanged: widget.onPhoneChanged,
-            ),
-            const SizedBox(height: 16),
-
-            // Verified legal name card (shown when Fayda verified)
-            if (widget.faydaVerified && widget.faydaVerifiedName != null) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppTheme.primaryGreen),
-                  borderRadius: BorderRadius.circular(8),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Form(
+            key: widget.formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.personalInfo,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textDark,
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.check_circle,
-                      color: AppTheme.primaryGreen,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.verifiedLegalName,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textMuted,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.faydaVerifiedName!,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textDark,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.personalInfoDescription,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Phone
+                TextFormField(
+                  controller: _phoneController,
+                  decoration: InputDecoration(
+                    labelText: l10n.phoneNumber,
+                    prefixIcon: const Icon(Icons.phone),
+                    hintText: l10n.ethiopianPhoneExample,
+                  ),
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
                   ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Display name
-            TextFormField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                labelText: l10n.displayName,
-                helperText: l10n.displayNameHelper,
-                prefixIcon: const Icon(Icons.person),
-              ),
-              keyboardType: TextInputType.name,
-              textCapitalization: TextCapitalization.words,
-              maxLength: 100,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return l10n.fieldRequired;
-                }
-                return null;
-              },
-              onChanged: widget.onNameChanged,
-            ),
-            const SizedBox(height: 16),
-
-            // Woreda
-            TextFormField(
-              controller: _weredaController,
-              decoration: InputDecoration(
-                labelText: l10n.wereda,
-                prefixIcon: const Icon(Icons.location_on),
-              ),
-              textCapitalization: TextCapitalization.words,
-              maxLength: 100,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return l10n.fieldRequired;
-                }
-                return null;
-              },
-              onChanged: widget.onWeredaChanged,
-            ),
-            const SizedBox(height: 16),
-
-            // Password
-            TextFormField(
-              controller: _passwordController,
-              decoration: InputDecoration(
-                labelText: l10n.password,
-                prefixIcon: const Icon(Icons.lock),
-                helperText: l10n.passwordRequirements,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  ),
-                  onPressed: () {
-                    setState(() => _obscurePassword = !_obscurePassword);
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
+                      return l10n.invalidPhoneFormat;
+                    }
+                    return null;
                   },
+                  onChanged: widget.onPhoneChanged,
                 ),
-              ),
-              obscureText: _obscurePassword,
-              maxLength: 128,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.fieldRequired;
-                }
-                if (value.length < 8 ||
-                    !RegExp(r'[a-z]').hasMatch(value) ||
-                    !RegExp(r'[0-9]').hasMatch(value)) {
-                  return l10n.passwordRequirements;
-                }
-                return null;
-              },
-              onChanged: widget.onPasswordChanged,
-            ),
-            const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-            // Confirm password
-            TextFormField(
-              controller: _confirmController,
-              decoration: InputDecoration(
-                labelText: l10n.confirmPassword,
-                prefixIcon: const Icon(Icons.lock_outline),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscureConfirm ? Icons.visibility_off : Icons.visibility,
+                // Verified legal name card (shown when Fayda verified)
+                if (widget.faydaVerified &&
+                    widget.faydaVerifiedName != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppTheme.primaryGreen),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle,
+                          color: AppTheme.primaryGreen,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.verifiedLegalName,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.faydaVerifiedName!,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.textDark,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: () {
-                    setState(() => _obscureConfirm = !_obscureConfirm);
+                  const SizedBox(height: 16),
+                ],
+
+                // Display name
+                TextFormField(
+                  controller: _nameController,
+                  decoration: InputDecoration(
+                    labelText: l10n.displayName,
+                    helperText: l10n.displayNameHelper,
+                    prefixIcon: const Icon(Icons.person),
+                  ),
+                  keyboardType: TextInputType.name,
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: 100,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    return null;
                   },
+                  onChanged: widget.onNameChanged,
                 ),
-              ),
-              obscureText: _obscureConfirm,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.fieldRequired;
-                }
-                if (value != _passwordController.text) {
-                  return l10n.passwordsDoNotMatch;
-                }
-                return null;
-              },
-              onChanged: widget.onConfirmPasswordChanged,
+                const SizedBox(height: 16),
+
+                // Woreda
+                TextFormField(
+                  controller: _weredaController,
+                  decoration: InputDecoration(
+                    labelText: l10n.wereda,
+                    prefixIcon: const Icon(Icons.location_on),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: 100,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    return null;
+                  },
+                  onChanged: widget.onWeredaChanged,
+                ),
+                const SizedBox(height: 16),
+
+                // Password
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: l10n.password,
+                    prefixIcon: const Icon(Icons.lock),
+                    helperText: l10n.passwordRequirements,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() => _obscurePassword = !_obscurePassword);
+                      },
+                    ),
+                  ),
+                  obscureText: _obscurePassword,
+                  maxLength: 128,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    if (value.length < 8 ||
+                        !RegExp(r'[a-z]').hasMatch(value) ||
+                        !RegExp(r'[0-9]').hasMatch(value)) {
+                      return l10n.passwordRequirements;
+                    }
+                    return null;
+                  },
+                  onChanged: widget.onPasswordChanged,
+                ),
+                const SizedBox(height: 16),
+
+                // Confirm password
+                TextFormField(
+                  controller: _confirmController,
+                  decoration: InputDecoration(
+                    labelText: l10n.confirmPassword,
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirm
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() => _obscureConfirm = !_obscureConfirm);
+                      },
+                    ),
+                  ),
+                  obscureText: _obscureConfirm,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    if (value != _passwordController.text) {
+                      return l10n.passwordsDoNotMatch;
+                    }
+                    return null;
+                  },
+                  onChanged: widget.onConfirmPasswordChanged,
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
