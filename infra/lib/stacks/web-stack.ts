@@ -63,7 +63,7 @@ function handler(event) {
         securityHeadersBehavior: {
           contentSecurityPolicy: {
             contentSecurityPolicy:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.me-south-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.me-south-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.me-south-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.me-south-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
             override: true,
           },
           strictTransportSecurity: {
