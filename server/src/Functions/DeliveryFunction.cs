@@ -161,7 +161,7 @@ public class DeliveryFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying deliveries: {ex.Message}");
+            context.Logger.LogError($"Error querying deliveries: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Failed to query deliveries.");
         }
     }
@@ -216,7 +216,7 @@ public class DeliveryFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting delivery {deliveryId}: {ex.Message}");
+            context.Logger.LogError($"Error getting delivery {deliveryId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Failed to retrieve delivery.");
         }
     }
@@ -316,7 +316,7 @@ public class DeliveryFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error generating photo upload URL for delivery {deliveryId}: {ex.Message}");
+            context.Logger.LogError($"Error generating photo upload URL for delivery {deliveryId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Failed to generate photo upload URL.");
         }
     }

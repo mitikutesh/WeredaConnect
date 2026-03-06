@@ -12,6 +12,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as ssm from "aws-cdk-lib/aws-ssm";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { WeredaLambda } from "../constructs/lambda-construct";
 import { EnvironmentConfig } from "../config/environments";
@@ -48,6 +49,11 @@ export class ApiStack extends cdk.Stack {
 
     const { envConfig } = props;
     const prefix = `wereda-connect-${envConfig.name}`;
+
+    // ─── T-SEC-01/02: Hard guard — block dev-only bypasses in production ───
+    if (envConfig.isProd) {
+      cdk.Aspects.of(this).add(new ProductionBypassGuard());
+    }
 
     // ─── Cognito User Pool ───────────────────────────────────────────
     this.userPool = new cognito.UserPool(this, "UserPool", {
@@ -176,9 +182,9 @@ export class ApiStack extends cdk.Stack {
           `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
         ],
       },
-      accessTokenValidity: cdk.Duration.minutes(60),
+      accessTokenValidity: cdk.Duration.minutes(15),
       refreshTokenValidity: cdk.Duration.days(7),
-      idTokenValidity: cdk.Duration.minutes(60),
+      idTokenValidity: cdk.Duration.minutes(15),
       preventUserExistenceErrors: true,
       writeAttributes: new cognito.ClientAttributes()
         .withStandardAttributes({ phoneNumber: true })
@@ -1150,5 +1156,37 @@ export class ApiStack extends cdk.Stack {
         resources: [this.userPool.userPoolArn],
       }),
     );
+  }
+}
+
+/**
+ * T-SEC-01/02: CDK Aspect that scans every Lambda in the stack and errors
+ * if DEV_FAYDA_BYPASS or TELEBIRR_MOCK are set in a production deployment.
+ * Attach via `cdk.Aspects.of(stack).add(new ProductionBypassGuard())`.
+ */
+class ProductionBypassGuard implements cdk.IAspect {
+  private static readonly FORBIDDEN_ENV_VARS = [
+    "DEV_FAYDA_BYPASS",
+    "TELEBIRR_MOCK",
+  ];
+
+  visit(node: Construct): void {
+    if (node instanceof lambda.Function) {
+      const cfnFn = node.node.defaultChild as lambda.CfnFunction | undefined;
+      if (!cfnFn) return;
+
+      const env = (cfnFn.environment as Record<string, unknown>) ?? {};
+      // environment may be a token at synth time — check resolved keys
+      if (typeof env === "object" && env !== null) {
+        for (const flag of ProductionBypassGuard.FORBIDDEN_ENV_VARS) {
+          if (flag in env) {
+            cdk.Annotations.of(node).addError(
+              `SECURITY: Lambda "${node.node.path}" has ${flag} set. ` +
+              `This flag must NEVER be deployed to production.`,
+            );
+          }
+        }
+      }
+    }
   }
 }

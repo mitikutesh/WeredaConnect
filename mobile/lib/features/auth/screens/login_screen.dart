@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -48,46 +48,17 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  String _formatDuration(int seconds) {
-    final l10n = AppLocalizations.of(context)!;
-    if (seconds >= 3600) {
-      return l10n.durationHours((seconds / 3600).ceil());
-    } else if (seconds >= 60) {
-      return l10n.durationMinutes((seconds / 60).ceil());
-    } else {
-      return l10n.durationSeconds(seconds);
-    }
-  }
-
   String _localizeAuthError(
     String errorCode,
     String fallback, {
     int? retryAfterSeconds,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    if (errorCode == 'AUTH_015' && retryAfterSeconds != null) {
-      return l10n.authAccountLocked(_formatDuration(retryAfterSeconds));
-    }
-    return switch (errorCode) {
-      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
-      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
-      AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
-      AuthErrorCode.userNotConfirmed => l10n.authErrorUserNotConfirmed,
-      AuthErrorCode.userNotFound => l10n.invalidCredentials,
-      AuthErrorCode.accountLocked => l10n.authAccountDisabled,
-      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
-      AuthErrorCode.internalServerError => l10n.authServerError,
-      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
-      AuthErrorCode.networkError => l10n.authNetworkError,
-      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
-      AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
-      AuthErrorCode.refreshTokenExpired => l10n.authErrorTokenExpired,
-      AuthErrorCode.refreshTokenRevoked => l10n.authErrorTokenExpired,
-      AuthErrorCode.invalidToken => l10n.authErrorTokenExpired,
-      AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
-      AuthErrorCode.databaseError => l10n.authErrorDatabase,
-      _ => l10n.genericError,
-    };
+    return localizeAuthError(
+      l10n,
+      errorCode,
+      retryAfterSeconds: retryAfterSeconds,
+    );
   }
 
   void _handleLogin() {

@@ -1044,6 +1044,31 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowErrorOffline => 'ለዚህ ድርጊት የኢንተርኔት ግንኙነት ያስፈልጋል።';
 
   @override
+  String get escrowErrorInvalidDelivery => 'ልክ ያልሆነ የማድረሻ ማጣቀሻ።';
+
+  @override
+  String get escrowErrorUnauthorized => 'ለዚህ ድርጊት ስልጣን የለዎትም።';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'ማድረሻ አልተገኘም።';
+
+  @override
+  String get escrowErrorInvalidDeliveryState => 'ማድረሻው ለክፍያ ልክ ባልሆነ ሁኔታ ላይ ነው።';
+
+  @override
+  String get escrowErrorInvalidDisputeReason => 'እባክዎ ልክ የሆነ የክርክር ምክንያት ይምረጡ።';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'የክርክር ጊዜ አልፏል (ከማድረሻ በኋላ 48 ሰዓት)።';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists => 'ለዚህ ክፍያ ቀድሞ ክርክር ተነስቷል።';
+
+  @override
+  String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ብር $amount';
   }

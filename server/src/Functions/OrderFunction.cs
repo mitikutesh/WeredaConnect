@@ -145,7 +145,7 @@ public class OrderFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying orders: {ex.Message}");
+            context.Logger.LogError($"Error querying orders: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ORDER_SERVER_ERROR", "Failed to query orders.");
         }
     }
@@ -197,7 +197,7 @@ public class OrderFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting order {orderId}: {ex.Message}");
+            context.Logger.LogError($"Error getting order {orderId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ORDER_SERVER_ERROR", "Failed to retrieve order.");
         }
     }

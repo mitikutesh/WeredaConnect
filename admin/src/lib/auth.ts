@@ -42,14 +42,47 @@ export function getCurrentUser(): { phone: string; groups: string[] } | null {
   };
 }
 
+/** Map Cognito SDK error codes to safe i18n keys. Never expose raw messages. */
+function mapCognitoError(code?: string): string {
+  switch (code) {
+    case "NotAuthorizedException":
+      return "invalidCredentials";
+    case "UserNotFoundException":
+      return "invalidCredentials"; // Don't reveal if user exists
+    case "UserNotConfirmedException":
+      return "userNotConfirmed";
+    case "PasswordResetRequiredException":
+      return "passwordResetRequired";
+    case "TooManyRequestsException":
+    case "LimitExceededException":
+      return "rateLimitExceeded";
+    case "InvalidParameterException":
+      return "invalidInput";
+    case "NetworkError":
+      return "networkError";
+    default:
+      // ResourceNotFoundException, InternalErrorException, etc.
+      // Never expose raw AWS error messages to the UI
+      return "serviceUnavailable";
+  }
+}
+
 export async function login(
   phone: string,
   password: string,
 ): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
+    let pool;
+    try {
+      pool = getUserPool();
+    } catch {
+      resolve({ success: false, error: "serviceUnavailable" });
+      return;
+    }
+
     const user = new CognitoUser({
       Username: phone,
-      Pool: getUserPool(),
+      Pool: pool,
     });
 
     const authDetails = new AuthenticationDetails({
@@ -69,12 +102,8 @@ export async function login(
         resolve({ success: true });
       },
       onFailure: (err) => {
-        resolve({
-          success: false,
-          error: err.code === "NotAuthorizedException"
-            ? "invalidCredentials"
-            : err.message,
-        });
+        const errorKey = mapCognitoError(err.code);
+        resolve({ success: false, error: errorKey });
       },
     });
   });

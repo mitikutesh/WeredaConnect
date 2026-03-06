@@ -1419,6 +1419,38 @@
   "@escrowErrorOffline": {
     "description": "Error when escrow action requires internet but device is offline"
   },
+  "escrowErrorInvalidDelivery": "Wabii geejjibsiisaa sirrii miti.",
+  "@escrowErrorInvalidDelivery": {
+    "description": "Error when delivery ID is missing or invalid for escrow"
+  },
+  "escrowErrorUnauthorized": "Gocha kanaaf mirga hin qabdan.",
+  "@escrowErrorUnauthorized": {
+    "description": "Error when user is not authorized for escrow action"
+  },
+  "escrowErrorDeliveryNotFound": "Geejjibsiisni hin argamne.",
+  "@escrowErrorDeliveryNotFound": {
+    "description": "Error when the referenced delivery does not exist"
+  },
+  "escrowErrorInvalidDeliveryState": "Geejjibsiisni kaffaltiidhaf haala sirrii keessa hin jiru.",
+  "@escrowErrorInvalidDeliveryState": {
+    "description": "Error when delivery status does not allow escrow initiation"
+  },
+  "escrowErrorInvalidDisputeReason": "Maaloo sababa komii sirrii filadhaa.",
+  "@escrowErrorInvalidDisputeReason": {
+    "description": "Error when dispute reason is invalid"
+  },
+  "escrowErrorDisputeWindowExpired": "Yeroon komii darbera (sa'aatii 48 geejjibsiisa booda).",
+  "@escrowErrorDisputeWindowExpired": {
+    "description": "Error when dispute is raised after 48-hour window"
+  },
+  "escrowErrorDisputeAlreadyExists": "Kaffaltii kanaaf komiin duraan ka'era.",
+  "@escrowErrorDisputeAlreadyExists": {
+    "description": "Error when a duplicate dispute is attempted"
+  },
+  "escrowErrorInvalidTransition": "Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.",
+  "@escrowErrorInvalidTransition": {
+    "description": "Error when escrow state transition is invalid"
+  },
 
   "escrowEtbAmount": "Birrii {amount}",
   "@escrowEtbAmount": {

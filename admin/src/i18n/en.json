@@ -25,6 +25,13 @@
     "loginSubtitle": "Sign in to WeredaConnect Admin",
     "invalidCredentials": "Invalid phone number or password",
     "notAdmin": "Access denied. Admin privileges required.",
+    "userNotConfirmed": "Please verify your phone number first.",
+    "passwordResetRequired": "Password reset required. Please contact support.",
+    "rateLimitExceeded": "Too many attempts. Please try again later.",
+    "invalidInput": "Please check your phone number and password.",
+    "networkError": "Unable to reach the server. Please check your connection.",
+    "serviceUnavailable": "Service temporarily unavailable. Please try again later.",
+    "genericError": "Something went wrong. Please try again.",
     "signingIn": "Signing in..."
   },
   "dashboard": {
@@ -157,6 +164,23 @@
     "actions": "Actions",
     "etb": "ETB",
     "birr": "Birr"
+  },
+  "errors": {
+    "generic": "An unexpected error occurred. Please try again.",
+    "networkError": "Unable to reach the server. Please check your connection.",
+    "unauthorized": "Your session has expired. Please log in again.",
+    "forbidden": "Access denied.",
+    "ESCROW_001": "Invalid amount.",
+    "ESCROW_005": "Authentication required.",
+    "ESCROW_009": "Escrow already exists for this delivery.",
+    "ESCROW_012": "Server error. Please try again.",
+    "ESCROW_013": "Telebirr service error. Please try again.",
+    "ESCROW_014": "Telebirr is currently unavailable.",
+    "ESCROW_016": "Escrow not found.",
+    "ESCROW_INVALID_TRANSITION": "Invalid state transition for this escrow.",
+    "ADMIN_002": "Endpoint not found.",
+    "ADMIN_500": "Internal server error.",
+    "actionFailed": "Action failed. Please try again."
   },
   "language": {
     "english": "English",

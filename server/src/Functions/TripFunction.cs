@@ -175,7 +175,7 @@ public class TripFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying trips: {ex.Message}");
+            context.Logger.LogError($"Error querying trips: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "TRIP_SERVER_ERROR", "Failed to query trip listings.");
         }
     }
@@ -222,7 +222,7 @@ public class TripFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting trip {tripId}: {ex.Message}");
+            context.Logger.LogError($"Error getting trip {tripId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "TRIP_SERVER_ERROR", "Failed to retrieve trip listing.");
         }
     }

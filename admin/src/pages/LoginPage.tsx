@@ -18,12 +18,10 @@ export function LoginPage() {
 
     const result = await login(phone, password);
     if (!result.success) {
-      const errorKey = result.error === "notAdmin"
-        ? "auth.notAdmin"
-        : result.error === "invalidCredentials"
-          ? "auth.invalidCredentials"
-          : "";
-      setError(errorKey ? t(errorKey) : result.error || t("common.error"));
+      const key = `auth.${result.error}`;
+      const translated = t(key);
+      // If t() returns the raw key, it means no i18n entry exists — use generic fallback
+      setError(translated !== key ? translated : t("auth.genericError"));
     }
     setLoading(false);
   }

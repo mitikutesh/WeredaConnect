@@ -1077,6 +1077,35 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowErrorOffline => 'Hojii kanaaf interneetiin barbaachisaadha.';
 
   @override
+  String get escrowErrorInvalidDelivery => 'Wabii geejjibsiisaa sirrii miti.';
+
+  @override
+  String get escrowErrorUnauthorized => 'Gocha kanaaf mirga hin qabdan.';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'Geejjibsiisni hin argamne.';
+
+  @override
+  String get escrowErrorInvalidDeliveryState =>
+      'Geejjibsiisni kaffaltiidhaf haala sirrii keessa hin jiru.';
+
+  @override
+  String get escrowErrorInvalidDisputeReason =>
+      'Maaloo sababa komii sirrii filadhaa.';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'Yeroon komii darbera (sa\'aatii 48 geejjibsiisa booda).';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists =>
+      'Kaffaltii kanaaf komiin duraan ka\'era.';
+
+  @override
+  String get escrowErrorInvalidTransition =>
+      'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'Birrii $amount';
   }

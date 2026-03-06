@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -17,14 +18,32 @@ export function UserDetailPage() {
     return <div className="text-text-muted">{t("common.loading")}</div>;
   }
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   function handleAction(action: string) {
     if (!id) return;
-    userAction.mutate({ id, action: { action } });
+    setErrorMsg(null);
+    userAction.mutate(
+      { id, action: { action } },
+      {
+        onError: (err: unknown) => {
+          const code = (err as { code?: string }).code;
+          const key = code ? `errors.${code}` : "errors.actionFailed";
+          const msg = t(key);
+          setErrorMsg(msg !== key ? msg : t("errors.actionFailed"));
+        },
+      },
+    );
   }
 
   return (
     <div>
       <h2 className="mb-6 text-xl font-bold">{t("users.detail")}</h2>
+      {errorMsg && (
+        <div className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+          {errorMsg}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <dl className="space-y-3">

@@ -3076,7 +3076,7 @@ public partial class SyncFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogWarning($"Failed to fetch commission rate from SSM: {ex.Message}. Using default.");
+            context.Logger.LogWarning($"Failed to fetch commission rate from SSM: [{ex.GetType().Name}]. Using default.");
             _cachedCommissionRate = DefaultCommissionRate;
         }
 

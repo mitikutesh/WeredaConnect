@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
-import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -174,21 +174,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
   String _localizeAuthError(String errorCode, String fallback) {
     final l10n = AppLocalizations.of(context)!;
-    return switch (errorCode) {
-      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
-      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
-      AuthErrorCode.phoneAlreadyRegistered => l10n.phoneAlreadyRegistered,
-      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
-      AuthErrorCode.internalServerError => l10n.authServerError,
-      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
-      AuthErrorCode.networkError => l10n.authNetworkError,
-      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
-      AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,
-      AuthErrorCode.faydaTokenExpired => l10n.faydaVerificationFailed,
-      AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
-      AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
-      _ => l10n.genericError,
-    };
+    return localizeAuthError(l10n, errorCode);
   }
 
   Future<void> _handleFaydaVerify() async {

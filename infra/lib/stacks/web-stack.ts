@@ -111,6 +111,24 @@ function handler(event) {
       },
     );
 
+    // ─── T-SEC-05: Block version.json from public access ─────────
+    const blockVersionJson = new cloudfront.Function(
+      this,
+      "BlockVersionJson",
+      {
+        functionName: `${prefix}-block-version-json`,
+        code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  return {
+    statusCode: 404,
+    statusDescription: 'Not Found',
+    body: { encoding: 'text', data: 'Not Found' },
+  };
+}
+`),
+      },
+    );
+
     // ─── Webapp (Flutter web — SPA) ───────────────────────────────
     const webappBucket = this.createBucket(`${prefix}-webapp`, "Webapp");
     const webappDomain = `${domain.webappSubdomain}.${domain.zoneName}`;
@@ -130,6 +148,21 @@ function handler(event) {
           },
         ],
         disableIndexCache: true,
+      },
+    );
+
+    // Block /version.json on webapp distribution
+    webappDistribution.addBehavior(
+      "/version.json",
+      origins.S3BucketOrigin.withOriginAccessControl(webappBucket),
+      {
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        functionAssociations: [
+          {
+            function: blockVersionJson,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          },
+        ],
       },
     );
 

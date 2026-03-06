@@ -128,7 +128,7 @@ public class CropFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying crops: {ex.Message}");
+            context.Logger.LogError($"Error querying crops: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "CROP_SERVER_ERROR", "Failed to query crop listings.");
         }
     }
@@ -167,7 +167,7 @@ public class CropFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting crop {cropId}: {ex.Message}");
+            context.Logger.LogError($"Error getting crop {cropId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "CROP_SERVER_ERROR", "Failed to retrieve crop listing.");
         }
     }

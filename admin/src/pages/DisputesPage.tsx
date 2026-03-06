@@ -14,11 +14,22 @@ export function DisputesPage() {
 
   const disputes = (data as Record<string, unknown>[]) || [];
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   function handleResolve(id: string, winner: "farmer" | "buyer") {
     setResolvingId(id);
+    setErrorMsg(null);
     resolveDispute.mutate(
       { id, resolution: { winner } },
-      { onSettled: () => setResolvingId(null) },
+      {
+        onSettled: () => setResolvingId(null),
+        onError: (err: unknown) => {
+          const code = (err as { code?: string }).code;
+          const key = code ? `errors.${code}` : "errors.actionFailed";
+          const msg = t(key);
+          setErrorMsg(msg !== key ? msg : t("errors.actionFailed"));
+        },
+      },
     );
   }
 
@@ -78,6 +89,11 @@ export function DisputesPage() {
   return (
     <div>
       <h2 className="mb-6 text-xl font-bold">{t("disputes.title")}</h2>
+      {errorMsg && (
+        <div className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+          {errorMsg}
+        </div>
+      )}
       <Card>
         <DataTable columns={columns} data={disputes} isLoading={isLoading} />
       </Card>

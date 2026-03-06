@@ -1072,6 +1072,36 @@ class AppLocalizationsEn extends AppLocalizations {
       'Internet connection required for this action.';
 
   @override
+  String get escrowErrorInvalidDelivery => 'Invalid delivery reference.';
+
+  @override
+  String get escrowErrorUnauthorized =>
+      'You are not authorized for this action.';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'Delivery not found.';
+
+  @override
+  String get escrowErrorInvalidDeliveryState =>
+      'Delivery is not in a valid state for payment.';
+
+  @override
+  String get escrowErrorInvalidDisputeReason =>
+      'Please select a valid dispute reason.';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'The dispute window has expired (48 hours after delivery).';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists =>
+      'A dispute has already been raised for this payment.';
+
+  @override
+  String get escrowErrorInvalidTransition =>
+      'This action is not allowed in the current payment state.';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }

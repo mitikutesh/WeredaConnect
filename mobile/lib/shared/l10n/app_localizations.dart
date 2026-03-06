@@ -2092,6 +2092,54 @@ abstract class AppLocalizations {
   /// **'Internet connection required for this action.'**
   String get escrowErrorOffline;
 
+  /// Error when delivery ID is missing or invalid for escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery reference.'**
+  String get escrowErrorInvalidDelivery;
+
+  /// Error when user is not authorized for escrow action
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized for this action.'**
+  String get escrowErrorUnauthorized;
+
+  /// Error when the referenced delivery does not exist
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not found.'**
+  String get escrowErrorDeliveryNotFound;
+
+  /// Error when delivery status does not allow escrow initiation
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery is not in a valid state for payment.'**
+  String get escrowErrorInvalidDeliveryState;
+
+  /// Error when dispute reason is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a valid dispute reason.'**
+  String get escrowErrorInvalidDisputeReason;
+
+  /// Error when dispute is raised after 48-hour window
+  ///
+  /// In en, this message translates to:
+  /// **'The dispute window has expired (48 hours after delivery).'**
+  String get escrowErrorDisputeWindowExpired;
+
+  /// Error when a duplicate dispute is attempted
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute has already been raised for this payment.'**
+  String get escrowErrorDisputeAlreadyExists;
+
+  /// Error when escrow state transition is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'This action is not allowed in the current payment state.'**
+  String get escrowErrorInvalidTransition;
+
   /// Formatted ETB currency amount
   ///
   /// In en, this message translates to:

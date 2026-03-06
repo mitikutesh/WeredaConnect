@@ -2,21 +2,55 @@
 """
 WeredaConnect E2E Test Script
 =============================
-Tests the full marketplace flow against the deployed dev API:
-  1. Fayda verify + Register users (farmers, truckers, buyers)
-  2. Create crop listings (farmers)
-  3. Create trips (truckers)
-  4. Create deliveries (linking trips to listings)
-  5. Confirm pickup + delivery
-  6. Initiate escrow payments (buyers)
-  7. Test dispute flow
-  8. Browse/filter crops and trips
+Tests the full marketplace flow against the deployed dev API.
+
+Prerequisites:
+    - Python 3.8+ (no external dependencies, stdlib only)
+    - AWS CLI configured (only needed for clearing rate limits)
+    - API deployed to dev (run `bash scripts/deploy.sh dev` first)
 
 Usage:
+    # Run against default dev API
     python3 scripts/e2e_test.py
+
+    # Run against a custom API URL
     python3 scripts/e2e_test.py --base-url https://your-api-url
 
-No external dependencies — uses only Python standard library.
+Clearing rate limits:
+    If tests fail with 429 (SYNC_RATE_LIMITED), clear the rate limit
+    entries before re-running. This is common after multiple test runs.
+
+    aws dynamodb scan \\
+      --table-name wereda-connect-dev-rate-limits \\
+      --region me-south-1 \\
+      --filter-expression "begins_with(pk, :prefix)" \\
+      --expression-attribute-values '{":prefix":{"S":"SYNC#"}}' \\
+      --projection-expression "pk,sk" \\
+    | python3 -c "
+    import json, sys, subprocess
+    data = json.load(sys.stdin)
+    items = data.get('Items', [])
+    for item in items:
+        key = json.dumps({'pk': item['pk'], 'sk': item['sk']})
+        subprocess.run([
+            'aws', 'dynamodb', 'delete-item',
+            '--table-name', 'wereda-connect-dev-rate-limits',
+            '--region', 'me-south-1', '--key', key
+        ], capture_output=True)
+    print(f'Cleared {len(items)} SYNC rate limit entries')
+    "
+
+Test phases (10 phases, ~43 checks):
+    Phase  1: Register/login 7 users (3 farmers, 2 truckers, 2 buyers)
+    Phase  2: Create 6 crop listings (or reuse existing if fraud-dup)
+    Phase  3: Create 3 trip listings
+    Phase  4: Browse & filter crops and trips
+    Phase  5: Create 3 deliveries (crop + trip + buyer)
+    Phase  6: Delivery state machine (pending -> pickedUp -> inTransit -> delivered)
+    Phase  7: Escrow payments (initiate, check status, payment history)
+    Phase  8: Dispute flow (raise dispute, verify status)
+    Phase  9: Browse deliveries, get specific crop/trip by ID
+    Phase 10: Token refresh
 """
 
 import argparse

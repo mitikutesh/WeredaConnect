@@ -92,7 +92,7 @@ public class AdminFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"AdminFunction error: [{ex.GetType().Name}] {ex.Message}");
+            context.Logger.LogError($"AdminFunction error: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ADMIN_500", "Internal server error.");
         }
     }

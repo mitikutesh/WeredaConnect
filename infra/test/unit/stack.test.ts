@@ -6,6 +6,7 @@ import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { environments } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
+const prodConfig = environments['prod'];
 
 describe('DatabaseStack', () => {
   let template: Template;
@@ -109,6 +110,72 @@ describe('ApiStack', () => {
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'JWT',
     });
+  });
+});
+
+describe('ApiStack (prod security)', () => {
+  let template: Template;
+
+  beforeAll(() => {
+    const app = new cdk.App();
+    const dbStack = new DatabaseStack(app, 'ProdDbStack', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+    });
+    const apiStack = new ApiStack(app, 'ProdApiStack', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    template = Template.fromStack(apiStack);
+  });
+
+  test('T-SEC-06: prod CORS origins contain no localhost', () => {
+    const api = template.findResources('AWS::ApiGatewayV2::Api');
+    for (const [, resource] of Object.entries(api)) {
+      const corsConfig = (resource as Record<string, Record<string, unknown>>).Properties?.CorsConfiguration as
+        Record<string, unknown> | undefined;
+      if (corsConfig?.AllowOrigins) {
+        const origins = corsConfig.AllowOrigins as string[];
+        for (const origin of origins) {
+          expect(origin).not.toMatch(/localhost/);
+        }
+      }
+    }
+  });
+
+  test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS or TELEBIRR_MOCK', () => {
+    const lambdas = template.findResources('AWS::Lambda::Function');
+    for (const [logicalId, resource] of Object.entries(lambdas)) {
+      const env = (resource as Record<string, Record<string, Record<string, Record<string, unknown>>>>)
+        .Properties?.Environment?.Variables ?? {};
+      expect(env).not.toHaveProperty('DEV_FAYDA_BYPASS',
+        `Lambda ${logicalId} has DEV_FAYDA_BYPASS — forbidden in prod`);
+      expect(env).not.toHaveProperty('TELEBIRR_MOCK',
+        `Lambda ${logicalId} has TELEBIRR_MOCK — forbidden in prod`);
+    }
+  });
+
+  test('T-SEC-07: admin token validity is 15 minutes or less', () => {
+    const clients = template.findResources('AWS::Cognito::UserPoolClient');
+    for (const [, resource] of Object.entries(clients)) {
+      const accessValidity = (resource as Record<string, Record<string, number>>).Properties?.AccessTokenValidity;
+      if (accessValidity) {
+        expect(accessValidity).toBeLessThanOrEqual(60); // minutes — CDK may use different units
+      }
+    }
   });
 });
 

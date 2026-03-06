@@ -1419,6 +1419,38 @@
   "@escrowErrorOffline": {
     "description": "Error when escrow action requires internet but device is offline"
   },
+  "escrowErrorInvalidDelivery": "Invalid delivery reference.",
+  "@escrowErrorInvalidDelivery": {
+    "description": "Error when delivery ID is missing or invalid for escrow"
+  },
+  "escrowErrorUnauthorized": "You are not authorized for this action.",
+  "@escrowErrorUnauthorized": {
+    "description": "Error when user is not authorized for escrow action"
+  },
+  "escrowErrorDeliveryNotFound": "Delivery not found.",
+  "@escrowErrorDeliveryNotFound": {
+    "description": "Error when the referenced delivery does not exist"
+  },
+  "escrowErrorInvalidDeliveryState": "Delivery is not in a valid state for payment.",
+  "@escrowErrorInvalidDeliveryState": {
+    "description": "Error when delivery status does not allow escrow initiation"
+  },
+  "escrowErrorInvalidDisputeReason": "Please select a valid dispute reason.",
+  "@escrowErrorInvalidDisputeReason": {
+    "description": "Error when dispute reason is invalid"
+  },
+  "escrowErrorDisputeWindowExpired": "The dispute window has expired (48 hours after delivery).",
+  "@escrowErrorDisputeWindowExpired": {
+    "description": "Error when dispute is raised after 48-hour window"
+  },
+  "escrowErrorDisputeAlreadyExists": "A dispute has already been raised for this payment.",
+  "@escrowErrorDisputeAlreadyExists": {
+    "description": "Error when a duplicate dispute is attempted"
+  },
+  "escrowErrorInvalidTransition": "This action is not allowed in the current payment state.",
+  "@escrowErrorInvalidTransition": {
+    "description": "Error when escrow state transition is invalid"
+  },
 
   "escrowEtbAmount": "ETB {amount}",
   "@escrowEtbAmount": {
