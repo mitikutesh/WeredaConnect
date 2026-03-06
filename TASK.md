@@ -204,30 +204,13 @@ Findings from penetration test against `dev-admin.weredaconnect.com`. Must be re
 - [x] Enable MFA (TOTP required on admin pool, optional on mobile pool) (T-SEC-08)
 - [x] IAM `ListUsers` already scoped to admin Lambda only
 
-#### T-SEC-01: Add CI/CD Guard for DEV_FAYDA_BYPASS in Production [CRITICAL]
-**Scope:** `@infra`
-**Effort:** ~1h
-**Severity:** CRITICAL
-**Finding:** `DEV_FAYDA_BYPASS=true` is active on dev. Sending `authorizationCode: "test-code-123"` to `POST /auth/fayda-verify` returns a valid verification token with `faydaId: "FAYDA-DEV-001"`, bypassing national ID verification entirely.
-**Risk:** If this flag leaks to production, anyone can create accounts with a fake identity, undermining the entire trust model.
-**Location:** `server/src/Functions/FaydaVerifyFunction.cs:85-103`, `infra/lib/stacks/api-stack.ts:377`
-**Action:**
-- Add CDK assertion: throw error if `DEV_FAYDA_BYPASS=true` when `stage === 'prod'`
-- Add CI pipeline check that scans CloudFormation output for this env var in prod
-- Consider removing the bypass entirely and using Cognito test users instead
+#### ~~T-SEC-01: Add CI/CD Guard for DEV_FAYDA_BYPASS in Production~~ DONE
+Fixed — `ProductionBypassGuard` CDK Aspect scans all Lambdas at synth time and errors if `DEV_FAYDA_BYPASS` is set. Unit test verifies prod template has no Lambda with this flag.
 
 ---
 
-#### T-SEC-02: Add CI/CD Guard for TELEBIRR_MOCK in Production [CRITICAL]
-**Scope:** `@infra`
-**Effort:** ~1h
-**Severity:** CRITICAL
-**Finding:** `TELEBIRR_MOCK=true` is set in non-prod environments. If this reaches production, real payments would use the mock gateway (no actual fund transfers).
-**Location:** `server/src/Functions/EscrowFunction.cs:460-476`, `infra/lib/stacks/api-stack.ts:432`
-**Action:**
-- Add CDK assertion: throw error if `TELEBIRR_MOCK=true` when `stage === 'prod'`
-- Add CI pipeline check mirroring T-SEC-01
-- Both guards should be in a shared `validateProductionConfig()` function
+#### ~~T-SEC-02: Add CI/CD Guard for TELEBIRR_MOCK in Production~~ DONE
+Fixed — same `ProductionBypassGuard` Aspect also checks for `TELEBIRR_MOCK`. Unit test covers both flags.
 
 ---
 
@@ -251,41 +234,18 @@ Fixed in commit `4bbf890` — health endpoint now returns only `status` + `times
 
 ---
 
-#### T-SEC-05: Remove version.json from Public Webapp [LOW]
-**Scope:** `@infra` `@mobile`
-**Effort:** ~15min
-**Severity:** LOW
-**Finding:** `https://dev-app.weredaconnect.com/version.json` publicly exposes:
-```json
-{"app_name":"wereda_connect","version":"0.1.0","build_number":"1","package_name":"wereda_connect"}
-```
-**Action:**
-- Exclude `version.json` from S3 deploy, or
-- Add CloudFront function to block access to this path
+#### ~~T-SEC-05: Remove version.json from Public Webapp~~ DONE
+Fixed — CloudFront Function `block-version-json` returns 404 for `/version.json` on the webapp distribution.
 
 ---
 
-#### T-SEC-06: Strip Localhost CORS Origins for Production [LOW]
-**Scope:** `@infra`
-**Effort:** ~15min
-**Severity:** LOW
-**Finding:** Dev environment CORS allows `http://localhost:3000/4321/5173/8080`. Verified that `https://evil.com` and `https://evil.weredaconnect.com` are correctly rejected.
-**Location:** `infra/lib/stacks/api-stack.ts:560-591`
-**Action:**
-- Verify CDK logic already strips localhost origins for `stage === 'prod'` (appears handled but needs explicit test)
-- Add CDK unit test asserting prod CORS origins contain no localhost entries
+#### ~~T-SEC-06: Strip Localhost CORS Origins for Production~~ DONE
+Verified — CDK logic already strips localhost for `isProd`. Added unit test asserting prod CORS origins contain no localhost entries.
 
 ---
 
-#### T-SEC-07: Reduce Admin Token Validity [LOW]
-**Scope:** `@infra`
-**Effort:** ~15min
-**Severity:** LOW
-**Finding:** Admin Cognito client tokens are valid for 60 minutes vs. 15 minutes for regular users.
-**Location:** `infra/lib/stacks/api-stack.ts:902-904`
-**Action:**
-- Reduce admin access token validity from 60 to 15 minutes
-- Rely on refresh tokens for longer sessions
+#### ~~T-SEC-07: Reduce Admin Token Validity~~ DONE
+Fixed — admin access/ID token validity reduced from 60 to 15 minutes. Unit test verifies.
 
 ---
 

@@ -85,6 +85,11 @@ export async function login(
       Pool: pool,
     });
 
+    // Use USER_PASSWORD_AUTH instead of default SRP.
+    // Admin users are created via CLI (admin-create-user) which doesn't
+    // generate proper SRP verifiers, causing SRP auth to fail.
+    user.setAuthenticationFlowType("USER_PASSWORD_AUTH");
+
     const authDetails = new AuthenticationDetails({
       Username: phone,
       Password: password,
