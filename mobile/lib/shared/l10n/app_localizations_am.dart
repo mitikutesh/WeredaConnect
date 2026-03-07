@@ -258,7 +258,8 @@ class AppLocalizationsAm extends AppLocalizations {
       'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት';
 
   @override
-  String get invalidPhoneFormat => 'ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ';
+  String get invalidPhoneFormat =>
+      'ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ';
 
   @override
   String get invalidCredentials => 'ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል';
@@ -359,7 +360,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get clearOfflineDataDescription => 'ይህን መረጃ ካላጠፉ ከመስመር ውጭ መግባት ይችላሉ';
 
   @override
-  String get ethiopianPhoneExample => 'ምሳሌ: +251911234567';
+  String get ethiopianPhoneExample => 'ምሳሌ: 0911234567 ወይም +251911234567';
 
   @override
   String get characters => 'ቁምፊዎች';
@@ -2075,4 +2076,25 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get tapToListCrops => 'ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
+
+  @override
+  String get synced => 'ተመሳስሏል';
+
+  @override
+  String get offline => 'ከመስመር ውጭ';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count ስራዎች ትኩረት ይፈልጋሉ';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count ለማመሳሰል ይጠብቃሉ';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return '$status ክፍያ';
+  }
 }

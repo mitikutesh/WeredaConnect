@@ -138,7 +138,8 @@
     "cronStatus": "የCron ሁኔታ",
     "healthy": "ጤናማ",
     "degraded": "ያሽቆለቆለ",
-    "down": "ወድቋል"
+    "down": "ወድቋል",
+    "services": "አገልግሎቶች"
   },
   "compliance": {
     "title": "ተገዢነት",
@@ -156,6 +157,7 @@
     "error": "ስህተት ተከስቷል",
     "retry": "እንደገና ሞክር",
     "noData": "ምንም ውሂብ የለም",
+    "notAvailable": "የለም",
     "confirm": "አረጋግጥ",
     "cancel": "ሰርዝ",
     "save": "አስቀምጥ",

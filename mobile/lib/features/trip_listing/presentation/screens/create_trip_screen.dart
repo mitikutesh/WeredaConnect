@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for creating a new trip listing.
@@ -223,11 +224,14 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     final vehiclePlate = _vehiclePlateController.text.trim();
     final vehicleDescription = _vehicleDescriptionController.text.trim();
 
+    final normalizedPhone =
+        normalizeEthiopianPhone(_truckerPhoneController.text.trim()) ??
+            _truckerPhoneController.text.trim();
     context.read<TripListingBloc>().add(
           CreateTrip(
             truckerId: authState.userId,
             truckerName: _truckerNameController.text.trim(),
-            truckerPhone: _truckerPhoneController.text.trim(),
+            truckerPhone: normalizedPhone,
             vehiclePlate: vehiclePlate.isNotEmpty ? vehiclePlate : null,
             vehicleDescription:
                 vehicleDescription.isNotEmpty ? vehicleDescription : null,
@@ -340,7 +344,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               decoration: InputDecoration(
                                 labelText: l10n.truckerPhone,
                                 prefixIcon: const Icon(Icons.phone),
-                                hintText: '+251XXXXXXXXX',
+                                hintText: '09XXXXXXXX',
                                 border: const OutlineInputBorder(),
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -352,8 +356,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 if (value == null || value.trim().isEmpty) {
                                   return l10n.invalidPhoneFormat;
                                 }
-                                final phoneRegex = RegExp(r'^\+251\d{9}$');
-                                if (!phoneRegex.hasMatch(value.trim())) {
+                                if (!isValidEthiopianPhone(value.trim())) {
                                   return l10n.invalidPhoneFormat;
                                 }
                                 return null;

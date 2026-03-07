@@ -138,7 +138,8 @@
     "cronStatus": "Cron Status",
     "healthy": "Healthy",
     "degraded": "Degraded",
-    "down": "Down"
+    "down": "Down",
+    "services": "Services"
   },
   "compliance": {
     "title": "Compliance",
@@ -156,6 +157,7 @@
     "error": "An error occurred",
     "retry": "Retry",
     "noData": "No data available",
+    "notAvailable": "N/A",
     "confirm": "Confirm",
     "cancel": "Cancel",
     "save": "Save",

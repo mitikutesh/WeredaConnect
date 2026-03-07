@@ -333,7 +333,7 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
-  "invalidPhoneFormat": "Invalid phone number format. Use +251XXXXXXXXX",
+  "invalidPhoneFormat": "Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
@@ -468,7 +468,7 @@
   "@clearOfflineDataDescription": {
     "description": "Description for clear offline data option"
   },
-  "ethiopianPhoneExample": "Example: +251911234567",
+  "ethiopianPhoneExample": "Example: 0911234567 or +251911234567",
   "@ethiopianPhoneExample": {
     "description": "Example Ethiopian phone number"
   },
@@ -2796,5 +2796,24 @@
   "sellYourHarvest": "SELL YOUR HARVEST",
   "@sellYourHarvest": { "description": "Farmer-specific banner headline prompting crop listing" },
   "tapToListCrops": "List your crops and reach buyers directly",
-  "@tapToListCrops": { "description": "Farmer-specific banner subtitle" }
+  "@tapToListCrops": { "description": "Farmer-specific banner subtitle" },
+  "synced": "Synced",
+  "@synced": { "description": "Sync status badge when data is up to date" },
+  "offline": "Offline",
+  "@offline": { "description": "Sync status badge when device is offline" },
+  "syncFailureCount": "{count} operations need attention",
+  "@syncFailureCount": {
+    "description": "Subtitle for failed sync notification",
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "syncPendingCount": "{count} waiting to sync",
+  "@syncPendingCount": {
+    "description": "Subtitle for pending sync notification",
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "paymentStatusTitle": "{status} payment",
+  "@paymentStatusTitle": {
+    "description": "Payment notification title with status",
+    "placeholders": { "status": { "type": "String" } }
+  }
 }

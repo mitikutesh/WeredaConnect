@@ -751,7 +751,8 @@ class _DesktopSyncChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = isOnline ? 'Synced' : 'Offline';
+    final l10n = AppLocalizations.of(context)!;
+    final label = isOnline ? l10n.synced : l10n.offline;
     final color = isOnline ? AppTheme.statusSuccess : AppTheme.textMuted;
     final icon =
         isOnline ? Icons.cloud_done_outlined : Icons.cloud_off_outlined;
@@ -1181,8 +1182,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
         result['listings'] = _countApiItems(responses[0], alt: 'crops');
         result['payments'] = _countApiItems(responses[1], alt: 'escrows');
         result['pendingOrders'] = _countApiItems(responses[2], alt: 'orders');
-        result['deliveries'] =
-            _countApiItems(responses[3], alt: 'deliveries');
+        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
       } else if (role == UserRole.buyer) {
         final responses = await Future.wait([
           safeGet('/deliveries', queryParameters: {'buyerId': userId}),
@@ -1190,8 +1190,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           safeGet('/orders', queryParameters: {'buyerId': userId}),
           safeGet('/crops', queryParameters: {'status': 'active'}),
         ]);
-        result['deliveries'] =
-            _countApiItems(responses[0], alt: 'deliveries');
+        result['deliveries'] = _countApiItems(responses[0], alt: 'deliveries');
         result['payments'] = _countApiItems(responses[1], alt: 'escrows');
         result['activeOrders'] = _countApiItems(responses[2], alt: 'orders');
         result['listings'] = _countApiItems(responses[3], alt: 'crops');
@@ -1211,8 +1210,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
         result['trips'] = _countApiItems(responses[0], alt: 'trips');
         result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
         result['matched'] = _countApiItems(responses[2], alt: 'trips');
-        result['deliveries'] =
-            _countApiItems(responses[3], alt: 'deliveries');
+        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
       }
 
       return result;
@@ -2135,7 +2133,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
           _NotifItem(
             icon: Icons.sync_problem,
             title: widget.l10n.syncFailed,
-            subtitle: '$failedCount operations need attention',
+            subtitle: widget.l10n.syncFailureCount(failedCount),
             color: AppTheme.statusError,
             time: DateTime.now(),
             action: _NotifAction.syncStatus,
@@ -2151,7 +2149,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
           _NotifItem(
             icon: Icons.cloud_upload_outlined,
             title: widget.l10n.syncPending,
-            subtitle: '$pendingCount waiting to sync',
+            subtitle: widget.l10n.syncPendingCount(pendingCount),
             color: AppTheme.accentGold,
             time: DateTime.now(),
             action: _NotifAction.syncStatus,
@@ -2206,7 +2204,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
         items.add(
           _NotifItem(
             icon: Icons.account_balance_wallet_outlined,
-            title: '${p.status.name} payment',
+            title: widget.l10n.paymentStatusTitle(p.status.name),
             subtitle: '${p.amount} ETB',
             color: p.status == PaymentStatus.released
                 ? AppTheme.statusSuccess

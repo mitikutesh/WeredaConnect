@@ -13,19 +13,20 @@ import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
 /// Login screen with Ethiopian phone input and offline mode support.
 ///
 /// Features:
-/// - Ethiopian phone number input (+251 prefix auto-filled)
+/// - Ethiopian phone number input (accepts +251, 00251, or 0 prefix)
 /// - Password input with visibility toggle
 /// - Offline mode indicator
 /// - Large touch targets (48dp minimum per Material Design)
 /// - Localized error messages (Amharic/Oromo/English)
 ///
 /// Ethiopian context:
-/// - Phone number format: +251XXXXXXXXX (9 digits after +251)
+/// - Phone number formats: +251XXXXXXXXX, 00251XXXXXXXXX, 0XXXXXXXXX
 /// - Simple error messages for low-literacy users
 /// - Visual feedback (colors, icons) more than text
 class LoginScreen extends StatefulWidget {
@@ -37,7 +38,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _phoneController = TextEditingController(text: '+251');
+  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
 
   bool _obscurePassword = true;
@@ -74,10 +75,12 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Dispatch login event via BLoC
+    // Normalize phone to canonical E.164 before dispatching
+    final normalizedPhone =
+        normalizeEthiopianPhone(_phoneController.text.trim());
     context.read<AuthBloc>().add(
           AuthLoginRequested(
-            phoneNumber: _phoneController.text.trim(),
+            phoneNumber: normalizedPhone!,
             password: _passwordController.text,
           ),
         );
@@ -316,15 +319,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 keyboardType: TextInputType.phone,
                 inputFormatters: [
-                  // Ensure +251 prefix is always present
                   FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
                 ],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return l10n.phoneNumber;
                   }
-                  // Ethiopian phone format: +251XXXXXXXXX
-                  if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
+                  if (!isValidEthiopianPhone(value)) {
                     return l10n.invalidPhoneFormat;
                   }
                   return null;

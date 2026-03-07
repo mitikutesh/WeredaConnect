@@ -333,7 +333,7 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
-  "invalidPhoneFormat": "Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami",
+  "invalidPhoneFormat": "Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
@@ -468,7 +468,7 @@
   "@clearOfflineDataDescription": {
     "description": "Description for clear offline data option"
   },
-  "ethiopianPhoneExample": "Fakkeenya: +251911234567",
+  "ethiopianPhoneExample": "Fakkeenya: 0911234567 ykn +251911234567",
   "@ethiopianPhoneExample": {
     "description": "Example Ethiopian phone number"
   },
@@ -2252,5 +2252,10 @@
   "checkConnectionRetry": "Maaloo walqunnamtii keessan mirkaneessaa irra deebi'aa yaalaatii.",
   "sellCrops": "Midhaan Gurguri",
   "sellYourHarvest": "OOMISHA KEESSAN GURGURAA",
-  "tapToListCrops": "Midhaan keessan galmeessaa bittoota kallattiin argadhaa"
+  "tapToListCrops": "Midhaan keessan galmeessaa bittoota kallattiin argadhaa",
+  "synced": "Walsimame",
+  "offline": "Oflaayinii",
+  "syncFailureCount": "{count} hojiiwwan xiyyeeffannoo barbaadu",
+  "syncPendingCount": "{count} walsimsisuuf eeggataa jiru",
+  "paymentStatusTitle": "Kaffaltii {status}"
 }

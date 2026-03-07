@@ -263,7 +263,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get invalidPhoneFormat =>
-      'Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami';
+      'Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami';
 
   @override
   String get invalidCredentials =>
@@ -375,7 +375,7 @@ class AppLocalizationsOm extends AppLocalizations {
       'Yoo daataa kana hin haqiin offline ta\'anii seenuu dandeessu';
 
   @override
-  String get ethiopianPhoneExample => 'Fakkeenya: +251911234567';
+  String get ethiopianPhoneExample => 'Fakkeenya: 0911234567 ykn +251911234567';
 
   @override
   String get characters => 'qubeelee';
@@ -2141,4 +2141,25 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get tapToListCrops =>
       'Midhaan keessan galmeessaa bittoota kallattiin argadhaa';
+
+  @override
+  String get synced => 'Walsimame';
+
+  @override
+  String get offline => 'Oflaayinii';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count hojiiwwan xiyyeeffannoo barbaadu';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count walsimsisuuf eeggataa jiru';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return 'Kaffaltii $status';
+  }
 }

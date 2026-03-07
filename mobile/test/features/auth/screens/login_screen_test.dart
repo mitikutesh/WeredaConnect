@@ -85,7 +85,7 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Phone field with pre-filled +251
+      // Phone field
       final phoneField = find.byType(TextFormField).first;
       expect(phoneField, findsOneWidget);
 
@@ -105,13 +105,16 @@ void main() {
       expect(find.byIcon(Icons.language), findsOneWidget);
     });
 
-    testWidgets('phone field pre-filled with +251', (tester) async {
+    testWidgets('phone field starts empty (no pre-fill)', (tester) async {
       setMobileSize(tester);
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Find the text input that contains +251
-      expect(find.text('+251'), findsOneWidget);
+      // Phone field should be empty (no +251 pre-fill)
+      final phoneEditableText = find.byType(EditableText).first;
+      final phoneController =
+          tester.widget<EditableText>(phoneEditableText).controller;
+      expect(phoneController.text, isEmpty);
     });
 
     testWidgets('shows validation errors on empty submit', (tester) async {
@@ -119,16 +122,7 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Clear the pre-filled phone number
-      final phoneField = find.byType(TextFormField).first;
-      await tester.tap(phoneField);
-      await tester.pumpAndSettle();
-
-      // Select all and delete
-      final editableText = find.byType(EditableText).first;
-      final controller = tester.widget<EditableText>(editableText).controller;
-      controller.clear();
-      await tester.pumpAndSettle();
+      // Phone field is already empty (no pre-fill)
 
       // Tap login button — find the ElevatedButton
       final loginButton = find.byType(ElevatedButton);
@@ -174,7 +168,9 @@ void main() {
 
       // Should show phone format error
       expect(
-        find.text('Invalid phone number format. Use +251XXXXXXXXX'),
+        find.text(
+          'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX',
+        ),
         findsOneWidget,
       );
     });

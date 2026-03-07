@@ -69,6 +69,16 @@ public class LoginFunction
             return LambdaResponse.Error(400, "AUTH_007", "Invalid JSON in request body.");
         }
 
+        // Normalize phone number (accept +251, 00251, or 0 prefix)
+        if (loginRequest != null)
+        {
+            var normalizedPhone = RequestValidator.NormalizePhoneNumber(loginRequest.PhoneNumber);
+            if (normalizedPhone != null)
+            {
+                loginRequest = loginRequest with { PhoneNumber = normalizedPhone };
+            }
+        }
+
         // Validate
         var validation = RequestValidator.ValidateLoginRequest(loginRequest);
         if (!validation.IsValid)

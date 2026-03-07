@@ -1391,7 +1391,7 @@ public partial class SyncFunction
             errors.Add("status must be 'open' for create.");
         }
 
-        // truckerPhone: required on create, must be valid Ethiopian E.164 (+251XXXXXXXXX)
+        // truckerPhone: required on create, must be valid Ethiopian phone
         if (isCreate || data.ContainsKey("truckerPhone"))
         {
             if (!data.TryGetValue("truckerPhone", out var phoneObj)
@@ -1402,10 +1402,18 @@ public partial class SyncFunction
                     errors.Add("truckerPhone is required.");
                 }
             }
-            else if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
+            else
             {
-                // F-SEC-02: Strict E.164 validation (exactly +251 + 9 digits = 13 chars)
-                errors.Add("truckerPhone must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
+                // F-SEC-02: Normalize then validate (accepts +251, 00251, 0 prefix)
+                var normalized = Validation.RequestValidator.NormalizePhoneNumber(phoneObj.ToString()!);
+                if (normalized == null)
+                {
+                    errors.Add("truckerPhone must be valid Ethiopian format (+251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX).");
+                }
+                else
+                {
+                    data["truckerPhone"] = normalized;
+                }
             }
         }
 
@@ -1579,15 +1587,20 @@ public partial class SyncFunction
             }
         }
 
-        // F12-SEC-04: Phone format validation using strict E.164 regex
+        // F12-SEC-04: Phone format validation — normalize then validate
         foreach (var phoneField in new[] { "farmerPhone", "truckerPhone", "buyerPhone" })
         {
             if (data.TryGetValue(phoneField, out var phoneObj)
                 && phoneObj != null && !string.IsNullOrWhiteSpace(phoneObj.ToString()))
             {
-                if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
+                var normalized = Validation.RequestValidator.NormalizePhoneNumber(phoneObj.ToString()!);
+                if (normalized == null)
                 {
-                    errors.Add($"{phoneField} must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
+                    errors.Add($"{phoneField} must be valid Ethiopian format (+251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX).");
+                }
+                else
+                {
+                    data[phoneField] = normalized;
                 }
             }
         }

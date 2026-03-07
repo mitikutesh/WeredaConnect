@@ -595,7 +595,7 @@ abstract class AppLocalizations {
   /// Error message for invalid phone format
   ///
   /// In en, this message translates to:
-  /// **'Invalid phone number format. Use +251XXXXXXXXX'**
+  /// **'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX'**
   String get invalidPhoneFormat;
 
   /// Error message for invalid credentials
@@ -775,7 +775,7 @@ abstract class AppLocalizations {
   /// Example Ethiopian phone number
   ///
   /// In en, this message translates to:
-  /// **'Example: +251911234567'**
+  /// **'Example: 0911234567 or +251911234567'**
   String get ethiopianPhoneExample;
 
   /// Characters (for password requirements)
@@ -4035,6 +4035,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'List your crops and reach buyers directly'**
   String get tapToListCrops;
+
+  /// Sync status badge when data is up to date
+  ///
+  /// In en, this message translates to:
+  /// **'Synced'**
+  String get synced;
+
+  /// Sync status badge when device is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get offline;
+
+  /// Subtitle for failed sync notification
+  ///
+  /// In en, this message translates to:
+  /// **'{count} operations need attention'**
+  String syncFailureCount(int count);
+
+  /// Subtitle for pending sync notification
+  ///
+  /// In en, this message translates to:
+  /// **'{count} waiting to sync'**
+  String syncPendingCount(int count);
+
+  /// Payment notification title with status
+  ///
+  /// In en, this message translates to:
+  /// **'{status} payment'**
+  String paymentStatusTitle(String status);
 }
 
 class _AppLocalizationsDelegate

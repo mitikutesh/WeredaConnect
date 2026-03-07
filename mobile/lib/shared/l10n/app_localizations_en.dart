@@ -262,7 +262,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get invalidPhoneFormat =>
-      'Invalid phone number format. Use +251XXXXXXXXX';
+      'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
 
   @override
   String get invalidCredentials => 'Invalid phone number or password';
@@ -372,7 +372,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'You can still access your account offline if you don\'t clear this data';
 
   @override
-  String get ethiopianPhoneExample => 'Example: +251911234567';
+  String get ethiopianPhoneExample => 'Example: 0911234567 or +251911234567';
 
   @override
   String get characters => 'characters';
@@ -2125,4 +2125,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tapToListCrops => 'List your crops and reach buyers directly';
+
+  @override
+  String get synced => 'Synced';
+
+  @override
+  String get offline => 'Offline';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count operations need attention';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count waiting to sync';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return '$status payment';
+  }
 }

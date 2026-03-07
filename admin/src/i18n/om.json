@@ -138,7 +138,8 @@
     "cronStatus": "Haala Cron",
     "healthy": "Fayyaa",
     "degraded": "Hir'atee",
-    "down": "Kufee"
+    "down": "Kufee",
+    "services": "Tajaajilota"
   },
   "compliance": {
     "title": "Hordoffii",
@@ -156,6 +157,7 @@
     "error": "Dogoggorri uumameera",
     "retry": "Irra deebi'i yaali",
     "noData": "Daataan hin jiru",
+    "notAvailable": "Hin jiru",
     "confirm": "Mirkaneessi",
     "cancel": "Dhiisi",
     "save": "Olkaa'i",

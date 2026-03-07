@@ -333,7 +333,7 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
-  "invalidPhoneFormat": "ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ",
+  "invalidPhoneFormat": "ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
@@ -383,21 +383,27 @@
   "@durationSeconds": {
     "description": "Duration in seconds",
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "durationMinutes": "{count} ደቂቃ",
   "@durationMinutes": {
     "description": "Duration in minutes",
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "durationHours": "{count} ሰዓት",
   "@durationHours": {
     "description": "Duration in hours",
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "phoneNotVerified": "ስልክ ቁጥር አልተረጋገጠም። እባክዎ የOTP ማረጋገጫን ያጠናቅቁ።",
@@ -468,7 +474,7 @@
   "@clearOfflineDataDescription": {
     "description": "Description for clear offline data option"
   },
-  "ethiopianPhoneExample": "ምሳሌ: +251911234567",
+  "ethiopianPhoneExample": "ምሳሌ: 0911234567 ወይም +251911234567",
   "@ethiopianPhoneExample": {
     "description": "Example Ethiopian phone number"
   },
@@ -548,9 +554,9 @@
   "@quantityRequired": {
     "description": "Validation error for missing quantity"
   },
-  "priceRequired": "እባክዎ ዋጋውን ያስገቡ",
+  "priceRequired": "ዋጋ ያስፈልጋል",
   "@priceRequired": {
-    "description": "Validation error for missing price"
+    "description": "Validation error when price is not entered"
   },
   "locationRequired": "እባክዎ ቦታውን ያስገቡ",
   "@locationRequired": {
@@ -738,10 +744,6 @@
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
   },
-  "priceRequired": "ዋጋ ያስፈልጋል",
-  "@priceRequired": {
-    "description": "Validation error when price is not entered"
-  },
   "invalidCapacity": "አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት",
   "@invalidCapacity": {
     "description": "Validation error for out-of-range capacity value"
@@ -754,9 +756,13 @@
   "@sameOriginDestination": {
     "description": "Validation error when origin and destination woredas are identical"
   },
-  "etbCurrency": "ብር",
+  "etbCurrency": "{amount} ብር",
   "@etbCurrency": {
-    "description": "Ethiopian Birr currency abbreviation for price display"
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
   },
   "findTransport": "ትራንስፖርት ፈልግ",
   "@findTransport": {
@@ -1116,9 +1122,7 @@
   "@deliverySeedTestButton": {
     "description": "Debug button text to create a test delivery"
   },
-
   "@@escrowPaymentSection": "=== Escrow Payment Feature ===",
-
   "escrowPayments": "ክፍያዎች",
   "@escrowPayments": {
     "description": "Navigation label for escrow payments section"
@@ -1139,7 +1143,6 @@
   "@escrowRaiseDispute": {
     "description": "Screen title for raising an escrow dispute"
   },
-
   "escrowStatusInitiated": "ክፍያ በመጠባበቅ",
   "@escrowStatusInitiated": {
     "description": "Status label when escrow payment is initiated but not yet held"
@@ -1168,7 +1171,6 @@
   "@escrowStatusRefunded": {
     "description": "Status label when escrow payment has been refunded"
   },
-
   "escrowProtectionInfo": "ማድረሻ እስኪረጋገጥ ድረስ ክፍያዎ በጥበቃ ይቀመጣል።",
   "@escrowProtectionInfo": {
     "description": "Trust-building message explaining escrow protection"
@@ -1225,7 +1227,6 @@
   "@escrowPaymentSuccess": {
     "description": "Success message after payment is initiated"
   },
-
   "escrowDeliveryLabel": "ማድረሻ",
   "@escrowDeliveryLabel": {
     "description": "Label for delivery reference on escrow status screen"
@@ -1264,7 +1265,6 @@
       }
     }
   },
-
   "escrowFilterAll": "ሁሉም",
   "@escrowFilterAll": {
     "description": "Filter chip label to show all escrow payments"
@@ -1311,7 +1311,6 @@
   "@escrowIntentCancelled": {
     "description": "Success message after cancelling a queued payment intent"
   },
-
   "escrowDisputeTimeRemaining": "ቀሪ ጊዜ: {hours} ሰዓት {minutes} ደቂቃ",
   "@escrowDisputeTimeRemaining": {
     "description": "Countdown showing remaining time to raise a dispute",
@@ -1362,7 +1361,6 @@
   "@escrowDisputeRequiresInternet": {
     "description": "Error message when user tries to raise dispute while offline"
   },
-
   "escrowReasonDamagedGoods": "የተበላሸ ዕቃ",
   "@escrowReasonDamagedGoods": {
     "description": "Dispute reason: goods were damaged"
@@ -1387,7 +1385,6 @@
   "@escrowReasonOther": {
     "description": "Dispute reason: other reason not listed"
   },
-
   "escrowErrorInvalidAmount": "መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።",
   "@escrowErrorInvalidAmount": {
     "description": "Error when payment amount is outside allowed range"
@@ -1460,7 +1457,6 @@
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"
   },
-
   "escrowEtbAmount": "ብር {amount}",
   "@escrowEtbAmount": {
     "description": "Formatted ETB currency amount",
@@ -1471,9 +1467,7 @@
       }
     }
   },
-
   "@@audioNoteSection": "=== Audio Note Feature ===",
-
   "recording": "በመቅዳት ላይ...",
   "@recording": {
     "description": "Label shown while recording audio"
@@ -1572,9 +1566,7 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
-
   "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
-
   "conflictTitle": "ዳታ ተዘምኗል",
   "@conflictTitle": {
     "description": "Title shown on conflict resolution modal when server overwrites local data"
@@ -1674,9 +1666,7 @@
   "@conflictShowAllChanges": {
     "description": "Expandable button to show all field changes when more than 4 fields changed"
   },
-
   "@@fraudDetectionSection": "=== Fraud Detection Feature ===",
-
   "fraudDuplicateListing": "ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።",
   "@fraudDuplicateListing": {
     "description": "Error when duplicate crop listing detected by server fraud check"
@@ -1685,7 +1675,6 @@
   "@fraudVelocityExceeded": {
     "description": "Error when velocity limit exceeded by server fraud check"
   },
-
   "profileSaved": "መገለጫ ተዘምኗል",
   "@profileSaved": {
     "description": "Snackbar message after profile is saved successfully"
@@ -1748,9 +1737,7 @@
   "@tutorialComingSoon": {
     "description": "Snackbar message shown when user taps How it works chip on welcome screen"
   },
-
   "@@p0LocalizationFixes": "=== P0 Localization Fixes (FIX-013 to FIX-018) ===",
-
   "escrowDescInitiated": "የቴሌብር ማረጋገጫ በመጠበቅ ላይ",
   "@escrowDescInitiated": {
     "description": "Status description for initiated escrow payment"
@@ -1779,7 +1766,6 @@
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
   },
-
   "conflictFieldCropType": "የሰብል ዓይነት",
   "@conflictFieldCropType": {
     "description": "Field label for crop type in conflict resolution"
@@ -1808,12 +1794,10 @@
   "@conflictFieldTrip": {
     "description": "Field label for trip in conflict resolution"
   },
-
   "escrowPayButton": "ክፈል",
   "@escrowPayButton": {
     "description": "Button label for payment confirmation dialog"
   },
-
   "escrowDisputeReasonPrefix": "ምክንያት: {reason}",
   "@escrowDisputeReasonPrefix": {
     "description": "Prefix label for dispute reason display",
@@ -1824,7 +1808,6 @@
       }
     }
   },
-
   "escrowDeliveryNumber": "ማድረስ #{id}",
   "@escrowDeliveryNumber": {
     "description": "Delivery reference with ID",
@@ -1869,9 +1852,7 @@
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
   },
-
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
-
   "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
   "@genericError": {
     "description": "Generic error message shown when an unexpected error occurs"
@@ -1976,16 +1957,12 @@
   "@escrowPaymentNotFoundForDelivery": {
     "description": "Error when escrow payment for a specific delivery cannot be found"
   },
-
   "@@authUxFixes": "=== Auth UX Fixes (loading feedback) ===",
-
   "pleaseWait": "እባክዎ ይጠብቁ...",
   "@pleaseWait": {
     "description": "Loading indicator text shown during auth operations on slow networks"
   },
-
   "@@uiRedesign": "=== UI Redesign Strings ===",
-
   "greeting": "ሰላም",
   "homeSubtitle": "ዛሬ ምን ማድረግ ይፈልጋሉ?",
   "bannerHeadline": "ደላላ አያስፈልግም",
@@ -2046,11 +2023,11 @@
   "personalInfoDescription": "መለያ ለመፍጠር ዝርዝሮችዎን ያስገቡ",
   "verified": "የተረጋገጠ",
   "scanLicense": "ፈቃድ ቃኝ",
-  "statusFunded": "ገንዘብ ገብቷል",
+  "statusFunded": "ገንዘብ ተላልፏል",
   "statusPlaced": "ታዝዟል",
   "statusAssigned": "ተመድቧል",
   "statusTransit": "በመንገድ ላይ",
-  "statusDisputed": "አለመግባባት",
+  "statusDisputed": "በክርክር ላይ",
   "deliveryTitle": "ማድረሻ #{id}",
   "@deliveryTitle": {
     "placeholders": {
@@ -2127,8 +2104,6 @@
   "orderRejected": "ውድቅ ተደርጓል",
   "acceptOrder": "ተቀበል",
   "rejectOrder": "ውድቅ አድርግ",
-  "buyer": "ገዢ",
-  "farmer": "ገበሬ",
   "splashHeadline": "አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።",
   "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።",
   "orderFunded": "ገንዘብ ተከፍሏል",
@@ -2158,14 +2133,12 @@
   "statusCreated": "ተፈጥሯል",
   "statusPendingPayment": "ክፍያ በመጠባበቅ",
   "statusPaymentSubmitted": "ክፍያ ገብቷል",
-  "statusFunded": "ገንዘብ ተላልፏል",
   "statusPickupConfirmed": "ማንሳት ተረጋግጧል",
   "statusInTransit": "በመጓጓዣ ላይ",
   "statusDelivered": "ተረክቧል",
   "statusDisbursing": "በማከፋፈል ላይ",
   "statusSettled": "ተጠናቅቋል",
   "statusPaymentFailed": "ክፍያ አልተሳካም",
-  "statusDisputed": "በክርክር ላይ",
   "statusDisputeResolved": "ክርክር ተፈቷል",
   "cancelOrder": "ትዕዛዝ ሰርዝ",
   "cancelReason": "የሰረዙበት ምክንያት",
@@ -2183,14 +2156,6 @@
   "paymentInstructions": "የክፍያ መመሪያዎች",
   "transactionIdRequired": "የግብይት መታወቂያ ያስፈልጋል",
   "orderTimeline": "የትዕዛዝ ሂደት",
-  "etbCurrency": "{amount} ብር",
-  "@etbCurrency": {
-    "placeholders": {
-      "amount": {
-        "type": "String"
-      }
-    }
-  },
   "quantityKg": "{amount} ኪግ",
   "@quantityKg": {
     "placeholders": {
@@ -2208,13 +2173,25 @@
   "maxPrice": "ከፍተኛ ዋጋ (ብር/ኪግ)",
   "deliverTo": "ማድረሻ",
   "matchesFound": "{count} ተመሳሳይ ተገኝቷል",
-  "@matchesFound": { "placeholders": { "count": { "type": "int" } } },
+  "@matchesFound": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "noMatchesYet": "ገና ምንም ተመሳሳይ የለም",
   "suggestedTransport": "የተጠቆመ ትራንስፖርት",
   "selectThisTrip": "ይህን ጉዞ ይምረጡ",
   "estimatedTotal": "የተገመተ ጠቅላላ",
   "tripsAvailable": "{count} ጉዞዎች አሉ",
-  "@tripsAvailable": { "placeholders": { "count": { "type": "int" } } },
+  "@tripsAvailable": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "noTripsYet": "ገና ጉዞ የለም",
   "placeOrderWithTransport": "ትዕዛዝ + ትራንስፖርት",
   "placeOrderNoTransport": "ትዕዛዝ (ያለ ትራንስፖርት)",
@@ -2224,33 +2201,65 @@
   "transportCostLabel": "የትራንስፖርት ዋጋ",
   "commissionLabel": "ኮሚሽን (5%)",
   "syncedAgo": "ከ{time} በፊት ተመሳሳል",
-  "@syncedAgo": { "placeholders": { "time": { "type": "String" } } },
+  "@syncedAgo": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "browseAllListings": "ሁሉንም ዝርዝሮች ይመልከቱ",
   "browseAllTrips": "ሁሉንም ጉዞዎች ይመልከቱ",
   "intentSaved": "ተቀምጧል! አዲስ ተመሳሳይ ሲኖር እናሳውቅዎታለን",
   "newMatchesAvailable": "አዲስ ተመሳሳይ ተገኝቷል!",
   "findCrops": "ሰብል ፈልግ",
   "totalLabel": "ጠቅላላ",
-
   "startTrip": "ጉዞ ጀምር",
   "startTripConfirmation": "ይህን ጉዞ ይጀምሩ? ጭነቱን መውሰዳቸውን ያረጋግጣሉ።",
   "tripStartedSuccess": "ጉዞ ተጀመረ! በጥንቃቄ ይነዱ።",
   "markDelivered": "ተደርሷል ምልክት ያድርጉ",
   "markDeliveredConfirmation": "ተላልፏል ምልክት ያድርጉ? ሸቀጦቹ መላካቸውን ያረጋግጡ።",
   "tripDeliveredSuccess": "ማድረስ ተረጋግጧል!",
-
   "waitingForMatch": "ጥሪ እየተጠበቀ ነው...",
   "headingTo": "ወደ {destination} በመሄድ ላይ",
   "postNextTrip": "ቀጣይ ጉዞ ይለጥፉ",
   "recentRoutes": "የቅርብ ጊዜ መንገዶች",
   "noActiveTrip": "ንቁ ጉዞ የለም",
   "postATrip": "ጉዞ ይለጥፉ",
-
   "repeatLastTrip": "ያለፈውን ጉዞ ድገም",
   "quickFill": "ፈጣን ሙሌት",
   "somethingWentWrong": "ችግር ተፈጥሯል",
   "checkConnectionRetry": "እባክዎ ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
   "sellCrops": "ሰብል ይሸጡ",
   "sellYourHarvest": "ምርትዎን ይሸጡ",
-  "tapToListCrops": "ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ"
+  "tapToListCrops": "ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ",
+  "synced": "ተመሳስሏል",
+  "offline": "ከመስመር ውጭ",
+  "syncFailureCount": "{count} ስራዎች ትኩረት ይፈልጋሉ",
+  "@syncFailureCount": {
+    "description": "Subtitle for failed sync notification",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncPendingCount": "{count} ለማመሳሰል ይጠብቃሉ",
+  "@syncPendingCount": {
+    "description": "Subtitle for pending sync notification",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "paymentStatusTitle": "{status} ክፍያ",
+  "@paymentStatusTitle": {
+    "description": "Payment notification title with status",
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

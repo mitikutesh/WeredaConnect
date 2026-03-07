@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -54,7 +55,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(
-      text: widget.phone.isEmpty ? '+251' : widget.phone,
+      text: widget.phone.isEmpty ? '' : widget.phone,
     );
     _nameController = TextEditingController(text: widget.name);
     _weredaController = TextEditingController(text: widget.woreda);
@@ -120,12 +121,16 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     if (value == null || value.isEmpty) {
                       return l10n.fieldRequired;
                     }
-                    if (!RegExp(r'^\+251\d{9}$').hasMatch(value)) {
+                    if (!isValidEthiopianPhone(value)) {
                       return l10n.invalidPhoneFormat;
                     }
                     return null;
                   },
-                  onChanged: widget.onPhoneChanged,
+                  onChanged: (value) {
+                    // Normalize to canonical E.164 before passing upstream
+                    final normalized = normalizeEthiopianPhone(value);
+                    widget.onPhoneChanged(normalized ?? value);
+                  },
                 ),
                 const SizedBox(height: 16),
 

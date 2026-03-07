@@ -65,7 +65,7 @@ export function LoginPage() {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+251..."
+                  placeholder="09XXXXXXXX or +251..."
                   required
                   className="mt-1 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 />

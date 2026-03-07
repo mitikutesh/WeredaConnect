@@ -12,6 +12,10 @@ public class RequestValidatorTests
     [InlineData("+251912345678")]
     [InlineData("+251911000000")]
     [InlineData("+251700000000")]
+    [InlineData("00251912345678")]  // 00251 format
+    [InlineData("00251911000000")]
+    [InlineData("0912345678")]      // local 0 format
+    [InlineData("0911000000")]
     public void ValidatePhoneNumber_ValidPhones_ReturnsSuccess(string phone)
     {
         var result = RequestValidator.ValidatePhoneNumber(phone);
@@ -22,11 +26,13 @@ public class RequestValidatorTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData(" ")]
-    [InlineData("+25191234567")]   // 8 digits
-    [InlineData("+2519123456789")] // 10 digits
-    [InlineData("0912345678")]     // no +251
+    [InlineData("+25191234567")]   // 8 digits after +251
+    [InlineData("+2519123456789")] // 10 digits after +251
     [InlineData("+252912345678")]  // wrong country
     [InlineData("not-a-number")]
+    [InlineData("091234567")]      // only 8 digits after 0
+    [InlineData("09123456789")]    // 10 digits after 0
+    [InlineData("0025191234567")]  // 8 digits after 00251
     public void ValidatePhoneNumber_InvalidPhones_ReturnsFailure(string? phone)
     {
         var result = RequestValidator.ValidatePhoneNumber(phone);
@@ -34,6 +40,44 @@ public class RequestValidatorTests
         Assert.Single(result.Errors);
         Assert.Equal("AUTH_001", result.Errors[0].Code);
         Assert.Equal("phoneNumber", result.Errors[0].Field);
+    }
+
+    // --- Phone Normalization ---
+
+    [Theory]
+    [InlineData("+251912345678", "+251912345678")]
+    [InlineData("00251912345678", "+251912345678")]
+    [InlineData("0912345678", "+251912345678")]
+    [InlineData("+251 911 234 567", "+251911234567")]
+    [InlineData("0911-234-567", "+251911234567")]
+    public void NormalizePhoneNumber_ValidFormats_ReturnsCanonical(string input, string expected)
+    {
+        var result = RequestValidator.NormalizePhoneNumber(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("12345")]
+    [InlineData("+252912345678")]
+    [InlineData("+251abc234567")]
+    public void NormalizePhoneNumber_InvalidInput_ReturnsNull(string? input)
+    {
+        var result = RequestValidator.NormalizePhoneNumber(input);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void NormalizePhoneNumber_AllFormats_ProduceSameResult()
+    {
+        var e164 = RequestValidator.NormalizePhoneNumber("+251911234567");
+        var international = RequestValidator.NormalizePhoneNumber("00251911234567");
+        var local = RequestValidator.NormalizePhoneNumber("0911234567");
+
+        Assert.Equal(e164, international);
+        Assert.Equal(e164, local);
+        Assert.Equal("+251911234567", e164);
     }
 
     // --- Password ---

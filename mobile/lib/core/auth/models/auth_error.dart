@@ -68,7 +68,7 @@ extension AuthErrorCodeExtension on String {
     switch (this) {
       // Registration errors
       case AuthErrorCode.invalidPhoneFormat:
-        return 'Invalid phone number format. Use Ethiopian format: +251XXXXXXXXX';
+        return 'Invalid phone number format. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
       case AuthErrorCode.invalidPassword:
         return 'Password must be at least 8 characters with a lowercase letter and a number';
       case AuthErrorCode.invalidRole:

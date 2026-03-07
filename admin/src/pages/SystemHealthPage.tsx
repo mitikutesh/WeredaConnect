@@ -45,7 +45,7 @@ export function SystemHealthPage() {
 
       {services.length > 0 && (
         <Card className="mt-6">
-          <h3 className="mb-4 font-semibold">Services</h3>
+          <h3 className="mb-4 font-semibold">{t("health.services")}</h3>
           <div className="space-y-2">
             {services.map((svc, i) => (
               <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
