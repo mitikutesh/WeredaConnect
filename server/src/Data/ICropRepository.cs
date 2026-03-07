@@ -39,6 +39,7 @@ public interface ICropRepository
     /// <summary>
     /// Query crop listings with optional filters.
     /// </summary>
+    /// <param name="farmerId">Filter by farmer ID.</param>
     /// <param name="woreda">Filter by woreda (administrative district).</param>
     /// <param name="cropType">Filter by crop type.</param>
     /// <param name="status">Filter by status.</param>
@@ -46,6 +47,7 @@ public interface ICropRepository
     /// <param name="exclusiveStartKey">Pagination token (DynamoDB exclusive start key).</param>
     /// <returns>List of crop listings and optional pagination token.</returns>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
+        string? farmerId = null,
         string? woreda = null,
         string? cropType = null,
         string? status = null,

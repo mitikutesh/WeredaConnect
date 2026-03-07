@@ -264,6 +264,7 @@ public sealed class CropRepository : ICropRepository
 
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
+        string? farmerId = null,
         string? woreda = null,
         string? cropType = null,
         string? status = null,
@@ -300,6 +301,13 @@ public sealed class CropRepository : ICropRepository
         // Exclude deleted items by default
         filterParts.Add("attribute_not_exists(#deletedAt)");
         attrNames["#deletedAt"] = "deletedAt";
+
+        if (!string.IsNullOrEmpty(farmerId))
+        {
+            filterParts.Add("#farmerId = :farmerId");
+            attrNames["#farmerId"] = "farmerId";
+            attrValues[":farmerId"] = new AttributeValue { S = farmerId };
+        }
 
         if (!string.IsNullOrEmpty(woreda))
         {

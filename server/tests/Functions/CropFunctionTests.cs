@@ -75,6 +75,7 @@ public class CropFunctionTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), null));
@@ -101,6 +102,7 @@ public class CropFunctionTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((crops, null));
@@ -119,6 +121,7 @@ public class CropFunctionTests
     public async Task HandleGetCrops_WithWoredaFilter_PassesToRepository()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             "Adama",
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -133,6 +136,7 @@ public class CropFunctionTests
         Assert.Equal(200, response.StatusCode);
 
         await _mockCropRepo.Received(1).QueryCropsAsync(
+            Arg.Any<string?>(),
             "Adama",
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -144,6 +148,7 @@ public class CropFunctionTests
     public async Task HandleGetCrops_WithCropTypeFilter_PassesToRepository()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             "teff",
             Arg.Any<string?>(),
@@ -159,6 +164,7 @@ public class CropFunctionTests
 
         await _mockCropRepo.Received(1).QueryCropsAsync(
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             "teff",
             Arg.Any<string?>(),
             Arg.Any<int>(),
@@ -169,6 +175,7 @@ public class CropFunctionTests
     public async Task HandleGetCrops_WithStatusFilter_PassesToRepository()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             "available",
@@ -185,6 +192,7 @@ public class CropFunctionTests
         await _mockCropRepo.Received(1).QueryCropsAsync(
             Arg.Any<string?>(),
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             "available",
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>());
@@ -193,7 +201,7 @@ public class CropFunctionTests
     [Fact]
     public async Task HandleGetCrops_WithMultipleFilters_PassesAllToRepository()
     {
-        _mockCropRepo.QueryCropsAsync("Adama", "teff", "available", 50, Arg.Any<Dictionary<string, AttributeValue>?>())
+        _mockCropRepo.QueryCropsAsync(Arg.Any<string?>(), "Adama", "teff", "available", 50, Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), null));
 
         var queryParams = new Dictionary<string, string>
@@ -209,13 +217,14 @@ public class CropFunctionTests
 
         Assert.Equal(200, response.StatusCode);
 
-        await _mockCropRepo.Received(1).QueryCropsAsync("Adama", "teff", "available", 50, Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockCropRepo.Received(1).QueryCropsAsync(Arg.Any<string?>(), "Adama", "teff", "available", 50, Arg.Any<Dictionary<string, AttributeValue>?>());
     }
 
     [Fact]
     public async Task HandleGetCrops_WithValidLimit_UsesProvidedLimit()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -234,6 +243,7 @@ public class CropFunctionTests
     public async Task HandleGetCrops_WithNoLimit_UsesDefaultLimit20()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -294,6 +304,7 @@ public class CropFunctionTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
+            Arg.Any<string?>(),
             Arg.Any<int>(),
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, lastKey));
@@ -322,6 +333,7 @@ public class CropFunctionTests
     public async Task HandleGetCrops_RepositoryException_Returns500()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -545,6 +557,7 @@ public class CropFunctionTests
     public async Task FunctionHandler_IncludesSecurityHeaders()
     {
         _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),

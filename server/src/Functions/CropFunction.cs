@@ -74,6 +74,7 @@ public class CropFunction
         // Parse query parameters
         var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
 
+        queryParams.TryGetValue("farmerId", out var farmerId);
         queryParams.TryGetValue("woreda", out var woreda);
         queryParams.TryGetValue("cropType", out var cropType);
         queryParams.TryGetValue("status", out var status);
@@ -104,7 +105,7 @@ public class CropFunction
         {
             // Query crops
             var queryResult = await _cropRepo.QueryCropsAsync(
-                woreda, cropType, status, limit, exclusiveStartKey);
+                farmerId, woreda, cropType, status, limit, exclusiveStartKey);
             var items = queryResult.Items;
             var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 
