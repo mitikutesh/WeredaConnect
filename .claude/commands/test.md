@@ -44,6 +44,24 @@ Steps:
    maestro test .maestro/<flow_name>.yaml
    ```
 
+   **Playwright E2E** (if user specifies `e2e`, `playwright`, or `all`):
+   Run all Playwright tests:
+   ```bash
+   cd e2e && npm test
+   ```
+   Run only webapp tests:
+   ```bash
+   cd e2e && npx playwright test --project=webapp
+   ```
+   Run only admin tests:
+   ```bash
+   cd e2e && npx playwright test --project=admin
+   ```
+   Note: Playwright tests require the apps to be running locally:
+   - Flutter web app: `cd mobile && flutter run -d chrome --web-port=8080 --target lib/main_web.dart`
+   - Admin dashboard: `cd admin && npm run dev`
+   Override URLs with env vars: `WEBAPP_URL=... ADMIN_URL=... npx playwright test`
+
 3. Parse test output and report:
    - Total passed / failed / skipped
    - List any failing test names with file:line references

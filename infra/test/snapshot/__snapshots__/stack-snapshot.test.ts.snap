@@ -45,6 +45,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "FraudSignalsTable0048AA89",
       },
     },
+    "OrdersTableName": {
+      "Description": "DynamoDB Orders Table",
+      "Value": {
+        "Ref": "OrdersTableD407578C",
+      },
+    },
     "PaymentsTableName": {
       "Description": "DynamoDB Payments Table",
       "Value": {
@@ -714,6 +720,140 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "OrdersTableD407578C": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "orderId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "buyerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "listingId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "tripId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "BuyerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "buyerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "FarmerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "StatusCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "ListingIdIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "listingId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TripIdIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "tripId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "orderId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "createdAt",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-orders",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "PaymentsTableE037B168": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -1074,6 +1214,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "woreda",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "faydaId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -1099,6 +1243,18 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               {
                 "AttributeName": "woreda",
                 "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "FaydaIdIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "faydaId",
+                "KeyType": "HASH",
               },
             ],
             "Projection": {
