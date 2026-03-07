@@ -301,7 +301,7 @@ void main() {
         expect(refreshToken, isNull);
       });
 
-      test('clears tokens and propagates error when refresh throws', () async {
+      test('preserves tokens when refresh throws (transient error)', () async {
         final testStorage = FakeSecureStorage();
         await testStorage.write(key: 'access_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
@@ -331,11 +331,12 @@ void main() {
 
         await Future<void>.delayed(const Duration(milliseconds: 100));
 
-        // Verify tokens were cleared
+        // Tokens preserved — transient errors (network timeout) should not
+        // clear tokens because the refresh token is likely still valid.
         final accessToken = await testStorage.read(key: 'access_token');
         final refreshToken = await testStorage.read(key: 'refresh_token');
-        expect(accessToken, isNull);
-        expect(refreshToken, isNull);
+        expect(accessToken, 'expired-token');
+        expect(refreshToken, 'valid-refresh');
       });
 
       test('does not attempt refresh for /auth/refresh endpoint', () async {

@@ -336,14 +336,15 @@ void main() {
           conflictResolver: resolver,
         );
 
-        // Enqueue operation for non-existent entity
+        // Enqueue operation for entity that exists locally
         await enqueueTestOperation(
           operationId: 'op-bad-conflict',
-          entityId: 'listing-nonexistent',
+          entityId: 'listing-malformed',
           action: 'update',
         );
 
-        // Server returns conflict but local entity doesn't exist
+        // Server returns conflict with malformed data (missing required fields)
+        // This triggers ConflictResolutionException in ConflictResolver
         dioAdapter.onPost(
           '/sync',
           (server) => server.reply(200, {
@@ -354,17 +355,8 @@ void main() {
                 'status': 'conflict',
                 'serverVersion': 2,
                 'serverData': {
-                  'listingId': 'listing-nonexistent',
-                  'farmerId': 'farmer-001',
-                  'cropType': 'wheat',
-                  'quantity': 10.0,
-                  'pricePerKg': 25.0,
-                  'location': {'latitude': 9.0, 'longitude': 38.0},
-                  'description': 'Test',
-                  'audioNoteRef': null,
-                  'status': 'active',
-                  'createdAt': '2026-02-14T10:00:00Z',
-                  'updatedAt': '2026-02-14T10:00:00Z',
+                  'listingId': 'listing-malformed',
+                  // Missing farmerId, cropType, quantity, etc.
                 },
               }
             ],
@@ -600,8 +592,10 @@ void main() {
 
         expect(result.failed, 1);
 
+        // revertToPending preserves retryCount (transient, not the op's fault)
         final op = await syncQueue.getOperation('op-missing');
-        expect(op!.retryCount, 1);
+        expect(op!.retryCount, 0);
+        expect(op.status, SyncStatus.pending);
       });
 
       test('sends correct request format per sync protocol', () async {

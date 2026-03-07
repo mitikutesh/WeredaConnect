@@ -341,8 +341,9 @@ void main() {
         expect(updated.description, equals('Sold successfully'));
       });
 
-      test('throws exception when local entity not found', () async {
-        // Arrange: Operation for non-existent entity
+      test('creates entity from server data when local entity not found',
+          () async {
+        // Arrange: Operation for non-existent local entity
         final operation = SyncOperation()
           ..operationId = 'op-999'
           ..idempotencyKey = 'key-999'
@@ -368,15 +369,24 @@ void main() {
           'updatedAt': '2026-02-14T10:00:00Z',
         };
 
-        // Act & Assert: Should throw ConflictResolutionException
-        expect(
-          () => resolver.resolve(
-            operation: operation,
-            serverData: serverData,
-            serverVersion: 1,
-          ),
-          throwsA(isA<ConflictResolutionException>()),
+        // Act: Server-wins strategy creates the entity locally
+        final result = await resolver.resolve(
+          operation: operation,
+          serverData: serverData,
+          serverVersion: 1,
         );
+
+        // Assert: Entity was created from server data
+        final created = await isar.cropListings
+            .filter()
+            .listingIdEqualTo('listing-nonexistent')
+            .findFirst();
+
+        expect(created, isNotNull);
+        expect(created!.cropType, equals('wheat'));
+        expect(created.version, equals(1));
+        expect(result['entityType'], equals('crop_listing'));
+        expect(result['entityId'], equals('listing-nonexistent'));
       });
 
       test('throws exception when server data is malformed', () async {
@@ -586,7 +596,7 @@ void main() {
         expect(result['resolvedAt'], isNotNull);
       });
 
-      test('throws exception when local trip not found', () async {
+      test('creates trip from server data when local trip not found', () async {
         final operation = SyncOperation()
           ..operationId = 'op-trip-missing'
           ..idempotencyKey = 'key-trip-missing'
@@ -614,14 +624,25 @@ void main() {
           'updatedAt': '2026-02-15T10:00:00Z',
         };
 
-        expect(
-          () => resolver.resolve(
-            operation: operation,
-            serverData: serverData,
-            serverVersion: 1,
-          ),
-          throwsA(isA<ConflictResolutionException>()),
+        // Act: Server-wins strategy creates the trip locally
+        final result = await resolver.resolve(
+          operation: operation,
+          serverData: serverData,
+          serverVersion: 1,
         );
+
+        // Assert: Trip was created from server data
+        final created = await isar.trips
+            .filter()
+            .tripIdEqualTo('trip-nonexistent')
+            .findFirst();
+
+        expect(created, isNotNull);
+        expect(created!.fromWoreda, equals('Bishoftu'));
+        expect(created.toWoreda, equals('Addis Ababa'));
+        expect(created.version, equals(1));
+        expect(result['entityType'], equals('trip'));
+        expect(result['entityId'], equals('trip-nonexistent'));
       });
 
       test('throws exception when server data is malformed', () async {
