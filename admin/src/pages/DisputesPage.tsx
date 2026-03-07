@@ -12,7 +12,8 @@ export function DisputesPage() {
   const resolveDispute = useResolveDispute();
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
-  const disputes = (data as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const disputes = (resp?.disputes as Record<string, unknown>[]) || [];
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -35,8 +36,16 @@ export function DisputesPage() {
 
   const columns = [
     { key: "escrowId", header: t("escrows.id") },
-    { key: "buyerName", header: t("escrows.buyer") },
-    { key: "sellerName", header: t("escrows.seller") },
+    {
+      key: "buyerName",
+      header: t("escrows.buyer"),
+      render: (row: Record<string, unknown>) => String(row.buyerName || row.buyerId || ""),
+    },
+    {
+      key: "farmerName",
+      header: t("escrows.seller"),
+      render: (row: Record<string, unknown>) => String(row.farmerName || row.farmerId || ""),
+    },
     {
       key: "amount",
       header: t("escrows.amount"),

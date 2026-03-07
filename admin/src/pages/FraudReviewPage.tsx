@@ -17,7 +17,8 @@ export function FraudReviewPage() {
   const { data, isLoading } = useFraudSignals();
   const fraudAction = useFraudAction();
 
-  const signals = (data as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const signals = (resp?.signals as Record<string, unknown>[]) || [];
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 

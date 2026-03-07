@@ -55,8 +55,11 @@
     "auditTrail": "የኦዲት ዱካ",
     "initiated": "ተጀምሯል",
     "funded": "ገንዘብ ገብቷል",
+    "escrowed": "በኢስክሮ ተይዟል",
+    "held": "ተይዟል",
     "released": "ተለቋል",
     "disputed": "ክርክር ተነስቷል",
+    "dispute_resolved": "ተፈትቷል",
     "refunded": "ተመላሽ ሆኗል",
     "expired": "ጊዜው አልፏል"
   },
@@ -69,7 +72,8 @@
     "resolution": "ውሳኔ",
     "resolvedAt": "የተፈታበት",
     "pending": "በመጠባበቅ ላይ",
-    "resolved": "ተፈትቷል"
+    "resolved": "ተፈትቷል",
+    "disputed": "ክርክር ተነስቷል"
   },
   "fraud": {
     "title": "ማጭበርበሪያ ግምገማ",
@@ -94,7 +98,9 @@
     "joined": "የተቀላቀለበት",
     "detail": "የተጠቃሚ ዝርዝር",
     "suspend": "አግድ",
+    "suspended": "ታግዷል",
     "activate": "አንቃ",
+    "active": "ንቁ",
     "verify": "አረጋግጥ",
     "changeRole": "ሚና ቀይር",
     "farmer": "ገበሬ",

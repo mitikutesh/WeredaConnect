@@ -55,8 +55,11 @@
     "auditTrail": "Audit Trail",
     "initiated": "Initiated",
     "funded": "Funded",
+    "escrowed": "Escrowed",
+    "held": "Held",
     "released": "Released",
     "disputed": "Disputed",
+    "dispute_resolved": "Resolved",
     "refunded": "Refunded",
     "expired": "Expired"
   },
@@ -69,7 +72,8 @@
     "resolution": "Resolution",
     "resolvedAt": "Resolved At",
     "pending": "Pending",
-    "resolved": "Resolved"
+    "resolved": "Resolved",
+    "disputed": "Disputed"
   },
   "fraud": {
     "title": "Fraud Review",
@@ -94,7 +98,9 @@
     "joined": "Joined",
     "detail": "User Detail",
     "suspend": "Suspend",
+    "suspended": "Suspended",
     "activate": "Activate",
+    "active": "Active",
     "verify": "Verify",
     "changeRole": "Change Role",
     "farmer": "Farmer",

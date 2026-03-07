@@ -21,11 +21,12 @@ export function UsersPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useUsers(search ? `search=${encodeURIComponent(search)}` : undefined);
 
-  const users = (data as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const users = (resp?.users as Record<string, unknown>[]) || [];
 
   const columns = [
     { key: "displayName", header: t("users.name") },
-    { key: "phone", header: t("users.phone") },
+    { key: "phoneNumber", header: t("users.phone") },
     {
       key: "role",
       header: t("users.role"),
@@ -43,8 +44,8 @@ export function UsersPage() {
       key: "status",
       header: t("users.status"),
       render: (row: Record<string, unknown>) => (
-        <Badge variant={row.isActive ? "success" : "danger"}>
-          {row.isActive ? t("users.activate") : t("users.suspend")}
+        <Badge variant={row.suspended ? "danger" : "success"}>
+          {row.suspended ? t("users.suspended") : t("users.active")}
         </Badge>
       ),
     },

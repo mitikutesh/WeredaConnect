@@ -55,8 +55,11 @@
     "auditTrail": "Adeemsa Odiitii",
     "initiated": "Jalqabame",
     "funded": "Maallaqni Galera",
+    "escrowed": "Eeskiroo Keessa Jira",
+    "held": "Qabamee",
     "released": "Gadi Lakkifame",
     "disputed": "Waldhabdeen Ka'era",
+    "dispute_resolved": "Furamee",
     "refunded": "Deebifamera",
     "expired": "Yeroon Darbera"
   },
@@ -69,7 +72,8 @@
     "resolution": "Furmaata",
     "resolvedAt": "Guyyaa Furamee",
     "pending": "Eeggatamaa",
-    "resolved": "Furamee"
+    "resolved": "Furamee",
+    "disputed": "Waldhabdeen Ka'era"
   },
   "fraud": {
     "title": "Gamaaggama Gosoota",
@@ -94,7 +98,9 @@
     "joined": "Guyyaa Makamee",
     "detail": "Ibsa Fayyadamtuu",
     "suspend": "Dhaabi",
+    "suspended": "Dhaabbatee",
     "activate": "Hojjachisi",
+    "active": "Hojjachaa",
     "verify": "Mirkaneessi",
     "changeRole": "Gahee Jijjiiri",
     "farmer": "Qotee Bulaa",

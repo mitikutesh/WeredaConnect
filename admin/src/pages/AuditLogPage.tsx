@@ -12,7 +12,8 @@ export function AuditLogPage() {
   // Audit log shows all audit entries (uses escrow audit endpoint with no specific ID filter)
   const { data, isLoading } = useEscrowAudit("all");
 
-  const entries = (data as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const entries = (resp?.auditEntries as Record<string, unknown>[]) || [];
   const filtered = search
     ? entries.filter((e) =>
         Object.values(e).some((v) =>

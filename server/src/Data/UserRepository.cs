@@ -250,6 +250,7 @@ public sealed class UserRepository : IUserRepository
             FaydaVerifiedAt = item.TryGetValue("faydaVerifiedAt", out var fva) && fva.S != null ? fva.S : null,
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
+            Suspended = item.TryGetValue("suspended", out var susp) && susp.BOOL,
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,

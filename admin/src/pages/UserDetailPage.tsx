@@ -12,7 +12,8 @@ export function UserDetailPage() {
   const { data, isLoading } = useUserDetail(id || "");
   const userAction = useUserAction();
 
-  const user = (data as Record<string, unknown>) || {};
+  const resp = data as Record<string, unknown> | undefined;
+  const user = (resp?.user as Record<string, unknown>) || {};
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -53,7 +54,7 @@ export function UserDetailPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("users.phone")}</dt>
-              <dd>{String(user.phone || "")}</dd>
+              <dd>{String(user.phoneNumber || "")}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("users.role")}</dt>
@@ -71,10 +72,10 @@ export function UserDetailPage() {
 
           <div className="mt-6 flex flex-wrap gap-2">
             <button
-              onClick={() => handleAction(user.isActive ? "suspend" : "activate")}
-              className={`rounded px-3 py-1.5 text-sm text-white ${user.isActive ? "bg-danger" : "bg-success"}`}
+              onClick={() => handleAction(user.suspended ? "unsuspend" : "suspend")}
+              className={`rounded px-3 py-1.5 text-sm text-white ${user.suspended ? "bg-success" : "bg-danger"}`}
             >
-              {user.isActive ? t("users.suspend") : t("users.activate")}
+              {user.suspended ? t("users.activate") : t("users.suspend")}
             </button>
             <button
               onClick={() => handleAction("verify")}
