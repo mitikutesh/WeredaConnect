@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -60,6 +61,23 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Incrementing key that forces overview/recent widgets to recreate
   /// their state (and reload data from Isar) when it changes.
   int _refreshKey = 0;
+  StreamSubscription<dynamic>? _syncSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!kIsWeb) {
+      _syncSub = context.read<SyncExecutor>().onSyncResult.listen((_) {
+        _refreshData();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _syncSub?.cancel();
+    super.dispose();
+  }
 
   void _refreshData() {
     if (mounted) setState(() => _refreshKey++);
@@ -1124,12 +1142,100 @@ class _OverviewStatsState extends State<_OverviewStats> {
   }
 
   Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
-    if (kIsWeb) return <String, int>{};
+    if (userId.isEmpty) return {};
+    if (kIsWeb) return _loadWebStats(userId, role);
+    return _loadIsarStats(userId, role);
+  }
+
+  Future<Map<String, int>> _loadWebStats(
+    String userId,
+    UserRole role,
+  ) async {
+    try {
+      final api = ApiClient();
+      if (!api.isInitialized) return {};
+      final result = <String, int>{};
+
+      // Each call uses catchError so one failing endpoint doesn't zero-out all stats.
+      Future<Map<String, dynamic>> safeGet(
+        String path, {
+        Map<String, dynamic>? queryParameters,
+      }) =>
+          api
+              .get<Map<String, dynamic>>(
+                path,
+                queryParameters: queryParameters,
+              )
+              .catchError((_) => <String, dynamic>{});
+
+      if (role == UserRole.farmer) {
+        final responses = await Future.wait([
+          safeGet('/crops', queryParameters: {'farmerId': userId}),
+          safeGet('/escrow/history', queryParameters: {'farmerId': userId}),
+          safeGet(
+            '/orders',
+            queryParameters: {'farmerId': userId, 'status': 'funded'},
+          ),
+          safeGet('/deliveries', queryParameters: {'farmerId': userId}),
+        ]);
+        result['listings'] = _countApiItems(responses[0], alt: 'crops');
+        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
+        result['pendingOrders'] = _countApiItems(responses[2], alt: 'orders');
+        result['deliveries'] =
+            _countApiItems(responses[3], alt: 'deliveries');
+      } else if (role == UserRole.buyer) {
+        final responses = await Future.wait([
+          safeGet('/deliveries', queryParameters: {'buyerId': userId}),
+          safeGet('/escrow/history', queryParameters: {'buyerId': userId}),
+          safeGet('/orders', queryParameters: {'buyerId': userId}),
+          safeGet('/crops', queryParameters: {'status': 'active'}),
+        ]);
+        result['deliveries'] =
+            _countApiItems(responses[0], alt: 'deliveries');
+        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
+        result['activeOrders'] = _countApiItems(responses[2], alt: 'orders');
+        result['listings'] = _countApiItems(responses[3], alt: 'crops');
+      } else if (role == UserRole.trucker) {
+        final responses = await Future.wait([
+          safeGet('/trips', queryParameters: {'truckerId': userId}),
+          safeGet(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'status': 'inTransit'},
+          ),
+          safeGet(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'status': 'matched'},
+          ),
+          safeGet('/deliveries', queryParameters: {'truckerId': userId}),
+        ]);
+        result['trips'] = _countApiItems(responses[0], alt: 'trips');
+        result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
+        result['matched'] = _countApiItems(responses[2], alt: 'trips');
+        result['deliveries'] =
+            _countApiItems(responses[3], alt: 'deliveries');
+      }
+
+      return result;
+    } on Object {
+      return {};
+    }
+  }
+
+  static int _countApiItems(Map<String, dynamic> data, {String? alt}) {
+    final items =
+        data[alt] as List<dynamic>? ?? data['items'] as List<dynamic>? ?? [];
+    return items.length;
+  }
+
+  Future<Map<String, int>> _loadIsarStats(
+    String userId,
+    UserRole role,
+  ) async {
     try {
       final isar = IsarService.instance.db;
       final result = <String, int>{};
 
-      if (role == UserRole.farmer && userId.isNotEmpty) {
+      if (role == UserRole.farmer) {
         final futures = await Future.wait<int>(
           [
             isar.cropListings.where().farmerIdEqualTo(userId).count(),
@@ -1146,7 +1252,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
         result['deliveries'] = futures[3];
-      } else if (role == UserRole.buyer && userId.isNotEmpty) {
+      } else if (role == UserRole.buyer) {
         final futures = await Future.wait<int>(
           [
             isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
@@ -1174,7 +1280,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
         result['listings'] = futures[3];
-      } else if (role == UserRole.trucker && userId.isNotEmpty) {
+      } else if (role == UserRole.trucker) {
         final futures = await Future.wait<int>(
           [
             isar.trips.filter().truckerIdEqualTo(userId).count(),
