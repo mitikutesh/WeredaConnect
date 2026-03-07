@@ -16,6 +16,15 @@
   "@welcomeTitle": {
     "description": "Main title on welcome screen"
   },
+  "welcomeBackUser": "እንኳን ደህና መጡ፣ {userName}",
+  "@welcomeBackUser": {
+    "description": "Greeting on home screen desktop",
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
   "worksOffline": "ከመስመር ውጭ ይሰራል",
   "@worksOffline": {
     "description": "Feature description for offline capability"
@@ -1993,7 +2002,7 @@
   "activeFarmers": "ንቁ ገበሬዎች",
   "inTransit": "በመጓጓዝ ላይ",
   "matchedLoads": "ተዛምደው",
-  "farmersBrowsed": "ተቃኝተው",
+  "farmersBrowsed": "ዝርዝሮች",
   "marketplace": "የገበያ ቦታ",
   "browseVerifiedFarmers": "የተረጋገጡ ገበሬዎችን ያስሱ",
   "manageYourListings": "ዝርዝሮችዎን ያስተዳድሩ",
@@ -2237,5 +2246,10 @@
   "postATrip": "ጉዞ ይለጥፉ",
 
   "repeatLastTrip": "ያለፈውን ጉዞ ድገም",
-  "quickFill": "ፈጣን ሙሌት"
+  "quickFill": "ፈጣን ሙሌት",
+  "somethingWentWrong": "ችግር ተፈጥሯል",
+  "checkConnectionRetry": "እባክዎ ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
+  "sellCrops": "ሰብል ይሸጡ",
+  "sellYourHarvest": "ምርትዎን ይሸጡ",
+  "tapToListCrops": "ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ"
 }

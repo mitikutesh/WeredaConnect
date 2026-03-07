@@ -195,65 +195,67 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                   _applyFilters();
                 },
               ),
-              // Price range filters
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _priceMinController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '${l10n.etbCurrency('')} ',
-                          hintText: l10n.filterMin,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
+              // Price range filters (marketplace browse only — not relevant
+              // for farmers viewing their own listings)
+              if (!widget.ownerMode)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _priceMinController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixText: '${l10n.etbCurrency('')} ',
+                            hintText: l10n.filterMin,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                           ),
+                          onChanged: (value) {
+                            setState(() {
+                              _priceMin =
+                                  value.isEmpty ? null : double.tryParse(value);
+                            });
+                            _debouncedApplyFilters();
+                          },
                         ),
-                        onChanged: (value) {
-                          setState(() {
-                            _priceMin =
-                                value.isEmpty ? null : double.tryParse(value);
-                          });
-                          _debouncedApplyFilters();
-                        },
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _priceMaxController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '${l10n.etbCurrency('')} ',
-                          hintText: l10n.filterMax,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _priceMaxController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixText: '${l10n.etbCurrency('')} ',
+                            hintText: l10n.filterMax,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                           ),
+                          onChanged: (value) {
+                            setState(() {
+                              _priceMax =
+                                  value.isEmpty ? null : double.tryParse(value);
+                            });
+                            _debouncedApplyFilters();
+                          },
                         ),
-                        onChanged: (value) {
-                          setState(() {
-                            _priceMax =
-                                value.isEmpty ? null : double.tryParse(value);
-                          });
-                          _debouncedApplyFilters();
-                        },
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
               const SizedBox(height: 8),
               // Listings
               Expanded(

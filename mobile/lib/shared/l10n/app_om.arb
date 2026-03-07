@@ -16,6 +16,15 @@
   "@welcomeTitle": {
     "description": "Main title on welcome screen"
   },
+  "welcomeBackUser": "Baga nagaan dhuftan, {userName}",
+  "@welcomeBackUser": {
+    "description": "Greeting on home screen desktop",
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
   "worksOffline": "Oflaayiniin Hojjeta",
   "@worksOffline": {
     "description": "Feature description for offline capability"
@@ -1993,7 +2002,7 @@
   "activeFarmers": "Qonnaan Bultoota",
   "inTransit": "Geejjibamaa jira",
   "matchedLoads": "Walsimatan",
-  "farmersBrowsed": "Ilaalaman",
+  "farmersBrowsed": "Tarreeffama",
   "marketplace": "Gabaa",
   "browseVerifiedFarmers": "Qonnaan bultoota mirkanaa'an ilaali",
   "manageYourListings": "Tarreeffama kee bulchi",
@@ -2237,5 +2246,10 @@
   "postATrip": "Imala Maxxansi",
 
   "repeatLastTrip": "Imala Darbe Irra Deebi'i",
-  "quickFill": "Guuttaa Ariifataa"
+  "quickFill": "Guuttaa Ariifataa",
+  "somethingWentWrong": "Wanti tokko dogoggora ta'e",
+  "checkConnectionRetry": "Maaloo walqunnamtii keessan mirkaneessaa irra deebi'aa yaalaatii.",
+  "sellCrops": "Midhaan Gurguri",
+  "sellYourHarvest": "OOMISHA KEESSAN GURGURAA",
+  "tapToListCrops": "Midhaan keessan galmeessaa bittoota kallattiin argadhaa"
 }

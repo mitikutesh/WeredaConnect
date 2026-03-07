@@ -21,6 +21,11 @@ class AppLocalizationsOm extends AppLocalizations {
   String get welcomeTitle => 'Gara WeredaConnect Baga Nagaan Dhuftan';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'Baga nagaan dhuftan, $userName';
+  }
+
+  @override
   String get worksOffline => 'Oflaayiniin Hojjeta';
 
   @override
@@ -1563,7 +1568,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get matchedLoads => 'Walsimatan';
 
   @override
-  String get farmersBrowsed => 'Ilaalaman';
+  String get farmersBrowsed => 'Tarreeffama';
 
   @override
   String get marketplace => 'Gabaa';
@@ -2116,4 +2121,21 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get quickFill => 'Guuttaa Ariifataa';
+
+  @override
+  String get somethingWentWrong => 'Wanti tokko dogoggora ta\'e';
+
+  @override
+  String get checkConnectionRetry =>
+      'Maaloo walqunnamtii keessan mirkaneessaa irra deebi\'aa yaalaatii.';
+
+  @override
+  String get sellCrops => 'Midhaan Gurguri';
+
+  @override
+  String get sellYourHarvest => 'OOMISHA KEESSAN GURGURAA';
+
+  @override
+  String get tapToListCrops =>
+      'Midhaan keessan galmeessaa bittoota kallattiin argadhaa';
 }

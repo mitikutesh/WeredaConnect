@@ -171,7 +171,11 @@ class _MainNavigationState extends State<MainNavigation> {
             body: screens[_currentIndex],
             floatingActionButton: FloatingActionButton(
               onPressed: () => _onFabPressed(context, role),
-              tooltip: 'Create New',
+              tooltip: switch (role) {
+                UserRole.farmer => l10n.sellCrops,
+                UserRole.trucker => l10n.postTrip,
+                UserRole.buyer => l10n.newBuyingIntent,
+              },
               child: const Icon(Icons.add),
             ),
             floatingActionButtonLocation:

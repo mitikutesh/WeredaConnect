@@ -16,6 +16,15 @@
   "@welcomeTitle": {
     "description": "Main title on welcome screen"
   },
+  "welcomeBackUser": "Welcome back, {userName}",
+  "@welcomeBackUser": {
+    "description": "Greeting on home screen desktop",
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
   "worksOffline": "Works Offline",
   "@worksOffline": {
     "description": "Feature description for offline capability"
@@ -2104,9 +2113,9 @@
   "@matchedLoads": {
     "description": "Stat label for matched loads"
   },
-  "farmersBrowsed": "Browsed",
+  "farmersBrowsed": "Listings",
   "@farmersBrowsed": {
-    "description": "Stat label for browsed farmers"
+    "description": "Stat label for available crop listings count"
   },
   "marketplace": "Marketplace",
   "@marketplace": {
@@ -2773,5 +2782,15 @@
   "repeatLastTrip": "Repeat Last Trip",
   "@repeatLastTrip": { "description": "Button label to repeat a previous trip" },
   "quickFill": "Quick Fill",
-  "@quickFill": { "description": "Label for quick-fill route chips on create trip screen" }
+  "@quickFill": { "description": "Label for quick-fill route chips on create trip screen" },
+  "somethingWentWrong": "Something went wrong",
+  "@somethingWentWrong": { "description": "Generic error title" },
+  "checkConnectionRetry": "Please check your connection and try again.",
+  "@checkConnectionRetry": { "description": "Error subtitle suggesting user retry" },
+  "sellCrops": "Sell Crops",
+  "@sellCrops": { "description": "Quick action label for creating a new crop listing" },
+  "sellYourHarvest": "SELL YOUR HARVEST",
+  "@sellYourHarvest": { "description": "Farmer-specific banner headline prompting crop listing" },
+  "tapToListCrops": "List your crops and reach buyers directly",
+  "@tapToListCrops": { "description": "Farmer-specific banner subtitle" }
 }

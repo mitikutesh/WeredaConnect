@@ -21,6 +21,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeTitle => 'Welcome to WeredaConnect';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'Welcome back, $userName';
+  }
+
+  @override
   String get worksOffline => 'Works Offline';
 
   @override
@@ -1552,7 +1557,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get matchedLoads => 'Matched';
 
   @override
-  String get farmersBrowsed => 'Browsed';
+  String get farmersBrowsed => 'Listings';
 
   @override
   String get marketplace => 'Marketplace';
@@ -2101,4 +2106,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickFill => 'Quick Fill';
+
+  @override
+  String get somethingWentWrong => 'Something went wrong';
+
+  @override
+  String get checkConnectionRetry =>
+      'Please check your connection and try again.';
+
+  @override
+  String get sellCrops => 'Sell Crops';
+
+  @override
+  String get sellYourHarvest => 'SELL YOUR HARVEST';
+
+  @override
+  String get tapToListCrops => 'List your crops and reach buyers directly';
 }

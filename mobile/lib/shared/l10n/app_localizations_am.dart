@@ -21,6 +21,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get welcomeTitle => 'እንኳን ወደ ወረዳ ኮነክት በደህና መጡ';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'እንኳን ደህና መጡ፣ $userName';
+  }
+
+  @override
   String get worksOffline => 'ከመስመር ውጭ ይሰራል';
 
   @override
@@ -1513,7 +1518,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get matchedLoads => 'ተዛምደው';
 
   @override
-  String get farmersBrowsed => 'ተቃኝተው';
+  String get farmersBrowsed => 'ዝርዝሮች';
 
   @override
   String get marketplace => 'የገበያ ቦታ';
@@ -2052,4 +2057,19 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get quickFill => 'ፈጣን ሙሌት';
+
+  @override
+  String get somethingWentWrong => 'ችግር ተፈጥሯል';
+
+  @override
+  String get checkConnectionRetry => 'እባክዎ ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።';
+
+  @override
+  String get sellCrops => 'ሰብል ይሸጡ';
+
+  @override
+  String get sellYourHarvest => 'ምርትዎን ይሸጡ';
+
+  @override
+  String get tapToListCrops => 'ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
 }

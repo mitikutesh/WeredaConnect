@@ -124,6 +124,12 @@ abstract class AppLocalizations {
   /// **'Welcome to WeredaConnect'**
   String get welcomeTitle;
 
+  /// Greeting on home screen desktop
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back, {userName}'**
+  String welcomeBackUser(String userName);
+
   /// Feature description for offline capability
   ///
   /// In en, this message translates to:
@@ -2968,10 +2974,10 @@ abstract class AppLocalizations {
   /// **'Matched'**
   String get matchedLoads;
 
-  /// Stat label for browsed farmers
+  /// Stat label for available crop listings count
   ///
   /// In en, this message translates to:
-  /// **'Browsed'**
+  /// **'Listings'**
   String get farmersBrowsed;
 
   /// Title for marketplace/browse screen
@@ -3993,6 +3999,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Quick Fill'**
   String get quickFill;
+
+  /// Generic error title
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong'**
+  String get somethingWentWrong;
+
+  /// Error subtitle suggesting user retry
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your connection and try again.'**
+  String get checkConnectionRetry;
+
+  /// Quick action label for creating a new crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Sell Crops'**
+  String get sellCrops;
+
+  /// Farmer-specific banner headline prompting crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'SELL YOUR HARVEST'**
+  String get sellYourHarvest;
+
+  /// Farmer-specific banner subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'List your crops and reach buyers directly'**
+  String get tapToListCrops;
 }
 
 class _AppLocalizationsDelegate

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
@@ -24,10 +25,12 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/stat_tile.dart';
 import 'package:wereda_connect/shared/widgets/wc_card.dart';
@@ -73,6 +76,39 @@ class _HomeScreenState extends State<HomeScreen> {
     final woreda =
         authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
 
+    final windowClass = Breakpoints.of(context);
+
+    // Mobile: keep the exact current layout
+    if (windowClass == WindowClass.mobile) {
+      return _buildMobileLayout(
+        l10n: l10n,
+        role: role,
+        userName: userName,
+        userId: userId,
+        woreda: woreda,
+      );
+    }
+
+    // Tablet / Desktop: flat header, reorganised content
+    return _buildWideLayout(
+      context: context,
+      l10n: l10n,
+      role: role,
+      userName: userName,
+      userId: userId,
+      woreda: woreda,
+      windowClass: windowClass,
+    );
+  }
+
+  // ── Mobile layout (unchanged) ──────────────────────────────────
+  Widget _buildMobileLayout({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userName,
+    required String userId,
+    required String woreda,
+  }) {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,8 +120,10 @@ class _HomeScreenState extends State<HomeScreen> {
             userId: userId,
             woreda: woreda,
             isOnline: widget.isOnline,
+            role: role,
             l10n: l10n,
             onNavigateToTab: widget.onNavigateToTab,
+            onRefresh: _refreshData,
           ),
 
           // ── Quick actions (no section title, like mockup) ────────
@@ -168,6 +206,226 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // ── Desktop / Tablet layout ────────────────────────────────────
+  Widget _buildWideLayout({
+    required BuildContext context,
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userName,
+    required String userId,
+    required String woreda,
+    required WindowClass windowClass,
+  }) {
+    final isDesktop = windowClass == WindowClass.desktop;
+    final maxWidth = isDesktop ? 1200.0 : 800.0;
+    final hPadding = isDesktop ? 32.0 : 24.0;
+
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: hPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Flat page header (no green curve) ────────────
+                _DesktopPageHeader(
+                  userName: userName,
+                  woreda: woreda,
+                  isOnline: widget.isOnline,
+                  l10n: l10n,
+                ),
+
+                const SizedBox(height: 24),
+
+                // ── Main content ─────────────────────────────────
+                if (isDesktop)
+                  _buildDesktopTwoColumn(
+                    l10n: l10n,
+                    role: role,
+                    userId: userId,
+                  )
+                else
+                  _buildTabletSingleColumn(
+                    l10n: l10n,
+                    role: role,
+                    userId: userId,
+                  ),
+
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Desktop: two-column grid ───────────────────────────────────
+  Widget _buildDesktopTwoColumn({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userId,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left column (60%): Overview stats + Recent activity
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.overview,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _OverviewStats(
+                key: ValueKey('overview_$_refreshKey'),
+                role: role,
+                userId: userId,
+                l10n: l10n,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                l10n.recentActivity,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _RecentActivityList(
+                key: ValueKey('recent_$_refreshKey'),
+                userId: userId,
+                l10n: l10n,
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 24),
+
+        // Right column (40%): Quick actions + role-specific cards
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.quickActions,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _QuickActionsGrid(
+                role: role,
+                l10n: l10n,
+                onNavigateToTab: widget.onNavigateToTab,
+                onRefresh: _refreshData,
+                crossAxisCount: 2,
+              ),
+              if (role == UserRole.trucker) ...[
+                const SizedBox(height: 16),
+                TruckerHeroCard(
+                  key: ValueKey('hero_$_refreshKey'),
+                  userId: userId,
+                  onRefresh: _refreshData,
+                ),
+              ],
+              if (role == UserRole.buyer) ...[
+                const SizedBox(height: 16),
+                _ActiveIntentsSection(
+                  key: ValueKey('intents_$_refreshKey'),
+                  userId: userId,
+                  l10n: l10n,
+                  onRefresh: _refreshData,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Tablet: single column ──────────────────────────────────────
+  Widget _buildTabletSingleColumn({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userId,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _QuickActionsGrid(
+          role: role,
+          l10n: l10n,
+          onNavigateToTab: widget.onNavigateToTab,
+          onRefresh: _refreshData,
+        ),
+        if (role == UserRole.trucker) ...[
+          const SizedBox(height: 16),
+          TruckerHeroCard(
+            key: ValueKey('hero_$_refreshKey'),
+            userId: userId,
+            onRefresh: _refreshData,
+          ),
+        ],
+        if (role == UserRole.buyer) ...[
+          const SizedBox(height: 16),
+          _ActiveIntentsSection(
+            key: ValueKey('intents_$_refreshKey'),
+            userId: userId,
+            l10n: l10n,
+            onRefresh: _refreshData,
+          ),
+        ],
+        const SizedBox(height: 20),
+        Text(
+          l10n.overview,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _OverviewStats(
+          key: ValueKey('overview_$_refreshKey'),
+          role: role,
+          userId: userId,
+          l10n: l10n,
+        ),
+        const SizedBox(height: 20),
+        Text(
+          l10n.recentActivity,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _RecentActivityList(
+          key: ValueKey('recent_$_refreshKey'),
+          userId: userId,
+          l10n: l10n,
+        ),
+      ],
+    );
+  }
 }
 
 /// Combined green header + gold banner, matching mockup.
@@ -179,16 +437,20 @@ class _HomeHeaderWithBanner extends StatelessWidget {
   final String userId;
   final String woreda;
   final bool isOnline;
+  final UserRole role;
   final AppLocalizations l10n;
   final ValueChanged<int>? onNavigateToTab;
+  final VoidCallback? onRefresh;
 
   const _HomeHeaderWithBanner({
     required this.userName,
     required this.userId,
     required this.woreda,
     required this.isOnline,
+    required this.role,
     required this.l10n,
     this.onNavigateToTab,
+    this.onRefresh,
     super.key,
   });
 
@@ -290,48 +552,209 @@ class _HomeHeaderWithBanner extends StatelessWidget {
             left: 20,
             right: 20,
             bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppTheme.accentGold, AppTheme.accentGoldLight],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            child: _BannerCard(
+              role: role,
+              l10n: l10n,
+              onRefresh: onRefresh,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Banner card — tappable CTA for farmers, static slogan for other roles.
+class _BannerCard extends StatelessWidget {
+  final UserRole role;
+  final AppLocalizations l10n;
+  final VoidCallback? onRefresh;
+
+  const _BannerCard({
+    required this.role,
+    required this.l10n,
+    this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isFarmer = role == UserRole.farmer;
+    final headline = isFarmer ? l10n.sellYourHarvest : l10n.bannerHeadline;
+    final subtitle = isFarmer ? l10n.tapToListCrops : l10n.bannerSubtitle;
+
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isFarmer
+              ? [AppTheme.primaryGreen, const Color(0xFF2E7D32)]
+              : [AppTheme.accentGold, AppTheme.accentGoldLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(25),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withAlpha(220),
                   ),
-                ],
+                ),
+              ],
+            ),
+          ),
+          if (isFarmer)
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(50),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    l10n.bannerHeadline,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    l10n.bannerSubtitle,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white.withAlpha(220),
-                    ),
-                  ),
-                ],
+              child: const Icon(Icons.add, color: Colors.white, size: 22),
+            ),
+        ],
+      ),
+    );
+
+    if (!isFarmer) return card;
+
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => const CreateCropListingScreen(),
+          ),
+        );
+        onRefresh?.call();
+      },
+      child: card,
+    );
+  }
+}
+
+/// Flat page header for desktop/tablet — replaces the curved green header.
+///
+/// On wide screens the sidebar already provides green branding, so this
+/// header uses a white/surface background with the user name as headline
+/// and location + sync status inline.
+class _DesktopPageHeader extends StatelessWidget {
+  final String userName;
+  final String woreda;
+  final bool isOnline;
+  final AppLocalizations l10n;
+
+  const _DesktopPageHeader({
+    required this.userName,
+    required this.woreda,
+    required this.isOnline,
+    required this.l10n,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(0, 28, 0, 20),
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        border: Border(
+          bottom: BorderSide(color: AppTheme.borderLight),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            l10n.welcomeBackUser(userName),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textDark,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.location_on,
+                size: 14,
+                color: AppTheme.textMuted,
               ),
+              const SizedBox(width: 4),
+              Text(
+                woreda.isNotEmpty ? woreda : l10n.wereda,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(width: 16),
+              _DesktopSyncChip(isOnline: isOnline),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact sync status chip for the desktop/tablet flat header.
+class _DesktopSyncChip extends StatelessWidget {
+  final bool isOnline;
+
+  const _DesktopSyncChip({required this.isOnline});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = isOnline ? 'Synced' : 'Offline';
+    final color = isOnline ? AppTheme.statusSuccess : AppTheme.textMuted;
+    final icon =
+        isOnline ? Icons.cloud_done_outlined : Icons.cloud_off_outlined;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color,
             ),
           ),
         ],
@@ -347,19 +770,38 @@ class _QuickActionsGrid extends StatelessWidget {
   final ValueChanged<int>? onNavigateToTab;
   final VoidCallback? onRefresh;
 
+  /// Number of columns. Defaults to 3 for mobile, but desktop right column
+  /// passes 2 for a more compact grid.
+  final int crossAxisCount;
+
   const _QuickActionsGrid({
     required this.role,
     required this.l10n,
     required this.onNavigateToTab,
     this.onRefresh,
+    this.crossAxisCount = 3,
   });
+
+  /// Navigate to a tab by index. Uses the callback on mobile native,
+  /// falls back to GoRouter on web where the callback is null.
+  void _goToTab(BuildContext context, int index) {
+    if (onNavigateToTab != null) {
+      onNavigateToTab!(index);
+      return;
+    }
+    // Web: use GoRouter
+    const routes = ['/', '/orders', '/deliveries', '/payments'];
+    if (index >= 0 && index < routes.length) {
+      context.go(routes[index]);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final actions = _actionsForRole(role, context);
 
     return GridView.count(
-      crossAxisCount: 3,
+      crossAxisCount: crossAxisCount,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 10,
@@ -374,9 +816,23 @@ class _QuickActionsGrid extends StatelessWidget {
       case UserRole.farmer:
         return [
           _QuickActionTile(
+            icon: Icons.agriculture,
+            label: l10n.sellCrops,
+            color: AppTheme.primaryGreen,
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const CreateCropListingScreen(),
+                ),
+              );
+              onRefresh?.call();
+            },
+          ),
+          _QuickActionTile(
             icon: Icons.list_alt,
             label: l10n.myListings,
-            color: AppTheme.primaryGreen,
+            color: AppTheme.statusTransit,
             onTap: () async {
               await Navigator.push(
                 context,
@@ -389,15 +845,9 @@ class _QuickActionsGrid extends StatelessWidget {
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
-            color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
-          ),
-          _QuickActionTile(
-            icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            label: l10n.myDeliveries,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToTab(context, 2),
           ),
         ];
       case UserRole.trucker:
@@ -418,15 +868,15 @@ class _QuickActionsGrid extends StatelessWidget {
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
+            label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => _goToTab(context, 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToTab(context, 3),
           ),
         ];
       case UserRole.buyer:
@@ -447,15 +897,15 @@ class _QuickActionsGrid extends StatelessWidget {
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
+            label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => _goToTab(context, 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToTab(context, 3),
           ),
         ];
     }
@@ -689,7 +1139,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .statusEqualTo(OrderStatus.funded)
               .count(),
           isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
-        ].cast<Future<int>>());
+        ].cast<Future<int>>(),);
         result['listings'] = futures[0];
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
@@ -715,7 +1165,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
               )
               .count(),
           isar.cropListings.count(),
-        ].cast<Future<int>>());
+        ].cast<Future<int>>(),);
         result['deliveries'] = futures[0];
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
@@ -734,7 +1184,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .statusEqualTo(TripStatus.matched)
               .count(),
           isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
-        ].cast<Future<int>>());
+        ].cast<Future<int>>(),);
         result['trips'] = futures[0];
         result['inTransit'] = futures[1];
         result['matched'] = futures[2];
@@ -817,7 +1267,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           StatTile(
             value: '${stats['listings'] ?? 0}',
             label: l10n.farmersBrowsed,
-            icon: Icons.people_outline,
+            icon: Icons.eco_outlined,
             valueColor: AppTheme.statusInfo,
           ),
           StatTile(

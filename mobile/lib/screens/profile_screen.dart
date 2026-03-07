@@ -15,6 +15,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -69,279 +70,600 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final name = user?.name ?? authState.userName;
         final role = user?.role ?? authState.role;
         final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+        final isVerified = user?.isVerified ?? false;
 
-        return Scaffold(
-          body: SingleChildScrollView(
-            child: Column(
-              children: [
-                // ── Green header with avatar + back button ─────────────
-                GreenHeader(
-                  height: 210,
-                  child: Column(
-                    children: [
-                      // Back button row
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: GestureDetector(
-                          onTap: () => Navigator.of(context).pop(),
-                          child: const Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.arrow_back_ios_new,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Back',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+        if (Breakpoints.isMobile(context)) {
+          return _buildMobileProfile(
+            context,
+            authState,
+            l10n,
+            name,
+            role,
+            initials,
+            isVerified: isVerified,
+          );
+        }
+        return _buildDesktopProfile(
+          context,
+          authState,
+          l10n,
+          name,
+          role,
+          initials,
+          isVerified: isVerified,
+        );
+      },
+    );
+  }
+
+  Widget _buildMobileProfile(
+    BuildContext context,
+    AuthAuthenticated authState,
+    AppLocalizations l10n,
+    String name,
+    UserRole role,
+    String initials, {
+    bool isVerified = false,
+  }) {
+    return Scaffold(
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // ── Green header with avatar + back button ─────────────
+            GreenHeader(
+              height: 210,
+              child: Column(
+                children: [
+                  // Back button row
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: const Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.arrow_back_ios_new,
+                              size: 18,
+                              color: Colors.white,
                             ),
-                          ),
+                            SizedBox(width: 4),
+                            Text(
+                              'Back',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // Avatar
+                  CircleAvatar(
+                    radius: 36,
+                    backgroundColor: AppTheme.accentGold,
+                    child: Text(
+                      initials,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Name
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // Role + verified badge (conditional)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _getRoleLabel(role, l10n),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withAlpha(200),
+                        ),
+                      ),
+                      if (isVerified) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentGold,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.verified,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                l10n.verified,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Stats bar (overlapping card) ─────────────────────────
+            Transform.translate(
+              offset: const Offset(0, -16),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceWhite,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.borderLight),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0D000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: FutureBuilder<Map<String, String>>(
+                  future: _getStatsFuture(authState.userId),
+                  builder: (context, snap) {
+                    final stats = snap.data ??
+                        {'trades': '0', 'rating': '-', 'escrow': '0%'};
+                    return Row(
+                      children: [
+                        _StatColumn(
+                          value: stats['trades']!,
+                          label: l10n.trades,
+                        ),
+                        _verticalDivider(),
+                        _StatColumn(
+                          value: stats['rating']!,
+                          label: l10n.rating,
+                        ),
+                        _verticalDivider(),
+                        _StatColumn(
+                          value: stats['escrow']!,
+                          label: l10n.escrowPercent,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // ── Menu items ───────────────────────────────────────────
+            _buildMenuItems(
+              context,
+              authState,
+              l10n,
+              _getStatsFuture(authState.userId),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopProfile(
+    BuildContext context,
+    AuthAuthenticated authState,
+    AppLocalizations l10n,
+    String name,
+    UserRole role,
+    String initials, {
+    bool isVerified = false,
+  }) {
+    final isDesktop = Breakpoints.isDesktop(context);
+
+    final hPad = isDesktop ? 32.0 : 24.0;
+
+    return Scaffold(
+      body: SingleChildScrollView(
+        padding: EdgeInsets.only(top: hPad, bottom: 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 700),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 20),
+                  child: Text(
+                    l10n.profile,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textDark,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                // ── Profile card with avatar, name, role, stats ────────
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.borderLight),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0D000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
                       // Avatar
                       CircleAvatar(
-                        radius: 36,
+                        radius: 40,
                         backgroundColor: AppTheme.accentGold,
                         child: Text(
                           initials,
                           style: const TextStyle(
-                            fontSize: 28,
+                            fontSize: 32,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       // Name
                       Text(
                         name,
                         style: const TextStyle(
-                          fontSize: 20,
+                          fontSize: 22,
                           fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                          color: AppTheme.textDark,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      // Role + verified badge
+                      const SizedBox(height: 6),
+                      // Role badge + verified badge (conditional)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            _getRoleLabel(role, l10n),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white.withAlpha(200),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
+                              horizontal: 10,
+                              vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: AppTheme.accentGold,
+                              color: AppTheme.primaryGreen.withAlpha(25),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.verified,
-                                  size: 12,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  l10n.verified,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
+                            child: Text(
+                              _getRoleLabel(role, l10n),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ),
+                          if (isVerified) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentGold,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.verified,
+                                    size: 12,
                                     color: Colors.white,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Stats bar (overlapping card) ─────────────────────────
-                Transform.translate(
-                  offset: const Offset(0, -16),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 20),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceWhite,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.borderLight),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x0D000000),
-                          blurRadius: 8,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: FutureBuilder<Map<String, String>>(
-                      future: _getStatsFuture(authState.userId),
-                      builder: (context, snap) {
-                        final stats = snap.data ??
-                            {'trades': '0', 'rating': '0.0', 'escrow': '0%'};
-                        return Row(
-                          children: [
-                            _StatColumn(
-                              value: stats['trades']!,
-                              label: l10n.trades,
-                            ),
-                            _verticalDivider(),
-                            _StatColumn(
-                              value: stats['rating']!,
-                              label: l10n.rating,
-                            ),
-                            _verticalDivider(),
-                            _StatColumn(
-                              value: stats['escrow']!,
-                              label: l10n.escrowPercent,
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    l10n.verified,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                        );
-                      },
-                    ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      const Divider(color: AppTheme.borderLight, height: 1),
+                      const SizedBox(height: 16),
+                      // Stats row
+                      FutureBuilder<Map<String, String>>(
+                        future: _getStatsFuture(authState.userId),
+                        builder: (context, snap) {
+                          final stats = snap.data ??
+                              {
+                                'trades': '0',
+                                'rating': '-',
+                                'escrow': '0%',
+                              };
+                          return Row(
+                            children: [
+                              _StatColumn(
+                                value: stats['trades']!,
+                                label: l10n.trades,
+                              ),
+                              _verticalDivider(),
+                              _StatColumn(
+                                value: stats['rating']!,
+                                label: l10n.rating,
+                              ),
+                              _verticalDivider(),
+                              _StatColumn(
+                                value: stats['escrow']!,
+                                label: l10n.escrowPercent,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
 
-                // ── Menu items ───────────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    children: [
-                      _ProfileMenuItem(
-                        icon: Icons.account_balance_wallet_outlined,
-                        title: l10n.wallet,
-                        subtitle: l10n.etbCurrency('0'),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const PaymentHistoryScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      _ProfileMenuItem(
-                        icon: Icons.history,
-                        title: l10n.escrowHistory,
-                        subtitle: '0 ${l10n.trades}',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const PaymentHistoryScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      _ProfileMenuItem(
-                        icon: Icons.star_outline,
-                        title: l10n.ratings,
-                        subtitle: '0.0',
-                        onTap: () => _showComingSoon(context, l10n),
-                      ),
-                      const SizedBox(height: 8),
-                      _ProfileMenuItem(
-                        icon: Icons.description_outlined,
-                        title: l10n.documents,
-                        subtitle: l10n.idAndCerts,
-                        onTap: () => _showComingSoon(context, l10n),
-                      ),
-                      const SizedBox(height: 8),
-                      _ProfileMenuItem(
-                        icon: Icons.settings_outlined,
-                        title: l10n.settings,
-                        subtitle: l10n.languageAndAlerts,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const SettingsScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      _ProfileMenuItem(
-                        icon: Icons.help_outline,
-                        title: l10n.help,
-                        subtitle: l10n.faqAndSupport,
-                        onTap: () => _showComingSoon(context, l10n),
-                      ),
-                      if (kDebugMode) ...[
-                        const SizedBox(height: 8),
-                        _ProfileMenuItem(
-                          icon: Icons.delete_sweep,
-                          title: 'Reset Test Data',
-                          subtitle: 'Clear all business data',
-                          iconColor: Colors.orange,
-                          onTap: () => _showResetTestData(context),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      // Log out button
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () =>
-                              _showLogoutConfirmation(context, l10n),
-                          icon: const Icon(
-                            Icons.logout,
-                            color: AppTheme.statusError,
-                            size: 18,
-                          ),
-                          label: Text(
-                            l10n.logout,
-                            style: const TextStyle(
-                              color: AppTheme.statusError,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppTheme.statusError),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
+                const SizedBox(height: 24),
+
+                // ── Menu items (grid on desktop, single column on tablet)
+                _buildDesktopMenuItems(
+                  context,
+                  authState,
+                  l10n,
+                  isDesktop,
+                  _getStatsFuture(authState.userId),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Builds the menu items list used by the mobile layout.
+  Widget _buildMenuItems(
+    BuildContext context,
+    AuthAuthenticated authState,
+    AppLocalizations l10n,
+    Future<Map<String, String>> statsFuture,
+  ) {
+    return FutureBuilder<Map<String, String>>(
+      future: statsFuture,
+      builder: (context, snap) {
+        final stats =
+            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0%'};
+        final items = _menuItemWidgets(context, l10n, stats);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                items[i],
+                if (i < items.length - 1) const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 24),
+              _buildLogoutButton(context, l10n),
+              const SizedBox(height: 32),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  /// Builds menu items for desktop/tablet with optional two-column grid.
+  Widget _buildDesktopMenuItems(
+    BuildContext context,
+    AuthAuthenticated authState,
+    AppLocalizations l10n,
+    bool isDesktop,
+    Future<Map<String, String>> statsFuture,
+  ) {
+    return FutureBuilder<Map<String, String>>(
+      future: statsFuture,
+      builder: (context, snap) {
+        final stats =
+            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0%'};
+        final items = _menuItemWidgets(context, l10n, stats);
+
+        if (isDesktop) {
+          // Two-column grid layout
+          final rows = <Widget>[];
+          for (var i = 0; i < items.length; i += 2) {
+            if (i + 1 < items.length) {
+              rows.add(
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: items[i]),
+                    const SizedBox(width: 12),
+                    Expanded(child: items[i + 1]),
+                  ],
+                ),
+              );
+            } else {
+              rows.add(
+                Row(
+                  children: [
+                    Expanded(child: items[i]),
+                    const SizedBox(width: 12),
+                    const Expanded(child: SizedBox.shrink()),
+                  ],
+                ),
+              );
+            }
+            if (i + 2 < items.length) {
+              rows.add(const SizedBox(height: 12));
+            }
+          }
+
+          return Column(
+            children: [
+              ...rows,
+              const SizedBox(height: 24),
+              _buildLogoutButton(context, l10n),
+              const SizedBox(height: 32),
+            ],
+          );
+        }
+
+        // Tablet: single column
+        return Column(
+          children: [
+            ...items
+                .expand((item) => [item, const SizedBox(height: 8)])
+                .toList()
+              ..removeLast(),
+            const SizedBox(height: 24),
+            _buildLogoutButton(context, l10n),
+            const SizedBox(height: 32),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Returns the list of _ProfileMenuItem widgets (shared by both layouts).
+  List<Widget> _menuItemWidgets(
+    BuildContext context,
+    AppLocalizations l10n,
+    Map<String, String> stats,
+  ) {
+    final trades = stats['trades'] ?? '0';
+    return [
+      _ProfileMenuItem(
+        icon: Icons.account_balance_wallet_outlined,
+        title: l10n.wallet,
+        subtitle: '$trades ${l10n.trades}',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const PaymentHistoryScreen(),
+            ),
+          );
+        },
+      ),
+      _ProfileMenuItem(
+        icon: Icons.history,
+        title: l10n.escrowHistory,
+        subtitle: stats['escrow'] ?? '0%',
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const PaymentHistoryScreen(),
+            ),
+          );
+        },
+      ),
+      _ProfileMenuItem(
+        icon: Icons.description_outlined,
+        title: l10n.documents,
+        subtitle: l10n.idAndCerts,
+        onTap: () => _showComingSoon(context, l10n),
+      ),
+      _ProfileMenuItem(
+        icon: Icons.settings_outlined,
+        title: l10n.settings,
+        subtitle: l10n.languageAndAlerts,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const SettingsScreen(),
+            ),
+          );
+        },
+      ),
+      _ProfileMenuItem(
+        icon: Icons.help_outline,
+        title: l10n.help,
+        subtitle: l10n.faqAndSupport,
+        onTap: () => _showComingSoon(context, l10n),
+      ),
+      if (kDebugMode)
+        _ProfileMenuItem(
+          icon: Icons.delete_sweep,
+          title: 'Reset Test Data',
+          subtitle: 'Clear all business data',
+          iconColor: Colors.orange,
+          onTap: () => _showResetTestData(context),
+        ),
+    ];
+  }
+
+  /// Builds the logout button (shared by both layouts).
+  Widget _buildLogoutButton(BuildContext context, AppLocalizations l10n) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => _showLogoutConfirmation(context, l10n),
+        icon: const Icon(
+          Icons.logout,
+          color: AppTheme.statusError,
+          size: 18,
+        ),
+        label: Text(
+          l10n.logout,
+          style: const TextStyle(
+            color: AppTheme.statusError,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: AppTheme.statusError),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
     );
   }
 
@@ -417,13 +739,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<Map<String, String>> _loadProfileStats(String userId) async {
     try {
       final isar = IsarService.instance.db;
+      // Count deliveries involving this user (any role)
       final deliveries = await isar.deliverys
           .where()
           .filter()
           .farmerIdEqualTo(userId)
           .or()
           .buyerIdEqualTo(userId)
+          .or()
+          .truckerIdEqualTo(userId)
           .count();
+      // Count payments involving this user (any role)
       final payments = await isar.payments
           .where()
           .filter()
@@ -435,11 +761,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final escrowPct = total > 0 ? ((payments / total) * 100).round() : 0;
       return {
         'trades': '$total',
-        'rating': '4.5',
+        'rating': '-',
         'escrow': '$escrowPct%',
       };
     } on Object {
-      return {'trades': '0', 'rating': '0.0', 'escrow': '0%'};
+      return {'trades': '0', 'rating': '-', 'escrow': '0%'};
     }
   }
 
