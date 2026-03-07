@@ -1810,6 +1810,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'One platform for farmers, truckers, and buyers — with secure escrow.';
 
   @override
+  String get orderFunded => 'Funded';
+
+  @override
   String get orderCancelled => 'Cancelled';
 
   @override

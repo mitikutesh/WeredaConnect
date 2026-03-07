@@ -118,33 +118,27 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             _buildChip(null, l10n.deliveryFilterAll),
             _buildChip('created', l10n.orderPending),
             _buildChip('accepted', l10n.orderAccepted),
-            _buildChip('rejected', l10n.orderRejected),
+            _buildChip('funded', l10n.orderFunded),
+            _buildChip('inTransit', l10n.deliveryFilterInTransit),
+            _buildChip('delivered', l10n.deliveryFilterDelivered),
+            _buildChip('cancelled', l10n.orderCancelled),
           ],
         ),
       );
     } else {
       filterChips = Padding(
         padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-        child: Row(
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 8,
           children: [
-            Expanded(
-              child: _buildChip(null, l10n.deliveryFilterAll, expand: true),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child:
-                  _buildChip('created', l10n.orderPending, expand: true),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child:
-                  _buildChip('accepted', l10n.orderAccepted, expand: true),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child:
-                  _buildChip('rejected', l10n.orderRejected, expand: true),
-            ),
+            _buildChip(null, l10n.deliveryFilterAll),
+            _buildChip('created', l10n.orderPending),
+            _buildChip('accepted', l10n.orderAccepted),
+            _buildChip('funded', l10n.orderFunded),
+            _buildChip('inTransit', l10n.deliveryFilterInTransit),
+            _buildChip('delivered', l10n.deliveryFilterDelivered),
+            _buildChip('cancelled', l10n.orderCancelled),
           ],
         ),
       );

@@ -151,38 +151,41 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         color: Colors.white.withAlpha(180),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    // Search bar
-                    Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: 42,
-                        child: TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            hintText: l10n.searchListings,
-                            hintStyle: const TextStyle(
-                              fontSize: 14,
-                              color: AppTheme.textMuted,
+                    // Search bar (marketplace browse only — wereda
+                    // filter is not used in owner mode)
+                    if (!widget.ownerMode) ...[
+                      const SizedBox(height: 10),
+                      Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          height: 42,
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: l10n.searchListings,
+                              hintStyle: const TextStyle(
+                                fontSize: 14,
+                                color: AppTheme.textMuted,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.search,
+                                color: AppTheme.textMuted,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
                             ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: AppTheme.textMuted,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 10),
+                            onChanged: (value) {
+                              setState(() {
+                                _weredaFilter = value.isEmpty ? null : value;
+                              });
+                              _debouncedApplyFilters();
+                            },
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              _weredaFilter = value.isEmpty ? null : value;
-                            });
-                            _debouncedApplyFilters();
-                          },
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),

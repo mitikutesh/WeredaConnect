@@ -889,7 +889,7 @@ class _QuickActionsGrid extends StatelessWidget {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const CreateIntentScreen(),
+                  builder: (_) => const BrowseListingsScreen(),
                 ),
               );
               onRefresh?.call();
@@ -1130,61 +1130,67 @@ class _OverviewStatsState extends State<_OverviewStats> {
       final result = <String, int>{};
 
       if (role == UserRole.farmer && userId.isNotEmpty) {
-        final futures = await Future.wait<int>([
-          isar.cropListings.where().farmerIdEqualTo(userId).count(),
-          isar.payments.where().filter().farmerIdEqualTo(userId).count(),
-          isar.orders
-              .filter()
-              .farmerIdEqualTo(userId)
-              .statusEqualTo(OrderStatus.funded)
-              .count(),
-          isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
-        ].cast<Future<int>>(),);
+        final futures = await Future.wait<int>(
+          [
+            isar.cropListings.where().farmerIdEqualTo(userId).count(),
+            isar.payments.where().filter().farmerIdEqualTo(userId).count(),
+            isar.orders
+                .filter()
+                .farmerIdEqualTo(userId)
+                .statusEqualTo(OrderStatus.funded)
+                .count(),
+            isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
+          ].cast<Future<int>>(),
+        );
         result['listings'] = futures[0];
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
         result['deliveries'] = futures[3];
       } else if (role == UserRole.buyer && userId.isNotEmpty) {
-        final futures = await Future.wait<int>([
-          isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
-          isar.payments.where().filter().buyerIdEqualTo(userId).count(),
-          isar.orders
-              .filter()
-              .buyerIdEqualTo(userId)
-              .group(
-                (q) => q
-                    .statusEqualTo(OrderStatus.created)
-                    .or()
-                    .statusEqualTo(OrderStatus.pendingPayment)
-                    .or()
-                    .statusEqualTo(OrderStatus.paymentSubmitted)
-                    .or()
-                    .statusEqualTo(OrderStatus.funded)
-                    .or()
-                    .statusEqualTo(OrderStatus.accepted),
-              )
-              .count(),
-          isar.cropListings.count(),
-        ].cast<Future<int>>(),);
+        final futures = await Future.wait<int>(
+          [
+            isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
+            isar.payments.where().filter().buyerIdEqualTo(userId).count(),
+            isar.orders
+                .filter()
+                .buyerIdEqualTo(userId)
+                .group(
+                  (q) => q
+                      .statusEqualTo(OrderStatus.created)
+                      .or()
+                      .statusEqualTo(OrderStatus.pendingPayment)
+                      .or()
+                      .statusEqualTo(OrderStatus.paymentSubmitted)
+                      .or()
+                      .statusEqualTo(OrderStatus.funded)
+                      .or()
+                      .statusEqualTo(OrderStatus.accepted),
+                )
+                .count(),
+            isar.cropListings.count(),
+          ].cast<Future<int>>(),
+        );
         result['deliveries'] = futures[0];
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
         result['listings'] = futures[3];
       } else if (role == UserRole.trucker && userId.isNotEmpty) {
-        final futures = await Future.wait<int>([
-          isar.trips.filter().truckerIdEqualTo(userId).count(),
-          isar.trips
-              .filter()
-              .truckerIdEqualTo(userId)
-              .statusEqualTo(TripStatus.inTransit)
-              .count(),
-          isar.trips
-              .filter()
-              .truckerIdEqualTo(userId)
-              .statusEqualTo(TripStatus.matched)
-              .count(),
-          isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
-        ].cast<Future<int>>(),);
+        final futures = await Future.wait<int>(
+          [
+            isar.trips.filter().truckerIdEqualTo(userId).count(),
+            isar.trips
+                .filter()
+                .truckerIdEqualTo(userId)
+                .statusEqualTo(TripStatus.inTransit)
+                .count(),
+            isar.trips
+                .filter()
+                .truckerIdEqualTo(userId)
+                .statusEqualTo(TripStatus.matched)
+                .count(),
+            isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
+          ].cast<Future<int>>(),
+        );
         result['trips'] = futures[0];
         result['inTransit'] = futures[1];
         result['matched'] = futures[2];

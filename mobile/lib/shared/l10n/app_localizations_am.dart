@@ -1767,6 +1767,9 @@ class AppLocalizationsAm extends AppLocalizations {
       'ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።';
 
   @override
+  String get orderFunded => 'ገንዘብ ተከፍሏል';
+
+  @override
   String get orderCancelled => 'ተሰርዟል';
 
   @override

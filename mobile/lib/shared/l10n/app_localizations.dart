@@ -3442,6 +3442,12 @@ abstract class AppLocalizations {
   /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
   String get splashSubtitle;
 
+  /// Order status label for funded/paid orders
+  ///
+  /// In en, this message translates to:
+  /// **'Funded'**
+  String get orderFunded;
+
   /// Order status label for cancelled orders
   ///
   /// In en, this message translates to:

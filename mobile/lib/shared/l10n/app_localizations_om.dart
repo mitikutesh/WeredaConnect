@@ -1824,6 +1824,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.';
 
   @override
+  String get orderFunded => 'Kaffaltii';
+
+  @override
   String get orderCancelled => 'Haqame';
 
   @override

@@ -2131,6 +2131,7 @@
   "farmer": "ገበሬ",
   "splashHeadline": "አምርተው። አጓጉዘው።\nገዝተው። ተጠናቀቀ።",
   "splashSubtitle": "ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።",
+  "orderFunded": "ገንዘብ ተከፍሏል",
   "orderCancelled": "ተሰርዟል",
   "orderCompleted": "ተጠናቅቋል",
   "faydaVerifyTitle": "የፋይዳ ማንነት ማረጋገጫ",

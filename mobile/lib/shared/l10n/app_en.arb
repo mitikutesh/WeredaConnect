@@ -2468,6 +2468,10 @@
   "@splashSubtitle": {
     "description": "Subtitle on splash/landing screen"
   },
+  "orderFunded": "Funded",
+  "@orderFunded": {
+    "description": "Order status label for funded/paid orders"
+  },
   "orderCancelled": "Cancelled",
   "@orderCancelled": {
     "description": "Order status label for cancelled orders"
