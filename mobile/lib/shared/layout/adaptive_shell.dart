@@ -30,7 +30,7 @@ class AdaptiveShell extends StatelessWidget {
     return 0;
   }
 
-  void _onFabPressed(BuildContext context, UserRole role) {
+  Future<void> _onFabPressed(BuildContext context, UserRole role) async {
     Widget screen;
     switch (role) {
       case UserRole.farmer:
@@ -40,10 +40,16 @@ class AdaptiveShell extends StatelessWidget {
       case UserRole.buyer:
         screen = const CreateIntentScreen();
     }
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute<void>(builder: (_) => screen),
     );
+    // Re-navigate to current route to force child rebuild (refreshes overview stats)
+    if (context.mounted) {
+      final location = GoRouterState.of(context).matchedLocation;
+      // ignore: use_build_context_synchronously
+      context.go(location);
+    }
   }
 
   String _fabTooltip(AppLocalizations l10n, UserRole role) {

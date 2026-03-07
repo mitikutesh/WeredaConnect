@@ -1154,20 +1154,27 @@ class _OverviewStatsState extends State<_OverviewStats> {
   ) async {
     try {
       final api = ApiClient();
-      if (!api.isInitialized) return {};
+      if (!api.isInitialized) {
+        debugPrint('[OverviewStats] ApiClient not initialized');
+        return {};
+      }
       final result = <String, int>{};
 
-      // Each call uses catchError so one failing endpoint doesn't zero-out all stats.
+      // Each call is isolated so one failing endpoint doesn't zero-out all stats.
       Future<Map<String, dynamic>> safeGet(
         String path, {
         Map<String, dynamic>? queryParameters,
-      }) =>
-          api
-              .get<Map<String, dynamic>>(
-                path,
-                queryParameters: queryParameters,
-              )
-              .catchError((_) => <String, dynamic>{});
+      }) async {
+        try {
+          return await api.get<Map<String, dynamic>>(
+            path,
+            queryParameters: queryParameters,
+          );
+        } on Object catch (e) {
+          debugPrint('[OverviewStats] $path failed: $e');
+          return <String, dynamic>{};
+        }
+      }
 
       if (role == UserRole.farmer) {
         final responses = await Future.wait([
@@ -1214,7 +1221,8 @@ class _OverviewStatsState extends State<_OverviewStats> {
       }
 
       return result;
-    } on Object {
+    } on Object catch (e) {
+      debugPrint('[OverviewStats] Web stats failed: $e');
       return {};
     }
   }
@@ -1234,67 +1242,64 @@ class _OverviewStatsState extends State<_OverviewStats> {
       final result = <String, int>{};
 
       if (role == UserRole.farmer) {
-        final futures = await Future.wait<int>(
-          [
-            isar.cropListings.where().farmerIdEqualTo(userId).count(),
-            isar.payments.where().filter().farmerIdEqualTo(userId).count(),
-            isar.orders
-                .filter()
-                .farmerIdEqualTo(userId)
-                .statusEqualTo(OrderStatus.funded)
-                .count(),
-            isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
-          ].cast<Future<int>>(),
-        );
+        final futures = await Future.wait<int>([
+          isar.cropListings.filter().farmerIdEqualTo(userId).count(),
+          isar.payments.filter().farmerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .farmerIdEqualTo(userId)
+              .statusEqualTo(OrderStatus.funded)
+              .count(),
+          isar.deliverys.filter().farmerIdEqualTo(userId).count(),
+        ]);
         result['listings'] = futures[0];
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
         result['deliveries'] = futures[3];
       } else if (role == UserRole.buyer) {
-        final futures = await Future.wait<int>(
-          [
-            isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
-            isar.payments.where().filter().buyerIdEqualTo(userId).count(),
-            isar.orders
-                .filter()
-                .buyerIdEqualTo(userId)
-                .group(
-                  (q) => q
-                      .statusEqualTo(OrderStatus.created)
-                      .or()
-                      .statusEqualTo(OrderStatus.pendingPayment)
-                      .or()
-                      .statusEqualTo(OrderStatus.paymentSubmitted)
-                      .or()
-                      .statusEqualTo(OrderStatus.funded)
-                      .or()
-                      .statusEqualTo(OrderStatus.accepted),
-                )
-                .count(),
-            isar.cropListings.count(),
-          ].cast<Future<int>>(),
-        );
+        final futures = await Future.wait<int>([
+          isar.deliverys.filter().buyerIdEqualTo(userId).count(),
+          isar.payments.filter().buyerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .buyerIdEqualTo(userId)
+              .group(
+                (q) => q
+                    .statusEqualTo(OrderStatus.created)
+                    .or()
+                    .statusEqualTo(OrderStatus.pendingPayment)
+                    .or()
+                    .statusEqualTo(OrderStatus.paymentSubmitted)
+                    .or()
+                    .statusEqualTo(OrderStatus.funded)
+                    .or()
+                    .statusEqualTo(OrderStatus.accepted),
+              )
+              .count(),
+          isar.cropListings
+              .filter()
+              .statusEqualTo(ListingStatus.active)
+              .count(),
+        ]);
         result['deliveries'] = futures[0];
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
         result['listings'] = futures[3];
       } else if (role == UserRole.trucker) {
-        final futures = await Future.wait<int>(
-          [
-            isar.trips.filter().truckerIdEqualTo(userId).count(),
-            isar.trips
-                .filter()
-                .truckerIdEqualTo(userId)
-                .statusEqualTo(TripStatus.inTransit)
-                .count(),
-            isar.trips
-                .filter()
-                .truckerIdEqualTo(userId)
-                .statusEqualTo(TripStatus.matched)
-                .count(),
-            isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
-          ].cast<Future<int>>(),
-        );
+        final futures = await Future.wait<int>([
+          isar.trips.filter().truckerIdEqualTo(userId).count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.inTransit)
+              .count(),
+          isar.trips
+              .filter()
+              .truckerIdEqualTo(userId)
+              .statusEqualTo(TripStatus.matched)
+              .count(),
+          isar.deliverys.filter().truckerIdEqualTo(userId).count(),
+        ]);
         result['trips'] = futures[0];
         result['inTransit'] = futures[1];
         result['matched'] = futures[2];
@@ -1302,7 +1307,8 @@ class _OverviewStatsState extends State<_OverviewStats> {
       }
 
       return result;
-    } on Object {
+    } on Object catch (e) {
+      debugPrint('[OverviewStats] Isar stats failed: $e');
       return {};
     }
   }
