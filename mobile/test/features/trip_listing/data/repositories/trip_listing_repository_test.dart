@@ -913,7 +913,7 @@ void main() {
                 .having(
                   (e) => e.message,
                   'message',
-                  contains('delivered'),
+                  contains('cannot be cancelled'),
                 ),
           ),
         );

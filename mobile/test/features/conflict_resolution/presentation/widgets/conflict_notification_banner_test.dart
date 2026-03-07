@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_notification_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 Widget _buildWidget(Widget child) {
   return MaterialApp(
@@ -99,7 +100,8 @@ void main() {
 
       // MaterialBanner has amber background
       final banner = tester.widget<MaterialBanner>(find.byType(MaterialBanner));
-      expect(banner.backgroundColor, equals(Colors.amber.shade50));
+      expect(
+          banner.backgroundColor, equals(AppTheme.statusWarning.withAlpha(25)));
     });
 
     testWidgets('text has correct style (fontSize 16, maxLines 2)',
