@@ -58,7 +58,7 @@ specs/contracts/               # API contracts (source of truth for cross-module
 | **Fix sync/offline bug** | `specs/contracts/sync-protocol.md` | `mobile/lib/core/sync/` source | `.agents/workflows.md` (bug fix) |
 | **Add localization** | `mobile/lib/shared/l10n/app_en.arb` | Run `flutter gen-l10n` | All 3 `.arb` files |
 | **Add infra** (table, Lambda) | `.ai/tech_stack.md` | `infra/lib/` existing patterns | `infra/TESTING.md` |
-| **Deploy** | `.agents/deployment_checklist.md` | `docs/developer/deployment.md` | — |
+| **Deploy** | `.ai/deployment.md` | `docs/developer/deployment.md` | `.agents/deployment_checklist.md` |
 | **Resume work / new session** | `STATE.md` → `TASK.md` | This file | `CLAUDE.md` |
 
 ---

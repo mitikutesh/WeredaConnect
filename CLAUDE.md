@@ -59,6 +59,33 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 2. **Read** `STATE.md` → `TASK.md` — current context and priorities
 3. **Read** the relevant contract in `specs/contracts/` if working on an API
 
+### Implementation Protocol (Mandatory)
+
+Follow this pipeline for **every** code change — no exceptions. Do NOT skip steps or combine them.
+
+**Phase 1 — Analyze** (before writing any code):
+1. Run impact analysis: identify all files that will need changes, including platform pairs (`*_web.dart`, `core/models/web/`), cross-module dependencies (server ↔ mobile ↔ admin), and affected tests.
+2. Present the impact summary to the user:
+   - Files to modify (grouped by module)
+   - Platform counterparts that need matching updates
+   - Cross-module impacts (e.g., "server DTO changed → mobile model + admin type")
+   - Risk level (LOW / MEDIUM / HIGH)
+3. **Wait for user confirmation before proceeding.** Do not write any code until the user approves the plan.
+
+**Phase 2 — Implement** (after user confirms):
+4. Make the changes as approved. Always update platform counterparts together — never leave a pair out of sync.
+
+**Phase 3 — Validate** (after implementation):
+5. Run `/validate` — cross-platform pair checks, cross-module impact, builds for all affected modules.
+6. Run `/review` — quality criteria (offline-first, AOT, l10n, security, cross-platform, cross-module).
+7. Run `/test` — tests for all affected modules.
+
+**Phase 4 — Fix loop** (if issues found):
+8. If any step in Phase 3 fails, fix the issues, then re-run **all three** (validate → review → test) until clean.
+9. Report final results to the user.
+
+**Exceptions**: Trivial changes (typo fixes, comment edits, formatting-only) may skip Phase 1 impact analysis, but must still run Phase 3 validation.
+
 ### When Proposing Solutions
 - **Ask** before installing dependencies
 - **Explain** trade-offs in Ethiopian context
@@ -145,10 +172,13 @@ Specialized agents for team-based development:
 
 | Command | What It Does |
 |---|---|
-| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
-| `/validate` | Run build checks for changed modules only |
+| `/implement` | Full pipeline: impact analysis → confirm → implement → validate → review → test |
+| `/impact` | Analyze blast radius of a file/feature change before modifying it |
+| `/validate` | Build checks + cross-platform pair checks + cross-module impact detection |
 | `/review` | Review recent changes against quality criteria |
+| `/test` | Run tests for all modules that have changes |
 | `/plan` | Create implementation spec in `specs/features/` before building |
+| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
 
 ### Hook-Enforced Guardrails
 
