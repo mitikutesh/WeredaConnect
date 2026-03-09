@@ -304,7 +304,9 @@ public sealed class CropRepository : ICropRepository
 
     /// <summary>
     /// Query FarmerIdCreatedAtIndex GSI: PK=farmerId, SK=createdAt (descending).
-    /// Remaining filters (woreda, cropType, status) applied as FilterExpression.
+    /// GSI uses INCLUDE projection (only cropType, pricePerKg, deletedAt), so we
+    /// do a two-step query: GSI for keys → BatchGetItem for full items.
+    /// Remaining filters (woreda, cropType, status) applied as FilterExpression on GSI.
     /// </summary>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByFarmerIdAsync(
         string farmerId,
@@ -325,25 +327,12 @@ public sealed class CropRepository : ICropRepository
         filterParts.Add("attribute_not_exists(#deletedAt)");
         attrNames["#deletedAt"] = "deletedAt";
 
-        if (!string.IsNullOrEmpty(woreda))
-        {
-            filterParts.Add("#woreda = :woreda");
-            attrNames["#woreda"] = "woreda";
-            attrValues[":woreda"] = new AttributeValue { S = woreda };
-        }
-
+        // These filters use attributes available in the GSI INCLUDE projection
         if (!string.IsNullOrEmpty(cropType))
         {
             filterParts.Add("#cropType = :cropType");
             attrNames["#cropType"] = "cropType";
             attrValues[":cropType"] = new AttributeValue { S = cropType };
-        }
-
-        if (!string.IsNullOrEmpty(status))
-        {
-            filterParts.Add("#status = :status");
-            attrNames["#status"] = "status";
-            attrValues[":status"] = new AttributeValue { S = status };
         }
 
         var request = new QueryRequest
@@ -367,9 +356,77 @@ public sealed class CropRepository : ICropRepository
             request.ExclusiveStartKey = exclusiveStartKey;
         }
 
-        var response = await _dynamoDb.QueryAsync(request);
-        var items = response.Items.Select(FromItem).ToList();
-        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+        var gsiResponse = await _dynamoDb.QueryAsync(request);
+        var lastKey = gsiResponse.LastEvaluatedKey.Count > 0 ? gsiResponse.LastEvaluatedKey : null;
+
+        if (gsiResponse.Items.Count == 0)
+        {
+            return (new List<Dictionary<string, object>>(), lastKey);
+        }
+
+        // Step 2: BatchGetItem from main table for full items
+        var fullItems = await BatchGetFullItemsAsync(gsiResponse.Items);
+
+        // Apply remaining filters that weren't in the GSI projection
+        if (!string.IsNullOrEmpty(woreda) || !string.IsNullOrEmpty(status))
+        {
+            fullItems = fullItems.Where(item =>
+            {
+                if (!string.IsNullOrEmpty(woreda) && GetStringOrNull(item, "woreda") != woreda)
+                    return false;
+                if (!string.IsNullOrEmpty(status) && GetStringOrNull(item, "status") != status)
+                    return false;
+                return true;
+            }).ToList();
+        }
+
+        return (fullItems, lastKey);
+    }
+
+    private static string? GetStringOrNull(Dictionary<string, object> item, string key)
+        => item.TryGetValue(key, out var val) ? val?.ToString() : null;
+
+    /// <summary>
+    /// Fetch full items from the main table given GSI result items (which contain primary keys).
+    /// </summary>
+    private async Task<List<Dictionary<string, object>>> BatchGetFullItemsAsync(
+        List<Dictionary<string, AttributeValue>> gsiItems)
+    {
+        // Build keys from GSI items (main table PK=cropId, SK=createdAt)
+        var keys = gsiItems
+            .Select(item => new Dictionary<string, AttributeValue>
+            {
+                { "cropId", item.ContainsKey("cropId") ? item["cropId"] : new AttributeValue { S = "" } },
+                { "createdAt", item.ContainsKey("createdAt") ? item["createdAt"] : new AttributeValue { S = "" } }
+            })
+            .Where(k => k["cropId"].S != "")
+            .ToList();
+
+        if (keys.Count == 0)
+        {
+            return new List<Dictionary<string, object>>();
+        }
+
+        // BatchGetItem (max 100 items per call, our limit is at most 100)
+        var batchRequest = new BatchGetItemRequest
+        {
+            RequestItems = new Dictionary<string, KeysAndAttributes>
+            {
+                {
+                    _tableName, new KeysAndAttributes { Keys = keys }
+                }
+            }
+        };
+
+        var batchResponse = await _dynamoDb.BatchGetItemAsync(batchRequest);
+        var results = new List<Dictionary<string, object>>();
+
+        if (batchResponse.Responses.TryGetValue(_tableName, out var tableItems))
+        {
+            results = tableItems.Select(FromItem).ToList();
+        }
+
+        return results;
     }
 
     /// <summary>
@@ -439,7 +496,9 @@ public sealed class CropRepository : ICropRepository
 
     /// <summary>
     /// Query CropTypeCreatedAtIndex GSI: PK=cropType, SK=createdAt (descending).
-    /// Remaining filter (woreda) applied as FilterExpression.
+    /// GSI uses INCLUDE projection (only pricePerKg, deletedAt), so we do a
+    /// two-step query: GSI for keys → BatchGetItem for full items.
+    /// Remaining filter (woreda) applied post-fetch on full items.
     /// </summary>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByCropTypeAsync(
         string cropType,
@@ -457,13 +516,6 @@ public sealed class CropRepository : ICropRepository
         // Always exclude soft-deleted items
         filterParts.Add("attribute_not_exists(#deletedAt)");
         attrNames["#deletedAt"] = "deletedAt";
-
-        if (!string.IsNullOrEmpty(woreda))
-        {
-            filterParts.Add("#woreda = :woreda");
-            attrNames["#woreda"] = "woreda";
-            attrValues[":woreda"] = new AttributeValue { S = woreda };
-        }
 
         var request = new QueryRequest
         {
@@ -486,9 +538,25 @@ public sealed class CropRepository : ICropRepository
             request.ExclusiveStartKey = exclusiveStartKey;
         }
 
-        var response = await _dynamoDb.QueryAsync(request);
-        var items = response.Items.Select(FromItem).ToList();
-        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+        var gsiResponse = await _dynamoDb.QueryAsync(request);
+        var lastKey = gsiResponse.LastEvaluatedKey.Count > 0 ? gsiResponse.LastEvaluatedKey : null;
+
+        if (gsiResponse.Items.Count == 0)
+        {
+            return (new List<Dictionary<string, object>>(), lastKey);
+        }
+
+        // Step 2: BatchGetItem from main table for full items
+        var fullItems = await BatchGetFullItemsAsync(gsiResponse.Items);
+
+        // Apply remaining filters that weren't in the GSI projection
+        if (!string.IsNullOrEmpty(woreda))
+        {
+            fullItems = fullItems.Where(item =>
+                GetStringOrNull(item, "woreda") == woreda).ToList();
+        }
+
+        return (fullItems, lastKey);
     }
 
     /// <summary>

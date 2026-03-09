@@ -106,19 +106,23 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // F-14: GSI for duplicate listing detection (fraud rule 1)
+    // Uses INCLUDE projection — server does GSI query + BatchGetItem for full items
     this.cropsTable.addGlobalSecondaryIndex({
       indexName: "FarmerIdCreatedAtIndex",
       partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.ALL,
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: ["cropType", "pricePerKg", "deletedAt"],
     });
 
     // F-14: GSI for price anomaly detection (fraud rule 2)
+    // Uses INCLUDE projection — server does GSI query + BatchGetItem for full items
     this.cropsTable.addGlobalSecondaryIndex({
       indexName: "CropTypeCreatedAtIndex",
       partitionKey: { name: "cropType", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.ALL,
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: ["pricePerKg", "deletedAt"],
     });
 
     // Trips table
