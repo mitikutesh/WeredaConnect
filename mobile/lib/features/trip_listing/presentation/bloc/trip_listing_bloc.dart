@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -93,6 +94,10 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     CancelTrip event,
     Emitter<TripListingState> emit,
   ) async {
+    // Capture current trips for optimistic update
+    final previousTrips =
+        state is TripsLoaded ? (state as TripsLoaded).trips : <Trip>[];
+
     emit(const TripListingLoading());
 
     try {
@@ -100,9 +105,17 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         tripId: event.tripId,
         truckerId: event.truckerId,
       );
-      // Reload trips after cancel
-      final trips = await _repository.getTripsByTrucker(event.truckerId);
-      emit(TripsLoaded(trips: trips));
+
+      // Optimistic update: mark the trip as cancelled locally.
+      // The DynamoDB GSI is eventually consistent, so an immediate
+      // reload may return stale data with the old status.
+      final updatedTrips = previousTrips.map((t) {
+        if (t.tripId == event.tripId) {
+          t.status = TripStatus.cancelled;
+        }
+        return t;
+      }).toList();
+      emit(TripsLoaded(trips: updatedTrips));
     } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
