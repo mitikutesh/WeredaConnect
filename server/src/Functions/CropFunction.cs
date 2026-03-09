@@ -66,6 +66,10 @@ public class CropFunction
     /// <summary>
     /// GET /crops - Query crop listings with optional filters.
     /// Query parameters: woreda, cropType, status, limit, nextToken
+    ///
+    /// Role-based visibility:
+    /// - Farmer: can only see own crops (farmerId forced to authenticated userId)
+    /// - Trucker/Buyer/Admin/Unauthenticated: can browse all crops
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetCropsAsync(
         APIGatewayProxyRequest request,
@@ -78,6 +82,21 @@ public class CropFunction
         queryParams.TryGetValue("woreda", out var woreda);
         queryParams.TryGetValue("cropType", out var cropType);
         queryParams.TryGetValue("status", out var status);
+
+        // Role-based visibility enforcement
+        var authenticatedUserId = AuthHelper.GetUserId(request);
+        var role = AuthHelper.GetClaim(request, "custom:role");
+
+        if (string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase))
+        {
+            // Farmers can only see their own crop listings
+            if (!string.IsNullOrEmpty(farmerId) && farmerId != authenticatedUserId)
+            {
+                return LambdaResponse.Error(403, "CROP_FORBIDDEN",
+                    "Farmers can only view their own crop listings.");
+            }
+            farmerId = authenticatedUserId;
+        }
 
         // Parse limit (default 20, max 100)
         var limit = 20;
@@ -136,6 +155,10 @@ public class CropFunction
 
     /// <summary>
     /// GET /crops/{id} - Get a single crop listing by ID.
+    ///
+    /// Role-based visibility:
+    /// - Farmer: can only view own crops (403 if crop belongs to another farmer)
+    /// - Trucker/Buyer/Admin/Unauthenticated: can view any crop
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetCropByIdAsync(
         APIGatewayProxyRequest request,
@@ -159,6 +182,19 @@ public class CropFunction
             if (crop.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
             {
                 return LambdaResponse.Error(404, "CROP_NOT_FOUND", "Crop listing has been deleted.");
+            }
+
+            // Role-based visibility: farmers can only view their own crops
+            var role = AuthHelper.GetClaim(request, "custom:role");
+            if (string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase))
+            {
+                var authenticatedUserId = AuthHelper.GetUserId(request);
+                var cropOwnerId = crop.TryGetValue("farmerId", out var ownerVal) ? ownerVal?.ToString() : null;
+                if (cropOwnerId != authenticatedUserId)
+                {
+                    return LambdaResponse.Error(403, "CROP_FORBIDDEN",
+                        "Farmers can only view their own crop listings.");
+                }
             }
 
             var cropDto = MapToCropDto(crop);

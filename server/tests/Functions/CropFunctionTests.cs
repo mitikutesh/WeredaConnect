@@ -44,6 +44,30 @@ public class CropFunctionTests
         };
     }
 
+    private static APIGatewayProxyRequest MakeAuthenticatedGetRequest(
+        string userId,
+        string role,
+        string path = "/crops",
+        Dictionary<string, string>? queryParams = null,
+        Dictionary<string, string>? pathParams = null)
+    {
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = path,
+            QueryStringParameters = queryParams,
+            PathParameters = pathParams,
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "sub", userId },
+                    { "custom:role", role }
+                }
+            }
+        };
+    }
+
     private static Dictionary<string, object> CreateCropItem(
         string cropId = "crop-001",
         string cropType = "teff",
@@ -572,5 +596,183 @@ public class CropFunctionTests
         Assert.NotNull(response.Headers);
         Assert.True(response.Headers.ContainsKey("Content-Type"));
         Assert.Equal("application/json", response.Headers["Content-Type"]);
+    }
+
+    // --- Role-Based Visibility Tests ---
+
+    [Fact]
+    public async Task HandleGetCrops_FarmerRole_ForcesFarmerIdToOwnUserId()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            "farmer-001",
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+
+        // Verify the repository was called with the farmer's own ID
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            "farmer-001",
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_FarmerRole_CannotQueryOtherFarmerCrops()
+    {
+        var queryParams = new Dictionary<string, string> { { "farmerId", "other-farmer" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("CROP_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_FarmerRole_CanQueryOwnCropsExplicitly()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            "farmer-001",
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var queryParams = new Dictionary<string, string> { { "farmerId", "farmer-001" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_BuyerRole_CanBrowseAllCrops()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+
+        // Verify no farmerId filter was forced
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            null,
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_TruckerRole_CanBrowseAllCrops()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+
+        // Verify no farmerId filter was forced (truckers browse all crops)
+        await _mockCropRepo.Received(1).QueryCropsAsync(
+            null,
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetCrops_Unauthenticated_CanBrowseAllCrops()
+    {
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
+
+        var request = MakeGetRequest();
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetCropById_FarmerRole_CanViewOwnCrop()
+    {
+        var crop = CreateCropItem("crop-001");
+        crop["farmerId"] = "farmer-001";
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(crop);
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer",
+            "/crops/crop-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("crop-001", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCropById_FarmerRole_CannotViewOtherFarmerCrop()
+    {
+        var crop = CreateCropItem("crop-001");
+        crop["farmerId"] = "other-farmer";
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(crop);
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer",
+            "/crops/crop-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("CROP_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetCropById_BuyerRole_CanViewAnyCrop()
+    {
+        var crop = CreateCropItem("crop-001");
+        crop["farmerId"] = "some-farmer";
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(crop);
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer",
+            "/crops/crop-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
     }
 }

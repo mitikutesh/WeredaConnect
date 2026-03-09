@@ -67,6 +67,10 @@ public class TripFunction
     /// GET /trips - Query trip listings with optional filters.
     /// Query parameters: truckerId, fromWoreda, toWoreda, status, minCapacity, maxPrice,
     /// departureDateFrom, departureDateTo, limit, nextToken
+    ///
+    /// Role-based visibility:
+    /// - Trucker: can only see own trips (truckerId forced to authenticated userId)
+    /// - Farmer/Buyer/Admin/Unauthenticated: can browse all trips
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,
@@ -79,6 +83,21 @@ public class TripFunction
         queryParams.TryGetValue("toWoreda", out var toWoreda);
         queryParams.TryGetValue("status", out var status);
         queryParams.TryGetValue("truckerId", out var truckerId);
+
+        // Role-based visibility enforcement
+        var authenticatedUserId = AuthHelper.GetUserId(request);
+        var role = AuthHelper.GetClaim(request, "custom:role");
+
+        if (string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase))
+        {
+            // Truckers can only see their own trip listings
+            if (!string.IsNullOrEmpty(truckerId) && truckerId != authenticatedUserId)
+            {
+                return LambdaResponse.Error(403, "TRIP_FORBIDDEN",
+                    "Truckers can only view their own trip listings.");
+            }
+            truckerId = authenticatedUserId;
+        }
 
         // Parse limit (default 20, max 50)
         var limit = 20;
@@ -197,6 +216,10 @@ public class TripFunction
 
     /// <summary>
     /// GET /trips/{id} - Get a single trip listing by ID.
+    ///
+    /// Role-based visibility:
+    /// - Trucker: can only view own trips (403 if trip belongs to another trucker)
+    /// - Farmer/Buyer/Admin/Unauthenticated: can view any trip
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripByIdAsync(
         APIGatewayProxyRequest request,
@@ -227,6 +250,19 @@ public class TripFunction
                 && statusVal?.ToString() == "cancelled")
             {
                 return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
+            }
+
+            // Role-based visibility: truckers can only view their own trips
+            var role = AuthHelper.GetClaim(request, "custom:role");
+            if (string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase))
+            {
+                var authenticatedUserId = AuthHelper.GetUserId(request);
+                var tripOwnerId = trip.TryGetValue("truckerId", out var ownerVal) ? ownerVal?.ToString() : null;
+                if (tripOwnerId != authenticatedUserId)
+                {
+                    return LambdaResponse.Error(403, "TRIP_FORBIDDEN",
+                        "Truckers can only view their own trip listings.");
+                }
             }
 
             var isAuthenticated = IsAuthenticated(request);

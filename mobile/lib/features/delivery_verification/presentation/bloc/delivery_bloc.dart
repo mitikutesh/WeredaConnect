@@ -37,7 +37,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   ///
   /// Extracts the error code from [DeliveryValidationException] for
   /// l10n mapping in the presentation layer.
-  DeliveryError _errorFromException(Exception e) {
+  DeliveryError _errorFromException(Object e) {
     if (e is DeliveryValidationException) {
       return DeliveryError(message: e.message, code: e.code);
     }
@@ -59,7 +59,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -83,7 +83,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         qrToken: event.qrToken,
       );
       emit(DeliveryCreated(delivery: delivery));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -103,7 +103,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         scannedQrNonce: event.scannedQrNonce,
       );
       emit(const PickupConfirmed());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -120,7 +120,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         truckerId: event.truckerId,
       );
       emit(const MarkedInTransit());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -140,7 +140,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         scannedQrNonce: event.scannedQrNonce,
       );
       emit(const DeliveryConfirmed());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -163,7 +163,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -185,7 +185,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         userId: event.userId,
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -219,7 +219,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
           statusFilter: event.statusFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -235,7 +235,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         role: event.role,
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -260,7 +260,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
           ),
         );
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }
@@ -282,7 +282,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
           statusFilter: event.statusFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(_errorFromException(e));
     }
   }

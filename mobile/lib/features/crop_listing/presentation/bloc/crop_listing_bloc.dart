@@ -30,7 +30,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     try {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
     }
   }
@@ -54,7 +54,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
           activeFilter: event.cropTypeFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
     }
   }
@@ -79,7 +79,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         woreda: event.woreda,
       );
       emit(CropListingCreated(listing: listing));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
     }
   }
@@ -98,7 +98,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       // Reload listings after delete
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
     }
   }
@@ -121,7 +121,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
           activeFilter: event.cropType,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
     }
   }

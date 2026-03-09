@@ -36,7 +36,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     try {
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -59,7 +59,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
           toWoredaFilter: event.toWoreda,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -84,7 +84,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         pricePerQuintal: event.pricePerQuintal,
       );
       emit(TripCreated(trip: trip));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -103,7 +103,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       // Reload trips after cancel
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -120,7 +120,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         truckerId: event.truckerId,
       );
       emit(TripStarted(trip: trip));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -137,7 +137,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         truckerId: event.truckerId,
       );
       emit(TripDelivered(trip: trip));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
@@ -162,7 +162,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
           toWoredaFilter: event.toWoreda,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
     }
   }
