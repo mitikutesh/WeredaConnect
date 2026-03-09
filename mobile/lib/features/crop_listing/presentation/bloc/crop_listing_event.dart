@@ -34,7 +34,6 @@ class CreateCropListing extends CropListingEvent {
 
   const CreateCropListing({
     required this.farmerId,
-    this.farmerName,
     required this.cropType,
     required this.quantity,
     required this.pricePerKg,
@@ -42,6 +41,7 @@ class CreateCropListing extends CropListingEvent {
     required this.longitude,
     required this.locationName,
     required this.description,
+    this.farmerName,
     this.audioNoteRef,
     this.woreda,
   });
