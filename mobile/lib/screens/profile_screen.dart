@@ -728,6 +728,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<User?> _getUser(String userId) async {
+    if (kIsWeb) {
+      // On web, user data comes from auth state, not Isar
+      return null;
+    }
     try {
       final isar = IsarService.instance.db;
       return await isar.users.where().userIdEqualTo(userId).findFirst();
@@ -737,6 +741,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<Map<String, String>> _loadProfileStats(String userId) async {
+    if (kIsWeb) {
+      // Web doesn't have Isar for stats; home screen handles web stats
+      return {'trades': '0', 'rating': '-', 'escrow': '0%'};
+    }
     try {
       final isar = IsarService.instance.db;
       // Count deliveries involving this user (any role)
@@ -825,6 +833,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextButton(
               onPressed: () async {
                 Navigator.of(dialogContext).pop();
+                if (kIsWeb) {
+                  // No local data to reset on web
+                  if (context.mounted) Navigator.pop(context);
+                  return;
+                }
                 final messenger = ScaffoldMessenger.of(context);
                 try {
                   final isar = IsarService.instance.db;

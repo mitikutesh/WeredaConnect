@@ -198,7 +198,7 @@ Future<void> _runWeb({
           BlocProvider<BuyerIntentBloc>(
             create: (_) => BuyerIntentBloc(
               repository: WebBuyerIntentRepository(),
-              matchingService: WebMatchingService(),
+              matchingService: WebMatchingService(api: api),
             ),
           ),
           BlocProvider<ConflictBloc>(

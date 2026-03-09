@@ -110,8 +110,7 @@ export class DatabaseStack extends cdk.Stack {
       indexName: "FarmerIdCreatedAtIndex",
       partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.INCLUDE,
-      nonKeyAttributes: ["cropType", "pricePerKg", "deletedAt"],
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     // F-14: GSI for price anomaly detection (fraud rule 2)
@@ -119,8 +118,7 @@ export class DatabaseStack extends cdk.Stack {
       indexName: "CropTypeCreatedAtIndex",
       partitionKey: { name: "cropType", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
-      projectionType: dynamodb.ProjectionType.INCLUDE,
-      nonKeyAttributes: ["pricePerKg", "deletedAt"],
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     // Trips table

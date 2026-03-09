@@ -12,7 +12,9 @@ namespace WeredaConnect.Server.Data;
 /// Table schema (Crops):
 ///   PK: cropId (STRING)
 ///   SK: createdAt (STRING)
+///   GSI FarmerIdCreatedAtIndex: farmerId + createdAt
 ///   GSI StatusCreatedAtIndex: status + createdAt
+///   GSI CropTypeCreatedAtIndex: cropType + createdAt
 /// </summary>
 public sealed class CropRepository : ICropRepository
 {
@@ -277,37 +279,51 @@ public sealed class CropRepository : ICropRepository
             limit = 20;
         }
 
-        // Build the query based on available filters
-        // Note: For this implementation, we'll use a Scan with filters since we don't have
-        // a specific GSI configured yet. In production, you'd want a GSI on status+createdAt
-        // or woreda+createdAt for better performance.
-
-        var request = new ScanRequest
-        {
-            TableName = _tableName,
-            Limit = limit
-        };
-
-        if (exclusiveStartKey != null)
-        {
-            request.ExclusiveStartKey = exclusiveStartKey;
-        }
-
-        // Build filter expression
-        var filterParts = new List<string>();
-        var attrNames = new Dictionary<string, string>();
-        var attrValues = new Dictionary<string, AttributeValue>();
-
-        // Exclude deleted items by default
-        filterParts.Add("attribute_not_exists(#deletedAt)");
-        attrNames["#deletedAt"] = "deletedAt";
-
+        // Route to the best GSI based on which filter is provided.
+        // Priority: farmerId > status > cropType > fallback SCAN.
+        // Each GSI path uses KeyConditionExpression for the partition key
+        // and pushes remaining filters into FilterExpression.
         if (!string.IsNullOrEmpty(farmerId))
         {
-            filterParts.Add("#farmerId = :farmerId");
-            attrNames["#farmerId"] = "farmerId";
-            attrValues[":farmerId"] = new AttributeValue { S = farmerId };
+            return await QueryByFarmerIdAsync(farmerId, woreda, cropType, status, limit, exclusiveStartKey);
         }
+
+        if (!string.IsNullOrEmpty(status))
+        {
+            return await QueryByStatusAsync(status, woreda, cropType, limit, exclusiveStartKey);
+        }
+
+        if (!string.IsNullOrEmpty(cropType))
+        {
+            return await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey);
+        }
+
+        // Fallback: unfiltered browse — SCAN (unchanged)
+        return await ScanFallbackAsync(woreda, limit, exclusiveStartKey);
+    }
+
+    /// <summary>
+    /// Query FarmerIdCreatedAtIndex GSI: PK=farmerId, SK=createdAt (descending).
+    /// Remaining filters (woreda, cropType, status) applied as FilterExpression.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByFarmerIdAsync(
+        string farmerId,
+        string? woreda,
+        string? cropType,
+        string? status,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":farmerId", new AttributeValue { S = farmerId } }
+        };
+
+        // Always exclude soft-deleted items
+        filterParts.Add("attribute_not_exists(#deletedAt)");
+        attrNames["#deletedAt"] = "deletedAt";
 
         if (!string.IsNullOrEmpty(woreda))
         {
@@ -330,23 +346,195 @@ public sealed class CropRepository : ICropRepository
             attrValues[":status"] = new AttributeValue { S = status };
         }
 
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "FarmerIdCreatedAtIndex",
+            KeyConditionExpression = "farmerId = :farmerId",
+            ScanIndexForward = false, // newest first
+            Limit = limit,
+            ExpressionAttributeValues = attrValues
+        };
+
         if (filterParts.Count > 0)
         {
             request.FilterExpression = string.Join(" AND ", filterParts);
             request.ExpressionAttributeNames = attrNames;
+        }
 
-            if (attrValues.Count > 0)
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <summary>
+    /// Query StatusCreatedAtIndex GSI: PK=status, SK=createdAt (descending).
+    /// Remaining filters (woreda, cropType) applied as FilterExpression.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusAsync(
+        string status,
+        string? woreda,
+        string? cropType,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":status", new AttributeValue { S = status } }
+        };
+
+        // Always exclude soft-deleted items
+        filterParts.Add("attribute_not_exists(#deletedAt)");
+        attrNames["#deletedAt"] = "deletedAt";
+
+        if (!string.IsNullOrEmpty(woreda))
+        {
+            filterParts.Add("#woreda = :woreda");
+            attrNames["#woreda"] = "woreda";
+            attrValues[":woreda"] = new AttributeValue { S = woreda };
+        }
+
+        if (!string.IsNullOrEmpty(cropType))
+        {
+            filterParts.Add("#cropType = :cropType");
+            attrNames["#cropType"] = "cropType";
+            attrValues[":cropType"] = new AttributeValue { S = cropType };
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusCreatedAtIndex",
+            KeyConditionExpression = "#st = :status",
+            ScanIndexForward = false, // newest first
+            Limit = limit,
+            ExpressionAttributeNames = new Dictionary<string, string>(attrNames)
             {
-                request.ExpressionAttributeValues = attrValues;
-            }
+                { "#st", "status" }
+            },
+            ExpressionAttributeValues = attrValues
+        };
+
+        if (filterParts.Count > 0)
+        {
+            request.FilterExpression = string.Join(" AND ", filterParts);
+        }
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <summary>
+    /// Query CropTypeCreatedAtIndex GSI: PK=cropType, SK=createdAt (descending).
+    /// Remaining filter (woreda) applied as FilterExpression.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByCropTypeAsync(
+        string cropType,
+        string? woreda,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":cropType", new AttributeValue { S = cropType } }
+        };
+
+        // Always exclude soft-deleted items
+        filterParts.Add("attribute_not_exists(#deletedAt)");
+        attrNames["#deletedAt"] = "deletedAt";
+
+        if (!string.IsNullOrEmpty(woreda))
+        {
+            filterParts.Add("#woreda = :woreda");
+            attrNames["#woreda"] = "woreda";
+            attrValues[":woreda"] = new AttributeValue { S = woreda };
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "CropTypeCreatedAtIndex",
+            KeyConditionExpression = "cropType = :cropType",
+            ScanIndexForward = false, // newest first
+            Limit = limit,
+            ExpressionAttributeValues = attrValues
+        };
+
+        if (filterParts.Count > 0)
+        {
+            request.FilterExpression = string.Join(" AND ", filterParts);
+            request.ExpressionAttributeNames = attrNames;
+        }
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <summary>
+    /// Fallback SCAN for unfiltered browse (no farmerId, status, or cropType).
+    /// Only woreda filter may be applied. Excludes soft-deleted items.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> ScanFallbackAsync(
+        string? woreda,
+        int limit,
+        Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>();
+
+        // Exclude deleted items by default
+        filterParts.Add("attribute_not_exists(#deletedAt)");
+        attrNames["#deletedAt"] = "deletedAt";
+
+        if (!string.IsNullOrEmpty(woreda))
+        {
+            filterParts.Add("#woreda = :woreda");
+            attrNames["#woreda"] = "woreda";
+            attrValues[":woreda"] = new AttributeValue { S = woreda };
+        }
+
+        var request = new ScanRequest
+        {
+            TableName = _tableName,
+            Limit = limit,
+            FilterExpression = string.Join(" AND ", filterParts),
+            ExpressionAttributeNames = attrNames
+        };
+
+        if (attrValues.Count > 0)
+        {
+            request.ExpressionAttributeValues = attrValues;
+        }
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
         }
 
         var response = await _dynamoDb.ScanAsync(request);
-
-        var items = response.Items
-            .Select(FromItem)
-            .ToList();
-
+        var items = response.Items.Select(FromItem).ToList();
         return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
     }
 }

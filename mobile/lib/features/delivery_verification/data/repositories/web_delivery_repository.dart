@@ -310,7 +310,9 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   }
 
   List<Delivery> _parseDeliveries(Map<String, dynamic> data) {
-    final items = data['items'] as List<dynamic>? ?? [];
+    final items = data['deliveries'] as List<dynamic>? ??
+        data['items'] as List<dynamic>? ??
+        [];
     return items
         .map((item) => _parseDeliveryMap(item as Map<String, dynamic>))
         .toList();

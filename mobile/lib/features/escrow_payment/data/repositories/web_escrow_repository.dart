@@ -85,7 +85,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
         '/escrow/history',
         queryParameters: {'deliveryId': deliveryId, 'limit': '1'},
       );
-      final items = data['items'] as List<dynamic>? ?? [];
+      final items = data['escrows'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          [];
       if (items.isEmpty) return null;
       return _parsePaymentMap(items.first as Map<String, dynamic>);
     } on Exception {
@@ -132,7 +134,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
       '/escrow/history',
       queryParameters: params,
     );
-    final items = data['items'] as List<dynamic>? ?? [];
+    final items = data['escrows'] as List<dynamic>? ??
+        data['items'] as List<dynamic>? ??
+        [];
     return items
         .map((item) => _parsePaymentMap(item as Map<String, dynamic>))
         .toList();
