@@ -85,6 +85,7 @@ public class CropFunctionTests
             { "createdAt", "2026-01-01T00:00:00Z" },
             { "updatedAt", "2026-01-01T00:00:00Z" },
             { "version", "1" },
+            { "farmerName", "Test Farmer" },
             { "description", "High quality teff" },
             { "location", "Adama City" }
         };
@@ -139,6 +140,7 @@ public class CropFunctionTests
         Assert.Contains("crop-002", response.Body);
         Assert.Contains("teff", response.Body);
         Assert.Contains("wheat", response.Body);
+        Assert.Contains("\"farmerName\":\"Test Farmer\"", response.Body);
     }
 
     [Fact]
@@ -389,6 +391,7 @@ public class CropFunctionTests
         Assert.Contains("crop-001", response.Body);
         Assert.Contains("teff", response.Body);
         Assert.Contains("\"crop\":", response.Body);
+        Assert.Contains("\"farmerName\":\"Test Farmer\"", response.Body);
     }
 
     [Fact]
@@ -519,6 +522,7 @@ public class CropFunctionTests
         {
             { "cropId", "crop-001" },
             { "farmerId", "user-001" },
+            { "farmerName", "Abebe Kebede" },
             { "cropType", "teff" },
             { "woreda", "Adama" },
             { "quantity", "150" },
@@ -539,6 +543,7 @@ public class CropFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("\"cropId\":\"crop-001\"", response.Body);
+        Assert.Contains("\"farmerName\":\"Abebe Kebede\"", response.Body);
         Assert.Contains("\"quantityKg\":150", response.Body);
         Assert.Contains("\"version\":3", response.Body);
     }
