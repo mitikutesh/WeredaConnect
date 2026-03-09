@@ -38,6 +38,7 @@ class CropListingRepository extends BaseCropListingRepository {
     required String description,
     String? audioNoteRef,
     String? woreda,
+    String? farmerName,
   }) async {
     final listingId = _uuid.v4();
     final now = DateTime.now().toUtc();
@@ -49,6 +50,7 @@ class CropListingRepository extends BaseCropListingRepository {
     final listing = CropListing()
       ..listingId = listingId
       ..farmerId = farmerId
+      ..farmerName = farmerName ?? ''
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerKg = pricePerKg
@@ -69,6 +71,7 @@ class CropListingRepository extends BaseCropListingRepository {
     final data = jsonEncode({
       'listingId': listingId,
       'farmerId': farmerId,
+      'farmerName': farmerName ?? '',
       'cropType': cropType,
       'quantity': quantity,
       'pricePerKg': pricePerKg,

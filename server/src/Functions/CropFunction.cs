@@ -219,6 +219,7 @@ public class CropFunction
         {
             CropId = GetString(item, "cropId"),
             FarmerId = GetString(item, "farmerId"),
+            FarmerName = GetStringOrNull(item, "farmerName"),
             CropType = GetString(item, "cropType"),
             Woreda = GetString(item, "woreda"),
             QuantityKg = GetInt(item, "quantity"),

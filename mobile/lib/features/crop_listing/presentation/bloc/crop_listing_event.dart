@@ -21,6 +21,7 @@ class LoadCropListings extends CropListingEvent {
 /// Event to create a new crop listing.
 class CreateCropListing extends CropListingEvent {
   final String farmerId;
+  final String? farmerName;
   final String cropType;
   final double quantity;
   final double pricePerKg;
@@ -33,6 +34,7 @@ class CreateCropListing extends CropListingEvent {
 
   const CreateCropListing({
     required this.farmerId,
+    this.farmerName,
     required this.cropType,
     required this.quantity,
     required this.pricePerKg,
@@ -47,6 +49,7 @@ class CreateCropListing extends CropListingEvent {
   @override
   List<Object?> get props => [
         farmerId,
+        farmerName,
         cropType,
         quantity,
         pricePerKg,

@@ -430,8 +430,11 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 
   Future<String> _lookupFarmerName(String farmerId) async {
+    // Use farmerName from the listing if available
+    if (widget.listing.farmerName.isNotEmpty) {
+      return widget.listing.farmerName;
+    }
     if (kIsWeb) {
-      // CropListing has no farmerName field; use farmerId as display name
       return farmerId;
     }
     final isar = IsarService.instance.db;

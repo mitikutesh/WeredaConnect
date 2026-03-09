@@ -362,7 +362,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         return ListingCard(
                           title: listing.cropType,
                           location: listing.locationName,
-                          sellerName: listing.farmerId,
+                          sellerName: listing.farmerName.isNotEmpty
+                              ? listing.farmerName
+                              : listing.farmerId,
                           price: l10n.etbCurrency(
                             listing.pricePerKg.toStringAsFixed(0),
                           ),

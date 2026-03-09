@@ -50,7 +50,7 @@ public partial class SyncFunction
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
-        "farmerId", "cropType", "quantity", "pricePerKg",
+        "farmerId", "farmerName", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
         "status", "woreda", "listingId", "audioNoteRef", "createdAt"
     };

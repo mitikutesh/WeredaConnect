@@ -104,6 +104,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     context.read<CropListingBloc>().add(
           CreateCropListing(
             farmerId: authState.userId,
+            farmerName: authState.userName,
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),
