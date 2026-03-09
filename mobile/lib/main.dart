@@ -95,18 +95,18 @@ Future<void> main() async {
           value: newRefreshToken,
         );
 
-        if (!kIsWeb) {
-          final phone = await secureStorage.read(key: 'current_user_phone');
-          if (phone != null) {
-            final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
-            final tokensJson = '{'
-                '"accessToken":"$newAccessToken",'
-                '"refreshToken":"$newRefreshToken",'
-                '"idToken":"${tokenData['idToken']}",'
-                '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
-                '}';
-            await secureStorage.write(key: 'tokens_$phone', value: tokensJson);
-          }
+        // Update cached token structure so AuthBloc sees fresh tokens.
+        final phone = await secureStorage.read(key: 'current_user_phone');
+        if (phone != null) {
+          final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
+          final tokensJson = '{'
+              '"accessToken":"$newAccessToken",'
+              '"refreshToken":"$newRefreshToken",'
+              '"idToken":"${tokenData['idToken']}",'
+              '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
+              '}';
+          await secureStorage.write(
+              key: 'tokens_$phone', value: tokensJson);
         }
 
         return newAccessToken;

@@ -105,7 +105,9 @@ class AdaptiveShell extends StatelessWidget {
         return i;
       }
     }
-    return 0;
+    // Routes like /settings and /profile are not in the nav destinations.
+    // Return -1 so no nav item is highlighted.
+    return -1;
   }
 
   void _onDestinationSelected(
@@ -165,6 +167,10 @@ class AdaptiveShell extends StatelessWidget {
       final dests = _destinations(l10n, role, includeSidebarExtras: false);
       final selectedIndex = _currentIndex(context, dests);
 
+      // BottomNavigationBar requires currentIndex in [0, items.length).
+      // Clamp to 0 when on non-nav routes (settings, profile) to avoid crash.
+      final clampedIndex = selectedIndex < 0 ? 0 : selectedIndex;
+
       return Scaffold(
         body: child,
         floatingActionButton: FloatingActionButton(
@@ -174,10 +180,11 @@ class AdaptiveShell extends StatelessWidget {
           child: const Icon(Icons.add, color: Colors.white),
         ),
         bottomNavigationBar: BottomNavigationBar(
-          currentIndex: selectedIndex,
+          currentIndex: clampedIndex,
           onTap: (i) => _onDestinationSelected(context, i, dests),
           type: BottomNavigationBarType.fixed,
-          selectedItemColor: AppTheme.primaryGreen,
+          selectedItemColor:
+              selectedIndex < 0 ? AppTheme.textMuted : AppTheme.primaryGreen,
           unselectedItemColor: AppTheme.textMuted,
           items: dests
               .map(
@@ -205,6 +212,7 @@ class AdaptiveShell extends StatelessWidget {
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
+            currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
             onSettingsTap: () => context.go('/settings'),
@@ -231,6 +239,7 @@ class _Sidebar extends StatelessWidget {
   final bool expanded;
   final int selectedIndex;
   final List<_NavDestination> destinations;
+  final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
@@ -239,6 +248,7 @@ class _Sidebar extends StatelessWidget {
     required this.expanded,
     required this.selectedIndex,
     required this.destinations,
+    required this.currentLocation,
     required this.onSelected,
     required this.onProfileTap,
     required this.onSettingsTap,
@@ -286,6 +296,8 @@ class _Sidebar extends StatelessWidget {
           const Divider(color: Colors.white12, height: 1),
           _SidebarFooter(
             expanded: expanded,
+            isSettingsActive: currentLocation.startsWith('/settings'),
+            isProfileActive: currentLocation.startsWith('/profile'),
             onProfileTap: onProfileTap,
             onSettingsTap: onSettingsTap,
           ),
@@ -460,6 +472,8 @@ class _SidebarItemState extends State<_SidebarItem> {
 
 class _SidebarFooter extends StatelessWidget {
   final bool expanded;
+  final bool isSettingsActive;
+  final bool isProfileActive;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
 
@@ -467,6 +481,8 @@ class _SidebarFooter extends StatelessWidget {
     required this.expanded,
     required this.onProfileTap,
     required this.onSettingsTap,
+    this.isSettingsActive = false,
+    this.isProfileActive = false,
   });
 
   @override
@@ -485,8 +501,10 @@ class _SidebarFooter extends StatelessWidget {
           // Settings
           _SidebarFooterButton(
             icon: Icons.settings_outlined,
+            selectedIcon: Icons.settings,
             label: AppLocalizations.of(context)!.settings,
             expanded: expanded,
+            isActive: isSettingsActive,
             onTap: onSettingsTap,
           ),
           const SizedBox(height: 8),
@@ -498,7 +516,9 @@ class _SidebarFooter extends StatelessWidget {
               child: Container(
                 padding: EdgeInsets.all(expanded ? 10 : 8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(13),
+                  color: isProfileActive
+                      ? Colors.white.withAlpha(25)
+                      : Colors.white.withAlpha(13),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: expanded
@@ -563,8 +583,10 @@ class _SidebarFooter extends StatelessWidget {
 
 class _SidebarFooterButton extends StatefulWidget {
   final IconData icon;
+  final IconData? selectedIcon;
   final String label;
   final bool expanded;
+  final bool isActive;
   final VoidCallback onTap;
 
   const _SidebarFooterButton({
@@ -572,6 +594,8 @@ class _SidebarFooterButton extends StatefulWidget {
     required this.label,
     required this.expanded,
     required this.onTap,
+    this.selectedIcon,
+    this.isActive = false,
   });
 
   @override
@@ -583,6 +607,18 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
 
   @override
   Widget build(BuildContext context) {
+    final iconColor =
+        widget.isActive ? AppTheme.accentGold : Colors.white.withAlpha(180);
+    final textColor =
+        widget.isActive ? Colors.white : Colors.white.withAlpha(180);
+    final displayIcon =
+        widget.isActive ? (widget.selectedIcon ?? widget.icon) : widget.icon;
+    final bgColor = widget.isActive
+        ? Colors.white.withAlpha(25)
+        : _hovered
+            ? Colors.white.withAlpha(13)
+            : Colors.transparent;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -595,35 +631,24 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
             vertical: 10,
           ),
           decoration: BoxDecoration(
-            color: _hovered ? Colors.white.withAlpha(13) : Colors.transparent,
+            color: bgColor,
             borderRadius: BorderRadius.circular(10),
           ),
           child: widget.expanded
               ? Row(
                   children: [
-                    Icon(
-                      widget.icon,
-                      color: Colors.white.withAlpha(180),
-                      size: 20,
-                    ),
+                    Icon(displayIcon, color: iconColor, size: 20),
                     const SizedBox(width: 14),
                     Text(
                       widget.label,
-                      style: TextStyle(
-                        color: Colors.white.withAlpha(180),
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: textColor, fontSize: 13),
                     ),
                   ],
                 )
               : Center(
                   child: Tooltip(
                     message: widget.label,
-                    child: Icon(
-                      widget.icon,
-                      color: Colors.white.withAlpha(180),
-                      size: 22,
-                    ),
+                    child: Icon(displayIcon, color: iconColor, size: 22),
                   ),
                 ),
         ),

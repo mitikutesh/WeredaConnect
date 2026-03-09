@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -112,7 +113,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     _loadRecentRoutes();
   }
 
-  /// Auto-fill trucker name/phone from Isar user profile.
+  /// Auto-fill trucker name/phone from Isar user profile (mobile) or
+  /// AuthAuthenticated state (web, where Isar is unavailable).
   Future<void> _autoFillTruckerInfo() async {
     if (_truckerNameController.text.isNotEmpty &&
         _truckerPhoneController.text.isNotEmpty) {
@@ -121,6 +123,24 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
+
+    // On web, Isar is unavailable — fall back to AuthBloc state.
+    if (kIsWeb) {
+      if (mounted) {
+        setState(() {
+          if (_truckerNameController.text.isEmpty &&
+              authState.userName.isNotEmpty) {
+            _truckerNameController.text = authState.userName;
+          }
+          if (_truckerPhoneController.text.isEmpty &&
+              authState.phoneNumber != null &&
+              authState.phoneNumber!.isNotEmpty) {
+            _truckerPhoneController.text = authState.phoneNumber!;
+          }
+        });
+      }
+      return;
+    }
 
     try {
       final isar = IsarService.instance.db;

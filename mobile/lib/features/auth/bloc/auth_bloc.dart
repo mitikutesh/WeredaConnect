@@ -158,6 +158,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           isOfflineAuth: tokens.isExpired,
           role: user.role,
           userName: user.name,
+          phoneNumber: phone,
           woreda: user.woreda,
         ),
       );
@@ -215,6 +216,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             tokens: result.tokens!,
             role: event.role,
             userName: event.name,
+            phoneNumber: event.phoneNumber,
             woreda: event.woreda,
           ),
         );
@@ -271,6 +273,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             isOfflineAuth: result.isOfflineAuth,
             role: user?.role ?? UserRole.farmer,
             userName: user?.name ?? '',
+            phoneNumber: event.phoneNumber,
             woreda: user?.woreda,
           ),
         );
@@ -327,6 +330,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             tokens: result.tokens!,
             role: user?.role ?? UserRole.farmer,
             userName: user?.name ?? '',
+            phoneNumber: event.phoneNumber,
             woreda: user?.woreda,
           ),
         );
@@ -383,6 +387,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             isOfflineAuth: true,
             role: user?.role ?? UserRole.farmer,
             userName: user?.name ?? '',
+            phoneNumber: event.phoneNumber,
             woreda: user?.woreda,
           ),
         );
@@ -439,6 +444,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             isOfflineAuth: currentState.isOfflineAuth,
             role: currentState.role,
             userName: currentState.userName,
+            phoneNumber: currentState.phoneNumber,
             woreda: currentState.woreda,
           ),
         );

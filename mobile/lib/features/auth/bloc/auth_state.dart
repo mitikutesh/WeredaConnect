@@ -28,6 +28,7 @@ class AuthAuthenticated extends AuthState {
   final bool isOfflineAuth;
   final UserRole role;
   final String userName;
+  final String? phoneNumber;
   final String? woreda;
 
   const AuthAuthenticated({
@@ -36,12 +37,13 @@ class AuthAuthenticated extends AuthState {
     required this.role,
     this.isOfflineAuth = false,
     this.userName = '',
+    this.phoneNumber,
     this.woreda,
   });
 
   @override
   List<Object?> get props =>
-      [userId, tokens, isOfflineAuth, role, userName, woreda];
+      [userId, tokens, isOfflineAuth, role, userName, phoneNumber, woreda];
 }
 
 /// Unauthenticated state (user is not logged in).
