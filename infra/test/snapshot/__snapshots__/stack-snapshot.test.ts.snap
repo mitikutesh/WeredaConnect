@@ -752,6 +752,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "tripId",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "truckerId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -824,6 +828,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "KeySchema": [
               {
                 "AttributeName": "tripId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TruckerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "truckerId",
                 "KeyType": "HASH",
               },
               {
@@ -1028,6 +1048,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "departureDate",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "truckerId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -1040,6 +1064,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               },
               {
                 "AttributeName": "departureDate",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TruckerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "truckerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
                 "KeyType": "RANGE",
               },
             ],

@@ -2815,5 +2815,17 @@
   "@paymentStatusTitle": {
     "description": "Payment notification title with status",
     "placeholders": { "status": { "type": "String" } }
+  },
+  "myCrops": "My Crops",
+  "@myCrops": {
+    "description": "Navigation tab label for farmer's crop listings"
+  },
+  "browseAll": "Browse",
+  "@browseAll": {
+    "description": "Tab label for browsing all crop listings"
+  },
+  "myRequests": "My Requests",
+  "@myRequests": {
+    "description": "Tab label for buyer's saved buying intents"
   }
 }

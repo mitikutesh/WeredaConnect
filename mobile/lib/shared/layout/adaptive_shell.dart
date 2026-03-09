@@ -17,18 +17,108 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Desktop (>1024px): Full sidebar (260px) with labels, user profile
 /// - Tablet (600–1024px): Collapsed NavigationRail (72px) with icons
 /// - Mobile (<600px): BottomNavigationBar
+///
+/// Navigation is **role-aware**: each role sees a dedicated 2nd tab
+/// (Farmer → My Listings, Trucker → My Trips, Buyer → Marketplace).
+/// The sidebar (tablet/desktop) also includes Orders; the bottom nav omits it.
 class AdaptiveShell extends StatelessWidget {
   final Widget child;
 
   const AdaptiveShell({required this.child, super.key});
 
-  int _currentIndex(BuildContext context) {
+  // ── Destination helpers ──────────────────────────────────────────────
+
+  /// Builds the list of navigation destinations based on role and layout.
+  ///
+  /// All roles get 4 core tabs (symmetric design):
+  ///   Home, [role-specific tab], Deliveries, Payments
+  ///
+  /// Sidebar (tablet/desktop) adds Orders as an extra item.
+  ///
+  /// Role-specific tab:
+  ///   Farmer → My Crops (/my-crops)
+  ///   Trucker → My Trips (/trips)
+  ///   Buyer  → Find Crops (/find-crops)
+  List<_NavDestination> _destinations(
+    AppLocalizations l10n,
+    UserRole role, {
+    required bool includeSidebarExtras,
+  }) {
+    final roleTab = switch (role) {
+      UserRole.farmer => _NavDestination(
+          Icons.eco_outlined,
+          Icons.eco,
+          l10n.myCrops,
+          '/my-crops',
+        ),
+      UserRole.trucker => _NavDestination(
+          Icons.route_outlined,
+          Icons.route,
+          l10n.myTrips,
+          '/trips',
+        ),
+      UserRole.buyer => _NavDestination(
+          Icons.search_outlined,
+          Icons.search,
+          l10n.findCrops,
+          '/find-crops',
+        ),
+    };
+
+    return [
+      _NavDestination(
+        Icons.home_outlined,
+        Icons.home,
+        l10n.home,
+        '/',
+      ),
+      roleTab,
+      if (includeSidebarExtras)
+        _NavDestination(
+          Icons.receipt_long_outlined,
+          Icons.receipt_long,
+          l10n.orders,
+          '/orders',
+        ),
+      _NavDestination(
+        Icons.local_shipping_outlined,
+        Icons.local_shipping,
+        l10n.deliveries,
+        '/deliveries',
+      ),
+      _NavDestination(
+        Icons.payments_outlined,
+        Icons.payments,
+        l10n.payments,
+        '/payments',
+      ),
+    ];
+  }
+
+  int _currentIndex(BuildContext context, List<_NavDestination> dests) {
     final location = GoRouterState.of(context).matchedLocation;
-    if (location.startsWith('/orders')) return 1;
-    if (location.startsWith('/deliveries')) return 2;
-    if (location.startsWith('/payments')) return 3;
+    for (int i = 0; i < dests.length; i++) {
+      final route = dests[i].route;
+      if (route == '/') {
+        if (location == '/' || location.isEmpty) return i;
+      } else if (location.startsWith(route)) {
+        return i;
+      }
+    }
     return 0;
   }
+
+  void _onDestinationSelected(
+    BuildContext context,
+    int index,
+    List<_NavDestination> dests,
+  ) {
+    if (index >= 0 && index < dests.length) {
+      context.go(dests[index].route);
+    }
+  }
+
+  // ── FAB ──────────────────────────────────────────────────────────────
 
   Future<void> _onFabPressed(BuildContext context, UserRole role) async {
     Widget screen;
@@ -60,41 +150,21 @@ class AdaptiveShell extends StatelessWidget {
     };
   }
 
-  void _onDestinationSelected(BuildContext context, int index) {
-    switch (index) {
-      case 0:
-        context.go('/');
-      case 1:
-        context.go('/orders');
-      case 2:
-        context.go('/deliveries');
-      case 3:
-        context.go('/payments');
-    }
-  }
+  // ── Build ────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final windowClass = Breakpoints.of(context);
-    final selectedIndex = _currentIndex(context);
     final l10n = AppLocalizations.of(context)!;
-
-    final destinations = [
-      _NavItem(Icons.home_outlined, Icons.home, l10n.home),
-      _NavItem(Icons.receipt_long_outlined, Icons.receipt_long, l10n.orders),
-      _NavItem(
-        Icons.local_shipping_outlined,
-        Icons.local_shipping,
-        l10n.deliveries,
-      ),
-      _NavItem(Icons.payments_outlined, Icons.payments, l10n.payments),
-    ];
 
     final authState = context.watch<AuthBloc>().state;
     final role =
         authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
     if (windowClass == WindowClass.mobile) {
+      final dests = _destinations(l10n, role, includeSidebarExtras: false);
+      final selectedIndex = _currentIndex(context, dests);
+
       return Scaffold(
         body: child,
         floatingActionButton: FloatingActionButton(
@@ -105,11 +175,11 @@ class AdaptiveShell extends StatelessWidget {
         ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: selectedIndex,
-          onTap: (i) => _onDestinationSelected(context, i),
+          onTap: (i) => _onDestinationSelected(context, i, dests),
           type: BottomNavigationBarType.fixed,
           selectedItemColor: AppTheme.primaryGreen,
           unselectedItemColor: AppTheme.textMuted,
-          items: destinations
+          items: dests
               .map(
                 (d) => BottomNavigationBarItem(
                   icon: Icon(d.icon),
@@ -122,7 +192,10 @@ class AdaptiveShell extends StatelessWidget {
       );
     }
 
+    // Tablet / Desktop — sidebar with 5 items
     final isDesktop = windowClass == WindowClass.desktop;
+    final dests = _destinations(l10n, role, includeSidebarExtras: true);
+    final selectedIndex = _currentIndex(context, dests);
 
     return Scaffold(
       body: Row(
@@ -131,8 +204,8 @@ class AdaptiveShell extends StatelessWidget {
           _Sidebar(
             expanded: isDesktop,
             selectedIndex: selectedIndex,
-            destinations: destinations,
-            onSelected: (i) => _onDestinationSelected(context, i),
+            destinations: dests,
+            onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
             onSettingsTap: () => context.go('/settings'),
           ),
@@ -149,11 +222,15 @@ class AdaptiveShell extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Private widgets
+// ═══════════════════════════════════════════════════════════════════════
+
 /// Full sidebar (desktop) or compact rail (tablet).
 class _Sidebar extends StatelessWidget {
   final bool expanded;
   final int selectedIndex;
-  final List<_NavItem> destinations;
+  final List<_NavDestination> destinations;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
@@ -283,7 +360,7 @@ class _SidebarHeader extends StatelessWidget {
 }
 
 class _SidebarItem extends StatefulWidget {
-  final _NavItem item;
+  final _NavDestination item;
   final bool selected;
   final bool expanded;
   final VoidCallback onTap;
@@ -555,10 +632,12 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
   }
 }
 
-class _NavItem {
+/// Navigation destination with route info for role-aware navigation.
+class _NavDestination {
   final IconData icon;
   final IconData selectedIcon;
   final String label;
+  final String route;
 
-  const _NavItem(this.icon, this.selectedIcon, this.label);
+  const _NavDestination(this.icon, this.selectedIcon, this.label, this.route);
 }

@@ -2257,5 +2257,8 @@
   "offline": "Oflaayinii",
   "syncFailureCount": "{count} hojiiwwan xiyyeeffannoo barbaadu",
   "syncPendingCount": "{count} walsimsisuuf eeggataa jiru",
-  "paymentStatusTitle": "Kaffaltii {status}"
+  "paymentStatusTitle": "Kaffaltii {status}",
+  "myCrops": "Midhaan Koo",
+  "browseAll": "Barbaadi",
+  "myRequests": "Gaaffii Koo"
 }

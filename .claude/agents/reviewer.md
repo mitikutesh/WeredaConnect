@@ -64,7 +64,14 @@ Evaluate every change against these criteria:
 - If `specs/contracts/` changed, are all three modules (server, mobile, admin) aligned?
 - If localization keys were added/changed, do all 3 language files (en, am, om) have them?
 
-### 8. Code Quality
+### 8. Role-Based Visibility (HARD REQUIREMENT)
+- **Farmer**: Can create crop listings. Can only see **own** listings. Must NOT see other farmers' listings.
+- **Trucker**: Can create trip listings. Can only see **own** trips. Must NOT see other truckers' trips.
+- **Buyer**: Can see **ALL** crop listings and **ALL** trip listings from anyone/anywhere.
+- Any code that lists/browses crops or trips must enforce these rules — in server queries, mobile screens, BLoC data-fetching, and API design.
+- A violation of these rules is a **CRITICAL** issue and an automatic FAIL.
+
+### 9. Code Quality
 - Follows patterns in `.ai/standards.md`
 - Proper error handling with user-friendly messages
 - Tests cover offline scenarios
@@ -91,5 +98,6 @@ Structure your review as:
 - [x/!/ ] Security
 - [x/!/ ] Cross-platform consistency
 - [x/!/ ] Cross-module consistency
+- [x/!/ ] Role-based visibility
 - [x/!/ ] Code quality
 ```

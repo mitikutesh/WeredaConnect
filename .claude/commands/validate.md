@@ -50,7 +50,24 @@ Steps:
      - For mobile: compare keys in app_en.arb, app_am.arb, app_om.arb
      - For admin: compare keys in en.json, am.json, om.json
 
-4. **Build validation** for each changed module:
+4. **Role-based visibility rules check** (if changes touch listings, trips, browse screens, or query/repository logic):
+
+   These are **hard requirements** — any violation is a FAIL:
+   - **Farmer**: Can create crop listings. Can only see **own** listings. Must NOT see other farmers' listings.
+   - **Trucker**: Can create trip listings. Can only see **own** trips. Must NOT see other truckers' trips.
+   - **Buyer**: Can see **ALL** crop listings and **ALL** trip listings from anyone/anywhere.
+
+   Check for violations in:
+   - **Server**: Repository/query logic in `server/src/Data/` and handler logic in `server/src/Functions/` — verify that list/browse endpoints filter by owner for Farmer/Trucker roles, and return all items for Buyer role.
+   - **Mobile**: Browse/list screens (`browse_listings_screen.dart`, `browse_trips_screen.dart`, any `my_*` screens) — verify that Farmer/Trucker see only their own data, and Buyer sees everything.
+   - **Mobile BLoCs/Cubits**: Data-fetching logic must respect role-based filtering.
+   - **API contracts** (`specs/contracts/`): Verify query parameters or endpoint design enforces role-based access.
+
+   Report format:
+   - `[PASS] Role-based visibility: Farmer sees only own crop listings`
+   - `[FAIL] Role-based visibility: Trucker browse screen shows all trips — must filter to own trips only`
+
+5. **Build validation** for each changed module:
 
    **Mobile** (mobile/ changes):
    ```bash
@@ -98,6 +115,12 @@ Steps:
    ### Cross-Module Impact
    - [INFO] Server DTO UserDto changed — mobile UserModel and admin user types may need updating
    - [PASS] No API contract changes detected
+
+   ### Role-Based Visibility
+   - [PASS/FAIL] Farmer sees only own crop listings
+   - [PASS/FAIL] Trucker sees only own trip listings
+   - [PASS/FAIL] Buyer sees all listings and trips
+   (Only shown when changes touch listings/trips/browse/repository code)
 
    ### Builds
    - [PASS/FAIL] Mobile analyze

@@ -39,7 +39,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
       'longitude': longitude,
       'locationName': locationName,
       'description': description,
-      'status': 'active',
+      'status': 'available',
       'listingId': listingId,
       'createdAt': now,
       if (audioNoteRef != null) 'audioNoteRef': audioNoteRef,
@@ -116,7 +116,8 @@ class WebCropListingRepository extends BaseCropListingRepository {
     double? priceMin,
     double? priceMax,
   }) async {
-    final params = <String, dynamic>{'status': 'active'};
+    // Server stores listings with status=available (not "active")
+    final params = <String, dynamic>{'status': 'available'};
     if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
     if (weredaFilter != null) params['woreda'] = weredaFilter;
     final data = await _api.get<Map<String, dynamic>>(

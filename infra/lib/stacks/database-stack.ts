@@ -140,6 +140,14 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Query trips by trucker ID (trucker's "My Trips" view)
+    this.tripsTable.addGlobalSecondaryIndex({
+      indexName: "TruckerIdCreatedAtIndex",
+      partitionKey: { name: "truckerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Sync metadata table (idempotency tracking for offline-first sync)
     const syncMetadata = new WeredaDynamoTable(this, "SyncMetadataTable", {
       tableName: `${prefix}-sync-metadata`,
@@ -374,6 +382,17 @@ export class DatabaseStack extends cdk.Stack {
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: "TripIdIndex",
       partitionKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by trucker (trucker's order view)
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "TruckerIdCreatedAtIndex",
+      partitionKey: {
+        name: "truckerId",
+        type: dynamodb.AttributeType.STRING,
+      },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });

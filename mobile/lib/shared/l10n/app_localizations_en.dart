@@ -2146,4 +2146,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String paymentStatusTitle(String status) {
     return '$status payment';
   }
+
+  @override
+  String get myCrops => 'My Crops';
+
+  @override
+  String get browseAll => 'Browse';
+
+  @override
+  String get myRequests => 'My Requests';
 }

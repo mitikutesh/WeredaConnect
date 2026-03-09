@@ -65,7 +65,7 @@ public class TripFunction
 
     /// <summary>
     /// GET /trips - Query trip listings with optional filters.
-    /// Query parameters: fromWoreda, toWoreda, status, minCapacity, maxPrice,
+    /// Query parameters: truckerId, fromWoreda, toWoreda, status, minCapacity, maxPrice,
     /// departureDateFrom, departureDateTo, limit, nextToken
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
@@ -78,6 +78,7 @@ public class TripFunction
         queryParams.TryGetValue("fromWoreda", out var fromWoreda);
         queryParams.TryGetValue("toWoreda", out var toWoreda);
         queryParams.TryGetValue("status", out var status);
+        queryParams.TryGetValue("truckerId", out var truckerId);
 
         // Parse limit (default 20, max 50)
         var limit = 20;
@@ -103,11 +104,25 @@ public class TripFunction
 
         try
         {
-            // Query trips
-            var queryResult = await _tripRepo.QueryTripsAsync(
-                fromWoreda, toWoreda, status, limit, exclusiveStartKey);
-            var items = queryResult.Items;
-            var lastEvaluatedKey = queryResult.LastEvaluatedKey;
+            List<Dictionary<string, object>> items;
+            Dictionary<string, AttributeValue>? lastEvaluatedKey;
+
+            if (!string.IsNullOrEmpty(truckerId))
+            {
+                // Query by trucker using TruckerIdCreatedAtIndex GSI
+                var queryResult = await _tripRepo.QueryTripsByTruckerAsync(
+                    truckerId, status, limit, exclusiveStartKey);
+                items = queryResult.Items;
+                lastEvaluatedKey = queryResult.LastEvaluatedKey;
+            }
+            else
+            {
+                // Default: query by status using StatusDepartureDateIndex GSI
+                var queryResult = await _tripRepo.QueryTripsAsync(
+                    fromWoreda, toWoreda, status, limit, exclusiveStartKey);
+                items = queryResult.Items;
+                lastEvaluatedKey = queryResult.LastEvaluatedKey;
+            }
 
             // Apply client-side filters that DynamoDB FilterExpression doesn't handle efficiently
             queryParams.TryGetValue("minCapacity", out var minCapacityStr);

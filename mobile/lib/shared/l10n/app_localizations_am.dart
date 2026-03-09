@@ -2097,4 +2097,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String paymentStatusTitle(String status) {
     return '$status ክፍያ';
   }
+
+  @override
+  String get myCrops => 'ሰብሎቼ';
+
+  @override
+  String get browseAll => 'ያስሱ';
+
+  @override
+  String get myRequests => 'ጥያቄዎቼ';
 }

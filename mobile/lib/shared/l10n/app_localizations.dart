@@ -4065,6 +4065,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{status} payment'**
   String paymentStatusTitle(String status);
+
+  /// Navigation tab label for farmer's crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'My Crops'**
+  String get myCrops;
+
+  /// Tab label for browsing all crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Browse'**
+  String get browseAll;
+
+  /// Tab label for buyer's saved buying intents
+  ///
+  /// In en, this message translates to:
+  /// **'My Requests'**
+  String get myRequests;
 }
 
 class _AppLocalizationsDelegate

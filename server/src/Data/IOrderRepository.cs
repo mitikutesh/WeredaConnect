@@ -35,6 +35,7 @@ public interface IOrderRepository
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOrdersAsync(
         string? buyerId = null,
         string? farmerId = null,
+        string? truckerId = null,
         string? status = null,
         string? listingId = null,
         int limit = 20,

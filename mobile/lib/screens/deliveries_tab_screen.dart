@@ -174,13 +174,13 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      Icons.cloud_off_outlined,
+                      Icons.local_shipping_outlined,
                       size: 56,
                       color: AppTheme.textMuted.withAlpha(150),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      l10n.somethingWentWrong,
+                      l10n.noDeliveries,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -189,7 +189,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      l10n.checkConnectionRetry,
+                      l10n.deliveryNoDeliveriesHint,
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppTheme.textMuted,

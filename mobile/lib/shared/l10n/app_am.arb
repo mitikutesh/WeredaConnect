@@ -2261,5 +2261,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "myCrops": "ሰብሎቼ",
+  "browseAll": "ያስሱ",
+  "myRequests": "ጥያቄዎቼ"
 }

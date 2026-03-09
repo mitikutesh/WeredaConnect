@@ -8,7 +8,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
-import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
+
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
@@ -91,24 +91,56 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                 }
 
                 if (state is EscrowError) {
+                  final l10n = AppLocalizations.of(context)!;
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 48,
-                          color: Colors.red,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          localizeEscrowError(
-                            AppLocalizations.of(context)!,
-                            state.code,
-                            state.message,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.payments_outlined,
+                            size: 56,
+                            color: AppTheme.textMuted.withAlpha(150),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+                          Text(
+                            l10n.noPayments,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.trackPayments,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textMuted,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: 200,
+                            child: FilledButton(
+                              onPressed: () {
+                                final authState =
+                                    context.read<AuthBloc>().state;
+                                if (authState is AuthAuthenticated) {
+                                  context.read<EscrowBloc>().add(
+                                        LoadPaymentHistory(
+                                          userId: authState.userId,
+                                        ),
+                                      );
+                                }
+                              },
+                              child: Text(l10n.retry),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }

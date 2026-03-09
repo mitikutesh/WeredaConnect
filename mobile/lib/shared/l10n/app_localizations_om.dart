@@ -2162,4 +2162,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String paymentStatusTitle(String status) {
     return 'Kaffaltii $status';
   }
+
+  @override
+  String get myCrops => 'Midhaan Koo';
+
+  @override
+  String get browseAll => 'Barbaadi';
+
+  @override
+  String get myRequests => 'Gaaffii Koo';
 }

@@ -801,17 +801,14 @@ class _QuickActionsGrid extends StatelessWidget {
     this.crossAxisCount = 3,
   });
 
-  /// Navigate to a tab by index. Uses the callback on mobile native,
-  /// falls back to GoRouter on web where the callback is null.
-  void _goToTab(BuildContext context, int index) {
-    if (onNavigateToTab != null) {
-      onNavigateToTab!(index);
+  /// Navigate to a named route. Uses GoRouter on web, tab callback on mobile.
+  void _goToRoute(BuildContext context, String route, {int? mobileTabIndex}) {
+    if (kIsWeb) {
+      context.go(route);
       return;
     }
-    // Web: use GoRouter
-    const routes = ['/', '/orders', '/deliveries', '/payments'];
-    if (index >= 0 && index < routes.length) {
-      context.go(routes[index]);
+    if (onNavigateToTab != null && mobileTabIndex != null) {
+      onNavigateToTab!(mobileTabIndex);
     }
   }
 
@@ -849,24 +846,27 @@ class _QuickActionsGrid extends StatelessWidget {
             },
           ),
           _QuickActionTile(
-            icon: Icons.list_alt,
-            label: l10n.myListings,
+            icon: Icons.eco,
+            label: l10n.myCrops,
             color: AppTheme.statusTransit,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const BrowseListingsScreen(ownerMode: true),
-                ),
-              );
-              onRefresh?.call();
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/my-crops');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseListingsScreen(ownerMode: true),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
             },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.accentGold,
-            onTap: () => _goToTab(context, 2),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
         ];
       case UserRole.trucker:
@@ -875,27 +875,30 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.route,
             label: l10n.myTrips,
             color: AppTheme.primaryGreen,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const BrowseTripsScreen(),
-                ),
-              );
-              onRefresh?.call();
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/trips');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseTripsScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
             },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => _goToTab(context, 2),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => _goToTab(context, 3),
+            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
           ),
         ];
       case UserRole.buyer:
@@ -904,27 +907,30 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.search,
             label: l10n.findCrops,
             color: AppTheme.primaryGreen,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const BrowseListingsScreen(),
-                ),
-              );
-              onRefresh?.call();
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/find-crops');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseListingsScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
             },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => _goToTab(context, 2),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => _goToTab(context, 3),
+            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
           ),
         ];
     }
@@ -1195,7 +1201,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           safeGet('/deliveries', queryParameters: {'buyerId': userId}),
           safeGet('/escrow/history', queryParameters: {'buyerId': userId}),
           safeGet('/orders', queryParameters: {'buyerId': userId}),
-          safeGet('/crops', queryParameters: {'status': 'active'}),
+          safeGet('/crops', queryParameters: {'status': 'available'}),
         ]);
         result['deliveries'] = _countApiItems(responses[0], alt: 'deliveries');
         result['payments'] = _countApiItems(responses[1], alt: 'escrows');
@@ -1472,7 +1478,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
   }
 
   Future<List<_ActivityItem>> _loadActivity() async {
-    if (kIsWeb) return [];
+    if (kIsWeb) return _loadWebActivity();
     try {
       final isar = IsarService.instance.db;
       final items = <_ActivityItem>[];
@@ -1517,6 +1523,78 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             description: l10n.deliveryStatusActivity(d.status.name),
             timestamp: d.createdAt,
             type: d.status == DeliveryStatus.delivered
+                ? _ActivityType.success
+                : _ActivityType.pending,
+          ),
+        );
+      }
+
+      items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return items.take(3).toList();
+    } on Object {
+      return [];
+    }
+  }
+
+  Future<List<_ActivityItem>> _loadWebActivity() async {
+    try {
+      final api = ApiClient();
+      final userId = widget.userId;
+      if (userId.isEmpty) return [];
+      final l10n = widget.l10n;
+      final items = <_ActivityItem>[];
+
+      // Fetch recent orders and deliveries in parallel
+      final results = await Future.wait<Map<String, dynamic>>([
+        api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: {'buyerId': userId, 'limit': '3'},
+        ).catchError((_) => <String, dynamic>{}),
+        api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: {'farmerId': userId, 'limit': '3'},
+        ).catchError((_) => <String, dynamic>{}),
+        api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: {'limit': '5'},
+        ).catchError((_) => <String, dynamic>{}),
+      ]);
+
+      // Parse orders
+      for (final resp in [results[0], results[1]]) {
+        final orders = resp['orders'] as List<dynamic>? ??
+            resp['items'] as List<dynamic>? ??
+            [];
+        for (final o in orders.take(3)) {
+          final m = o as Map<String, dynamic>;
+          final status = m['status'] as String? ?? 'created';
+          final cropType = m['cropType'] as String? ?? '';
+          items.add(
+            _ActivityItem(
+              description: '${l10n.orders}: $cropType ($status)',
+              timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                  DateTime.now(),
+              type: status == 'delivered'
+                  ? _ActivityType.success
+                  : _ActivityType.pending,
+            ),
+          );
+        }
+      }
+
+      // Parse deliveries
+      final deliveries = results[2]['deliveries'] as List<dynamic>? ??
+          results[2]['items'] as List<dynamic>? ??
+          [];
+      for (final d in deliveries.take(3)) {
+        final m = d as Map<String, dynamic>;
+        final status = m['status'] as String? ?? '';
+        items.add(
+          _ActivityItem(
+            description: l10n.deliveryStatusActivity(status),
+            timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                DateTime.now(),
+            type: status == 'delivered'
                 ? _ActivityType.success
                 : _ActivityType.pending,
           ),

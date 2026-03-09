@@ -49,7 +49,24 @@ class WebOrderRepository extends BaseOrderRepository {
     if (role == 'farmer') {
       return getOrdersByFarmer(userId, statusFilter: statusFilter);
     }
+    // Truckers see orders where they are assigned as transporter
+    if (role == 'trucker') {
+      return _getOrdersByTrucker(userId, statusFilter: statusFilter);
+    }
     return getOrdersByBuyer(userId, statusFilter: statusFilter);
+  }
+
+  Future<List<Order>> _getOrdersByTrucker(
+    String truckerId, {
+    String? statusFilter,
+  }) async {
+    final params = <String, dynamic>{'truckerId': truckerId};
+    if (statusFilter != null) params['status'] = statusFilter;
+    final data = await _api.get<Map<String, dynamic>>(
+      '/orders',
+      queryParameters: params,
+    );
+    return _parseOrders(data);
   }
 
   @override
@@ -260,7 +277,9 @@ class WebOrderRepository extends BaseOrderRepository {
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {
-    final items = data['items'] as List<dynamic>? ?? [];
+    final items = data['orders'] as List<dynamic>? ??
+        data['items'] as List<dynamic>? ??
+        [];
     return items
         .map((item) => _parseOrderMap(item as Map<String, dynamic>))
         .toList();
