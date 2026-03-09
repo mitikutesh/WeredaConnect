@@ -79,7 +79,11 @@ class ApiClient {
         baseUrl: _environment.apiBaseUrl,
         connectTimeout: _environment.connectTimeout,
         receiveTimeout: _environment.receiveTimeout,
-        responseType: ResponseType.json,
+        // On web, use plain text so _parseResponse always goes through
+        // jsonDecode and produces proper Dart Maps.  Dio's ResponseType.json
+        // on web uses the browser's native JSON parser, which returns JS
+        // objects that may fail Dart Map key lookups.
+        responseType: kIsWeb ? ResponseType.plain : ResponseType.json,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
