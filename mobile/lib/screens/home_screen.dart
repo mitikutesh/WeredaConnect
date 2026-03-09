@@ -1544,8 +1544,13 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       final l10n = widget.l10n;
       final items = <_ActivityItem>[];
 
-      // Fetch recent orders and deliveries in parallel
-      final results = await Future.wait<Map<String, dynamic>>([
+      final authState = context.read<AuthBloc>().state;
+      final role =
+          authState is AuthAuthenticated ? authState.role : UserRole.farmer;
+
+      // Fetch recent data in parallel based on role
+      final futures = <Future<Map<String, dynamic>>>[
+        // Orders (all roles)
         api.get<Map<String, dynamic>>(
           '/orders',
           queryParameters: {'buyerId': userId, 'limit': '3'},
@@ -1554,11 +1559,31 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           '/orders',
           queryParameters: {'farmerId': userId, 'limit': '3'},
         ).catchError((_) => <String, dynamic>{}),
+        // Deliveries (all roles)
         api.get<Map<String, dynamic>>(
           '/deliveries',
           queryParameters: {'limit': '5'},
         ).catchError((_) => <String, dynamic>{}),
-      ]);
+      ];
+
+      // Role-specific: trips for truckers, crops for farmers
+      if (role == UserRole.trucker) {
+        futures.add(
+          api.get<Map<String, dynamic>>(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'limit': '5'},
+          ).catchError((_) => <String, dynamic>{}),
+        );
+      } else if (role == UserRole.farmer) {
+        futures.add(
+          api.get<Map<String, dynamic>>(
+            '/crops',
+            queryParameters: {'farmerId': userId, 'limit': '5'},
+          ).catchError((_) => <String, dynamic>{}),
+        );
+      }
+
+      final results = await Future.wait(futures);
 
       // Parse orders
       for (final resp in [results[0], results[1]]) {
@@ -1599,6 +1624,47 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 : _ActivityType.pending,
           ),
         );
+      }
+
+      // Parse role-specific data
+      if (results.length > 3) {
+        if (role == UserRole.trucker) {
+          final trips = results[3]['trips'] as List<dynamic>? ??
+              results[3]['items'] as List<dynamic>? ??
+              [];
+          for (final t in trips.take(3)) {
+            final m = t as Map<String, dynamic>;
+            final status = m['status'] as String? ?? 'open';
+            final from = m['fromWoreda'] as String? ?? '';
+            final to = m['toWoreda'] as String? ?? '';
+            items.add(
+              _ActivityItem(
+                description: '${l10n.myTrips}: $from → $to ($status)',
+                timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                    DateTime.now(),
+                type: status == 'delivered'
+                    ? _ActivityType.success
+                    : _ActivityType.info,
+              ),
+            );
+          }
+        } else if (role == UserRole.farmer) {
+          final crops = results[3]['crops'] as List<dynamic>? ??
+              results[3]['items'] as List<dynamic>? ??
+              [];
+          for (final c in crops.take(3)) {
+            final m = c as Map<String, dynamic>;
+            final cropType = m['cropType'] as String? ?? '';
+            items.add(
+              _ActivityItem(
+                description: l10n.listingCreatedActivity(cropType),
+                timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                    DateTime.now(),
+                type: _ActivityType.info,
+              ),
+            );
+          }
+        }
       }
 
       items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
