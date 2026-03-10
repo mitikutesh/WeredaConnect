@@ -54,6 +54,7 @@ void main() {
     test('createListing saves to Isar with correct fields', () async {
       final listing = await repository.createListing(
         farmerId: 'farmer-001',
+        farmerName: 'Abebe Kebede',
         cropType: 'teff',
         quantity: 50.0,
         pricePerKg: 45.0,
@@ -64,6 +65,7 @@ void main() {
       );
 
       expect(listing.farmerId, 'farmer-001');
+      expect(listing.farmerName, 'Abebe Kebede');
       expect(listing.cropType, 'teff');
       expect(listing.quantity, 50.0);
       expect(listing.pricePerKg, 45.0);
@@ -81,6 +83,23 @@ void main() {
           .findFirst();
       expect(fromDb, isNotNull);
       expect(fromDb!.cropType, 'teff');
+      expect(fromDb.farmerName, 'Abebe Kebede');
+    });
+
+    test('createListing defaults farmerName to empty string when omitted',
+        () async {
+      final listing = await repository.createListing(
+        farmerId: 'farmer-002',
+        cropType: 'wheat',
+        quantity: 30.0,
+        pricePerKg: 35.0,
+        latitude: 9.0,
+        longitude: 38.0,
+        locationName: 'Arsi',
+        description: 'Good wheat',
+      );
+
+      expect(listing.farmerName, '');
     });
 
     test('createListing enqueues sync operation', () async {

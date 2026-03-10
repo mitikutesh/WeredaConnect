@@ -25,6 +25,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     required String description,
     String? audioNoteRef,
     String? woreda,
+    String? farmerName,
   }) async {
     final listingId =
         'lst_${DateTime.now().millisecondsSinceEpoch}_${farmerId.hashCode.abs()}';
@@ -32,6 +33,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
 
     final payload = <String, dynamic>{
       'farmerId': farmerId,
+      if (farmerName != null) 'farmerName': farmerName,
       'cropType': cropType,
       'quantity': quantity,
       'pricePerKg': pricePerKg,
@@ -39,7 +41,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
       'longitude': longitude,
       'locationName': locationName,
       'description': description,
-      'status': 'active',
+      'status': 'available',
       'listingId': listingId,
       'createdAt': now,
       if (audioNoteRef != null) 'audioNoteRef': audioNoteRef,
@@ -68,6 +70,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     final listing = CropListing()
       ..listingId = listingId
       ..farmerId = farmerId
+      ..farmerName = farmerName ?? ''
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerKg = pricePerKg
@@ -116,7 +119,8 @@ class WebCropListingRepository extends BaseCropListingRepository {
     double? priceMin,
     double? priceMax,
   }) async {
-    final params = <String, dynamic>{'status': 'active'};
+    // Server stores listings with status=available (not "active")
+    final params = <String, dynamic>{'status': 'available'};
     if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
     if (weredaFilter != null) params['woreda'] = weredaFilter;
     final data = await _api.get<Map<String, dynamic>>(
@@ -162,19 +166,28 @@ class WebCropListingRepository extends BaseCropListingRepository {
   }
 
   List<CropListing> _parseListings(Map<String, dynamic> data) {
-    final items = data['items'] as List<dynamic>? ?? [];
+    // API returns listings under "crops" key (not "items")
+    final items = data['crops'] as List<dynamic>? ??
+        data['items'] as List<dynamic>? ??
+        [];
     return items.map((item) {
       final m = item as Map<String, dynamic>;
       return CropListing()
-        ..listingId = m['listingId'] as String? ?? ''
+        // API uses "cropId"; sync-created listings use "listingId"
+        ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
         ..farmerId = m['farmerId'] as String? ?? ''
+        ..farmerName = m['farmerName'] as String? ?? ''
         ..cropType = m['cropType'] as String? ?? ''
-        ..quantity = (m['quantity'] as num?)?.toDouble() ?? 0
+        // API uses "quantityKg"; sync payload uses "quantity"
+        ..quantity = (m['quantity'] as num?)?.toDouble() ??
+            (m['quantityKg'] as num?)?.toDouble() ??
+            0
         ..pricePerKg = (m['pricePerKg'] as num?)?.toDouble() ?? 0
         ..location = (LatLng()
           ..latitude = (m['latitude'] as num?)?.toDouble() ?? 0
           ..longitude = (m['longitude'] as num?)?.toDouble() ?? 0)
-        ..locationName = m['locationName'] as String? ?? ''
+        ..locationName =
+            m['locationName'] as String? ?? m['woreda'] as String? ?? ''
         ..description = m['description'] as String? ?? ''
         ..audioNoteRef = m['audioNoteRef'] as String?
         ..status = _parseListingStatus(m['status'] as String?)
@@ -187,6 +200,8 @@ class WebCropListingRepository extends BaseCropListingRepository {
   }
 
   ListingStatus _parseListingStatus(String? s) {
+    // API returns "available" which maps to ListingStatus.active
+    if (s == 'available') return ListingStatus.active;
     return ListingStatus.values.firstWhere(
       (e) => e.name == s,
       orElse: () => ListingStatus.active,

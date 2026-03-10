@@ -1,0 +1,31 @@
+appId: et.wereda.connect
+name: "05 - Registration Flow (Buyer Role)"
+---
+
+# Clear app data for fresh start
+- clearState
+- launchApp
+
+# Navigate past splash to welcome
+- tapOn: "Get Started"
+
+# Tap Sign Up
+- tapOn: "Sign Up"
+
+# Step 1: Select Buyer role (bottom card ~58% from top)
+- tapOn:
+    point: "50%,58%"
+
+- takeScreenshot: "05_buyer_selected"
+- tapOn: "Continue"
+
+# Step 2: Fayda - Skip
+- tapOn: "Continue"
+
+# Step 3: Role Details (buyers get buyer type selection)
+- takeScreenshot: "05_buyer_role_details"
+- tapOn: "Continue"
+
+# Step 4: Personal Info
+- assertVisible: "Personal Info"
+- takeScreenshot: "05_buyer_personal_info"

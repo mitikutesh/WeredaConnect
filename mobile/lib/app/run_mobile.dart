@@ -160,6 +160,7 @@ class WeredaConnectApp extends StatelessWidget {
     required this.syncQueue,
     required this.syncExecutor,
     required this.syncWorker,
+    super.key,
   });
 
   @override

@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -24,10 +26,12 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/stat_tile.dart';
 import 'package:wereda_connect/shared/widgets/wc_card.dart';
@@ -57,6 +61,23 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Incrementing key that forces overview/recent widgets to recreate
   /// their state (and reload data from Isar) when it changes.
   int _refreshKey = 0;
+  StreamSubscription<dynamic>? _syncSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!kIsWeb) {
+      _syncSub = context.read<SyncExecutor>().onSyncResult.listen((_) {
+        _refreshData();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _syncSub?.cancel();
+    super.dispose();
+  }
 
   void _refreshData() {
     if (mounted) setState(() => _refreshKey++);
@@ -73,6 +94,39 @@ class _HomeScreenState extends State<HomeScreen> {
     final woreda =
         authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
 
+    final windowClass = Breakpoints.of(context);
+
+    // Mobile: keep the exact current layout
+    if (windowClass == WindowClass.mobile) {
+      return _buildMobileLayout(
+        l10n: l10n,
+        role: role,
+        userName: userName,
+        userId: userId,
+        woreda: woreda,
+      );
+    }
+
+    // Tablet / Desktop: flat header, reorganised content
+    return _buildWideLayout(
+      context: context,
+      l10n: l10n,
+      role: role,
+      userName: userName,
+      userId: userId,
+      woreda: woreda,
+      windowClass: windowClass,
+    );
+  }
+
+  // ── Mobile layout (unchanged) ──────────────────────────────────
+  Widget _buildMobileLayout({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userName,
+    required String userId,
+    required String woreda,
+  }) {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,8 +138,10 @@ class _HomeScreenState extends State<HomeScreen> {
             userId: userId,
             woreda: woreda,
             isOnline: widget.isOnline,
+            role: role,
             l10n: l10n,
             onNavigateToTab: widget.onNavigateToTab,
+            onRefresh: _refreshData,
           ),
 
           // ── Quick actions (no section title, like mockup) ────────
@@ -168,6 +224,226 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // ── Desktop / Tablet layout ────────────────────────────────────
+  Widget _buildWideLayout({
+    required BuildContext context,
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userName,
+    required String userId,
+    required String woreda,
+    required WindowClass windowClass,
+  }) {
+    final isDesktop = windowClass == WindowClass.desktop;
+    final maxWidth = isDesktop ? 1200.0 : 800.0;
+    final hPadding = isDesktop ? 32.0 : 24.0;
+
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: hPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Flat page header (no green curve) ────────────
+                _DesktopPageHeader(
+                  userName: userName,
+                  woreda: woreda,
+                  isOnline: widget.isOnline,
+                  l10n: l10n,
+                ),
+
+                const SizedBox(height: 24),
+
+                // ── Main content ─────────────────────────────────
+                if (isDesktop)
+                  _buildDesktopTwoColumn(
+                    l10n: l10n,
+                    role: role,
+                    userId: userId,
+                  )
+                else
+                  _buildTabletSingleColumn(
+                    l10n: l10n,
+                    role: role,
+                    userId: userId,
+                  ),
+
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Desktop: two-column grid ───────────────────────────────────
+  Widget _buildDesktopTwoColumn({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userId,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left column (60%): Overview stats + Recent activity
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.overview,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _OverviewStats(
+                key: ValueKey('overview_$_refreshKey'),
+                role: role,
+                userId: userId,
+                l10n: l10n,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                l10n.recentActivity,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _RecentActivityList(
+                key: ValueKey('recent_$_refreshKey'),
+                userId: userId,
+                l10n: l10n,
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 24),
+
+        // Right column (40%): Quick actions + role-specific cards
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.quickActions,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _QuickActionsGrid(
+                role: role,
+                l10n: l10n,
+                onNavigateToTab: widget.onNavigateToTab,
+                onRefresh: _refreshData,
+                crossAxisCount: 2,
+              ),
+              if (role == UserRole.trucker) ...[
+                const SizedBox(height: 16),
+                TruckerHeroCard(
+                  key: ValueKey('hero_$_refreshKey'),
+                  userId: userId,
+                  onRefresh: _refreshData,
+                ),
+              ],
+              if (role == UserRole.buyer) ...[
+                const SizedBox(height: 16),
+                _ActiveIntentsSection(
+                  key: ValueKey('intents_$_refreshKey'),
+                  userId: userId,
+                  l10n: l10n,
+                  onRefresh: _refreshData,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Tablet: single column ──────────────────────────────────────
+  Widget _buildTabletSingleColumn({
+    required AppLocalizations l10n,
+    required UserRole role,
+    required String userId,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _QuickActionsGrid(
+          role: role,
+          l10n: l10n,
+          onNavigateToTab: widget.onNavigateToTab,
+          onRefresh: _refreshData,
+        ),
+        if (role == UserRole.trucker) ...[
+          const SizedBox(height: 16),
+          TruckerHeroCard(
+            key: ValueKey('hero_$_refreshKey'),
+            userId: userId,
+            onRefresh: _refreshData,
+          ),
+        ],
+        if (role == UserRole.buyer) ...[
+          const SizedBox(height: 16),
+          _ActiveIntentsSection(
+            key: ValueKey('intents_$_refreshKey'),
+            userId: userId,
+            l10n: l10n,
+            onRefresh: _refreshData,
+          ),
+        ],
+        const SizedBox(height: 20),
+        Text(
+          l10n.overview,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _OverviewStats(
+          key: ValueKey('overview_$_refreshKey'),
+          role: role,
+          userId: userId,
+          l10n: l10n,
+        ),
+        const SizedBox(height: 20),
+        Text(
+          l10n.recentActivity,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _RecentActivityList(
+          key: ValueKey('recent_$_refreshKey'),
+          userId: userId,
+          l10n: l10n,
+        ),
+      ],
+    );
+  }
 }
 
 /// Combined green header + gold banner, matching mockup.
@@ -179,16 +455,20 @@ class _HomeHeaderWithBanner extends StatelessWidget {
   final String userId;
   final String woreda;
   final bool isOnline;
+  final UserRole role;
   final AppLocalizations l10n;
   final ValueChanged<int>? onNavigateToTab;
+  final VoidCallback? onRefresh;
 
   const _HomeHeaderWithBanner({
     required this.userName,
     required this.userId,
     required this.woreda,
     required this.isOnline,
+    required this.role,
     required this.l10n,
     this.onNavigateToTab,
+    this.onRefresh,
     super.key,
   });
 
@@ -290,48 +570,210 @@ class _HomeHeaderWithBanner extends StatelessWidget {
             left: 20,
             right: 20,
             bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppTheme.accentGold, AppTheme.accentGoldLight],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            child: _BannerCard(
+              role: role,
+              l10n: l10n,
+              onRefresh: onRefresh,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Banner card — tappable CTA for farmers, static slogan for other roles.
+class _BannerCard extends StatelessWidget {
+  final UserRole role;
+  final AppLocalizations l10n;
+  final VoidCallback? onRefresh;
+
+  const _BannerCard({
+    required this.role,
+    required this.l10n,
+    this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isFarmer = role == UserRole.farmer;
+    final headline = isFarmer ? l10n.sellYourHarvest : l10n.bannerHeadline;
+    final subtitle = isFarmer ? l10n.tapToListCrops : l10n.bannerSubtitle;
+
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isFarmer
+              ? [AppTheme.primaryGreen, const Color(0xFF2E7D32)]
+              : [AppTheme.accentGold, AppTheme.accentGoldLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(25),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withAlpha(220),
                   ),
-                ],
+                ),
+              ],
+            ),
+          ),
+          if (isFarmer)
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(50),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    l10n.bannerHeadline,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    l10n.bannerSubtitle,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white.withAlpha(220),
-                    ),
-                  ),
-                ],
+              child: const Icon(Icons.add, color: Colors.white, size: 22),
+            ),
+        ],
+      ),
+    );
+
+    if (!isFarmer) return card;
+
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => const CreateCropListingScreen(),
+          ),
+        );
+        onRefresh?.call();
+      },
+      child: card,
+    );
+  }
+}
+
+/// Flat page header for desktop/tablet — replaces the curved green header.
+///
+/// On wide screens the sidebar already provides green branding, so this
+/// header uses a white/surface background with the user name as headline
+/// and location + sync status inline.
+class _DesktopPageHeader extends StatelessWidget {
+  final String userName;
+  final String woreda;
+  final bool isOnline;
+  final AppLocalizations l10n;
+
+  const _DesktopPageHeader({
+    required this.userName,
+    required this.woreda,
+    required this.isOnline,
+    required this.l10n,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(0, 28, 0, 20),
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        border: Border(
+          bottom: BorderSide(color: AppTheme.borderLight),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            l10n.welcomeBackUser(userName),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textDark,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.location_on,
+                size: 14,
+                color: AppTheme.textMuted,
               ),
+              const SizedBox(width: 4),
+              Text(
+                woreda.isNotEmpty ? woreda : l10n.wereda,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(width: 16),
+              _DesktopSyncChip(isOnline: isOnline),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact sync status chip for the desktop/tablet flat header.
+class _DesktopSyncChip extends StatelessWidget {
+  final bool isOnline;
+
+  const _DesktopSyncChip({required this.isOnline});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final label = isOnline ? l10n.synced : l10n.offline;
+    final color = isOnline ? AppTheme.statusSuccess : AppTheme.textMuted;
+    final icon =
+        isOnline ? Icons.cloud_done_outlined : Icons.cloud_off_outlined;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color,
             ),
           ),
         ],
@@ -347,19 +789,35 @@ class _QuickActionsGrid extends StatelessWidget {
   final ValueChanged<int>? onNavigateToTab;
   final VoidCallback? onRefresh;
 
+  /// Number of columns. Defaults to 3 for mobile, but desktop right column
+  /// passes 2 for a more compact grid.
+  final int crossAxisCount;
+
   const _QuickActionsGrid({
     required this.role,
     required this.l10n,
     required this.onNavigateToTab,
     this.onRefresh,
+    this.crossAxisCount = 3,
   });
+
+  /// Navigate to a named route. Uses GoRouter on web, tab callback on mobile.
+  void _goToRoute(BuildContext context, String route, {int? mobileTabIndex}) {
+    if (kIsWeb) {
+      context.go(route);
+      return;
+    }
+    if (onNavigateToTab != null && mobileTabIndex != null) {
+      onNavigateToTab!(mobileTabIndex);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final actions = _actionsForRole(role, context);
 
     return GridView.count(
-      crossAxisCount: 3,
+      crossAxisCount: crossAxisCount,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 10,
@@ -374,30 +832,41 @@ class _QuickActionsGrid extends StatelessWidget {
       case UserRole.farmer:
         return [
           _QuickActionTile(
-            icon: Icons.list_alt,
-            label: l10n.myListings,
+            icon: Icons.agriculture,
+            label: l10n.sellCrops,
             color: AppTheme.primaryGreen,
             onTap: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const BrowseListingsScreen(ownerMode: true),
+                  builder: (_) => const CreateCropListingScreen(),
                 ),
               );
               onRefresh?.call();
             },
           ),
           _QuickActionTile(
-            icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
+            icon: Icons.eco,
+            label: l10n.myCrops,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/my-crops');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseListingsScreen(ownerMode: true),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
+            },
           ),
           _QuickActionTile(
-            icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            icon: Icons.local_shipping_outlined,
+            label: l10n.myDeliveries,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
         ];
       case UserRole.trucker:
@@ -406,27 +875,30 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.route,
             label: l10n.myTrips,
             color: AppTheme.primaryGreen,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const BrowseTripsScreen(),
-                ),
-              );
-              onRefresh?.call();
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/trips');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseTripsScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
             },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
+            label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
           ),
         ];
       case UserRole.buyer:
@@ -435,27 +907,30 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.search,
             label: l10n.findCrops,
             color: AppTheme.primaryGreen,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const CreateIntentScreen(),
-                ),
-              );
-              onRefresh?.call();
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/find-crops');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseListingsScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
             },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
-            label: l10n.trackDelivery,
+            label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => onNavigateToTab?.call(2),
+            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
-            label: l10n.checkBalance,
+            label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => onNavigateToTab?.call(3),
+            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
           ),
         ];
     }
@@ -674,30 +1149,123 @@ class _OverviewStatsState extends State<_OverviewStats> {
   }
 
   Future<Map<String, int>> _loadStats(String userId, UserRole role) async {
-    if (kIsWeb) return <String, int>{};
+    if (userId.isEmpty) return {};
+    if (kIsWeb) return _loadWebStats(userId, role);
+    return _loadIsarStats(userId, role);
+  }
+
+  Future<Map<String, int>> _loadWebStats(
+    String userId,
+    UserRole role,
+  ) async {
+    try {
+      final api = ApiClient();
+      if (!api.isInitialized) {
+        debugPrint('[OverviewStats] ApiClient not initialized');
+        return {};
+      }
+      final result = <String, int>{};
+
+      // Each call is isolated so one failing endpoint doesn't zero-out all stats.
+      Future<Map<String, dynamic>> safeGet(
+        String path, {
+        Map<String, dynamic>? queryParameters,
+      }) async {
+        try {
+          return await api.get<Map<String, dynamic>>(
+            path,
+            queryParameters: queryParameters,
+          );
+        } on Object catch (e) {
+          debugPrint('[OverviewStats] $path failed: $e');
+          return <String, dynamic>{};
+        }
+      }
+
+      if (role == UserRole.farmer) {
+        final responses = await Future.wait([
+          safeGet('/crops', queryParameters: {'farmerId': userId}),
+          safeGet('/escrow/history', queryParameters: {'farmerId': userId}),
+          safeGet(
+            '/orders',
+            queryParameters: {'farmerId': userId, 'status': 'funded'},
+          ),
+          safeGet('/deliveries', queryParameters: {'farmerId': userId}),
+        ]);
+        result['listings'] = _countApiItems(responses[0], alt: 'crops');
+        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
+        result['pendingOrders'] = _countApiItems(responses[2], alt: 'orders');
+        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
+      } else if (role == UserRole.buyer) {
+        final responses = await Future.wait([
+          safeGet('/deliveries', queryParameters: {'buyerId': userId}),
+          safeGet('/escrow/history', queryParameters: {'buyerId': userId}),
+          safeGet('/orders', queryParameters: {'buyerId': userId}),
+          safeGet('/crops', queryParameters: {'status': 'available'}),
+        ]);
+        result['deliveries'] = _countApiItems(responses[0], alt: 'deliveries');
+        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
+        result['activeOrders'] = _countApiItems(responses[2], alt: 'orders');
+        result['listings'] = _countApiItems(responses[3], alt: 'crops');
+      } else if (role == UserRole.trucker) {
+        final responses = await Future.wait([
+          safeGet('/trips', queryParameters: {'truckerId': userId}),
+          safeGet(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'status': 'inTransit'},
+          ),
+          safeGet(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'status': 'matched'},
+          ),
+          safeGet('/deliveries', queryParameters: {'truckerId': userId}),
+        ]);
+        result['trips'] = _countApiItems(responses[0], alt: 'trips');
+        result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
+        result['matched'] = _countApiItems(responses[2], alt: 'trips');
+        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
+      }
+
+      return result;
+    } on Object catch (e) {
+      debugPrint('[OverviewStats] Web stats failed: $e');
+      return {};
+    }
+  }
+
+  static int _countApiItems(Map<String, dynamic> data, {String? alt}) {
+    final items =
+        data[alt] as List<dynamic>? ?? data['items'] as List<dynamic>? ?? [];
+    return items.length;
+  }
+
+  Future<Map<String, int>> _loadIsarStats(
+    String userId,
+    UserRole role,
+  ) async {
     try {
       final isar = IsarService.instance.db;
       final result = <String, int>{};
 
-      if (role == UserRole.farmer && userId.isNotEmpty) {
+      if (role == UserRole.farmer) {
         final futures = await Future.wait<int>([
-          isar.cropListings.where().farmerIdEqualTo(userId).count(),
-          isar.payments.where().filter().farmerIdEqualTo(userId).count(),
+          isar.cropListings.filter().farmerIdEqualTo(userId).count(),
+          isar.payments.filter().farmerIdEqualTo(userId).count(),
           isar.orders
               .filter()
               .farmerIdEqualTo(userId)
               .statusEqualTo(OrderStatus.funded)
               .count(),
-          isar.deliverys.where().filter().farmerIdEqualTo(userId).count(),
-        ].cast<Future<int>>());
+          isar.deliverys.filter().farmerIdEqualTo(userId).count(),
+        ]);
         result['listings'] = futures[0];
         result['payments'] = futures[1];
         result['pendingOrders'] = futures[2];
         result['deliveries'] = futures[3];
-      } else if (role == UserRole.buyer && userId.isNotEmpty) {
+      } else if (role == UserRole.buyer) {
         final futures = await Future.wait<int>([
-          isar.deliverys.where().filter().buyerIdEqualTo(userId).count(),
-          isar.payments.where().filter().buyerIdEqualTo(userId).count(),
+          isar.deliverys.filter().buyerIdEqualTo(userId).count(),
+          isar.payments.filter().buyerIdEqualTo(userId).count(),
           isar.orders
               .filter()
               .buyerIdEqualTo(userId)
@@ -714,13 +1282,16 @@ class _OverviewStatsState extends State<_OverviewStats> {
                     .statusEqualTo(OrderStatus.accepted),
               )
               .count(),
-          isar.cropListings.count(),
-        ].cast<Future<int>>());
+          isar.cropListings
+              .filter()
+              .statusEqualTo(ListingStatus.active)
+              .count(),
+        ]);
         result['deliveries'] = futures[0];
         result['payments'] = futures[1];
         result['activeOrders'] = futures[2];
         result['listings'] = futures[3];
-      } else if (role == UserRole.trucker && userId.isNotEmpty) {
+      } else if (role == UserRole.trucker) {
         final futures = await Future.wait<int>([
           isar.trips.filter().truckerIdEqualTo(userId).count(),
           isar.trips
@@ -733,8 +1304,8 @@ class _OverviewStatsState extends State<_OverviewStats> {
               .truckerIdEqualTo(userId)
               .statusEqualTo(TripStatus.matched)
               .count(),
-          isar.deliverys.where().filter().truckerIdEqualTo(userId).count(),
-        ].cast<Future<int>>());
+          isar.deliverys.filter().truckerIdEqualTo(userId).count(),
+        ]);
         result['trips'] = futures[0];
         result['inTransit'] = futures[1];
         result['matched'] = futures[2];
@@ -742,7 +1313,8 @@ class _OverviewStatsState extends State<_OverviewStats> {
       }
 
       return result;
-    } on Object {
+    } on Object catch (e) {
+      debugPrint('[OverviewStats] Isar stats failed: $e');
       return {};
     }
   }
@@ -817,7 +1389,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
           StatTile(
             value: '${stats['listings'] ?? 0}',
             label: l10n.farmersBrowsed,
-            icon: Icons.people_outline,
+            icon: Icons.eco_outlined,
             valueColor: AppTheme.statusInfo,
           ),
           StatTile(
@@ -906,7 +1478,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
   }
 
   Future<List<_ActivityItem>> _loadActivity() async {
-    if (kIsWeb) return [];
+    if (kIsWeb) return _loadWebActivity();
     try {
       final isar = IsarService.instance.db;
       final items = <_ActivityItem>[];
@@ -955,6 +1527,144 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 : _ActivityType.pending,
           ),
         );
+      }
+
+      items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return items.take(3).toList();
+    } on Object {
+      return [];
+    }
+  }
+
+  Future<List<_ActivityItem>> _loadWebActivity() async {
+    try {
+      final api = ApiClient();
+      final userId = widget.userId;
+      if (userId.isEmpty) return [];
+      final l10n = widget.l10n;
+      final items = <_ActivityItem>[];
+
+      final authState = context.read<AuthBloc>().state;
+      final role =
+          authState is AuthAuthenticated ? authState.role : UserRole.farmer;
+
+      // Fetch recent data in parallel based on role
+      final futures = <Future<Map<String, dynamic>>>[
+        // Orders (all roles)
+        api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: {'buyerId': userId, 'limit': '3'},
+        ).catchError((_) => <String, dynamic>{}),
+        api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: {'farmerId': userId, 'limit': '3'},
+        ).catchError((_) => <String, dynamic>{}),
+        // Deliveries (all roles)
+        api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: {'limit': '5'},
+        ).catchError((_) => <String, dynamic>{}),
+      ];
+
+      // Role-specific: trips for truckers, crops for farmers
+      if (role == UserRole.trucker) {
+        futures.add(
+          api.get<Map<String, dynamic>>(
+            '/trips',
+            queryParameters: {'truckerId': userId, 'limit': '5'},
+          ).catchError((_) => <String, dynamic>{}),
+        );
+      } else if (role == UserRole.farmer) {
+        futures.add(
+          api.get<Map<String, dynamic>>(
+            '/crops',
+            queryParameters: {'farmerId': userId, 'limit': '5'},
+          ).catchError((_) => <String, dynamic>{}),
+        );
+      }
+
+      final results = await Future.wait(futures);
+
+      // Parse orders
+      for (final resp in [results[0], results[1]]) {
+        final orders = resp['orders'] as List<dynamic>? ??
+            resp['items'] as List<dynamic>? ??
+            [];
+        for (final o in orders.take(3)) {
+          final m = o as Map<String, dynamic>;
+          final status = m['status'] as String? ?? 'created';
+          final cropType = m['cropType'] as String? ?? '';
+          items.add(
+            _ActivityItem(
+              description: '${l10n.orders}: $cropType ($status)',
+              timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                  DateTime.now(),
+              type: status == 'delivered'
+                  ? _ActivityType.success
+                  : _ActivityType.pending,
+            ),
+          );
+        }
+      }
+
+      // Parse deliveries
+      final deliveries = results[2]['deliveries'] as List<dynamic>? ??
+          results[2]['items'] as List<dynamic>? ??
+          [];
+      for (final d in deliveries.take(3)) {
+        final m = d as Map<String, dynamic>;
+        final status = m['status'] as String? ?? '';
+        items.add(
+          _ActivityItem(
+            description: l10n.deliveryStatusActivity(status),
+            timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                DateTime.now(),
+            type: status == 'delivered'
+                ? _ActivityType.success
+                : _ActivityType.pending,
+          ),
+        );
+      }
+
+      // Parse role-specific data
+      if (results.length > 3) {
+        if (role == UserRole.trucker) {
+          final trips = results[3]['trips'] as List<dynamic>? ??
+              results[3]['items'] as List<dynamic>? ??
+              [];
+          for (final t in trips.take(3)) {
+            final m = t as Map<String, dynamic>;
+            final status = m['status'] as String? ?? 'open';
+            final from = m['fromWoreda'] as String? ?? '';
+            final to = m['toWoreda'] as String? ?? '';
+            items.add(
+              _ActivityItem(
+                description: '${l10n.myTrips}: $from → $to ($status)',
+                timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                    DateTime.now(),
+                type: status == 'delivered'
+                    ? _ActivityType.success
+                    : _ActivityType.info,
+              ),
+            );
+          }
+        } else if (role == UserRole.farmer) {
+          final crops = results[3]['crops'] as List<dynamic>? ??
+              results[3]['items'] as List<dynamic>? ??
+              [];
+          for (final c in crops.take(3)) {
+            final m = c as Map<String, dynamic>;
+            final cropType = m['cropType'] as String? ?? '';
+            items.add(
+              _ActivityItem(
+                description: l10n.listingCreatedActivity(cropType),
+                timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                    DateTime.now(),
+                type: _ActivityType.info,
+              ),
+            );
+          }
+        }
       }
 
       items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -1573,7 +2283,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
           _NotifItem(
             icon: Icons.sync_problem,
             title: widget.l10n.syncFailed,
-            subtitle: '$failedCount operations need attention',
+            subtitle: widget.l10n.syncFailureCount(failedCount),
             color: AppTheme.statusError,
             time: DateTime.now(),
             action: _NotifAction.syncStatus,
@@ -1589,7 +2299,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
           _NotifItem(
             icon: Icons.cloud_upload_outlined,
             title: widget.l10n.syncPending,
-            subtitle: '$pendingCount waiting to sync',
+            subtitle: widget.l10n.syncPendingCount(pendingCount),
             color: AppTheme.accentGold,
             time: DateTime.now(),
             action: _NotifAction.syncStatus,
@@ -1644,7 +2354,7 @@ class _NotificationIconState extends State<_NotificationIcon> {
         items.add(
           _NotifItem(
             icon: Icons.account_balance_wallet_outlined,
-            title: '${p.status.name} payment',
+            title: widget.l10n.paymentStatusTitle(p.status.name),
             subtitle: '${p.amount} ETB',
             color: p.status == PaymentStatus.released
                 ? AppTheme.statusSuccess

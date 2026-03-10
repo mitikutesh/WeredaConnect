@@ -1,0 +1,24 @@
+appId: et.wereda.connect
+name: "01 - Splash Screen and Welcome Flow"
+---
+
+# Clear app data for fresh start
+- clearState
+
+# Launch the app
+- launchApp
+
+# Splash screen should show branding
+- assertVisible: "WeredaConnect"
+
+# Tap "Get Started" button
+- tapOn: "Get Started"
+
+# Welcome screen should appear with key elements
+- assertVisible: "WeredaConnect"
+- assertVisible: "Login"
+- assertVisible: "Sign Up"
+- assertVisible: "Explore as Guest"
+
+# Take screenshot for verification
+- takeScreenshot: "01_welcome_screen"

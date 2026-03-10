@@ -1,0 +1,60 @@
+appId: et.wereda.connect
+name: "11 - Create Crop Listing"
+---
+
+# Launch app (already logged in)
+- launchApp
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 15000
+
+# Tap FAB (+) button using its tooltip
+- tapOn: "Create New"
+
+# Wait for create listing screen
+- extendedWaitUntil:
+    visible: "Create Listing"
+    timeout: 10000
+
+# Take screenshot of create listing screen
+- takeScreenshot: "11_create_listing_screen"
+
+# Select crop type - tap on Teff
+- tapOn: "Teff"
+
+# Take screenshot after crop selection
+- takeScreenshot: "11_crop_selected"
+
+# Fill quantity
+- tapOn: "Quantity (quintals)"
+- inputText: "50"
+- hideKeyboard
+
+# Fill price
+- tapOn: "Price (ETB/kg)"
+- inputText: "85"
+- hideKeyboard
+
+# Fill location
+- tapOn: "Location"
+- inputText: "Bole Market"
+- hideKeyboard
+
+# Scroll down to see save button
+- swipe:
+    direction: UP
+    duration: 500
+
+# Take screenshot of filled form
+- takeScreenshot: "11_listing_filled"
+
+# Tap Save button
+- tapOn: "Save"
+
+# Wait for save to complete and return to home
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 15000
+
+# Take screenshot showing we're back on home
+- takeScreenshot: "11_after_save"

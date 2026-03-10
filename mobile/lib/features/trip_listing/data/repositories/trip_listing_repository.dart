@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Validation error thrown when trip data fails client-side checks.
@@ -20,9 +21,6 @@ class TripValidationException implements Exception {
   @override
   String toString() => 'TripValidationException($field): $message';
 }
-
-/// Ethiopian phone number pattern: +251 followed by exactly 9 digits.
-final _phoneRegex = RegExp(r'^\+251\d{9}$');
 
 /// Offline-first repository for trip listing CRUD operations.
 ///
@@ -60,11 +58,11 @@ class TripListingRepository extends BaseTripListingRepository {
       );
     }
 
-    // truckerPhone: Ethiopian E.164 format (+251XXXXXXXXX)
-    if (!_phoneRegex.hasMatch(truckerPhone)) {
+    // truckerPhone: Ethiopian phone (accepts +251, 00251, or 0 prefix)
+    if (!isValidEthiopianPhone(truckerPhone)) {
       throw TripValidationException(
         'truckerPhone',
-        'Phone must be valid Ethiopian format (+251XXXXXXXXX).',
+        'Phone must be valid Ethiopian format (+251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX).',
       );
     }
 
@@ -141,9 +139,13 @@ class TripListingRepository extends BaseTripListingRepository {
     String? vehiclePlate,
     String? vehicleDescription,
   }) async {
+    // Normalize phone to canonical E.164 before validation/storage
+    final normalizedPhone =
+        normalizeEthiopianPhone(truckerPhone) ?? truckerPhone;
+
     _validateTripData(
       truckerName: truckerName,
-      truckerPhone: truckerPhone,
+      truckerPhone: normalizedPhone,
       fromWoreda: fromWoreda,
       toWoreda: toWoreda,
       departureDate: departureDate,
@@ -158,7 +160,7 @@ class TripListingRepository extends BaseTripListingRepository {
       ..tripId = tripId
       ..truckerId = truckerId
       ..truckerName = truckerName
-      ..truckerPhone = truckerPhone
+      ..truckerPhone = normalizedPhone
       ..vehiclePlate = vehiclePlate
       ..vehicleDescription = vehicleDescription
       ..fromWoreda = fromWoreda
@@ -182,7 +184,7 @@ class TripListingRepository extends BaseTripListingRepository {
     final syncData = <String, dynamic>{
       'truckerId': truckerId,
       'truckerName': truckerName,
-      'truckerPhone': truckerPhone,
+      'truckerPhone': normalizedPhone,
       'fromWoreda': fromWoreda,
       'toWoreda': toWoreda,
       'departureDate': departureDate.toIso8601String(),

@@ -814,9 +814,9 @@ void main() {
         final invalidPhones = [
           '+251abc123456',
           '+2519110000',
-          '0911000000',
           '+252911000000',
           '+25191100000000',
+          '091100000', // only 8 digits after 0
         ];
 
         for (final phone in invalidPhones) {
@@ -913,7 +913,7 @@ void main() {
                 .having(
                   (e) => e.message,
                   'message',
-                  contains('delivered'),
+                  contains('cannot be cancelled'),
                 ),
           ),
         );

@@ -29,6 +29,7 @@ public sealed record UserDto
     public string? FaydaVerifiedAt { get; init; }
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
+    public bool Suspended { get; init; }
     public string? ProfilePhotoRef { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }

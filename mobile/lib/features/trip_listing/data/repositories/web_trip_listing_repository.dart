@@ -228,7 +228,9 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }
 
   List<Trip> _parseTrips(Map<String, dynamic> data) {
-    final items = data['items'] as List<dynamic>? ?? [];
+    final items = data['trips'] as List<dynamic>? ??
+        data['items'] as List<dynamic>? ??
+        [];
     return items
         .map((item) => _parseTripMap(item as Map<String, dynamic>))
         .toList();

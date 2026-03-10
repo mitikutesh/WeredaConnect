@@ -32,188 +32,194 @@ class FayidaIdScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.faydaVerifyTitle,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.faydaVerifyDescription,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textMuted,
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Error message
-          if (errorMessage != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.statusError.withAlpha(25),
-                border: Border.all(color: AppTheme.statusError.withAlpha(50)),
-                borderRadius: BorderRadius.circular(8),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.faydaVerifyTitle,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textDark,
+                ),
               ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    color: AppTheme.statusError,
-                    size: 20,
+              const SizedBox(height: 8),
+              Text(
+                l10n.faydaVerifyDescription,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Error message
+              if (errorMessage != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.statusError.withAlpha(25),
+                    border:
+                        Border.all(color: AppTheme.statusError.withAlpha(50)),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      errorMessage!,
-                      style: const TextStyle(
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
                         color: AppTheme.statusError,
-                        fontSize: 13,
+                        size: 20,
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          // Verified state
-          if (isVerified) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.statusSuccess.withAlpha(15),
-                border: Border.all(color: AppTheme.statusSuccess),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.verified_user,
-                    color: AppTheme.statusSuccess,
-                    size: 48,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.faydaVerifiedSuccess,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.statusSuccess,
-                    ),
-                  ),
-                  if (verifiedName != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      verifiedName!,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textDark,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          errorMessage!,
+                          style: const TextStyle(
+                            color: AppTheme.statusError,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ]
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
-          // Verifying state
-          else if (isVerifying) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceWhite,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.borderLight),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppTheme.primaryGreen,
-                    ),
+              // Verified state
+              if (isVerified) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.statusSuccess.withAlpha(15),
+                    border: Border.all(color: AppTheme.statusSuccess),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    l10n.faydaVerifying,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                    ),
-                  ),
-                  if (onCancelVerification != null) ...[
-                    const SizedBox(height: 20),
-                    TextButton(
-                      onPressed: onCancelVerification,
-                      child: Text(
-                        l10n.cancel,
-                        style: const TextStyle(color: AppTheme.textMuted),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.verified_user,
+                        color: AppTheme.statusSuccess,
+                        size: 48,
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ]
+                      const SizedBox(height: 12),
+                      Text(
+                        l10n.faydaVerifiedSuccess,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.statusSuccess,
+                        ),
+                      ),
+                      if (verifiedName != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          verifiedName!,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textDark,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ]
 
-          // Pending state — show verify button
-          else ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceWhite,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.borderLight),
-              ),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.fingerprint,
-                    size: 48,
-                    color: AppTheme.primaryGreen,
+              // Verifying state
+              else if (isVerifying) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.borderLight),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    l10n.faydaRequired,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                    ),
-                    textAlign: TextAlign.center,
+                  child: Column(
+                    children: [
+                      const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: AppTheme.primaryGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        l10n.faydaVerifying,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.textMuted,
+                        ),
+                      ),
+                      if (onCancelVerification != null) ...[
+                        const SizedBox(height: 20),
+                        TextButton(
+                          onPressed: onCancelVerification,
+                          child: Text(
+                            l10n.cancel,
+                            style: const TextStyle(color: AppTheme.textMuted),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: FilledButton.icon(
-                      onPressed: onFaydaVerifyRequested,
-                      icon: const Icon(Icons.open_in_browser),
-                      label: Text(l10n.verifyWithFayda),
-                    ),
+                ),
+              ]
+
+              // Pending state — show verify button
+              else ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.borderLight),
                   ),
-                ],
-              ),
-            ),
-          ],
-        ],
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.fingerprint,
+                        size: 48,
+                        color: AppTheme.primaryGreen,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        l10n.faydaRequired,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.textMuted,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: FilledButton.icon(
+                          onPressed: onFaydaVerifyRequested,
+                          icon: const Icon(Icons.open_in_browser),
+                          label: Text(l10n.verifyWithFayda),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

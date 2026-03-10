@@ -25,17 +25,17 @@ export function DashboardPage() {
         />
         <KpiCard
           label={t("dashboard.totalRevenue")}
-          value={formatETB(stats.totalRevenue ?? 0, locale)}
+          value={formatETB(stats.totalCommissions ?? 0, locale)}
           icon={<TrendingUp size={20} />}
         />
         <KpiCard
           label={t("dashboard.openDisputes")}
-          value={stats.openDisputes ?? 0}
+          value={stats.disputedEscrows ?? 0}
           icon={<Scale size={20} />}
         />
         <KpiCard
           label={t("dashboard.fraudFlags")}
-          value={stats.fraudFlags ?? 0}
+          value={stats.fraudSignalsCount ?? 0}
           icon={<ShieldAlert size={20} />}
         />
       </div>

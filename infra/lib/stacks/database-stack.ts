@@ -106,6 +106,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // F-14: GSI for duplicate listing detection (fraud rule 1)
+    // Uses INCLUDE projection — server does GSI query + BatchGetItem for full items
     this.cropsTable.addGlobalSecondaryIndex({
       indexName: "FarmerIdCreatedAtIndex",
       partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
@@ -115,6 +116,7 @@ export class DatabaseStack extends cdk.Stack {
     });
 
     // F-14: GSI for price anomaly detection (fraud rule 2)
+    // Uses INCLUDE projection — server does GSI query + BatchGetItem for full items
     this.cropsTable.addGlobalSecondaryIndex({
       indexName: "CropTypeCreatedAtIndex",
       partitionKey: { name: "cropType", type: dynamodb.AttributeType.STRING },
@@ -137,6 +139,14 @@ export class DatabaseStack extends cdk.Stack {
       indexName: "StatusDepartureDateIndex",
       partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "departureDate", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query trips by trucker ID (trucker's "My Trips" view)
+    this.tripsTable.addGlobalSecondaryIndex({
+      indexName: "TruckerIdCreatedAtIndex",
+      partitionKey: { name: "truckerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
@@ -374,6 +384,17 @@ export class DatabaseStack extends cdk.Stack {
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: "TripIdIndex",
       partitionKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: Query orders by trucker (trucker's order view)
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "TruckerIdCreatedAtIndex",
+      partitionKey: {
+        name: "truckerId",
+        type: dynamodb.AttributeType.STRING,
+      },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });

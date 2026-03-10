@@ -92,7 +92,7 @@ public class AdminFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"AdminFunction error: [{ex.GetType().Name}] {ex.Message}");
+            context.Logger.LogError($"AdminFunction error: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ADMIN_500", "Internal server error.");
         }
     }
@@ -158,6 +158,7 @@ public class AdminFunction
 
         var (items, lastKey) = await ScanItemsAsync(_escrowsTable, status, "status", limit, startKey);
         var escrows = items.Select(MapToEscrowDto).ToList();
+        await EnrichEscrowNamesAsync(escrows);
 
         string? newNextToken = null;
         if (lastKey != null)
@@ -184,6 +185,7 @@ public class AdminFunction
         }
 
         var escrow = MapToEscrowDto(DynamoDbHelper.FromItem(item));
+        await EnrichEscrowNamesAsync(new List<EscrowDto> { escrow });
         var response = new AdminEscrowDetailResponse { Escrow = escrow };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowDetailResponse);
     }
@@ -228,6 +230,7 @@ public class AdminFunction
 
         var (items, lastKey) = await ScanItemsAsync(_escrowsTable, "disputed", "status", limit, startKey);
         var disputes = items.Select(MapToEscrowDto).ToList();
+        await EnrichEscrowNamesAsync(disputes);
 
         string? newNextToken = null;
         if (lastKey != null)
@@ -993,6 +996,68 @@ public class AdminFunction
         return response.Items.Count > 0 ? response.Items[0] : null;
     }
 
+    /// <summary>
+    /// Batch-fetch display names for a set of user IDs from the users table.
+    /// Returns a dictionary mapping userId → displayName.
+    /// </summary>
+    private async Task<Dictionary<string, string>> BatchGetUserNamesAsync(IEnumerable<string> userIds)
+    {
+        var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+        var result = new Dictionary<string, string>();
+        if (distinct.Count == 0) return result;
+
+        // BatchGetItem supports max 100 keys per request
+        foreach (var batch in distinct.Chunk(100))
+        {
+            var keys = batch.Select(id => new Dictionary<string, AttributeValue>
+            {
+                { "userId", new AttributeValue { S = id } }
+            }).ToList();
+
+            var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest
+            {
+                RequestItems = new Dictionary<string, KeysAndAttributes>
+                {
+                    {
+                        _usersTable,
+                        new KeysAndAttributes
+                        {
+                            Keys = keys,
+                            ProjectionExpression = "userId, displayName"
+                        }
+                    }
+                }
+            });
+
+            if (response.Responses.TryGetValue(_usersTable, out var items))
+            {
+                foreach (var item in items)
+                {
+                    var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
+                    var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
+                    if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        result[id] = name;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Enrich a list of EscrowDto with buyer/farmer display names from the users table.
+    /// </summary>
+    private async Task EnrichEscrowNamesAsync(List<EscrowDto> escrows)
+    {
+        var userIds = escrows.SelectMany(e => new[] { e.BuyerId, e.FarmerId });
+        var names = await BatchGetUserNamesAsync(userIds);
+        foreach (var e in escrows)
+        {
+            e.BuyerName ??= names.GetValueOrDefault(e.BuyerId);
+            e.FarmerName ??= names.GetValueOrDefault(e.FarmerId);
+        }
+    }
+
     // ──────────────────────────────────────────────
     // DTO Mapping
     // ──────────────────────────────────────────────
@@ -1005,7 +1070,9 @@ public class AdminFunction
             DeliveryId = GetString(item, "deliveryId"),
             OrderId = GetStringOrNull(item, "orderId"),
             BuyerId = GetString(item, "buyerId"),
+            BuyerName = GetStringOrNull(item, "buyerName"),
             FarmerId = GetString(item, "farmerId"),
+            FarmerName = GetStringOrNull(item, "farmerName"),
             Amount = GetDecimal(item, "amount"),
             Commission = GetDecimal(item, "commission"),
             CommissionRate = GetDecimal(item, "commissionRate"),

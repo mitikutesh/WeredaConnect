@@ -83,6 +83,7 @@ void main() {
       bloc.add(
         const CreateCropListing(
           farmerId: 'farmer-001',
+          farmerName: 'Abebe Kebede',
           cropType: 'teff',
           quantity: 50.0,
           pricePerKg: 45.0,
@@ -97,7 +98,9 @@ void main() {
       expect(states.length, 2);
       expect(states[0], isA<CropListingLoading>());
       expect(states[1], isA<CropListingCreated>());
-      expect((states[1] as CropListingCreated).listing.cropType, 'teff');
+      final created = (states[1] as CropListingCreated).listing;
+      expect(created.cropType, 'teff');
+      expect(created.farmerName, 'Abebe Kebede');
 
       await subscription.cancel();
       await bloc.close();

@@ -17,6 +17,7 @@ abstract class BaseCropListingRepository {
     required String description,
     String? audioNoteRef,
     String? woreda,
+    String? farmerName,
   });
 
   Future<List<CropListing>> getListingsByFarmer(String farmerId);

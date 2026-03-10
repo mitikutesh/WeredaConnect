@@ -80,100 +80,105 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   Widget _buildTruckerFields(AppLocalizations l10n) {
     final hasImage = widget.drivingLicensePath != null;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.drivingLicense,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.drivingLicenseInstructions,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textMuted,
-            ),
-          ),
-          const SizedBox(height: 24),
-          // License scan
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _pickLicenseImage,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: double.infinity,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: hasImage
-                      ? AppTheme.statusSuccess.withAlpha(15)
-                      : AppTheme.surfaceWhite,
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.drivingLicense,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.drivingLicenseInstructions,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // License scan
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _pickLicenseImage,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: hasImage
-                        ? AppTheme.statusSuccess
-                        : AppTheme.borderLight,
+                  child: Container(
+                    width: double.infinity,
+                    height: 160,
+                    decoration: BoxDecoration(
+                      color: hasImage
+                          ? AppTheme.statusSuccess.withAlpha(15)
+                          : AppTheme.surfaceWhite,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: hasImage
+                            ? AppTheme.statusSuccess
+                            : AppTheme.borderLight,
+                      ),
+                    ),
+                    child: hasImage
+                        ? Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(11),
+                                child: Image.file(
+                                  File(widget.drivingLicensePath!),
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                ),
+                              ),
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: AppTheme.statusSuccess,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.check,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.camera_alt_outlined,
+                                size: 40,
+                                color: AppTheme.textMuted,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                l10n.scanLicense,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
                   ),
                 ),
-                child: hasImage
-                    ? Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(11),
-                            child: Image.file(
-                              File(widget.drivingLicensePath!),
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                color: AppTheme.statusSuccess,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.check,
-                                size: 16,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.camera_alt_outlined,
-                            size: 40,
-                            color: AppTheme.textMuted,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.scanLicense,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: AppTheme.textMuted,
-                            ),
-                          ),
-                        ],
-                      ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -181,54 +186,59 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   Widget _buildBuyerFields(AppLocalizations l10n) {
     final buyerType = widget.buyerType ?? 'private';
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.buyerType,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.buyerTypeDescription,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textMuted,
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Private / Company radio
-          _BuyerTypeOption(
-            title: l10n.privateBuyer,
-            icon: Icons.person_outline,
-            isSelected: buyerType == 'private',
-            onTap: () => widget.onBuyerTypeChanged('private'),
-          ),
-          const SizedBox(height: 12),
-          _BuyerTypeOption(
-            title: l10n.companyBuyer,
-            icon: Icons.business,
-            isSelected: buyerType == 'company',
-            onTap: () => widget.onBuyerTypeChanged('company'),
-          ),
-          if (buyerType == 'company') ...[
-            const SizedBox(height: 20),
-            TextField(
-              controller: _companyController,
-              decoration: InputDecoration(
-                labelText: l10n.companyName,
-                prefixIcon: const Icon(Icons.business_outlined),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.buyerType,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textDark,
+                ),
               ),
-              onChanged: widget.onCompanyNameChanged,
-            ),
-          ],
-        ],
+              const SizedBox(height: 8),
+              Text(
+                l10n.buyerTypeDescription,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Private / Company radio
+              _BuyerTypeOption(
+                title: l10n.privateBuyer,
+                icon: Icons.person_outline,
+                isSelected: buyerType == 'private',
+                onTap: () => widget.onBuyerTypeChanged('private'),
+              ),
+              const SizedBox(height: 12),
+              _BuyerTypeOption(
+                title: l10n.companyBuyer,
+                icon: Icons.business,
+                isSelected: buyerType == 'company',
+                onTap: () => widget.onBuyerTypeChanged('company'),
+              ),
+              if (buyerType == 'company') ...[
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _companyController,
+                  decoration: InputDecoration(
+                    labelText: l10n.companyName,
+                    prefixIcon: const Icon(Icons.business_outlined),
+                  ),
+                  onChanged: widget.onCompanyNameChanged,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

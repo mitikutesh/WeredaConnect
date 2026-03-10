@@ -7,6 +7,8 @@ import 'package:wereda_connect/features/onboarding/widgets/language_selector_car
 import 'package:wereda_connect/features/onboarding/widgets/value_proposition_list.dart';
 import 'package:wereda_connect/features/onboarding/widgets/welcome_actions.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Welcome/Landing screen shown on first launch or when unauthenticated.
 ///
@@ -28,10 +30,250 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final windowClass = Breakpoints.of(context);
 
     return Scaffold(
       body: SafeArea(
+        child: switch (windowClass) {
+          WindowClass.desktop => _buildDesktopLayout(context, l10n),
+          WindowClass.tablet => _buildTabletLayout(context, l10n),
+          WindowClass.mobile => _buildMobileLayout(context, l10n),
+        },
+      ),
+    );
+  }
+
+  // ── Desktop: two-column layout ────────────────────────────────────
+
+  Widget _buildDesktopLayout(BuildContext context, AppLocalizations l10n) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        // Left hero panel
+        Expanded(
+          flex: 45,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.primaryGreenDark,
+                  AppTheme.primaryGreen,
+                ],
+              ),
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.agriculture,
+                      size: 120,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'WeredaConnect',
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.aboutTagline,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withAlpha(200),
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Right content panel
+        Expanded(
+          flex: 55,
+          child: Container(
+            color: AppTheme.surfaceWhite,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(48.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Language selector card
+                      const LanguageSelectorCard(),
+                      const SizedBox(height: 32),
+
+                      // Tagline
+                      Text(
+                        l10n.aboutTagline,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          height: 1.4,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Value propositions
+                      const ValuePropositionList(),
+                      const SizedBox(height: 40),
+
+                      // Action buttons
+                      WelcomeActions(
+                        onWelcomeComplete: () {
+                          context
+                              .read<OnboardingBloc>()
+                              .add(const MarkWelcomeSeen());
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Info chips at bottom
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _InfoChip(
+                            icon: Icons.help_outline,
+                            label: l10n.howItWorks,
+                            onTap: () => _showHowItWorksInfo(context, l10n),
+                          ),
+                          const SizedBox(width: 12),
+                          _InfoChip(
+                            icon: Icons.cloud_off,
+                            label: l10n.offlineMode,
+                            onTap: () => _showOfflineModeInfo(context, l10n),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Tablet: centered card layout ──────────────────────────────────
+
+  Widget _buildTabletLayout(BuildContext context, AppLocalizations l10n) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32.0),
+          child: Card(
+            elevation: 4,
+            shadowColor: Colors.black26,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(36.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Hero illustration
+                  Icon(
+                    Icons.agriculture,
+                    size: 100,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // App title
+                  Text(
+                    'WeredaConnect',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Language selector card
+                  const LanguageSelectorCard(),
+                  const SizedBox(height: 24),
+
+                  // Tagline
+                  Text(
+                    l10n.aboutTagline,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Value propositions
+                  const ValuePropositionList(),
+                  const SizedBox(height: 32),
+
+                  // Action buttons
+                  WelcomeActions(
+                    onWelcomeComplete: () {
+                      context
+                          .read<OnboardingBloc>()
+                          .add(const MarkWelcomeSeen());
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Info chips at bottom
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _InfoChip(
+                        icon: Icons.help_outline,
+                        label: l10n.howItWorks,
+                        onTap: () => _showHowItWorksInfo(context, l10n),
+                      ),
+                      const SizedBox(width: 12),
+                      _InfoChip(
+                        icon: Icons.cloud_off,
+                        label: l10n.offlineMode,
+                        onTap: () => _showOfflineModeInfo(context, l10n),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Mobile: original layout (unchanged) ───────────────────────────
+
+  Widget _buildMobileLayout(BuildContext context, AppLocalizations l10n) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(

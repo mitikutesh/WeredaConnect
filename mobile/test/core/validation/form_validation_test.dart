@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 
 /// Extracted validation logic for testing.
@@ -10,15 +11,14 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/trip_list
 
 // ---------------------------------------------------------------------------
 // Phone validation (shared by login & register screens)
+// Uses the shared phone_utils.dart for consistent validation.
 // ---------------------------------------------------------------------------
-final _phoneRegex = RegExp(r'^\+251\d{9}$');
-
 String? validatePhone(String? value) {
   if (value == null || value.isEmpty) {
     return 'Phone Number';
   }
-  if (!_phoneRegex.hasMatch(value)) {
-    return 'Invalid phone number format. Use +251XXXXXXXXX';
+  if (!isValidEthiopianPhone(value)) {
+    return 'Invalid phone number format';
   }
   return null;
 }
@@ -89,26 +89,35 @@ void main() {
         expect(validatePhone(null), isNotNull);
       });
 
-      test('missing +251 prefix returns error', () {
-        expect(validatePhone('0911234567'), isNotNull);
-      });
-
       test('too short phone returns error', () {
         expect(validatePhone('+25191123'), isNotNull);
+        expect(validatePhone('091123'), isNotNull);
       });
 
       test('too long phone returns error', () {
         expect(validatePhone('+2519112345678'), isNotNull);
+        expect(validatePhone('09112345678'), isNotNull);
       });
 
       test('phone with letters returns error', () {
         expect(validatePhone('+251abc234567'), isNotNull);
       });
 
-      test('valid Ethiopian phone returns null', () {
+      test('valid +251 format returns null', () {
         expect(validatePhone('+251911234567'), isNull);
         expect(validatePhone('+251912345678'), isNull);
         expect(validatePhone('+251700000000'), isNull);
+      });
+
+      test('valid 00251 format returns null', () {
+        expect(validatePhone('00251911234567'), isNull);
+        expect(validatePhone('00251912345678'), isNull);
+      });
+
+      test('valid local 0 format returns null', () {
+        expect(validatePhone('0911234567'), isNull);
+        expect(validatePhone('0912345678'), isNull);
+        expect(validatePhone('0700000000'), isNull);
       });
     });
 
@@ -255,13 +264,12 @@ void main() {
       // Re-implement _validateTripData rules to keep tests independent of Isar
       final date =
           departureDate ?? DateTime.now().toUtc().add(const Duration(days: 5));
-      final phoneRegex = RegExp(r'^\+251\d{9}$');
 
       String? errorField;
 
       if (truckerName.isEmpty || truckerName.length > 100) {
         errorField = 'truckerName';
-      } else if (!phoneRegex.hasMatch(truckerPhone)) {
+      } else if (!isValidEthiopianPhone(truckerPhone)) {
         errorField = 'truckerPhone';
       } else if (fromWoreda.isEmpty || fromWoreda.length > 100) {
         errorField = 'fromWoreda';
@@ -311,9 +319,32 @@ void main() {
 
     group('truckerPhone', () {
       test('invalid phone format is rejected', () {
-        expectValidationError('truckerPhone', truckerPhone: '0911234567');
         expectValidationError('truckerPhone', truckerPhone: '+25191');
         expectValidationError('truckerPhone', truckerPhone: '');
+        expectValidationError('truckerPhone', truckerPhone: '12345');
+      });
+
+      test('all three valid formats pass', () {
+        // +251 format — valid phone, but past date triggers departure error
+        expectValidationError(
+          'departureDate',
+          departureDate:
+              DateTime.now().toUtc().subtract(const Duration(days: 1)),
+        );
+        // 00251 format
+        expectValidationError(
+          'departureDate',
+          truckerPhone: '00251911234567',
+          departureDate:
+              DateTime.now().toUtc().subtract(const Duration(days: 1)),
+        );
+        // 0 format
+        expectValidationError(
+          'departureDate',
+          truckerPhone: '0911234567',
+          departureDate:
+              DateTime.now().toUtc().subtract(const Duration(days: 1)),
+        );
       });
 
       test('valid phone passes', () {
@@ -445,7 +476,6 @@ void main() {
 
       test('minimum valid price (0.01) passes', () {
         // All valid — no error field should match pricePerQuintal
-        final phoneRegex = RegExp(r'^\+251\d{9}$');
         const name = 'Abebe';
         const phone = '+251911234567';
         const from = 'Jimma';
@@ -455,7 +485,7 @@ void main() {
 
         // Verify all rules pass
         expect(name.isNotEmpty && name.length <= 100, isTrue);
-        expect(phoneRegex.hasMatch(phone), isTrue);
+        expect(isValidEthiopianPhone(phone), isTrue);
         expect(from.isNotEmpty && from.length <= 100, isTrue);
         expect(to.isNotEmpty && to.length <= 100, isTrue);
         expect(from != to, isTrue);
@@ -477,6 +507,43 @@ void main() {
         expect(ex.toString(), contains('capacity'));
         expect(ex.toString(), contains('Out of range'));
       });
+    });
+  });
+
+  group('Phone normalization', () {
+    test('normalizes +251 format', () {
+      expect(normalizeEthiopianPhone('+251911234567'), '+251911234567');
+    });
+
+    test('normalizes 00251 format', () {
+      expect(normalizeEthiopianPhone('00251911234567'), '+251911234567');
+    });
+
+    test('normalizes local 0 format', () {
+      expect(normalizeEthiopianPhone('0911234567'), '+251911234567');
+    });
+
+    test('strips spaces and dashes', () {
+      expect(normalizeEthiopianPhone('+251 911 234 567'), '+251911234567');
+      expect(normalizeEthiopianPhone('0911-234-567'), '+251911234567');
+    });
+
+    test('returns null for invalid input', () {
+      expect(normalizeEthiopianPhone(null), isNull);
+      expect(normalizeEthiopianPhone(''), isNull);
+      expect(normalizeEthiopianPhone('12345'), isNull);
+      expect(normalizeEthiopianPhone('+252911234567'), isNull);
+      expect(normalizeEthiopianPhone('+251abc234567'), isNull);
+      expect(normalizeEthiopianPhone('+25191123'), isNull);
+    });
+
+    test('all three formats normalize to the same value', () {
+      final e164 = normalizeEthiopianPhone('+251911234567');
+      final international = normalizeEthiopianPhone('00251911234567');
+      final local = normalizeEthiopianPhone('0911234567');
+      expect(e164, equals(international));
+      expect(e164, equals(local));
+      expect(e164, '+251911234567');
     });
   });
 }

@@ -1,0 +1,27 @@
+appId: et.wereda.connect
+name: "12 - Profile and Settings"
+---
+
+# Launch app (already logged in)
+- launchApp
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 15000
+
+# Tap profile icon in top-right of header
+- tapOn:
+    point: "93%,5%"
+
+# Wait for profile screen
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+
+# Take screenshot of profile
+- takeScreenshot: "12_profile_screen"
+
+# Go back
+- back
+
+# Take screenshot back on home
+- takeScreenshot: "12_back_home"

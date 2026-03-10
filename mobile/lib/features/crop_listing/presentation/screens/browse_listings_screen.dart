@@ -23,10 +23,18 @@ import 'package:wereda_connect/shared/widgets/listing_card.dart';
 /// When [ownerMode] is true (farmer), shows the farmer's own listings using
 /// `LoadCropListings` and displays a FAB to create new listings.
 /// When false (buyer), shows all active listings as a marketplace.
+///
+/// When [embedded] is true, the screen omits its own Scaffold and back
+/// arrow so it can live inside the adaptive shell as a tab child.
 class BrowseListingsScreen extends StatefulWidget {
   final bool ownerMode;
+  final bool embedded;
 
-  const BrowseListingsScreen({this.ownerMode = false, super.key});
+  const BrowseListingsScreen({
+    this.ownerMode = false,
+    this.embedded = false,
+    super.key,
+  });
 
   @override
   State<BrowseListingsScreen> createState() => _BrowseListingsScreenState();
@@ -111,17 +119,17 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // ── Header ──────────────────────────────────────────────────
-              GreenHeader(
-                height: 170,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+    final content = Stack(
+      children: [
+        Column(
+          children: [
+            // ── Header ──────────────────────────────────────────────────
+            GreenHeader(
+              height: widget.embedded ? 140 : 170,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!widget.embedded)
                     GestureDetector(
                       onTap: () => Navigator.of(context).pop(),
                       child: const Padding(
@@ -133,26 +141,28 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         ),
                       ),
                     ),
-                    Text(
-                      widget.ownerMode ? l10n.myListings : l10n.market,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                  Text(
+                    widget.ownerMode ? l10n.myListings : l10n.market,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.ownerMode
-                          ? l10n.yourCropListings
-                          : l10n.browseVerifiedFarmers,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withAlpha(180),
-                      ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.ownerMode
+                        ? l10n.yourCropListings
+                        : l10n.browseVerifiedFarmers,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withAlpha(180),
                     ),
+                  ),
+                  // Search bar (marketplace browse only — wereda
+                  // filter is not used in owner mode)
+                  if (!widget.ownerMode) ...[
                     const SizedBox(height: 10),
-                    // Search bar
                     Material(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
@@ -184,18 +194,21 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                       ),
                     ),
                   ],
-                ),
+                ],
               ),
-              const OfflineBanner(),
-              // Crop type filter chips
-              _CropTypeFilterChipsRow(
-                selectedCropType: _selectedCropType,
-                onCropTypeChanged: (cropType) {
-                  setState(() => _selectedCropType = cropType);
-                  _applyFilters();
-                },
-              ),
-              // Price range filters
+            ),
+            const OfflineBanner(),
+            // Crop type filter chips
+            _CropTypeFilterChipsRow(
+              selectedCropType: _selectedCropType,
+              onCropTypeChanged: (cropType) {
+                setState(() => _selectedCropType = cropType);
+                _applyFilters();
+              },
+            ),
+            // Price range filters (marketplace browse only — not relevant
+            // for farmers viewing their own listings)
+            if (!widget.ownerMode)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
@@ -254,153 +267,182 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
-              // Listings
-              Expanded(
-                child: BlocBuilder<CropListingBloc, CropListingState>(
-                  builder: (context, state) {
-                    if (state is CropListingLoading) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+            const SizedBox(height: 8),
+            // Listings
+            Expanded(
+              child: BlocBuilder<CropListingBloc, CropListingState>(
+                buildWhen: (previous, current) =>
+                    current is! CropListingCreated,
+                builder: (context, state) {
+                  if (state is CropListingLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                    if (state is CropListingError) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline, size: 48),
-                            const SizedBox(height: 16),
-                            Text(l10n.genericError),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              onPressed: _loadListings,
-                              child: Text(l10n.retry),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    if (state is CropListingsLoaded) {
-                      if (state.listings.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.eco_outlined,
-                                size: 64,
-                                color: AppTheme.textMuted,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                l10n.noCropListings,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                l10n.dataWillSyncWhenOnline,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.textMuted,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      return ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        itemCount: state.listings.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final listing = state.listings[index];
-                          return ListingCard(
-                            title: listing.cropType,
-                            location: listing.locationName,
-                            sellerName: listing.farmerId,
-                            price: l10n.etbCurrency(
-                              listing.pricePerKg.toStringAsFixed(0),
-                            ),
-                            hasEscrow: true,
-                            rating: 4.5,
-                            icon: Icons.eco,
-                            onTap: () {
-                              final authState = context.read<AuthBloc>().state;
-                              if (authState is AuthAuthenticated) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => CropListingDetailScreen(
-                                      listing: listing,
-                                      currentUserId: authState.userId,
-                                      currentUserRole: authState.role,
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                          );
-                        },
-                      );
-                    }
-
-                    // Initial state
+                  if (state is CropListingError) {
                     return Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.eco_outlined,
-                            size: 64,
-                            color: AppTheme.textMuted,
+                            size: 56,
+                            color: AppTheme.textMuted.withAlpha(150),
                           ),
                           const SizedBox(height: 16),
                           Text(
                             l10n.noCropListings,
                             style: const TextStyle(
                               fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.dataWillSyncWhenOnline,
+                            style: const TextStyle(
+                              fontSize: 13,
                               color: AppTheme.textMuted,
                             ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            onPressed: _loadListings,
+                            child: Text(l10n.retry),
                           ),
                         ],
                       ),
                     );
-                  },
-                ),
-              ),
-            ],
-          ),
-          // FAB for farmer owner mode
-          if (widget.ownerMode)
-            Positioned(
-              right: 20,
-              bottom: 20,
-              child: FloatingActionButton(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CreateCropListingScreen(),
+                  }
+
+                  if (state is CropListingsLoaded) {
+                    if (state.listings.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.eco_outlined,
+                              size: 64,
+                              color: AppTheme.textMuted,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              l10n.noCropListings,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              l10n.dataWillSyncWhenOnline,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.textMuted,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView.separated(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      itemCount: state.listings.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final listing = state.listings[index];
+                        return ListingCard(
+                          title: listing.cropType,
+                          location: listing.locationName,
+                          sellerName: listing.farmerName.isNotEmpty
+                              ? listing.farmerName
+                              : listing.farmerId,
+                          price: l10n.etbCurrency(
+                            listing.pricePerKg.toStringAsFixed(0),
+                          ),
+                          hasEscrow: true,
+                          rating: 4.5,
+                          icon: Icons.eco,
+                          onTap: () {
+                            final authState = context.read<AuthBloc>().state;
+                            if (authState is AuthAuthenticated) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => CropListingDetailScreen(
+                                    listing: listing,
+                                    currentUserId: authState.userId,
+                                    currentUserRole: authState.role,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                        );
+                      },
+                    );
+                  }
+
+                  // Initial state
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.eco_outlined,
+                          size: 64,
+                          color: AppTheme.textMuted,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.noCropListings,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: AppTheme.textMuted,
+                          ),
+                        ),
+                      ],
                     ),
                   );
-                  _loadListings();
                 },
-                backgroundColor: AppTheme.accentGold,
-                child: const Icon(Icons.add, color: Colors.white),
               ),
             ),
-        ],
-      ),
+          ],
+        ),
+        // FAB for farmer owner mode (hidden when embedded — shell provides FAB)
+        if (widget.ownerMode && !widget.embedded)
+          Positioned(
+            right: 20,
+            bottom: 20,
+            child: FloatingActionButton(
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CreateCropListingScreen(),
+                  ),
+                );
+                _loadListings();
+              },
+              backgroundColor: AppTheme.accentGold,
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+          ),
+      ],
+    );
+
+    return BlocListener<CropListingBloc, CropListingState>(
+      listenWhen: (previous, current) => current is CropListingCreated,
+      listener: (context, state) => _loadListings(),
+      child: widget.embedded ? content : Scaffold(body: content),
     );
   }
 }

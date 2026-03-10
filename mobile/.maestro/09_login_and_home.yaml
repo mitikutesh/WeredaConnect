@@ -1,0 +1,50 @@
+appId: et.wereda.connect
+name: "09 - Login and Home Dashboard"
+---
+
+# Clear app data for fresh start
+- clearState
+- launchApp
+
+# Navigate past splash
+- tapOn: "Get Started"
+
+# Tap Login
+- tapOn: "Login"
+
+# Fill credentials
+- tapOn: "Phone Number"
+- eraseText
+- inputText: "+251900000099"
+- tapOn: "Password"
+- inputText: "maestro1pass"
+- hideKeyboard
+
+# Tap Login button
+- tapOn: "Login"
+
+# Wait for home screen
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 20000
+
+# Verify home dashboard elements
+- assertVisible: "Maestro Farmer"
+- assertVisible: "Overview"
+
+# Take screenshot of home dashboard
+- takeScreenshot: "09_home_dashboard"
+
+# Verify bottom navigation tabs
+- assertVisible: "Home"
+- assertVisible: "Orders"
+- assertVisible: "Deliveries"
+- assertVisible: "Payments"
+
+# Verify quick action cards
+- assertVisible: "My Listings"
+- assertVisible: "Track Delivery"
+- assertVisible: "Check Balance"
+
+# Take final screenshot
+- takeScreenshot: "09_home_verified"

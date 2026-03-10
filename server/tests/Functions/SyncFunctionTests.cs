@@ -748,7 +748,6 @@ public class SyncFunctionTests
     [InlineData("+251abc")]
     [InlineData("+25191234")]
     [InlineData("+2519123456789")]
-    [InlineData("0912345678")]
     [InlineData("+252912345678")]
     public async Task TripCreate_InvalidPhoneFormat_ReturnsValidationError(string phone)
     {

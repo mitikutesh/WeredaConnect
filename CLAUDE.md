@@ -59,6 +59,33 @@ This document serves as the **constitutional foundation** for AI-assisted develo
 2. **Read** `STATE.md` → `TASK.md` — current context and priorities
 3. **Read** the relevant contract in `specs/contracts/` if working on an API
 
+### Implementation Protocol (Mandatory)
+
+Follow this pipeline for **every** code change — no exceptions. Do NOT skip steps or combine them.
+
+**Phase 1 — Analyze** (before writing any code):
+1. Run impact analysis: identify all files that will need changes, including platform pairs (`*_web.dart`, `core/models/web/`), cross-module dependencies (server ↔ mobile ↔ admin), and affected tests.
+2. Present the impact summary to the user:
+   - Files to modify (grouped by module)
+   - Platform counterparts that need matching updates
+   - Cross-module impacts (e.g., "server DTO changed → mobile model + admin type")
+   - Risk level (LOW / MEDIUM / HIGH)
+3. **Wait for user confirmation before proceeding.** Do not write any code until the user approves the plan.
+
+**Phase 2 — Implement** (after user confirms):
+4. Make the changes as approved. Always update platform counterparts together — never leave a pair out of sync.
+
+**Phase 3 — Validate** (after implementation):
+5. Run `/validate` — cross-platform pair checks, cross-module impact, builds for all affected modules.
+6. Run `/review` — quality criteria (offline-first, AOT, l10n, security, cross-platform, cross-module).
+7. Run `/test` — tests for all affected modules.
+
+**Phase 4 — Fix loop** (if issues found):
+8. If any step in Phase 3 fails, fix the issues, then re-run **all three** (validate → review → test) until clean.
+9. Report final results to the user.
+
+**Exceptions**: Trivial changes (typo fixes, comment edits, formatting-only) may skip Phase 1 impact analysis, but must still run Phase 3 validation.
+
 ### When Proposing Solutions
 - **Ask** before installing dependencies
 - **Explain** trade-offs in Ethiopian context
@@ -120,13 +147,59 @@ When faced with technical choices, prioritize in this order:
 4. **Is it maintainable solo?** (Sustainability)
 5. **Does it minimize data usage?** (Cost to users)
 
+## Completeness Rules (Mandatory)
+
+These rules exist because of **repeated mistakes** — follow them strictly.
+
+### Rule 1: All User Roles
+WeredaConnect has **3 user roles**: Farmer, Trucker, Buyer. When testing, fixing, or changing **any** role-dependent feature (navigation, dashboards, permissions, UI flows):
+- **Always cover ALL 3 roles** — never test/fix only one role and call it done
+- If a nav button is broken for Farmer, check Trucker and Buyer too
+- If a screen layout changes, verify it works for all role-specific views
+- Use all 3 test users: Farmer (`+251900100001`), Trucker (`+251900100002`), Buyer (`+251900100003`)
+
+### Rule 2: Mobile + Web Counterparts
+Mobile and web share features but have separate implementations. When changing **any** of these:
+- **Always update both platforms together** — never change mobile without checking/updating web, and vice versa
+- Mobile models live in `mobile/lib/**/models/` — web counterparts in `mobile/lib/**/models/web/` or `*_web.dart`
+- If you change a screen/widget, check if a `_web.dart` or web-specific version exists and update it too
+- If you change a BLoC/cubit, check if web uses the same or a different one
+
+### Rule 3: Tests Must Follow Code
+When you change **any** production code:
+- **Always find and update corresponding test files** — never leave tests out of sync
+- Search `mobile/test/` and `server/tests/` for files that test the changed code
+- If a model changes, update its serialization/deserialization tests
+- If a BLoC/handler changes, update its unit tests
+- If no test exists yet, flag it to the user — don't silently skip
+
+### Rule 4: Documentation Must Follow Code
+When you change behavior, APIs, or data models:
+- **Update** relevant specs in `specs/` if the change affects contracts or features
+- **Update** `.ai/` docs if navigation, architecture, or patterns changed
+- **Update** ARB files (all 3 languages) if any user-facing string changed
+- **Flag** to the user if you're unsure which docs need updating — don't silently skip
+
+### Rule 5: Impact Checklist (self-check before reporting "done")
+Before telling the user a task is complete, verify:
+- [ ] All user roles covered (Farmer, Trucker, Buyer)?
+- [ ] Both platforms updated (mobile + web)?
+- [ ] All affected tests updated and passing?
+- [ ] All 3 language ARB files updated (if UI strings changed)?
+- [ ] Relevant documentation updated?
+- [ ] Server DTOs and mobile models in sync (if data layer changed)?
+
 ## Forbidden Patterns
 
-❌ **Never** assume reliable internet connectivity  
-❌ **Never** use reflection-heavy libraries in .NET AOT  
-❌ **Never** create files without explicit user request  
-❌ **Never** commit/deploy without user approval  
-❌ **Never** ignore localization requirements  
+❌ **Never** assume reliable internet connectivity
+❌ **Never** use reflection-heavy libraries in .NET AOT
+❌ **Never** create files without explicit user request
+❌ **Never** commit/deploy without user approval
+❌ **Never** ignore localization requirements
+❌ **Never** fix a bug for one user role without checking all 3 roles
+❌ **Never** change mobile code without checking if web needs the same change
+❌ **Never** change production code without updating corresponding tests
+❌ **Never** change behavior without updating related documentation
 
 ## Claude Code Infrastructure
 
@@ -145,10 +218,13 @@ Specialized agents for team-based development:
 
 | Command | What It Does |
 |---|---|
-| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
-| `/validate` | Run build checks for changed modules only |
+| `/implement` | Full pipeline: impact analysis → confirm → implement → validate → review → test |
+| `/impact` | Analyze blast radius of a file/feature change before modifying it |
+| `/validate` | Build checks + cross-platform pair checks + cross-module impact detection |
 | `/review` | Review recent changes against quality criteria |
+| `/test` | Run tests for all modules that have changes |
 | `/plan` | Create implementation spec in `specs/features/` before building |
+| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
 
 ### Hook-Enforced Guardrails
 

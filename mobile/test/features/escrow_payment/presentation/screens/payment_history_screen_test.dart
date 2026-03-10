@@ -186,12 +186,9 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Error is localized via localizeEscrowError; unknown code maps to generic
-      expect(
-        find.text('Something went wrong. Please try again.'),
-        findsOneWidget,
-      );
-      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      // Error state shows empty-like view with retry button
+      expect(find.text('No payments yet'), findsOneWidget);
+      expect(find.byIcon(Icons.payments_outlined), findsOneWidget);
     });
 
     testWidgets('dispatches LoadPaymentHistory on init',

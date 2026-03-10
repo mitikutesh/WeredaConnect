@@ -44,6 +44,41 @@ public static partial class RequestValidator
     [GeneratedRegex(@"^[0-9]{6}$")]
     private static partial Regex OtpRegex();
 
+    /// <summary>
+    /// Normalize an Ethiopian phone number to canonical E.164 format (+251XXXXXXXXX).
+    /// Accepts: +251XXXXXXXXX, 00251XXXXXXXXX, 0XXXXXXXXX.
+    /// Returns null if the input cannot be recognized as a valid Ethiopian phone number.
+    /// </summary>
+    public static string? NormalizePhoneNumber(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return null;
+
+        var cleaned = input.Trim().Replace(" ", "").Replace("-", "");
+
+        // Format 1: +251XXXXXXXXX (already E.164, 13 chars)
+        if (cleaned.StartsWith("+251") && cleaned.Length == 13)
+        {
+            return PhoneRegex().IsMatch(cleaned) ? cleaned : null;
+        }
+
+        // Format 2: 00251XXXXXXXXX (14 chars)
+        if (cleaned.StartsWith("00251") && cleaned.Length == 14)
+        {
+            var normalized = "+251" + cleaned[5..];
+            return PhoneRegex().IsMatch(normalized) ? normalized : null;
+        }
+
+        // Format 3: 0XXXXXXXXX (local, 10 chars)
+        if (cleaned.StartsWith("0") && cleaned.Length == 10)
+        {
+            var normalized = "+251" + cleaned[1..];
+            return PhoneRegex().IsMatch(normalized) ? normalized : null;
+        }
+
+        return null;
+    }
+
     private static readonly HashSet<string> ValidRoles = new(StringComparer.OrdinalIgnoreCase)
     {
         "farmer", "trucker", "buyer"
@@ -55,7 +90,8 @@ public static partial class RequestValidator
     };
 
     /// <summary>
-    /// Validate Ethiopian phone number format: +251XXXXXXXXX
+    /// Validate Ethiopian phone number format.
+    /// Accepts: +251XXXXXXXXX, 00251XXXXXXXXX, 0XXXXXXXXX.
     /// </summary>
     public static ValidationResult ValidatePhoneNumber(string? phoneNumber)
     {
@@ -69,13 +105,13 @@ public static partial class RequestValidator
             });
         }
 
-        if (!PhoneRegex().IsMatch(phoneNumber))
+        if (NormalizePhoneNumber(phoneNumber) == null)
         {
             return ValidationResult.Failure(new ValidationError
             {
                 Field = "phoneNumber",
                 Code = "AUTH_001",
-                Message = "Invalid phone number format. Must be +251 followed by 9 digits."
+                Message = "Invalid phone number format. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX."
             });
         }
 

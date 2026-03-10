@@ -1,7 +1,8 @@
 {
   "app": {
     "title": "WeredaConnect Bulchiinsa",
-    "subtitle": "Bulchiinsa Mala'ummaa"
+    "subtitle": "Bulchiinsa Mala'ummaa",
+    "tagline": "Mala'ummaa Loojistiiksii Qonnaa Hawaasa Baadiyyaa Itoophiyaa"
   },
   "nav": {
     "dashboard": "Daashboordii",
@@ -24,6 +25,13 @@
     "loginSubtitle": "Gara WeredaConnect Bulchiinsaatti seeni",
     "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
     "notAdmin": "Hayyamni dhorkameera. Mirga bulchitummaa barbaachisa.",
+    "userNotConfirmed": "Maaloo dursa lakkoofsa bilbilaa keessan mirkaneessaa.",
+    "passwordResetRequired": "Jecha icciitii haaromsuun barbaachisaadha. Maaloo deeggarsa quunnamaa.",
+    "rateLimitExceeded": "Yaaliin baay'ee. Maaloo booda irra deebi'aa.",
+    "invalidInput": "Maaloo lakkoofsa bilbilaa fi jecha icciitii keessan ilaalaa.",
+    "networkError": "Sarvarii argachuu hin dandeenye. Maaloo walqunnamtii keessan ilaalaa.",
+    "serviceUnavailable": "Tajaajilli yeroof hin argamu. Maaloo booda irra deebi'aa.",
+    "genericError": "Wanti tokko dogoggoreera. Maaloo irra deebi'aa yaalaa.",
     "signingIn": "Seenaa jira..."
   },
   "dashboard": {
@@ -47,8 +55,11 @@
     "auditTrail": "Adeemsa Odiitii",
     "initiated": "Jalqabame",
     "funded": "Maallaqni Galera",
+    "escrowed": "Eeskiroo Keessa Jira",
+    "held": "Qabamee",
     "released": "Gadi Lakkifame",
     "disputed": "Waldhabdeen Ka'era",
+    "dispute_resolved": "Furamee",
     "refunded": "Deebifamera",
     "expired": "Yeroon Darbera"
   },
@@ -61,7 +72,8 @@
     "resolution": "Furmaata",
     "resolvedAt": "Guyyaa Furamee",
     "pending": "Eeggatamaa",
-    "resolved": "Furamee"
+    "resolved": "Furamee",
+    "disputed": "Waldhabdeen Ka'era"
   },
   "fraud": {
     "title": "Gamaaggama Gosoota",
@@ -86,7 +98,9 @@
     "joined": "Guyyaa Makamee",
     "detail": "Ibsa Fayyadamtuu",
     "suspend": "Dhaabi",
+    "suspended": "Dhaabbatee",
     "activate": "Hojjachisi",
+    "active": "Hojjachaa",
     "verify": "Mirkaneessi",
     "changeRole": "Gahee Jijjiiri",
     "farmer": "Qotee Bulaa",
@@ -124,7 +138,8 @@
     "cronStatus": "Haala Cron",
     "healthy": "Fayyaa",
     "degraded": "Hir'atee",
-    "down": "Kufee"
+    "down": "Kufee",
+    "services": "Tajaajilota"
   },
   "compliance": {
     "title": "Hordoffii",
@@ -142,6 +157,7 @@
     "error": "Dogoggorri uumameera",
     "retry": "Irra deebi'i yaali",
     "noData": "Daataan hin jiru",
+    "notAvailable": "Hin jiru",
     "confirm": "Mirkaneessi",
     "cancel": "Dhiisi",
     "save": "Olkaa'i",
@@ -156,6 +172,23 @@
     "actions": "Gochoota",
     "etb": "Birrii",
     "birr": "Birrii"
+  },
+  "errors": {
+    "generic": "Dogoggorri hin eegamne uumameera. Maaloo irra deebi'aa yaalaa.",
+    "networkError": "Sarvarii argachuu hin dandeenye. Maaloo walqunnamtii keessan ilaalaa.",
+    "unauthorized": "Yeroon keessan darbera. Maaloo irra deebi'aatii seenaa.",
+    "forbidden": "Hayyamni dhorkameera.",
+    "ESCROW_001": "Hangni sirrii miti.",
+    "ESCROW_005": "Mirkaneessuu barbaachisa.",
+    "ESCROW_009": "Geejjiba kanaaf eeskiroon duraan jira.",
+    "ESCROW_012": "Dogoggora sarvarii. Maaloo irra deebi'ii yaali.",
+    "ESCROW_013": "Dogoggora tajaajila Telebirr. Maaloo irra deebi'ii yaali.",
+    "ESCROW_014": "Telebirr yeroo ammaa hin argamu.",
+    "ESCROW_016": "Eeskiroon hin argamne.",
+    "ESCROW_INVALID_TRANSITION": "Jijjiirraan haala eeskiroo kanaaf sirrii miti.",
+    "ADMIN_002": "Qaqqabiyyeen hin argamne.",
+    "ADMIN_500": "Dogoggora sarvarii keessaa.",
+    "actionFailed": "Gochi hin milkoofne. Maaloo irra deebi'ii yaali."
   },
   "language": {
     "english": "English",

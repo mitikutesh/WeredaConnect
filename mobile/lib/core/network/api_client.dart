@@ -1,3 +1,5 @@
+import 'dart:convert' show jsonDecode;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:dio/dio.dart';
@@ -77,6 +79,11 @@ class ApiClient {
         baseUrl: _environment.apiBaseUrl,
         connectTimeout: _environment.connectTimeout,
         receiveTimeout: _environment.receiveTimeout,
+        // On web, use plain text so _parseResponse always goes through
+        // jsonDecode and produces proper Dart Maps.  Dio's ResponseType.json
+        // on web uses the browser's native JSON parser, which returns JS
+        // objects that may fail Dart Map key lookups.
+        responseType: kIsWeb ? ResponseType.plain : ResponseType.json,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -208,12 +215,20 @@ class ApiClient {
     }
   }
 
-  /// Parse response or return raw data
+  /// Parse response or return raw data.
+  ///
+  /// On Flutter web, Dio may return raw JSON strings even with
+  /// `ResponseType.json`. This method falls back to manual decoding.
   T _parseResponse<T>(Response<dynamic> response, T Function(dynamic)? parser) {
     if (parser != null) {
       return parser(response.data);
     }
-    return response.data as T;
+    final data = response.data;
+    // On web, response.data may arrive as a String instead of a decoded Map.
+    if (data is String && data.isNotEmpty && T != String) {
+      return jsonDecode(data) as T;
+    }
+    return data as T;
   }
 
   /// Transform Dio errors into custom ApiException types

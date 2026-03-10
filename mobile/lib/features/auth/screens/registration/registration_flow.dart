@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
-import 'package:wereda_connect/core/auth/models/auth_error.dart';
+import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -174,21 +174,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
   String _localizeAuthError(String errorCode, String fallback) {
     final l10n = AppLocalizations.of(context)!;
-    return switch (errorCode) {
-      AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
-      AuthErrorCode.invalidPassword => l10n.passwordRequirements,
-      AuthErrorCode.phoneAlreadyRegistered => l10n.phoneAlreadyRegistered,
-      AuthErrorCode.rateLimitExceeded => l10n.authRateLimitExceeded,
-      AuthErrorCode.internalServerError => l10n.authServerError,
-      AuthErrorCode.cognitoUnavailable => l10n.authServiceUnavailable,
-      AuthErrorCode.networkError => l10n.authNetworkError,
-      AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
-      AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,
-      AuthErrorCode.faydaTokenExpired => l10n.faydaVerificationFailed,
-      AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
-      AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
-      _ => l10n.genericError,
-    };
+    return localizeAuthError(l10n, errorCode);
   }
 
   Future<void> _handleFaydaVerify() async {
@@ -369,121 +355,130 @@ class _RegistrationFlowState extends State<RegistrationFlow>
             ),
           ],
         ),
-        body: Column(
-          children: [
-            // Progress indicator
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _StepProgress(
-                current: _currentStep,
-                total: _totalSteps,
-              ),
-            ),
-            const SizedBox(height: 8),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              children: [
+                // Progress indicator
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _StepProgress(
+                    current: _currentStep,
+                    total: _totalSteps,
+                  ),
+                ),
+                const SizedBox(height: 8),
 
-            // Step content
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  // Step 0: Role selection
-                  RoleSelectionScreen(
-                    selectedRole: _selectedRole,
-                    onRoleSelected: (role) {
-                      setState(() => _selectedRole = role);
+                // Step content
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [
+                      // Step 0: Role selection
+                      RoleSelectionScreen(
+                        selectedRole: _selectedRole,
+                        onRoleSelected: (role) {
+                          setState(() => _selectedRole = role);
+                        },
+                      ),
+                      // Step 1: Fayda OIDC verification
+                      FayidaIdScreen(
+                        onFaydaVerifyRequested: _handleFaydaVerify,
+                        onCancelVerification: _faydaVerifying
+                            ? () {
+                                _browserReturnTimer?.cancel();
+                                setState(() {
+                                  _faydaVerifying = false;
+                                  _awaitingBrowserReturn = false;
+                                  _faydaError = null;
+                                });
+                              }
+                            : null,
+                        isVerifying: _faydaVerifying,
+                        isVerified: _faydaVerified,
+                        verifiedName: _faydaVerifiedName,
+                        errorMessage: _faydaError,
+                      ),
+                      // Step 2: Role-specific details
+                      if (_selectedRole != null &&
+                          _selectedRole != UserRole.farmer)
+                        RoleDetailsScreen(
+                          role: _selectedRole!,
+                          drivingLicensePath: _drivingLicensePath,
+                          buyerType: _buyerType,
+                          companyName: _companyName,
+                          onDrivingLicenseChanged: (v) =>
+                              setState(() => _drivingLicensePath = v),
+                          onBuyerTypeChanged: (v) =>
+                              setState(() => _buyerType = v),
+                          onCompanyNameChanged: (v) =>
+                              setState(() => _companyName = v),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                      // Step 3: Personal info
+                      PersonalInfoScreen(
+                        phone: _phone,
+                        name: _name,
+                        woreda: _woreda,
+                        password: _password,
+                        confirmPassword: _confirmPassword,
+                        formKey: _personalInfoFormKey,
+                        faydaVerified: _faydaVerified,
+                        faydaVerifiedName: _faydaVerifiedName,
+                        onPhoneChanged: (v) => _phone = v,
+                        onNameChanged: (v) => _name = v,
+                        onWeredaChanged: (v) => _woreda = v,
+                        onPasswordChanged: (v) => _password = v,
+                        onConfirmPasswordChanged: (v) => _confirmPassword = v,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Bottom action bar
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  child: Builder(
+                    builder: (context) {
+                      final isLoading =
+                          context.watch<AuthBloc>().state is AuthLoading;
+                      final isLastStep = _currentStep == _totalSteps - 1;
+
+                      return SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: FilledButton(
+                          onPressed:
+                              (_canContinue && !isLoading) ? _nextStep : null,
+                          child: isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  isLastStep
+                                      ? l10n.signUp
+                                      : l10n.continueButton,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      );
                     },
                   ),
-                  // Step 1: Fayda OIDC verification
-                  FayidaIdScreen(
-                    onFaydaVerifyRequested: _handleFaydaVerify,
-                    onCancelVerification: _faydaVerifying
-                        ? () {
-                            _browserReturnTimer?.cancel();
-                            setState(() {
-                              _faydaVerifying = false;
-                              _awaitingBrowserReturn = false;
-                              _faydaError = null;
-                            });
-                          }
-                        : null,
-                    isVerifying: _faydaVerifying,
-                    isVerified: _faydaVerified,
-                    verifiedName: _faydaVerifiedName,
-                    errorMessage: _faydaError,
-                  ),
-                  // Step 2: Role-specific details
-                  if (_selectedRole != null && _selectedRole != UserRole.farmer)
-                    RoleDetailsScreen(
-                      role: _selectedRole!,
-                      drivingLicensePath: _drivingLicensePath,
-                      buyerType: _buyerType,
-                      companyName: _companyName,
-                      onDrivingLicenseChanged: (v) =>
-                          setState(() => _drivingLicensePath = v),
-                      onBuyerTypeChanged: (v) => setState(() => _buyerType = v),
-                      onCompanyNameChanged: (v) =>
-                          setState(() => _companyName = v),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  // Step 3: Personal info
-                  PersonalInfoScreen(
-                    phone: _phone,
-                    name: _name,
-                    woreda: _woreda,
-                    password: _password,
-                    confirmPassword: _confirmPassword,
-                    formKey: _personalInfoFormKey,
-                    faydaVerified: _faydaVerified,
-                    faydaVerifiedName: _faydaVerifiedName,
-                    onPhoneChanged: (v) => _phone = v,
-                    onNameChanged: (v) => _name = v,
-                    onWeredaChanged: (v) => _woreda = v,
-                    onPasswordChanged: (v) => _password = v,
-                    onConfirmPasswordChanged: (v) => _confirmPassword = v,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-
-            // Bottom action bar
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: Builder(
-                builder: (context) {
-                  final isLoading =
-                      context.watch<AuthBloc>().state is AuthLoading;
-                  final isLastStep = _currentStep == _totalSteps - 1;
-
-                  return SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: FilledButton(
-                      onPressed:
-                          (_canContinue && !isLoading) ? _nextStep : null,
-                      child: isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              isLastStep ? l10n.signUp : l10n.continueButton,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

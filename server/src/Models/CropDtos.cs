@@ -76,6 +76,12 @@ public sealed record CropDto
     public required string FarmerId { get; init; }
 
     /// <summary>
+    /// Display name of the farmer who created this listing.
+    /// May be empty for legacy listings created before this field was added.
+    /// </summary>
+    public string? FarmerName { get; init; }
+
+    /// <summary>
     /// Type of crop (e.g., "teff", "maize", "wheat", "coffee", "chickpea").
     /// </summary>
     public required string CropType { get; init; }

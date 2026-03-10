@@ -189,6 +189,99 @@ These are functional gaps in the core transaction flow.
 
 ---
 
+### TIER 3.5 — SECURITY HARDENING (Pentest Findings 2026-03-05)
+
+Findings from penetration test against `dev-admin.weredaconnect.com`. Must be resolved before production.
+
+#### Completed (2026-03-05)
+- [x] Strengthen password policy (min 12, require uppercase + symbols)
+- [x] Enable deletion protection on Cognito User Pool
+- [x] Remove implicit OAuth flow; set proper callback URLs
+- [x] Reduce mobile refresh token from 30 to 7 days
+- [x] Remove `unsafe-eval` from CSP `script-src`
+- [x] Strip version/region/coldStart from health endpoint (T-SEC-03)
+- [x] Create separate admin Cognito User Pool (`selfSignUpEnabled: false`)
+- [x] Enable MFA (TOTP required on admin pool, optional on mobile pool) (T-SEC-08)
+- [x] IAM `ListUsers` already scoped to admin Lambda only
+
+#### ~~T-SEC-01: Add CI/CD Guard for DEV_FAYDA_BYPASS in Production~~ DONE
+Fixed — `ProductionBypassGuard` CDK Aspect scans all Lambdas at synth time and errors if `DEV_FAYDA_BYPASS` is set. Unit test verifies prod template has no Lambda with this flag.
+
+---
+
+#### ~~T-SEC-02: Add CI/CD Guard for TELEBIRR_MOCK in Production~~ DONE
+Fixed — same `ProductionBypassGuard` Aspect also checks for `TELEBIRR_MOCK`. Unit test covers both flags.
+
+---
+
+#### ~~T-SEC-03: Remove Sensitive Data from Health Endpoint~~ DONE
+Fixed in commit `4bbf890` — health endpoint now returns only `status` + `timestamp`.
+
+---
+
+#### T-SEC-04: Add AWS WAF to API Gateway [HIGH]
+**Scope:** `@infra`
+**Effort:** ~2-3h
+**Severity:** HIGH
+**Finding:** No WAF configured on the HTTP API Gateway. The API relies solely on Lambda-level validation for injection protection.
+**Action:**
+- Note: AWS WAF does not support HTTP API (v2) directly. Options:
+  - Migrate to REST API (v1) + WAF, OR
+  - Add CloudFront distribution in front of HTTP API + attach WAF there, OR
+  - Add regional WAF via ALB proxy
+- Managed rule groups: `AWSManagedRulesCommonRuleSet`, `AWSManagedRulesSQLiRuleSet`, `AWSManagedRulesKnownBadInputsRuleSet`
+- Enable rate-based rules as additional layer
+
+---
+
+#### ~~T-SEC-05: Remove version.json from Public Webapp~~ DONE
+Fixed — CloudFront Function `block-version-json` returns 404 for `/version.json` on the webapp distribution.
+
+---
+
+#### ~~T-SEC-06: Strip Localhost CORS Origins for Production~~ DONE
+Verified — CDK logic already strips localhost for `isProd`. Added unit test asserting prod CORS origins contain no localhost entries.
+
+---
+
+#### ~~T-SEC-07: Reduce Admin Token Validity~~ DONE
+Fixed — admin access/ID token validity reduced from 60 to 15 minutes. Unit test verifies.
+
+---
+
+#### ~~T-SEC-08: Enable MFA for Admin Accounts~~ DONE
+Fixed — separate admin pool with `mfa: REQUIRED` (TOTP), mobile pool with `mfa: OPTIONAL`.
+
+---
+
+#### T-SEC-09: Exit SNS Sandbox for Production SMS [MEDIUM]
+**Scope:** `@infra` (manual AWS process)
+**Effort:** ~1h + AWS approval wait
+**Severity:** MEDIUM
+**Finding:** `SmsConfigurationFailure: "SNSSandbox"` — SMS verification codes only work for pre-verified numbers.
+**Action:**
+- Submit AWS Support request for SNS production access in `me-south-1`
+- Verify SMS delivery for `+251` (Ethiopian) numbers after approval
+- Set up CloudWatch alarm on SNS spending > $10/month
+- Not a code change; this is an AWS account-level configuration
+
+---
+
+#### T-SEC-10: Implement End-to-End Audit Logging [HIGH]
+**Scope:** `@server` `@infra` `@mobile`
+**Effort:** ~5-7 days (5 phases)
+**Severity:** HIGH
+**Spike:** `specs/features/audit-logging-spike.md`
+**Why:** Cannot trace a transaction end-to-end today. No structured logs, no dashboards, no tamper-evident audit trail. Required for NBE compliance (10-year retention, fraud reporting), dispute resolution, and enterprise customer trust.
+**Phases:**
+1. **Correlation IDs + Structured Logging** (1-2 days) — `AuditLogger` helper, `X-Correlation-Id` propagation, JSON structured logs in all Lambda functions, mobile correlationId generation
+2. **Tamper-Evident Audit Trail** (1 day) — SHA-256 hash chain on escrow-audit entries, admin verification endpoint, `sourceIp`/`amount`/`reason` fields
+3. **CloudWatch Dashboard + Alarms** (1 day) — Real metrics in monitoring-stack, 6 alarms (error rate, cron failures, DynamoDB throttles, cold starts, dispute rate, brute force)
+4. **Expanded Audit Tables** (1-2 days) — auth-audit, delivery-audit, listing-audit, admin-audit DynamoDB tables with TTL and hash chains
+5. **Log Archival for Compliance** (2-3 days) — S3 bucket with Object Lock, lifecycle (Standard → IA → Glacier → Deep Archive), weekly export Lambda, 10-year retention
+
+---
+
 ### TIER 4 — GA BLOCKERS (Required before real users/money)
 
 These are pre-production requirements. MVP can demo without them, but cannot handle real transactions.
@@ -347,6 +440,8 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 | 5km GPS threshold | GPS inaccuracy + farm-to-road distance | Feb 18 |
 | Mock auth/Telebirr for MVP | Enables E2E testing without vendor dependency | Feb 17 |
 | Voice notes (bonus) | Low-literacy users benefit; minimal overhead | Feb 23 |
+| Pentest before production | 8 findings (2 critical, 1 high, 2 medium, 3 low). See TIER 3.5 | Mar 5 |
+| Separate admin Cognito pool | Shared pool allowed self-registration into admin. Now isolated. | Mar 5 |
 
 ---
 
@@ -360,4 +455,4 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 
 ---
 
-**Last Updated:** 2026-02-24 (PO audit — comprehensive review)
+**Last Updated:** 2026-03-05 (security hardening — pentest fixes applied)

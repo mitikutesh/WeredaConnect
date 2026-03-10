@@ -88,6 +88,16 @@ public class RegisterFunction
             return LambdaResponse.Error(400, "AUTH_007", "Invalid JSON in request body.");
         }
 
+        // Normalize phone number (accept +251, 00251, or 0 prefix)
+        if (registerRequest != null)
+        {
+            var normalizedPhone = RequestValidator.NormalizePhoneNumber(registerRequest.PhoneNumber);
+            if (normalizedPhone != null)
+            {
+                registerRequest = registerRequest with { PhoneNumber = normalizedPhone };
+            }
+        }
+
         // Validate
         var validation = RequestValidator.ValidateRegisterRequest(registerRequest);
         if (!validation.IsValid)

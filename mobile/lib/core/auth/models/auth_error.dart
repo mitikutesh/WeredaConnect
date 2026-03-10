@@ -41,6 +41,9 @@ class AuthErrorCode {
   static const refreshTokenRevoked = 'AUTH_019';
   static const invalidToken = 'AUTH_020';
 
+  // Registration: Fayda token validation
+  static const invalidFaydaToken = 'AUTH_021';
+
   // Aliases for backward compatibility within mobile code
   static const tokenExpired = 'AUTH_018';
   static const accountDisabled = 'AUTH_015'; // Reuse accountLocked code
@@ -65,7 +68,7 @@ extension AuthErrorCodeExtension on String {
     switch (this) {
       // Registration errors
       case AuthErrorCode.invalidPhoneFormat:
-        return 'Invalid phone number format. Use Ethiopian format: +251XXXXXXXXX';
+        return 'Invalid phone number format. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
       case AuthErrorCode.invalidPassword:
         return 'Password must be at least 8 characters with a lowercase letter and a number';
       case AuthErrorCode.invalidRole:
@@ -86,6 +89,8 @@ extension AuthErrorCodeExtension on String {
         return 'This Fayda ID is already linked to another account';
       case AuthErrorCode.faydaServiceUnavailable:
         return 'Fayda service is currently unavailable. Please try later';
+      case AuthErrorCode.invalidFaydaToken:
+        return 'Invalid or expired Fayda verification. Please verify again';
       case AuthErrorCode.userNotFound:
         return 'User not found. Please register first';
 

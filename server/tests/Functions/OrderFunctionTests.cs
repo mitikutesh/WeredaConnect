@@ -80,7 +80,7 @@ public class OrderFunctionTests
     {
         _mockOrderRepo.QueryOrdersAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
 
         var request = MakeGetRequest();
@@ -101,7 +101,7 @@ public class OrderFunctionTests
 
         _mockOrderRepo.QueryOrdersAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((orders, (Dictionary<string, AttributeValue>?)null));
 
         var request = MakeGetRequest();
@@ -127,7 +127,7 @@ public class OrderFunctionTests
     {
         _mockOrderRepo.QueryOrdersAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .ThrowsAsync(new Exception("DynamoDB error"));
 
         var request = MakeGetRequest();
@@ -264,12 +264,40 @@ public class OrderFunctionTests
     {
         _mockOrderRepo.QueryOrdersAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
 
         var request = MakeGetRequest(
             queryParams: new Dictionary<string, string> { { "farmerId", "farmer-001" } },
             userId: "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetOrders_WithOtherTruckerId_Returns403()
+    {
+        var request = MakeGetRequest(
+            queryParams: new Dictionary<string, string> { { "truckerId", "other-trucker" } },
+            userId: "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("ORDER_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetOrders_WithOwnTruckerId_Returns200()
+    {
+        _mockOrderRepo.QueryOrdersAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest(
+            queryParams: new Dictionary<string, string> { { "truckerId", "trucker-001" } },
+            userId: "trucker-001");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);

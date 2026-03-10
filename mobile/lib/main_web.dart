@@ -1,9 +1,12 @@
-/// Web-only entry point for WeredaConnect.
-/// Build with: flutter build web --target lib/main_web.dart
-/// This avoids importing Isar/FFI code that doesn't compile to JavaScript.
+// Web-only entry point for WeredaConnect.
+// Build with: flutter build web --target lib/main_web.dart
+// This avoids importing Isar/FFI code that doesn't compile to JavaScript.
+import 'dart:convert' show jsonDecode;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -43,6 +46,7 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  usePathUrlStrategy();
 
   if (!Environment.isApiConfigured) {
     debugPrint(
@@ -79,11 +83,15 @@ Future<void> main() async {
     dio: ApiClient().dio,
     refreshTokenCallback: (refreshToken) async {
       try {
-        final response = await refreshDio.post<Map<String, dynamic>>(
+        final response = await refreshDio.post<dynamic>(
           '/auth/refresh',
           data: {'refreshToken': refreshToken},
         );
-        final data = response.data as Map<String, dynamic>;
+        // On web, response.data may be a String — decode if needed.
+        final dynamic raw = response.data;
+        final Map<String, dynamic> data = raw is String
+            ? jsonDecode(raw) as Map<String, dynamic>
+            : raw as Map<String, dynamic>;
         final tokenData = data['tokens'] as Map<String, dynamic>;
         final newAccessToken = tokenData['accessToken'] as String;
         final newRefreshToken =
@@ -93,6 +101,22 @@ Future<void> main() async {
           key: 'refresh_token',
           value: newRefreshToken,
         );
+
+        // Update cached token structure so AuthBloc sees fresh tokens.
+        final phone = await secureStorage.read(key: 'current_user_phone');
+        if (phone != null) {
+          final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
+          final tokensJson = '{'
+              '"accessToken":"$newAccessToken",'
+              '"refreshToken":"$newRefreshToken",'
+              '"idToken":"${tokenData['idToken']}",'
+              '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
+              '}';
+          await secureStorage.write(
+            key: 'cached_tokens_$phone',
+            value: tokensJson,
+          );
+        }
 
         return newAccessToken;
       } on DioException catch (e) {
@@ -157,7 +181,7 @@ Future<void> main() async {
           BlocProvider<BuyerIntentBloc>(
             create: (_) => BuyerIntentBloc(
               repository: WebBuyerIntentRepository(),
-              matchingService: WebMatchingService(),
+              matchingService: WebMatchingService(api: api),
             ),
           ),
           BlocProvider<ConflictBloc>(

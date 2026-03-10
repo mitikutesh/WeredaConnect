@@ -50,7 +50,7 @@ public partial class SyncFunction
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
-        "farmerId", "cropType", "quantity", "pricePerKg",
+        "farmerId", "farmerName", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
         "status", "woreda", "listingId", "audioNoteRef", "createdAt"
     };
@@ -1391,7 +1391,7 @@ public partial class SyncFunction
             errors.Add("status must be 'open' for create.");
         }
 
-        // truckerPhone: required on create, must be valid Ethiopian E.164 (+251XXXXXXXXX)
+        // truckerPhone: required on create, must be valid Ethiopian phone
         if (isCreate || data.ContainsKey("truckerPhone"))
         {
             if (!data.TryGetValue("truckerPhone", out var phoneObj)
@@ -1402,10 +1402,18 @@ public partial class SyncFunction
                     errors.Add("truckerPhone is required.");
                 }
             }
-            else if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
+            else
             {
-                // F-SEC-02: Strict E.164 validation (exactly +251 + 9 digits = 13 chars)
-                errors.Add("truckerPhone must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
+                // F-SEC-02: Normalize then validate (accepts +251, 00251, 0 prefix)
+                var normalized = Validation.RequestValidator.NormalizePhoneNumber(phoneObj.ToString()!);
+                if (normalized == null)
+                {
+                    errors.Add("truckerPhone must be valid Ethiopian format (+251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX).");
+                }
+                else
+                {
+                    data["truckerPhone"] = normalized;
+                }
             }
         }
 
@@ -1579,15 +1587,20 @@ public partial class SyncFunction
             }
         }
 
-        // F12-SEC-04: Phone format validation using strict E.164 regex
+        // F12-SEC-04: Phone format validation — normalize then validate
         foreach (var phoneField in new[] { "farmerPhone", "truckerPhone", "buyerPhone" })
         {
             if (data.TryGetValue(phoneField, out var phoneObj)
                 && phoneObj != null && !string.IsNullOrWhiteSpace(phoneObj.ToString()))
             {
-                if (!EthiopianPhoneRegex().IsMatch(phoneObj.ToString()!))
+                var normalized = Validation.RequestValidator.NormalizePhoneNumber(phoneObj.ToString()!);
+                if (normalized == null)
                 {
-                    errors.Add($"{phoneField} must be valid Ethiopian E.164 format (+251XXXXXXXXX).");
+                    errors.Add($"{phoneField} must be valid Ethiopian format (+251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX).");
+                }
+                else
+                {
+                    data[phoneField] = normalized;
                 }
             }
         }
@@ -2371,13 +2384,16 @@ public partial class SyncFunction
                         }
                     }
 
+                    // Sort key is tripId (not createdAt) per database-stack.ts
+                    var existingTripIdForKey = existing.TryGetValue("tripId", out var tripIdForKey)
+                        ? tripIdForKey.S : "";
                     var updateRequest = new UpdateItemRequest
                     {
                         TableName = _deliveriesTable,
                         Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
-                        { "createdAt", new AttributeValue { S = createdAt } }
+                        { "tripId", new AttributeValue { S = existingTripIdForKey } }
                     },
                         UpdateExpression = "SET " + string.Join(", ", updateParts),
                         ConditionExpression = "#v = :expectedVersion",
@@ -2475,13 +2491,15 @@ public partial class SyncFunction
                     var newVersion = clientVersion + 1;
 
                     // Soft delete: set deletedAt and status=cancelled
+                    var existingTripIdForDeleteKey = existing.TryGetValue("tripId", out var deleteTripId)
+                        ? deleteTripId.S : "";
                     var deleteRequest = new UpdateItemRequest
                     {
                         TableName = _deliveriesTable,
                         Key = new Dictionary<string, AttributeValue>
                     {
                         { "deliveryId", new AttributeValue { S = operation.EntityId } },
-                        { "createdAt", new AttributeValue { S = createdAt } }
+                        { "tripId", new AttributeValue { S = existingTripIdForDeleteKey } }
                     },
                         UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
                         ConditionExpression = "#v = :expectedVersion",
@@ -3071,7 +3089,7 @@ public partial class SyncFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogWarning($"Failed to fetch commission rate from SSM: {ex.Message}. Using default.");
+            context.Logger.LogWarning($"Failed to fetch commission rate from SSM: [{ex.GetType().Name}]. Using default.");
             _cachedCommissionRate = DefaultCommissionRate;
         }
 

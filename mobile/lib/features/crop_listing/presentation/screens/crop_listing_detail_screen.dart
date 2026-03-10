@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -56,6 +57,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 
   Future<void> _loadSuggestedTrips() async {
+    if (kIsWeb) {
+      setState(() => _suggestedTrips = []);
+      return;
+    }
     setState(() => _tripsLoading = true);
     try {
       final isar = IsarService.instance.db;
@@ -81,14 +86,12 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     }
   }
 
-  double get _quantity =>
-      widget.quantityNeeded ?? widget.listing.quantity;
+  double get _quantity => widget.quantityNeeded ?? widget.listing.quantity;
 
   double get _cropCost => _quantity * 100 * widget.listing.pricePerKg;
 
-  double get _transportCost => _selectedTrip != null
-      ? _quantity * _selectedTrip!.pricePerQuintal
-      : 0.0;
+  double get _transportCost =>
+      _selectedTrip != null ? _quantity * _selectedTrip!.pricePerQuintal : 0.0;
 
   double get _commission => (_cropCost + _transportCost) * 0.05;
 
@@ -165,7 +168,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       const SizedBox(height: 4),
       Text(
         '${widget.listing.locationName} → ${widget.deliveryWoreda}',
-        style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withAlpha(153)),
+        style: TextStyle(
+          fontSize: 13,
+          color: theme.colorScheme.onSurface.withAlpha(153),
+        ),
       ),
       const SizedBox(height: 12),
 
@@ -185,7 +191,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             child: Center(
               child: Text(
                 l10n.noTripsYet,
-                style: TextStyle(color: theme.colorScheme.onSurface.withAlpha(153)),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface.withAlpha(153),
+                ),
               ),
             ),
           ),
@@ -425,6 +433,13 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 
   Future<String> _lookupFarmerName(String farmerId) async {
+    // Use farmerName from the listing if available
+    if (widget.listing.farmerName.isNotEmpty) {
+      return widget.listing.farmerName;
+    }
+    if (kIsWeb) {
+      return farmerId;
+    }
     final isar = IsarService.instance.db;
     final farmer =
         await isar.users.filter().userIdEqualTo(farmerId).findFirst();

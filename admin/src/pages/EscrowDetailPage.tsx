@@ -11,8 +11,10 @@ export function EscrowDetailPage() {
   const { data: escrow, isLoading } = useEscrowDetail(id || "");
   const { data: auditData } = useEscrowAudit(id || "");
 
-  const detail = (escrow as Record<string, unknown>) || {};
-  const auditEntries = (auditData as Record<string, unknown>[]) || [];
+  const detailResp = escrow as Record<string, unknown> | undefined;
+  const detail = (detailResp?.escrow as Record<string, unknown>) || {};
+  const auditResp = auditData as Record<string, unknown> | undefined;
+  const auditEntries = (auditResp?.auditEntries as Record<string, unknown>[]) || [];
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -30,11 +32,11 @@ export function EscrowDetailPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.buyer")}</dt>
-              <dd>{String(detail.buyerName || "")}</dd>
+              <dd>{String(detail.buyerName || detail.buyerId || "")}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.seller")}</dt>
-              <dd>{String(detail.sellerName || "")}</dd>
+              <dd>{String(detail.farmerName || detail.farmerId || "")}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">{t("escrows.amount")}</dt>

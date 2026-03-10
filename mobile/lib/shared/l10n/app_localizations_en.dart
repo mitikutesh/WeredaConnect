@@ -21,6 +21,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get welcomeTitle => 'Welcome to WeredaConnect';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'Welcome back, $userName';
+  }
+
+  @override
   String get worksOffline => 'Works Offline';
 
   @override
@@ -257,7 +262,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get invalidPhoneFormat =>
-      'Invalid phone number format. Use +251XXXXXXXXX';
+      'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
 
   @override
   String get invalidCredentials => 'Invalid phone number or password';
@@ -367,7 +372,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'You can still access your account offline if you don\'t clear this data';
 
   @override
-  String get ethiopianPhoneExample => 'Example: +251911234567';
+  String get ethiopianPhoneExample => 'Example: 0911234567 or +251911234567';
 
   @override
   String get characters => 'characters';
@@ -1072,6 +1077,36 @@ class AppLocalizationsEn extends AppLocalizations {
       'Internet connection required for this action.';
 
   @override
+  String get escrowErrorInvalidDelivery => 'Invalid delivery reference.';
+
+  @override
+  String get escrowErrorUnauthorized =>
+      'You are not authorized for this action.';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'Delivery not found.';
+
+  @override
+  String get escrowErrorInvalidDeliveryState =>
+      'Delivery is not in a valid state for payment.';
+
+  @override
+  String get escrowErrorInvalidDisputeReason =>
+      'Please select a valid dispute reason.';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'The dispute window has expired (48 hours after delivery).';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists =>
+      'A dispute has already been raised for this payment.';
+
+  @override
+  String get escrowErrorInvalidTransition =>
+      'This action is not allowed in the current payment state.';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }
@@ -1522,7 +1557,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get matchedLoads => 'Matched';
 
   @override
-  String get farmersBrowsed => 'Browsed';
+  String get farmersBrowsed => 'Listings';
 
   @override
   String get marketplace => 'Marketplace';
@@ -1773,6 +1808,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get splashSubtitle =>
       'One platform for farmers, truckers, and buyers — with secure escrow.';
+
+  @override
+  String get orderFunded => 'Funded';
 
   @override
   String get orderCancelled => 'Cancelled';
@@ -2071,4 +2109,50 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickFill => 'Quick Fill';
+
+  @override
+  String get somethingWentWrong => 'Something went wrong';
+
+  @override
+  String get checkConnectionRetry =>
+      'Please check your connection and try again.';
+
+  @override
+  String get sellCrops => 'Sell Crops';
+
+  @override
+  String get sellYourHarvest => 'SELL YOUR HARVEST';
+
+  @override
+  String get tapToListCrops => 'List your crops and reach buyers directly';
+
+  @override
+  String get synced => 'Synced';
+
+  @override
+  String get offline => 'Offline';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count operations need attention';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count waiting to sync';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return '$status payment';
+  }
+
+  @override
+  String get myCrops => 'My Crops';
+
+  @override
+  String get browseAll => 'Browse';
+
+  @override
+  String get myRequests => 'My Requests';
 }

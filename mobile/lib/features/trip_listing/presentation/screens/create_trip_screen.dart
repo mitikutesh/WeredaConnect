@@ -1,9 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:isar/isar.dart';
-
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -14,6 +13,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for creating a new trip listing.
@@ -111,7 +111,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     _loadRecentRoutes();
   }
 
-  /// Auto-fill trucker name/phone from Isar user profile.
+  /// Auto-fill trucker name/phone from Isar user profile (mobile) or
+  /// AuthAuthenticated state (web, where Isar is unavailable).
   Future<void> _autoFillTruckerInfo() async {
     if (_truckerNameController.text.isNotEmpty &&
         _truckerPhoneController.text.isNotEmpty) {
@@ -120,6 +121,24 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
+
+    // On web, Isar is unavailable — fall back to AuthBloc state.
+    if (kIsWeb) {
+      if (mounted) {
+        setState(() {
+          if (_truckerNameController.text.isEmpty &&
+              authState.userName.isNotEmpty) {
+            _truckerNameController.text = authState.userName;
+          }
+          if (_truckerPhoneController.text.isEmpty &&
+              authState.phoneNumber != null &&
+              authState.phoneNumber!.isNotEmpty) {
+            _truckerPhoneController.text = authState.phoneNumber!;
+          }
+        });
+      }
+      return;
+    }
 
     try {
       final isar = IsarService.instance.db;
@@ -223,11 +242,14 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     final vehiclePlate = _vehiclePlateController.text.trim();
     final vehicleDescription = _vehicleDescriptionController.text.trim();
 
+    final normalizedPhone =
+        normalizeEthiopianPhone(_truckerPhoneController.text.trim()) ??
+            _truckerPhoneController.text.trim();
     context.read<TripListingBloc>().add(
           CreateTrip(
             truckerId: authState.userId,
             truckerName: _truckerNameController.text.trim(),
-            truckerPhone: _truckerPhoneController.text.trim(),
+            truckerPhone: normalizedPhone,
             vehiclePlate: vehiclePlate.isNotEmpty ? vehiclePlate : null,
             vehicleDescription:
                 vehicleDescription.isNotEmpty ? vehicleDescription : null,
@@ -340,7 +362,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                               decoration: InputDecoration(
                                 labelText: l10n.truckerPhone,
                                 prefixIcon: const Icon(Icons.phone),
-                                hintText: '+251XXXXXXXXX',
+                                hintText: '09XXXXXXXX',
                                 border: const OutlineInputBorder(),
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -352,8 +374,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                 if (value == null || value.trim().isEmpty) {
                                   return l10n.invalidPhoneFormat;
                                 }
-                                final phoneRegex = RegExp(r'^\+251\d{9}$');
-                                if (!phoneRegex.hasMatch(value.trim())) {
+                                if (!isValidEthiopianPhone(value.trim())) {
                                   return l10n.invalidPhoneFormat;
                                 }
                                 return null;

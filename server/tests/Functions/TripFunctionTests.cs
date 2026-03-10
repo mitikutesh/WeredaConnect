@@ -38,6 +38,30 @@ public class TripFunctionTests
         };
     }
 
+    private static APIGatewayProxyRequest MakeAuthenticatedGetRequest(
+        string userId,
+        string role,
+        string path = "/trips",
+        Dictionary<string, string>? queryParams = null,
+        Dictionary<string, string>? pathParams = null)
+    {
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = path,
+            QueryStringParameters = queryParams,
+            PathParameters = pathParams,
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext
+                {
+                    { "sub", userId },
+                    { "custom:role", role }
+                }
+            }
+        };
+    }
+
     private static Dictionary<string, object> CreateTripItem(
         string tripId = "trip-001",
         string status = "open",
@@ -1047,6 +1071,172 @@ public class TripFunctionTests
         Assert.Equal(200, response.StatusCode);
         // Phone should be visible for authenticated users
         Assert.Contains("251912345678", response.Body);
+    }
+
+    // --- Role-Based Visibility Tests ---
+
+    [Fact]
+    public async Task HandleGetTrips_TruckerRole_ForcesTruckerIdToOwnUserId()
+    {
+        _mockTripRepo.QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+
+        // Verify the repository was called with the trucker's own ID
+        await _mockTripRepo.Received(1).QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_TruckerRole_CannotQueryOtherTruckerTrips()
+    {
+        var queryParams = new Dictionary<string, string> { { "truckerId", "other-trucker" } };
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_TruckerRole_CanQueryOwnTripsExplicitly()
+    {
+        _mockTripRepo.QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var queryParams = new Dictionary<string, string> { { "truckerId", "trucker-001" } };
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_BuyerRole_CanBrowseAllTrips()
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_FarmerRole_CanBrowseAllTrips()
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_Unauthenticated_CanBrowseAllTrips()
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+
+        var request = MakeGetRequest();
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetTripById_TruckerRole_CanViewOwnTrip()
+    {
+        var trip = CreateTripItem("trip-001");
+        trip["truckerId"] = "trucker-001";
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker",
+            "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTripById_TruckerRole_CannotViewOtherTruckerTrip()
+    {
+        var trip = CreateTripItem("trip-001");
+        trip["truckerId"] = "other-trucker";
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker",
+            "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTripById_BuyerRole_CanViewAnyTrip()
+    {
+        var trip = CreateTripItem("trip-001");
+        trip["truckerId"] = "some-trucker";
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer",
+            "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetTripById_FarmerRole_CanViewAnyTrip()
+    {
+        var trip = CreateTripItem("trip-001");
+        trip["truckerId"] = "some-trucker";
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer",
+            "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
     }
 
     // --- Constructor Tests ---

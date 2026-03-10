@@ -63,7 +63,7 @@ function handler(event) {
         securityHeadersBehavior: {
           contentSecurityPolicy: {
             contentSecurityPolicy:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.me-south-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.me-south-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.me-south-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.me-south-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
             override: true,
           },
           strictTransportSecurity: {
@@ -111,6 +111,24 @@ function handler(event) {
       },
     );
 
+    // ─── T-SEC-05: Block version.json from public access ─────────
+    const blockVersionJson = new cloudfront.Function(
+      this,
+      "BlockVersionJson",
+      {
+        functionName: `${prefix}-block-version-json`,
+        code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  return {
+    statusCode: 404,
+    statusDescription: 'Not Found',
+    body: { encoding: 'text', data: 'Not Found' },
+  };
+}
+`),
+      },
+    );
+
     // ─── Webapp (Flutter web — SPA) ───────────────────────────────
     const webappBucket = this.createBucket(`${prefix}-webapp`, "Webapp");
     const webappDomain = `${domain.webappSubdomain}.${domain.zoneName}`;
@@ -130,6 +148,21 @@ function handler(event) {
           },
         ],
         disableIndexCache: true,
+      },
+    );
+
+    // Block /version.json on webapp distribution
+    webappDistribution.addBehavior(
+      "/version.json",
+      origins.S3BucketOrigin.withOriginAccessControl(webappBucket),
+      {
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        functionAssociations: [
+          {
+            function: blockVersionJson,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          },
+        ],
       },
     );
 

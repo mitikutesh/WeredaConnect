@@ -18,8 +18,13 @@ import 'package:wereda_connect/shared/widgets/green_header.dart';
 /// Browse screen for viewing and filtering trip listings.
 ///
 /// Shows offline banner, filter fields, and a lazy-loaded list of trip cards.
+///
+/// When [embedded] is true, the screen omits its own Scaffold and back
+/// arrow so it can live inside the adaptive shell as a tab child.
 class BrowseTripsScreen extends StatefulWidget {
-  const BrowseTripsScreen({super.key});
+  final bool embedded;
+
+  const BrowseTripsScreen({this.embedded = false, super.key});
 
   @override
   State<BrowseTripsScreen> createState() => _BrowseTripsScreenState();
@@ -103,28 +108,28 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Column(
-            children: [
+    final content = Stack(
+      children: [
+        Column(
+          children: [
             // ── Header ──────────────────────────────────────────────────
             GreenHeader(
-              height: 130,
+              height: widget.embedded ? 100 : 130,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: const Padding(
-                      padding: EdgeInsets.only(top: 4, bottom: 4),
-                      child: Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
-                        size: 24,
+                  if (!widget.embedded)
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: const Padding(
+                        padding: EdgeInsets.only(top: 4, bottom: 4),
+                        child: Icon(
+                          Icons.arrow_back,
+                          color: Colors.white,
+                          size: 24,
+                        ),
                       ),
                     ),
-                  ),
                   Text(
                     l10n.myTrips,
                     style: const TextStyle(
@@ -197,10 +202,30 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 48),
+                          Icon(
+                            Icons.route_outlined,
+                            size: 56,
+                            color: AppTheme.textMuted.withAlpha(150),
+                          ),
                           const SizedBox(height: 16),
-                          Text(state.message),
-                          const SizedBox(height: 16),
+                          Text(
+                            l10n.noTripsFound,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.dataWillSyncWhenOnline,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textMuted,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
                           FilledButton(
                             onPressed: _loadTrips,
                             child: Text(l10n.retry),
@@ -306,8 +331,8 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
             ),
           ],
         ),
-        // FAB for truckers to post a trip
-        if (_isOwnerMode)
+        // FAB for truckers to post a trip (hidden when embedded — shell provides FAB)
+        if (_isOwnerMode && !widget.embedded)
           Positioned(
             right: 20,
             bottom: 20,
@@ -326,7 +351,8 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
             ),
           ),
       ],
-      ),
     );
+
+    return widget.embedded ? content : Scaffold(body: content);
   }
 }

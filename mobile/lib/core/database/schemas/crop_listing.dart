@@ -22,6 +22,10 @@ class CropListing {
   @Index()
   late String farmerId;
 
+  /// Display name of the farmer who created this listing.
+  /// Empty for legacy listings created before this field was added.
+  String farmerName = '';
+
   /// Type of crop (teff, wheat, barley, maize, chickpea, etc.)
   /// Stored in English but displayed in localized language
   @Index()

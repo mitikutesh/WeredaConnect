@@ -50,7 +50,28 @@ Evaluate every change against these criteria:
 - SQL/NoSQL injection prevention
 - OWASP top 10 compliance
 
-### 6. Code Quality
+### 6. Cross-Platform Consistency (Mobile + Web)
+- If a file with a platform counterpart was changed, was the counterpart also updated?
+  - Platform pairs: `*_mobile.dart` <-> `*_web.dart`, `*_io.dart` <-> `*_stub.dart`
+  - Schema pairs: `core/database/schemas/*.dart` <-> `core/models/web/*.dart`
+  - Barrel files in `core/models/*.dart` conditionally export both
+- If a shared abstract/interface was changed, do both implementations satisfy it?
+- Does new code use `dart:io` or Isar directly? If so, is there a web-safe alternative?
+- If server DTOs changed, do mobile models and admin types still match?
+
+### 7. Cross-Module Consistency
+- If server API endpoints/DTOs changed, are mobile client calls and admin dashboard updated?
+- If `specs/contracts/` changed, are all three modules (server, mobile, admin) aligned?
+- If localization keys were added/changed, do all 3 language files (en, am, om) have them?
+
+### 8. Role-Based Visibility (HARD REQUIREMENT)
+- **Farmer**: Can create crop listings. Can only see **own** listings. Must NOT see other farmers' listings.
+- **Trucker**: Can create trip listings. Can only see **own** trips. Must NOT see other truckers' trips.
+- **Buyer**: Can see **ALL** crop listings and **ALL** trip listings from anyone/anywhere.
+- Any code that lists/browses crops or trips must enforce these rules — in server queries, mobile screens, BLoC data-fetching, and API design.
+- A violation of these rules is a **CRITICAL** issue and an automatic FAIL.
+
+### 9. Code Quality
 - Follows patterns in `.ai/standards.md`
 - Proper error handling with user-friendly messages
 - Tests cover offline scenarios
@@ -75,5 +96,8 @@ Structure your review as:
 - [x/!/ ] Localization
 - [x/!/ ] Performance
 - [x/!/ ] Security
+- [x/!/ ] Cross-platform consistency
+- [x/!/ ] Cross-module consistency
+- [x/!/ ] Role-based visibility
 - [x/!/ ] Code quality
 ```

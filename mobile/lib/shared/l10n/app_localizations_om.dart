@@ -21,6 +21,11 @@ class AppLocalizationsOm extends AppLocalizations {
   String get welcomeTitle => 'Gara WeredaConnect Baga Nagaan Dhuftan';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'Baga nagaan dhuftan, $userName';
+  }
+
+  @override
   String get worksOffline => 'Oflaayiniin Hojjeta';
 
   @override
@@ -258,7 +263,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get invalidPhoneFormat =>
-      'Bifa lakkoofsa bilbilaa sirrii miti. +251XXXXXXXXX fayyadami';
+      'Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami';
 
   @override
   String get invalidCredentials =>
@@ -370,7 +375,7 @@ class AppLocalizationsOm extends AppLocalizations {
       'Yoo daataa kana hin haqiin offline ta\'anii seenuu dandeessu';
 
   @override
-  String get ethiopianPhoneExample => 'Fakkeenya: +251911234567';
+  String get ethiopianPhoneExample => 'Fakkeenya: 0911234567 ykn +251911234567';
 
   @override
   String get characters => 'qubeelee';
@@ -1077,6 +1082,35 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowErrorOffline => 'Hojii kanaaf interneetiin barbaachisaadha.';
 
   @override
+  String get escrowErrorInvalidDelivery => 'Wabii geejjibsiisaa sirrii miti.';
+
+  @override
+  String get escrowErrorUnauthorized => 'Gocha kanaaf mirga hin qabdan.';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'Geejjibsiisni hin argamne.';
+
+  @override
+  String get escrowErrorInvalidDeliveryState =>
+      'Geejjibsiisni kaffaltiidhaf haala sirrii keessa hin jiru.';
+
+  @override
+  String get escrowErrorInvalidDisputeReason =>
+      'Maaloo sababa komii sirrii filadhaa.';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'Yeroon komii darbera (sa\'aatii 48 geejjibsiisa booda).';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists =>
+      'Kaffaltii kanaaf komiin duraan ka\'era.';
+
+  @override
+  String get escrowErrorInvalidTransition =>
+      'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'Birrii $amount';
   }
@@ -1534,7 +1568,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get matchedLoads => 'Walsimatan';
 
   @override
-  String get farmersBrowsed => 'Ilaalaman';
+  String get farmersBrowsed => 'Tarreeffama';
 
   @override
   String get marketplace => 'Gabaa';
@@ -1788,6 +1822,9 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get splashSubtitle =>
       'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.';
+
+  @override
+  String get orderFunded => 'Kaffaltii';
 
   @override
   String get orderCancelled => 'Haqame';
@@ -2087,4 +2124,51 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get quickFill => 'Guuttaa Ariifataa';
+
+  @override
+  String get somethingWentWrong => 'Wanti tokko dogoggora ta\'e';
+
+  @override
+  String get checkConnectionRetry =>
+      'Maaloo walqunnamtii keessan mirkaneessaa irra deebi\'aa yaalaatii.';
+
+  @override
+  String get sellCrops => 'Midhaan Gurguri';
+
+  @override
+  String get sellYourHarvest => 'OOMISHA KEESSAN GURGURAA';
+
+  @override
+  String get tapToListCrops =>
+      'Midhaan keessan galmeessaa bittoota kallattiin argadhaa';
+
+  @override
+  String get synced => 'Walsimame';
+
+  @override
+  String get offline => 'Oflaayinii';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count hojiiwwan xiyyeeffannoo barbaadu';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count walsimsisuuf eeggataa jiru';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return 'Kaffaltii $status';
+  }
+
+  @override
+  String get myCrops => 'Midhaan Koo';
+
+  @override
+  String get browseAll => 'Barbaadi';
+
+  @override
+  String get myRequests => 'Gaaffii Koo';
 }

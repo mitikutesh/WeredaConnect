@@ -206,7 +206,9 @@ public sealed record EscrowDto
     public required string DeliveryId { get; init; }
     public string? OrderId { get; init; }
     public required string BuyerId { get; init; }
+    public string? BuyerName { get; set; }
     public required string FarmerId { get; init; }
+    public string? FarmerName { get; set; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
     public required decimal CommissionRate { get; init; }

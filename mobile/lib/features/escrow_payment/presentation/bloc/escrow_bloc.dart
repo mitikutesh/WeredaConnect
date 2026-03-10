@@ -51,7 +51,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       } else if (result is repo.EscrowError) {
         emit(EscrowError(code: result.code, message: result.message));
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -73,7 +73,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           ),
         );
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -95,7 +95,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           ),
         );
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -120,7 +120,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           roleFilter: event.roleFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -135,7 +135,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       if (payment != null) {
         emit(EscrowDetailLoaded(payment: payment));
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -160,7 +160,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           roleFilter: event.roleFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -183,7 +183,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       } else if (result is repo.EscrowError) {
         emit(EscrowError(code: result.code, message: result.message));
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -195,7 +195,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
     try {
       await _repository.cancelIntent(event.idempotencyKey);
       emit(const IntentCancelled());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -220,7 +220,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           roleFilter: event.roleFilter,
         ),
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }
@@ -243,7 +243,7 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           ),
         );
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
   }

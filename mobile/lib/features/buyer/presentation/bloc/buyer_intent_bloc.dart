@@ -53,7 +53,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
       await _repository.updateLastViewed(intent.intentId);
 
       emit(BuyerIntentCreated(intent: intent, matches: matches));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }
@@ -66,7 +66,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     try {
       final intents = await _repository.getActiveIntents(event.buyerId);
       emit(ActiveIntentsLoaded(intents: intents));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }
@@ -94,7 +94,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
       await _repository.updateLastViewed(intent.intentId);
 
       emit(MatchResultsLoaded(intent: intent, matches: matches));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }
@@ -105,7 +105,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
   ) async {
     try {
       await _repository.fulfillIntent(event.intentId);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }
@@ -116,7 +116,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
   ) async {
     try {
       await _repository.deleteIntent(event.intentId);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }
@@ -130,7 +130,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         event.buyerId,
         _repository,
       );
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString()));
     }
   }

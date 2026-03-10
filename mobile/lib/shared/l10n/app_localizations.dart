@@ -124,6 +124,12 @@ abstract class AppLocalizations {
   /// **'Welcome to WeredaConnect'**
   String get welcomeTitle;
 
+  /// Greeting on home screen desktop
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back, {userName}'**
+  String welcomeBackUser(String userName);
+
   /// Feature description for offline capability
   ///
   /// In en, this message translates to:
@@ -589,7 +595,7 @@ abstract class AppLocalizations {
   /// Error message for invalid phone format
   ///
   /// In en, this message translates to:
-  /// **'Invalid phone number format. Use +251XXXXXXXXX'**
+  /// **'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX'**
   String get invalidPhoneFormat;
 
   /// Error message for invalid credentials
@@ -769,7 +775,7 @@ abstract class AppLocalizations {
   /// Example Ethiopian phone number
   ///
   /// In en, this message translates to:
-  /// **'Example: +251911234567'**
+  /// **'Example: 0911234567 or +251911234567'**
   String get ethiopianPhoneExample;
 
   /// Characters (for password requirements)
@@ -2092,6 +2098,54 @@ abstract class AppLocalizations {
   /// **'Internet connection required for this action.'**
   String get escrowErrorOffline;
 
+  /// Error when delivery ID is missing or invalid for escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid delivery reference.'**
+  String get escrowErrorInvalidDelivery;
+
+  /// Error when user is not authorized for escrow action
+  ///
+  /// In en, this message translates to:
+  /// **'You are not authorized for this action.'**
+  String get escrowErrorUnauthorized;
+
+  /// Error when the referenced delivery does not exist
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not found.'**
+  String get escrowErrorDeliveryNotFound;
+
+  /// Error when delivery status does not allow escrow initiation
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery is not in a valid state for payment.'**
+  String get escrowErrorInvalidDeliveryState;
+
+  /// Error when dispute reason is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a valid dispute reason.'**
+  String get escrowErrorInvalidDisputeReason;
+
+  /// Error when dispute is raised after 48-hour window
+  ///
+  /// In en, this message translates to:
+  /// **'The dispute window has expired (48 hours after delivery).'**
+  String get escrowErrorDisputeWindowExpired;
+
+  /// Error when a duplicate dispute is attempted
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute has already been raised for this payment.'**
+  String get escrowErrorDisputeAlreadyExists;
+
+  /// Error when escrow state transition is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'This action is not allowed in the current payment state.'**
+  String get escrowErrorInvalidTransition;
+
   /// Formatted ETB currency amount
   ///
   /// In en, this message translates to:
@@ -2920,10 +2974,10 @@ abstract class AppLocalizations {
   /// **'Matched'**
   String get matchedLoads;
 
-  /// Stat label for browsed farmers
+  /// Stat label for available crop listings count
   ///
   /// In en, this message translates to:
-  /// **'Browsed'**
+  /// **'Listings'**
   String get farmersBrowsed;
 
   /// Title for marketplace/browse screen
@@ -3387,6 +3441,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
   String get splashSubtitle;
+
+  /// Order status label for funded/paid orders
+  ///
+  /// In en, this message translates to:
+  /// **'Funded'**
+  String get orderFunded;
 
   /// Order status label for cancelled orders
   ///
@@ -3945,6 +4005,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Quick Fill'**
   String get quickFill;
+
+  /// Generic error title
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong'**
+  String get somethingWentWrong;
+
+  /// Error subtitle suggesting user retry
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your connection and try again.'**
+  String get checkConnectionRetry;
+
+  /// Quick action label for creating a new crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Sell Crops'**
+  String get sellCrops;
+
+  /// Farmer-specific banner headline prompting crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'SELL YOUR HARVEST'**
+  String get sellYourHarvest;
+
+  /// Farmer-specific banner subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'List your crops and reach buyers directly'**
+  String get tapToListCrops;
+
+  /// Sync status badge when data is up to date
+  ///
+  /// In en, this message translates to:
+  /// **'Synced'**
+  String get synced;
+
+  /// Sync status badge when device is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get offline;
+
+  /// Subtitle for failed sync notification
+  ///
+  /// In en, this message translates to:
+  /// **'{count} operations need attention'**
+  String syncFailureCount(int count);
+
+  /// Subtitle for pending sync notification
+  ///
+  /// In en, this message translates to:
+  /// **'{count} waiting to sync'**
+  String syncPendingCount(int count);
+
+  /// Payment notification title with status
+  ///
+  /// In en, this message translates to:
+  /// **'{status} payment'**
+  String paymentStatusTitle(String status);
+
+  /// Navigation tab label for farmer's crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'My Crops'**
+  String get myCrops;
+
+  /// Tab label for browsing all crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Browse'**
+  String get browseAll;
+
+  /// Tab label for buyer's saved buying intents
+  ///
+  /// In en, this message translates to:
+  /// **'My Requests'**
+  String get myRequests;
 }
 
 class _AppLocalizationsDelegate

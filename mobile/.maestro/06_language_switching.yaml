@@ -1,0 +1,34 @@
+appId: et.wereda.connect
+name: "06 - Language Switching"
+---
+
+# Clear app data for fresh start
+- clearState
+- launchApp
+
+# Navigate past splash
+- tapOn: "Get Started"
+
+# Verify English is default on welcome screen
+- assertVisible: "Login"
+- assertVisible: "Sign Up"
+
+# Take screenshot of English welcome
+- takeScreenshot: "06_english_welcome"
+
+# Go to login screen
+- tapOn: "Login"
+
+# Verify English login screen
+- assertVisible: "Welcome to WeredaConnect"
+- assertVisible: "Phone Number"
+- assertVisible: "Password"
+
+# Take screenshot
+- takeScreenshot: "06_english_login"
+
+# Go back
+- back
+
+# Take screenshot of welcome screen
+- takeScreenshot: "06_welcome_after_back"

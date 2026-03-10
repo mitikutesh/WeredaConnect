@@ -6,6 +6,9 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
@@ -52,6 +55,35 @@ GoRouter createWebRouter(AuthBloc authBloc) {
             path: '/',
             name: RouteNames.home,
             builder: (context, state) => const HomeScreen(),
+          ),
+          GoRoute(
+            path: '/my-crops',
+            name: RouteNames.myCrops,
+            builder: (context, state) =>
+                const BrowseListingsScreen(ownerMode: true, embedded: true),
+          ),
+          GoRoute(
+            path: '/find-crops',
+            name: RouteNames.findCrops,
+            builder: (context, state) => const FindCropsScreen(embedded: true),
+          ),
+          GoRoute(
+            path: '/trips',
+            name: RouteNames.trips,
+            builder: (context, state) =>
+                const BrowseTripsScreen(embedded: true),
+          ),
+          // Keep legacy routes for backward compatibility
+          GoRoute(
+            path: '/listings',
+            name: RouteNames.listings,
+            builder: (context, state) =>
+                const BrowseListingsScreen(ownerMode: true, embedded: true),
+          ),
+          GoRoute(
+            path: '/marketplace',
+            name: RouteNames.marketplace,
+            builder: (context, state) => const FindCropsScreen(embedded: true),
           ),
           GoRoute(
             path: '/orders',

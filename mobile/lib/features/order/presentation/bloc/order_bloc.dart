@@ -36,7 +36,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         role: event.role,
       );
       emit(OrdersLoaded(orders: orders));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -53,7 +53,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         statusFilter: event.statusFilter,
       );
       emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -66,7 +66,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     try {
       await _repository.acceptOrder(event.orderId, event.farmerId);
       emit(const OrderAccepted());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -83,7 +83,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         reason: event.reason,
       );
       emit(const OrderRejected());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -110,7 +110,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         commissionRate: event.commissionRate,
       );
       emit(OrderCreated(order: order));
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -123,7 +123,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     try {
       await _repository.submitPayment(event.orderId, event.cbeTransactionId);
       emit(const PaymentSubmitted());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -140,7 +140,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         reason: event.reason,
       );
       emit(const OrderCancelled());
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }
@@ -157,7 +157,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       } else {
         emit(const OrderError(message: 'Order not found'));
       }
-    } on Exception catch (e) {
+    } on Object catch (e) {
       emit(OrderError(message: e.toString()));
     }
   }

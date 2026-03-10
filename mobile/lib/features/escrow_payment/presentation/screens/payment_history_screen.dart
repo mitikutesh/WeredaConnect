@@ -8,12 +8,14 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
-import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
+
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Filterable list of user's escrow transactions with pending intents.
 ///
@@ -78,43 +80,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       child: Column(
         children: [
           // Status filter chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: l10n.escrowFilterAll,
-                  selected: _statusFilter == null,
-                  onSelected: () => _applyStatusFilter(null),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: l10n.escrowStatusEscrowed,
-                  selected: _statusFilter == 'escrowed',
-                  onSelected: () => _applyStatusFilter('escrowed'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: l10n.escrowStatusReleased,
-                  selected: _statusFilter == 'released',
-                  onSelected: () => _applyStatusFilter('released'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: l10n.escrowStatusDisputed,
-                  selected: _statusFilter == 'disputed',
-                  onSelected: () => _applyStatusFilter('disputed'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: l10n.escrowStatusRefunded,
-                  selected: _statusFilter == 'refunded',
-                  onSelected: () => _applyStatusFilter('refunded'),
-                ),
-              ],
-            ),
-          ),
+          _buildFilterChips(l10n),
           const SizedBox(height: 8),
           // Content
           Expanded(
@@ -125,24 +91,56 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                 }
 
                 if (state is EscrowError) {
+                  final l10n = AppLocalizations.of(context)!;
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 48,
-                          color: Colors.red,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          localizeEscrowError(
-                            AppLocalizations.of(context)!,
-                            state.code,
-                            state.message,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.payments_outlined,
+                            size: 56,
+                            color: AppTheme.textMuted.withAlpha(150),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+                          Text(
+                            l10n.noPayments,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.trackPayments,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textMuted,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: 200,
+                            child: FilledButton(
+                              onPressed: () {
+                                final authState =
+                                    context.read<AuthBloc>().state;
+                                if (authState is AuthAuthenticated) {
+                                  context.read<EscrowBloc>().add(
+                                        LoadPaymentHistory(
+                                          userId: authState.userId,
+                                        ),
+                                      );
+                                }
+                              },
+                              child: Text(l10n.retry),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }
@@ -178,6 +176,60 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(l10n.escrowPaymentHistory)),
       body: content,
+    );
+  }
+
+  Widget _buildFilterChips(AppLocalizations l10n) {
+    final isMobile = Breakpoints.isMobile(context);
+    final listHPad = isMobile ? 16.0 : 24.0;
+
+    final chips = <({String? status, String label})>[
+      (status: null, label: l10n.escrowFilterAll),
+      (status: 'escrowed', label: l10n.escrowStatusEscrowed),
+      (status: 'released', label: l10n.escrowStatusReleased),
+      (status: 'disputed', label: l10n.escrowStatusDisputed),
+      (status: 'refunded', label: l10n.escrowStatusRefunded),
+    ];
+
+    if (isMobile) {
+      return SizedBox(
+        height: 50,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
+          children: chips.map((c) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _FilterChip(
+                label: c.label,
+                selected: _statusFilter == c.status,
+                onSelected: () => _applyStatusFilter(c.status),
+              ),
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
+      child: Row(
+        children: chips.asMap().entries.map((entry) {
+          final c = entry.value;
+          final isLast = entry.key == chips.length - 1;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: isLast ? 0 : 10),
+              child: _FilterChip(
+                label: c.label,
+                selected: _statusFilter == c.status,
+                onSelected: () => _applyStatusFilter(c.status),
+                expand: true,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -349,18 +401,28 @@ class _FilterChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onSelected;
+  final bool expand;
 
   const _FilterChip({
     required this.label,
     required this.selected,
     required this.onSelected,
+    this.expand = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return FilterChip(
-      label: Text(label),
+      label: expand
+          ? SizedBox(
+              width: double.infinity,
+              child: Text(label, textAlign: TextAlign.center),
+            )
+          : Text(label),
       selected: selected,
+      labelStyle: TextStyle(
+        color: selected ? Colors.white : AppTheme.textDark,
+      ),
       onSelected: (_) => onSelected(),
       showCheckmark: false,
     );

@@ -11,8 +11,11 @@ import { formatETB, formatDate } from "@/lib/i18n";
 const statusVariant: Record<string, "success" | "warning" | "danger" | "info" | "default"> = {
   initiated: "info",
   funded: "info",
+  escrowed: "info",
+  held: "info",
   released: "success",
   disputed: "danger",
+  dispute_resolved: "success",
   refunded: "warning",
   expired: "default",
 };
@@ -23,12 +26,21 @@ export function EscrowsPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useEscrows(search ? `search=${encodeURIComponent(search)}` : undefined);
 
-  const escrows = (data as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const escrows = (resp?.escrows as Record<string, unknown>[]) || [];
 
   const columns = [
     { key: "escrowId", header: t("escrows.id") },
-    { key: "buyerName", header: t("escrows.buyer") },
-    { key: "sellerName", header: t("escrows.seller") },
+    {
+      key: "buyerName",
+      header: t("escrows.buyer"),
+      render: (row: Record<string, unknown>) => String(row.buyerName || row.buyerId || ""),
+    },
+    {
+      key: "farmerName",
+      header: t("escrows.seller"),
+      render: (row: Record<string, unknown>) => String(row.farmerName || row.farmerId || ""),
+    },
     {
       key: "amount",
       header: t("escrows.amount"),
@@ -57,7 +69,7 @@ export function EscrowsPage() {
     <div>
       <h2 className="mb-6 text-xl font-bold">{t("escrows.title")}</h2>
       <Card>
-        <div className="mb-4 max-w-sm">
+        <div className="mb-4 max-w-full md:max-w-sm">
           <SearchInput value={search} onChange={setSearch} />
         </div>
         <DataTable

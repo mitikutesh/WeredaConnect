@@ -1,7 +1,8 @@
 {
   "app": {
     "title": "WeredaConnect አስተዳዳሪ",
-    "subtitle": "የመድረክ አስተዳደር"
+    "subtitle": "የመድረክ አስተዳደር",
+    "tagline": "ለኢትዮጵያ ገጠር ማህበረሰቦች የግብርና ሎጂስቲክስ መድረክ"
   },
   "nav": {
     "dashboard": "ዳሽቦርድ",
@@ -24,6 +25,13 @@
     "loginSubtitle": "ወደ WeredaConnect አስተዳዳሪ ይግቡ",
     "invalidCredentials": "ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል",
     "notAdmin": "መዳረሻ ተከልክሏል። የአስተዳዳሪ ፈቃድ ያስፈልጋል።",
+    "userNotConfirmed": "እባክዎ መጀመሪያ ስልክ ቁጥርዎን ያረጋግጡ።",
+    "passwordResetRequired": "የይለፍ ቃል ዳግም ማስጀመር ያስፈልጋል። እባክዎ ድጋፍን ያግኙ።",
+    "rateLimitExceeded": "በጣም ብዙ ሙከራዎች። እባክዎ ቆይተው ይሞክሩ።",
+    "invalidInput": "እባክዎ ስልክ ቁጥርዎን እና የይለፍ ቃልዎን ያረጋግጡ።",
+    "networkError": "አገልጋዩን ማግኘት አልተቻለም። እባክዎ ግንኙነትዎን ያረጋግጡ።",
+    "serviceUnavailable": "አገልግሎቱ ለጊዜው አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
+    "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
     "signingIn": "በመግባት ላይ..."
   },
   "dashboard": {
@@ -47,8 +55,11 @@
     "auditTrail": "የኦዲት ዱካ",
     "initiated": "ተጀምሯል",
     "funded": "ገንዘብ ገብቷል",
+    "escrowed": "በኢስክሮ ተይዟል",
+    "held": "ተይዟል",
     "released": "ተለቋል",
     "disputed": "ክርክር ተነስቷል",
+    "dispute_resolved": "ተፈትቷል",
     "refunded": "ተመላሽ ሆኗል",
     "expired": "ጊዜው አልፏል"
   },
@@ -61,7 +72,8 @@
     "resolution": "ውሳኔ",
     "resolvedAt": "የተፈታበት",
     "pending": "በመጠባበቅ ላይ",
-    "resolved": "ተፈትቷል"
+    "resolved": "ተፈትቷል",
+    "disputed": "ክርክር ተነስቷል"
   },
   "fraud": {
     "title": "ማጭበርበሪያ ግምገማ",
@@ -86,7 +98,9 @@
     "joined": "የተቀላቀለበት",
     "detail": "የተጠቃሚ ዝርዝር",
     "suspend": "አግድ",
+    "suspended": "ታግዷል",
     "activate": "አንቃ",
+    "active": "ንቁ",
     "verify": "አረጋግጥ",
     "changeRole": "ሚና ቀይር",
     "farmer": "ገበሬ",
@@ -124,7 +138,8 @@
     "cronStatus": "የCron ሁኔታ",
     "healthy": "ጤናማ",
     "degraded": "ያሽቆለቆለ",
-    "down": "ወድቋል"
+    "down": "ወድቋል",
+    "services": "አገልግሎቶች"
   },
   "compliance": {
     "title": "ተገዢነት",
@@ -142,6 +157,7 @@
     "error": "ስህተት ተከስቷል",
     "retry": "እንደገና ሞክር",
     "noData": "ምንም ውሂብ የለም",
+    "notAvailable": "የለም",
     "confirm": "አረጋግጥ",
     "cancel": "ሰርዝ",
     "save": "አስቀምጥ",
@@ -156,6 +172,23 @@
     "actions": "ድርጊቶች",
     "etb": "ብር",
     "birr": "ብር"
+  },
+  "errors": {
+    "generic": "ያልተጠበቀ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
+    "networkError": "አገልጋዩን ማግኘት አልተቻለም። እባክዎ ግንኙነትዎን ያረጋግጡ።",
+    "unauthorized": "ክፍለ ጊዜዎ አልፏል። እባክዎ እንደገና ይግቡ።",
+    "forbidden": "መዳረሻ ተከልክሏል።",
+    "ESCROW_001": "ልክ ያልሆነ መጠን።",
+    "ESCROW_005": "ማረጋገጫ ያስፈልጋል።",
+    "ESCROW_009": "ለዚህ ማድረሻ ኢስክሮ ቀድሞ አለ።",
+    "ESCROW_012": "የሰርቨር ስህተት። እባክዎ እንደገና ይሞክሩ።",
+    "ESCROW_013": "የቴሌብር አገልግሎት ስህተት። እባክዎ እንደገና ይሞክሩ።",
+    "ESCROW_014": "ቴሌብር በአሁኑ ጊዜ አይገኝም።",
+    "ESCROW_016": "ኢስክሮ አልተገኘም።",
+    "ESCROW_INVALID_TRANSITION": "ለዚህ ኢስክሮ ልክ ያልሆነ የሁኔታ ለውጥ።",
+    "ADMIN_002": "ማገናኛ አልተገኘም።",
+    "ADMIN_500": "ውስጣዊ የሰርቨር ስህተት።",
+    "actionFailed": "ድርጊቱ አልተሳካም። እባክዎ እንደገና ይሞክሩ።"
   },
   "language": {
     "english": "English",

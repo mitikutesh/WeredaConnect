@@ -18,4 +18,9 @@ abstract class RouteNames {
   static const String tripDetail = 'trip-detail';
   static const String browseListings = 'browse-listings';
   static const String browseTrips = 'browse-trips';
+  static const String listings = 'listings';
+  static const String marketplace = 'marketplace';
+  static const String trips = 'trips';
+  static const String myCrops = 'my-crops';
+  static const String findCrops = 'find-crops';
 }

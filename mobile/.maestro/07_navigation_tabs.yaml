@@ -1,0 +1,15 @@
+appId: et.wereda.connect
+name: "07 - App Relaunch Returning User"
+---
+
+# Test: When user has seen splash but not logged in,
+# app should show splash screen on relaunch
+
+- launchApp
+- waitForAnimationToEnd
+
+# On relaunch, splash or welcome should be visible
+- assertVisible: "WeredaConnect"
+
+# Take screenshot
+- takeScreenshot: "07_relaunch_state"

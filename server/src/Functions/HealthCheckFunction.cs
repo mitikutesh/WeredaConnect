@@ -35,10 +35,7 @@ public class HealthCheckFunction
         var response = new HealthCheckResponse
         {
             Status = "healthy",
-            Timestamp = DateTime.UtcNow,
-            Version = "0.1.0",
-            Region = Environment.GetEnvironmentVariable("AWS_REGION") ?? "unknown",
-            ColdStart = IsColdStart()
+            Timestamp = DateTime.UtcNow
         };
 
         return new APIGatewayProxyResponse
@@ -48,7 +45,6 @@ public class HealthCheckFunction
             Headers = new Dictionary<string, string>
             {
                 { "Content-Type", "application/json" },
-                { "X-WeredaConnect-Version", "0.1.0" },
                 { "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload" },
                 { "X-Content-Type-Options", "nosniff" },
                 { "X-Frame-Options", "DENY" },
@@ -57,25 +53,6 @@ public class HealthCheckFunction
         };
     }
 
-    private static bool _isColdStart = true;
-
-    private static bool IsColdStart()
-    {
-        if (_isColdStart)
-        {
-            _isColdStart = false;
-            return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Reset cold start state for testing purposes only.
-    /// </summary>
-    internal static void ResetColdStart()
-    {
-        _isColdStart = true;
-    }
 }
 
 /// <summary>
@@ -86,8 +63,5 @@ public record HealthCheckResponse
 {
     public required string Status { get; init; }
     public required DateTime Timestamp { get; init; }
-    public required string Version { get; init; }
-    public required string Region { get; init; }
-    public required bool ColdStart { get; init; }
 }
 

@@ -12,7 +12,7 @@ namespace WeredaConnect.Server.Functions;
 /// Create/update operations are handled through /sync endpoint.
 ///
 /// Endpoints:
-/// - GET /orders - Query orders with optional filters (buyerId, farmerId, status, listingId)
+/// - GET /orders - Query orders with optional filters (buyerId, farmerId, truckerId, status, listingId)
 /// - GET /orders/{id} - Get a single order by ID
 ///
 /// Error codes:
@@ -62,7 +62,7 @@ public class OrderFunction
 
     /// <summary>
     /// GET /orders - Query orders with optional filters.
-    /// Query parameters: buyerId, farmerId, status, listingId, limit, nextToken
+    /// Query parameters: buyerId, farmerId, truckerId, status, listingId, limit, nextToken
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetOrdersAsync(
         APIGatewayProxyRequest request,
@@ -72,6 +72,7 @@ public class OrderFunction
 
         queryParams.TryGetValue("buyerId", out var buyerId);
         queryParams.TryGetValue("farmerId", out var farmerId);
+        queryParams.TryGetValue("truckerId", out var truckerId);
         queryParams.TryGetValue("status", out var status);
         queryParams.TryGetValue("listingId", out var listingId);
 
@@ -117,7 +118,14 @@ public class OrderFunction
                 "You can only query your own orders.");
         }
 
-        if (string.IsNullOrEmpty(buyerId) && string.IsNullOrEmpty(farmerId))
+        if (!string.IsNullOrEmpty(truckerId) && truckerId != authenticatedUserId)
+        {
+            return LambdaResponse.Error(403, "ORDER_FORBIDDEN",
+                "You can only query your own orders.");
+        }
+
+        // Default: if no role-specific filter provided, assume buyer
+        if (string.IsNullOrEmpty(buyerId) && string.IsNullOrEmpty(farmerId) && string.IsNullOrEmpty(truckerId))
         {
             buyerId = authenticatedUserId;
         }
@@ -125,7 +133,7 @@ public class OrderFunction
         try
         {
             var queryResult = await _orderRepo.QueryOrdersAsync(
-                buyerId, farmerId, status, listingId, limit, exclusiveStartKey);
+                buyerId, farmerId, truckerId, status, listingId, limit, exclusiveStartKey);
 
             var orders = queryResult.Items.Select(MapToOrderDto).ToList();
 
@@ -145,7 +153,7 @@ public class OrderFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error querying orders: {ex.Message}");
+            context.Logger.LogError($"Error querying orders: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ORDER_SERVER_ERROR", "Failed to query orders.");
         }
     }
@@ -197,7 +205,7 @@ public class OrderFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting order {orderId}: {ex.Message}");
+            context.Logger.LogError($"Error getting order {orderId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ORDER_SERVER_ERROR", "Failed to retrieve order.");
         }
     }

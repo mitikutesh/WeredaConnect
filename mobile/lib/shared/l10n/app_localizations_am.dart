@@ -21,6 +21,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get welcomeTitle => 'እንኳን ወደ ወረዳ ኮነክት በደህና መጡ';
 
   @override
+  String welcomeBackUser(String userName) {
+    return 'እንኳን ደህና መጡ፣ $userName';
+  }
+
+  @override
   String get worksOffline => 'ከመስመር ውጭ ይሰራል';
 
   @override
@@ -253,7 +258,8 @@ class AppLocalizationsAm extends AppLocalizations {
       'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት';
 
   @override
-  String get invalidPhoneFormat => 'ልክ ያልሆነ ስልክ ቁጥር ቅርጸት። +251XXXXXXXXX ይጠቀሙ';
+  String get invalidPhoneFormat =>
+      'ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ';
 
   @override
   String get invalidCredentials => 'ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል';
@@ -354,7 +360,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get clearOfflineDataDescription => 'ይህን መረጃ ካላጠፉ ከመስመር ውጭ መግባት ይችላሉ';
 
   @override
-  String get ethiopianPhoneExample => 'ምሳሌ: +251911234567';
+  String get ethiopianPhoneExample => 'ምሳሌ: 0911234567 ወይም +251911234567';
 
   @override
   String get characters => 'ቁምፊዎች';
@@ -1044,6 +1050,31 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowErrorOffline => 'ለዚህ ድርጊት የኢንተርኔት ግንኙነት ያስፈልጋል።';
 
   @override
+  String get escrowErrorInvalidDelivery => 'ልክ ያልሆነ የማድረሻ ማጣቀሻ።';
+
+  @override
+  String get escrowErrorUnauthorized => 'ለዚህ ድርጊት ስልጣን የለዎትም።';
+
+  @override
+  String get escrowErrorDeliveryNotFound => 'ማድረሻ አልተገኘም።';
+
+  @override
+  String get escrowErrorInvalidDeliveryState => 'ማድረሻው ለክፍያ ልክ ባልሆነ ሁኔታ ላይ ነው።';
+
+  @override
+  String get escrowErrorInvalidDisputeReason => 'እባክዎ ልክ የሆነ የክርክር ምክንያት ይምረጡ።';
+
+  @override
+  String get escrowErrorDisputeWindowExpired =>
+      'የክርክር ጊዜ አልፏል (ከማድረሻ በኋላ 48 ሰዓት)።';
+
+  @override
+  String get escrowErrorDisputeAlreadyExists => 'ለዚህ ክፍያ ቀድሞ ክርክር ተነስቷል።';
+
+  @override
+  String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
+
+  @override
   String escrowEtbAmount(String amount) {
     return 'ብር $amount';
   }
@@ -1488,7 +1519,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get matchedLoads => 'ተዛምደው';
 
   @override
-  String get farmersBrowsed => 'ተቃኝተው';
+  String get farmersBrowsed => 'ዝርዝሮች';
 
   @override
   String get marketplace => 'የገበያ ቦታ';
@@ -1735,6 +1766,9 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get splashSubtitle =>
       'ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።';
+
+  @override
+  String get orderFunded => 'ገንዘብ ተከፍሏል';
 
   @override
   String get orderCancelled => 'ተሰርዟል';
@@ -2027,4 +2061,49 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get quickFill => 'ፈጣን ሙሌት';
+
+  @override
+  String get somethingWentWrong => 'ችግር ተፈጥሯል';
+
+  @override
+  String get checkConnectionRetry => 'እባክዎ ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።';
+
+  @override
+  String get sellCrops => 'ሰብል ይሸጡ';
+
+  @override
+  String get sellYourHarvest => 'ምርትዎን ይሸጡ';
+
+  @override
+  String get tapToListCrops => 'ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
+
+  @override
+  String get synced => 'ተመሳስሏል';
+
+  @override
+  String get offline => 'ከመስመር ውጭ';
+
+  @override
+  String syncFailureCount(int count) {
+    return '$count ስራዎች ትኩረት ይፈልጋሉ';
+  }
+
+  @override
+  String syncPendingCount(int count) {
+    return '$count ለማመሳሰል ይጠብቃሉ';
+  }
+
+  @override
+  String paymentStatusTitle(String status) {
+    return '$status ክፍያ';
+  }
+
+  @override
+  String get myCrops => 'ሰብሎቼ';
+
+  @override
+  String get browseAll => 'ያስሱ';
+
+  @override
+  String get myRequests => 'ጥያቄዎቼ';
 }

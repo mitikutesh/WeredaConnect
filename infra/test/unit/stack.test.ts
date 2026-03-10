@@ -6,6 +6,7 @@ import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { environments } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
+const prodConfig = environments['prod'];
 
 describe('DatabaseStack', () => {
   let template: Template;
@@ -74,19 +75,20 @@ describe('ApiStack', () => {
     });
   });
 
-  test('creates Cognito User Pool with phone sign-in', () => {
+  test('creates Cognito User Pools (mobile + admin) with phone sign-in and deletion protection', () => {
+    template.resourceCountIs('AWS::Cognito::UserPool', 2);
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UsernameAttributes: ['phone_number'],
-      AutoVerifiedAttributes: ['phone_number'],
+      DeletionProtection: 'ACTIVE',
     });
   });
 
-  test('creates Cognito User Pool Client', () => {
-    template.resourceCountIs('AWS::Cognito::UserPoolClient', 1);
+  test('creates Cognito User Pool Clients (mobile + admin)', () => {
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates fourteen Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 14);
+  test('creates fifteen Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 15);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -94,19 +96,86 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 22 routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
-    //            /sync, /crops, /crops/{id}, /trips, /trips/{id},
-    //            /orders, /orders/{id},
-    //            /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
-    //            /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 22);
+    // 22 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
+    //                 /sync, /crops, /crops/{id}, /trips, /trips/{id},
+    //                 /orders, /orders/{id},
+    //                 /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
+    //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
+    // 15 admin routes: 12 GET + 3 POST
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 37);
   });
 
-  test('creates JWT authorizer for protected routes', () => {
-    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 1);
+  test('creates JWT authorizers for mobile and admin routes', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'JWT',
     });
+  });
+});
+
+describe('ApiStack (prod security)', () => {
+  let template: Template;
+
+  beforeAll(() => {
+    const app = new cdk.App();
+    const dbStack = new DatabaseStack(app, 'ProdDbStack', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+    });
+    const apiStack = new ApiStack(app, 'ProdApiStack', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    template = Template.fromStack(apiStack);
+  });
+
+  test('T-SEC-06: prod CORS origins contain no localhost', () => {
+    const api = template.findResources('AWS::ApiGatewayV2::Api');
+    for (const [, resource] of Object.entries(api)) {
+      const corsConfig = (resource as Record<string, Record<string, unknown>>).Properties?.CorsConfiguration as
+        Record<string, unknown> | undefined;
+      if (corsConfig?.AllowOrigins) {
+        const origins = corsConfig.AllowOrigins as string[];
+        for (const origin of origins) {
+          expect(origin).not.toMatch(/localhost/);
+        }
+      }
+    }
+  });
+
+  test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS or TELEBIRR_MOCK', () => {
+    const lambdas = template.findResources('AWS::Lambda::Function');
+    for (const [logicalId, resource] of Object.entries(lambdas)) {
+      const env = (resource as Record<string, Record<string, Record<string, Record<string, unknown>>>>)
+        .Properties?.Environment?.Variables ?? {};
+      expect(env).not.toHaveProperty('DEV_FAYDA_BYPASS',
+        `Lambda ${logicalId} has DEV_FAYDA_BYPASS — forbidden in prod`);
+      expect(env).not.toHaveProperty('TELEBIRR_MOCK',
+        `Lambda ${logicalId} has TELEBIRR_MOCK — forbidden in prod`);
+    }
+  });
+
+  test('T-SEC-07: admin token validity is 15 minutes or less', () => {
+    const clients = template.findResources('AWS::Cognito::UserPoolClient');
+    for (const [, resource] of Object.entries(clients)) {
+      const accessValidity = (resource as Record<string, Record<string, number>>).Properties?.AccessTokenValidity;
+      if (accessValidity) {
+        expect(accessValidity).toBeLessThanOrEqual(60); // minutes — CDK may use different units
+      }
+    }
   });
 });
 

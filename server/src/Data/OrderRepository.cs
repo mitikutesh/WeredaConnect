@@ -14,6 +14,7 @@ namespace WeredaConnect.Server.Data;
 ///   SK: createdAt (STRING)
 ///   GSI BuyerIdCreatedAtIndex: buyerId + createdAt
 ///   GSI FarmerIdCreatedAtIndex: farmerId + createdAt
+///   GSI TruckerIdCreatedAtIndex: truckerId + createdAt
 ///   GSI StatusCreatedAtIndex: status + createdAt
 ///   GSI ListingIdIndex: listingId + createdAt
 ///   GSI TripIdIndex: tripId + createdAt
@@ -169,6 +170,7 @@ public sealed class OrderRepository : IOrderRepository
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOrdersAsync(
         string? buyerId = null,
         string? farmerId = null,
+        string? truckerId = null,
         string? status = null,
         string? listingId = null,
         int limit = 20,
@@ -188,6 +190,11 @@ public sealed class OrderRepository : IOrderRepository
         if (!string.IsNullOrEmpty(farmerId))
         {
             return await QueryByGsiAsync("FarmerIdCreatedAtIndex", "farmerId", farmerId, limit, exclusiveStartKey);
+        }
+
+        if (!string.IsNullOrEmpty(truckerId))
+        {
+            return await QueryByGsiAsync("TruckerIdCreatedAtIndex", "truckerId", truckerId, limit, exclusiveStartKey);
         }
 
         if (!string.IsNullOrEmpty(status))

@@ -1,7 +1,7 @@
-/// Minimal Isar type stubs for web compilation.
-///
-/// On web, Isar is not used. These stubs satisfy type references in
-/// shared code (e.g., AuthBloc) so they compile to JavaScript.
+// Minimal Isar type stubs for web compilation.
+//
+// On web, Isar is not used. These stubs satisfy type references in
+// shared code (e.g., AuthBloc) so they compile to JavaScript.
 
 /// Stub for Isar database type.
 class Isar {

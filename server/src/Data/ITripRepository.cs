@@ -26,6 +26,19 @@ public interface ITripRepository
         Dictionary<string, AttributeValue>? exclusiveStartKey = null);
 
     /// <summary>
+    /// Query trip listings by trucker ID using the TruckerIdCreatedAtIndex GSI.
+    /// </summary>
+    /// <param name="truckerId">The trucker's user ID.</param>
+    /// <param name="status">Optional status filter (applied as FilterExpression).</param>
+    /// <param name="limit">Maximum number of results to return (1-50).</param>
+    /// <param name="exclusiveStartKey">Pagination token.</param>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryTripsByTruckerAsync(
+        string truckerId,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+
+    /// <summary>
     /// Get a trip listing by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string tripId);

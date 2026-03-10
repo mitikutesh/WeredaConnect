@@ -40,7 +40,7 @@ export function TransactionsPage() {
         />
         <KpiCard
           label={t("transactions.peakHour")}
-          value={String(stats.peakHour || "N/A")}
+          value={String(stats.peakHour || t("common.notAvailable"))}
           icon={<Clock size={20} />}
         />
         <KpiCard

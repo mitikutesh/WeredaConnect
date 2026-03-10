@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Wrap a widget in MaterialApp with l10n delegates.
 Widget _wrapWithL10n(Widget child) {
@@ -44,7 +45,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.hourglass_empty);
-        expect(icon.color, Colors.grey);
+        expect(icon.color, AppTheme.textMuted);
       });
 
       testWidgets('escrowed shows amber shield', (WidgetTester tester) async {
@@ -57,7 +58,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.shield);
-        expect(icon.color, Colors.amber.shade700);
+        expect(icon.color, AppTheme.statusWarning);
       });
 
       testWidgets('released shows blue send', (WidgetTester tester) async {
@@ -70,7 +71,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.send);
-        expect(icon.color, Colors.blue);
+        expect(icon.color, AppTheme.statusInfo);
       });
 
       testWidgets('completed shows green check_circle',
@@ -84,7 +85,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.check_circle);
-        expect(icon.color, Colors.green);
+        expect(icon.color, AppTheme.statusSuccess);
       });
 
       testWidgets('cancelled shows grey cancel', (WidgetTester tester) async {
@@ -97,7 +98,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.cancel);
-        expect(icon.color, Colors.grey);
+        expect(icon.color, AppTheme.textMuted);
       });
 
       testWidgets('disputed shows red warning', (WidgetTester tester) async {
@@ -110,7 +111,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.warning);
-        expect(icon.color, Colors.red.shade700);
+        expect(icon.color, AppTheme.statusError);
       });
 
       testWidgets('refunded shows teal replay', (WidgetTester tester) async {
@@ -123,7 +124,7 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.replay);
-        expect(icon.color, Colors.teal);
+        expect(icon.color, AppTheme.primaryGreenLight);
       });
 
       testWidgets('compact variant has 16px icon size',

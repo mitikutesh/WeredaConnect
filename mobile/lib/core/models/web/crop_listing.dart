@@ -7,6 +7,7 @@ class CropListing {
 
   late String listingId;
   late String farmerId;
+  String farmerName = '';
   late String cropType;
   late double quantity;
   late double pricePerKg;
