@@ -101,7 +101,9 @@ void main() {
       // MaterialBanner has amber background
       final banner = tester.widget<MaterialBanner>(find.byType(MaterialBanner));
       expect(
-          banner.backgroundColor, equals(AppTheme.statusWarning.withAlpha(25)));
+        banner.backgroundColor,
+        equals(AppTheme.statusWarning.withAlpha(25)),
+      );
     });
 
     testWidgets('text has correct style (fontSize 16, maxLines 2)',

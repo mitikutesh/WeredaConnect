@@ -328,7 +328,6 @@ void main() {
         // +251 format — valid phone, but past date triggers departure error
         expectValidationError(
           'departureDate',
-          truckerPhone: '+251911234567',
           departureDate:
               DateTime.now().toUtc().subtract(const Duration(days: 1)),
         );

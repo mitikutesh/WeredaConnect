@@ -1,6 +1,6 @@
-/// Web-only entry point for WeredaConnect.
-/// Build with: flutter build web --target lib/main_web.dart
-/// This avoids importing Isar/FFI code that doesn't compile to JavaScript.
+// Web-only entry point for WeredaConnect.
+// Build with: flutter build web --target lib/main_web.dart
+// This avoids importing Isar/FFI code that doesn't compile to JavaScript.
 import 'dart:convert' show jsonDecode;
 
 import 'package:dio/dio.dart';
@@ -74,7 +74,6 @@ Future<void> main() async {
       baseUrl: ApiClient().dio.options.baseUrl,
       connectTimeout: ApiClient().dio.options.connectTimeout,
       receiveTimeout: ApiClient().dio.options.receiveTimeout,
-      responseType: ResponseType.json,
       headers: Map<String, dynamic>.from(ApiClient().dio.options.headers),
     ),
   );
@@ -114,7 +113,9 @@ Future<void> main() async {
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
           await secureStorage.write(
-              key: 'cached_tokens_$phone', value: tokensJson);
+            key: 'cached_tokens_$phone',
+            value: tokensJson,
+          );
         }
 
         return newAccessToken;

@@ -169,7 +169,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
       Text(
         '${widget.listing.locationName} → ${widget.deliveryWoreda}',
         style: TextStyle(
-            fontSize: 13, color: theme.colorScheme.onSurface.withAlpha(153)),
+          fontSize: 13,
+          color: theme.colorScheme.onSurface.withAlpha(153),
+        ),
       ),
       const SizedBox(height: 12),
 
@@ -190,7 +192,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               child: Text(
                 l10n.noTripsYet,
                 style: TextStyle(
-                    color: theme.colorScheme.onSurface.withAlpha(153)),
+                  color: theme.colorScheme.onSurface.withAlpha(153),
+                ),
               ),
             ),
           ),

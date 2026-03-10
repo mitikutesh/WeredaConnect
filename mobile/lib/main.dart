@@ -106,7 +106,9 @@ Future<void> main() async {
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
           await secureStorage.write(
-              key: 'tokens_$phone', value: tokensJson);
+            key: 'tokens_$phone',
+            value: tokensJson,
+          );
         }
 
         return newAccessToken;
