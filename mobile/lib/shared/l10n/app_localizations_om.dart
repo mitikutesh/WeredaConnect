@@ -2011,7 +2011,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String matchesFound(int count) {
-    return '$count walsimatu argame';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count walsimatu argame',
+      one: '1 walsimatu argame',
+      zero: 'Walsimatu hin argamne',
+    );
+    return '$_temp0';
   }
 
   @override

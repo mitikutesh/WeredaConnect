@@ -25,6 +25,7 @@ import 'package:wereda_connect/features/buyer/presentation/screens/create_intent
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
@@ -1044,66 +1045,75 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
   Widget build(BuildContext context) {
     final l10n = widget.l10n;
 
-    return BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
-      buildWhen: (prev, curr) => curr is ActiveIntentsLoaded,
-      builder: (context, state) {
-        if (state is! ActiveIntentsLoaded || state.intents.isEmpty) {
-          return const SizedBox.shrink();
-        }
+    return BlocListener<BuyerIntentBloc, BuyerIntentState>(
+      listenWhen: (prev, curr) => curr is BuyerIntentCreated,
+      listener: (context, state) {
+        // After a new intent is created, reload the active intents list.
+        context
+            .read<BuyerIntentBloc>()
+            .add(LoadActiveIntents(buyerId: widget.userId));
+      },
+      child: BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+        buildWhen: (prev, curr) => curr is ActiveIntentsLoaded,
+        builder: (context, state) {
+          if (state is! ActiveIntentsLoaded || state.intents.isEmpty) {
+            return const SizedBox.shrink();
+          }
 
-        final intents = state.intents.take(3).toList();
+          final intents = state.intents.take(3).toList();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              l10n.activeBuyingIntents,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.activeBuyingIntents,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textDark,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            ...intents.map(
-              (intent) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: IntentCard(
-                  intent: intent,
-                  onTap: () async {
+              const SizedBox(height: 8),
+              ...intents.map(
+                (intent) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: IntentCard(
+                    intent: intent,
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => BlocProvider.value(
+                            value: context.read<BuyerIntentBloc>(),
+                            child: MatchResultsScreen(intent: intent),
+                          ),
+                        ),
+                      );
+                      widget.onRefresh?.call();
+                    },
+                  ),
+                ),
+              ),
+              // "New Buying Intent" button
+              Center(
+                child: TextButton.icon(
+                  onPressed: () async {
                     await Navigator.push(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => BlocProvider.value(
-                          value: context.read<BuyerIntentBloc>(),
-                          child: MatchResultsScreen(intent: intent),
-                        ),
+                        builder: (_) => const CreateIntentScreen(),
                       ),
                     );
                     widget.onRefresh?.call();
                   },
+                  icon: const Icon(Icons.add, size: 16),
+                  label: Text(l10n.newBuyingIntent),
                 ),
               ),
-            ),
-            // "New Buying Intent" button
-            Center(
-              child: TextButton.icon(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CreateIntentScreen(),
-                    ),
-                  );
-                  widget.onRefresh?.call();
-                },
-                icon: const Icon(Icons.add, size: 16),
-                label: Text(l10n.newBuyingIntent),
-              ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -1567,6 +1577,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       final role =
           authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
+      // Capture BLoC state before async gap to avoid lint warning
+      final intentState =
+          role == UserRole.buyer ? context.read<BuyerIntentBloc>().state : null;
+
       // Fetch recent data in parallel based on role
       final futures = <Future<Map<String, dynamic>>>[
         // Orders (all roles)
@@ -1679,6 +1693,24 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 description: l10n.listingCreatedActivity(cropType),
                 timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                     DateTime.now(),
+                type: _ActivityType.info,
+              ),
+            );
+          }
+        }
+      }
+
+      // Buyer intents (in-memory on web, not from API)
+      if (role == UserRole.buyer) {
+        if (intentState is ActiveIntentsLoaded) {
+          for (final intent in intentState.intents.take(3)) {
+            final cropLabel =
+                CropType.fromKey(intent.cropType).displayName(l10n);
+            items.add(
+              _ActivityItem(
+                description:
+                    '${l10n.activeBuyingIntents}: $cropLabel · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals}',
+                timestamp: intent.createdAt,
                 type: _ActivityType.info,
               ),
             );

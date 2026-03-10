@@ -1997,7 +1997,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String matchesFound(int count) {
-    return '$count matches found';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count matches found',
+      one: '1 match found',
+      zero: 'No matches found',
+    );
+    return '$_temp0';
   }
 
   @override

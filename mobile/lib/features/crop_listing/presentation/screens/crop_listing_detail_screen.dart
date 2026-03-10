@@ -602,6 +602,14 @@ class _DetailsCard extends StatelessWidget {
               label: l10n.location,
               value: listing.locationName,
             ),
+            if (listing.farmerName.isNotEmpty) ...[
+              const Divider(height: 24),
+              _DetailRow(
+                icon: Icons.person,
+                label: l10n.farmer,
+                value: listing.farmerName,
+              ),
+            ],
             if (listing.description.isNotEmpty) ...[
               const Divider(height: 24),
               _DetailRow(

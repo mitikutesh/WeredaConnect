@@ -2207,7 +2207,7 @@
   "quantityNeeded": "Hamma barbaadamu (kuuntaalii)",
   "maxPrice": "Gatii ol'aanaa (Birrii/kg)",
   "deliverTo": "Bakka geejjibaa",
-  "matchesFound": "{count} walsimatu argame",
+  "matchesFound": "{count, plural, =0{Walsimatu hin argamne} =1{1 walsimatu argame} other{{count} walsimatu argame}}",
   "@matchesFound": { "placeholders": { "count": { "type": "int" } } },
   "noMatchesYet": "Hanga ammaatti walsimatu hin jiru",
   "suggestedTransport": "Geejjiba Yaadame",

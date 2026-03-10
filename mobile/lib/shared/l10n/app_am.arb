@@ -2172,7 +2172,7 @@
   "quantityNeeded": "የሚፈለግ መጠን (ኩንታል)",
   "maxPrice": "ከፍተኛ ዋጋ (ብር/ኪግ)",
   "deliverTo": "ማድረሻ",
-  "matchesFound": "{count} ተመሳሳይ ተገኝቷል",
+  "matchesFound": "{count, plural, =0{ተመሳሳይ አልተገኘም} =1{1 ተመሳሳይ ተገኝቷል} other{{count} ተመሳሳይ ተገኝቷል}}",
   "@matchesFound": {
     "placeholders": {
       "count": {

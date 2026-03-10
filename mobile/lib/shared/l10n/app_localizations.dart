@@ -3799,7 +3799,7 @@ abstract class AppLocalizations {
   /// Count of matching listings
   ///
   /// In en, this message translates to:
-  /// **'{count} matches found'**
+  /// **'{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}'**
   String matchesFound(int count);
 
   /// Empty state when no listings match the intent

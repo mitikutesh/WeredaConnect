@@ -1951,7 +1951,14 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String matchesFound(int count) {
-    return '$count ተመሳሳይ ተገኝቷል';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ተመሳሳይ ተገኝቷል',
+      one: '1 ተመሳሳይ ተገኝቷል',
+      zero: 'ተመሳሳይ አልተገኘም',
+    );
+    return '$_temp0';
   }
 
   @override
