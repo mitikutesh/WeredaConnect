@@ -62,11 +62,25 @@ class _HomeScreenState extends State<HomeScreen> {
   /// their state (and reload data from Isar) when it changes.
   int _refreshKey = 0;
   StreamSubscription<dynamic>? _syncSub;
+  StreamSubscription<dynamic>? _authSub;
+
+  /// Track the last userId so we can detect auth transitions on web.
+  String _lastUserId = '';
 
   @override
   void initState() {
     super.initState();
-    if (!kIsWeb) {
+    if (kIsWeb) {
+      // On web there is no SyncExecutor. Listen to AuthBloc instead so that
+      // when authentication completes after a browser refresh the dashboard
+      // child widgets are forced to reload with the correct userId.
+      _authSub = context.read<AuthBloc>().stream.listen((state) {
+        if (state is AuthAuthenticated && state.userId != _lastUserId) {
+          _lastUserId = state.userId;
+          _refreshData();
+        }
+      });
+    } else {
       _syncSub = context.read<SyncExecutor>().onSyncResult.listen((_) {
         _refreshData();
       });
@@ -76,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _syncSub?.cancel();
+    _authSub?.cancel();
     super.dispose();
   }
 
@@ -1123,7 +1138,9 @@ class _OverviewStatsState extends State<_OverviewStats> {
   void didUpdateWidget(covariant _OverviewStats oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId || oldWidget.role != widget.role) {
-      _statsFuture = _loadStats(widget.userId, widget.role);
+      setState(() {
+        _statsFuture = _loadStats(widget.userId, widget.role);
+      });
     }
   }
 
@@ -1430,7 +1447,9 @@ class _RecentActivityListState extends State<_RecentActivityList> {
   void didUpdateWidget(covariant _RecentActivityList oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
-      _activityFuture = _loadActivity();
+      setState(() {
+        _activityFuture = _loadActivity();
+      });
     }
   }
 

@@ -405,12 +405,16 @@ class _SidebarItemState extends State<_SidebarItem> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
+      child: Semantics(
+        button: true,
+        label: widget.item.label,
+        selected: widget.selected,
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: EdgeInsets.symmetric(
               horizontal: widget.expanded ? 14 : 0,
@@ -465,6 +469,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                   ),
           ),
         ),
+        ),
       ),
     );
   }
@@ -509,11 +514,14 @@ class _SidebarFooter extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           // User profile
-          GestureDetector(
-            onTap: onProfileTap,
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: Container(
+          Semantics(
+            button: true,
+            label: name.isEmpty ? 'Profile' : name,
+            child: GestureDetector(
+              onTap: onProfileTap,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Container(
                 padding: EdgeInsets.all(expanded ? 10 : 8),
                 decoration: BoxDecoration(
                   color: isProfileActive
@@ -574,6 +582,7 @@ class _SidebarFooter extends StatelessWidget {
                       ),
               ),
             ),
+            ),
           ),
         ],
       ),
@@ -619,38 +628,43 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
             ? Colors.white.withAlpha(13)
             : Colors.transparent;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.expanded ? 14 : 0,
-            vertical: 10,
-          ),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: widget.expanded
-              ? Row(
-                  children: [
-                    Icon(displayIcon, color: iconColor, size: 20),
-                    const SizedBox(width: 14),
-                    Text(
-                      widget.label,
-                      style: TextStyle(color: textColor, fontSize: 13),
+    return Semantics(
+      button: true,
+      label: widget.label,
+      selected: widget.isActive,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.expanded ? 14 : 0,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: widget.expanded
+                ? Row(
+                    children: [
+                      Icon(displayIcon, color: iconColor, size: 20),
+                      const SizedBox(width: 14),
+                      Text(
+                        widget.label,
+                        style: TextStyle(color: textColor, fontSize: 13),
+                      ),
+                    ],
+                  )
+                : Center(
+                    child: Tooltip(
+                      message: widget.label,
+                      child: Icon(displayIcon, color: iconColor, size: 22),
                     ),
-                  ],
-                )
-              : Center(
-                  child: Tooltip(
-                    message: widget.label,
-                    child: Icon(displayIcon, color: iconColor, size: 22),
                   ),
-                ),
+          ),
         ),
       ),
     );

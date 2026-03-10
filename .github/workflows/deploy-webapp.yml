@@ -53,6 +53,7 @@ jobs:
         run: |
           flutter build web \
             --release \
+            --target lib/main_web.dart \
             --dart-define=ENVIRONMENT=${{ github.event.inputs.environment || 'prod' }} \
             --dart-define=API_BASE_URL=${{ secrets.API_BASE_URL }} \
             --dart-define=COGNITO_USER_POOL_ID=${{ secrets.COGNITO_USER_POOL_ID }} \

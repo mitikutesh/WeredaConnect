@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/config/environment.dart';
@@ -44,6 +45,7 @@ import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) usePathUrlStrategy();
 
   if (!Environment.isApiConfigured) {
     debugPrint(
@@ -106,7 +108,7 @@ Future<void> main() async {
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
           await secureStorage.write(
-            key: 'tokens_$phone',
+            key: 'cached_tokens_$phone',
             value: tokensJson,
           );
         }
