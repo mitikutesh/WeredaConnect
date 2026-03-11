@@ -28,27 +28,32 @@ class WebMatchingService extends BaseMatchingService {
     BuyerIntent intent,
   ) async {
     try {
-      final data = await _api.get<Map<String, dynamic>>(
-        '/crops',
-        queryParameters: {
+      // Fetch all matching crops, following pagination
+      final matchingListings = <CropListing>[];
+      String? nextToken;
+      do {
+        final params = <String, dynamic>{
           'cropType': intent.cropType,
           'status': 'available',
-        },
-      );
-
-      final items = data['crops'] as List<dynamic>? ??
-          data['items'] as List<dynamic>? ??
-          [];
-
-      // Parse crop listings that match criteria
-      final matchingListings = <CropListing>[];
-      for (final item in items) {
-        final map = item as Map<String, dynamic>;
-        final listing = _parseListing(map);
-        if (listing.pricePerKg > intent.maxPricePerKg) continue;
-        if (listing.quantity < intent.quantityNeeded) continue;
-        matchingListings.add(listing);
-      }
+          'limit': '50',
+        };
+        if (nextToken != null) params['nextToken'] = nextToken;
+        final data = await _api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: params,
+        );
+        final items = data['crops'] as List<dynamic>? ??
+            data['items'] as List<dynamic>? ??
+            [];
+        for (final item in items) {
+          final map = item as Map<String, dynamic>;
+          final listing = _parseListing(map);
+          if (listing.pricePerKg > intent.maxPricePerKg) continue;
+          if (listing.quantity < intent.quantityNeeded) continue;
+          matchingListings.add(listing);
+        }
+        nextToken = data['nextToken'] as String?;
+      } while (nextToken != null);
 
       // Fetch open trips once for all matches
       final allTrips = await _fetchOpenTrips();
@@ -108,19 +113,27 @@ class WebMatchingService extends BaseMatchingService {
     }
   }
 
-  /// Fetch all open trips from the API.
+  /// Fetch all open trips from the API, following pagination.
   Future<List<Trip>> _fetchOpenTrips() async {
     try {
-      final data = await _api.get<Map<String, dynamic>>(
-        '/trips',
-        queryParameters: {'status': 'open'},
-      );
-      final items = data['trips'] as List<dynamic>? ??
-          data['items'] as List<dynamic>? ??
-          [];
-      return items
-          .map((item) => _parseTrip(item as Map<String, dynamic>))
-          .toList();
+      final allTrips = <Trip>[];
+      String? nextToken;
+      do {
+        final params = <String, dynamic>{'status': 'open', 'limit': '50'};
+        if (nextToken != null) params['nextToken'] = nextToken;
+        final data = await _api.get<Map<String, dynamic>>(
+          '/trips',
+          queryParameters: params,
+        );
+        final items = data['trips'] as List<dynamic>? ??
+            data['items'] as List<dynamic>? ??
+            [];
+        allTrips.addAll(
+          items.map((item) => _parseTrip(item as Map<String, dynamic>)),
+        );
+        nextToken = data['nextToken'] as String?;
+      } while (nextToken != null);
+      return allTrips;
     } on Exception {
       return [];
     }
