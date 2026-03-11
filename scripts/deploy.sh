@@ -177,7 +177,7 @@ if [[ -n "$WEBAPP_CF_ID" ]]; then
   echo "Invalidating CloudFront cache..."
   aws cloudfront create-invalidation \
     --distribution-id "$WEBAPP_CF_ID" \
-    --paths "/index.html" "/flutter_service_worker.js" "/version.json" \
+    --paths "/*" \
     --region us-east-1 \
     --output text
   echo "CloudFront invalidation submitted."

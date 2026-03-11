@@ -45,8 +45,8 @@ import 'package:wereda_connect/features/order/data/repositories/web_order_reposi
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
+  WidgetsFlutterBinding.ensureInitialized();
 
   if (!Environment.isApiConfigured) {
     debugPrint(
