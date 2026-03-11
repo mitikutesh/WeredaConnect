@@ -57,14 +57,11 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 
   Future<void> _loadSuggestedTrips() async {
-    if (kIsWeb) {
-      setState(() => _suggestedTrips = []);
-      return;
-    }
     setState(() => _tripsLoading = true);
     try {
-      final isar = IsarService.instance.db;
-      final matchingService = MatchingService(isar: isar);
+      // On web, MatchingService is the web stub (accepts dynamic isar).
+      // On mobile, IsarService.instance.db returns the real Isar instance.
+      final matchingService = MatchingService(isar: IsarService.instance.db);
       final trips = await matchingService.findTripsForListing(
         widget.listing,
         widget.deliveryWoreda!,
