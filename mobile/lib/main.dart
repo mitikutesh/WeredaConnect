@@ -107,8 +107,9 @@ Future<void> main() async {
               '"idToken":"${tokenData['idToken']}",'
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
+          final cacheKey = kIsWeb ? 'cached_tokens_$phone' : 'tokens_$phone';
           await secureStorage.write(
-            key: 'cached_tokens_$phone',
+            key: cacheKey,
             value: tokensJson,
           );
         }

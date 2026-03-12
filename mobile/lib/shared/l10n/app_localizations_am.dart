@@ -1519,7 +1519,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get matchedLoads => 'ተዛምደው';
 
   @override
-  String get farmersBrowsed => 'ዝርዝሮች';
+  String get farmersBrowsed => 'ያሉ ሰብሎች';
 
   @override
   String get marketplace => 'የገበያ ቦታ';
@@ -1719,6 +1719,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trackPayments => 'ገቢዎን እና ኤስክሮ ይከታተሉ';
 
   @override
+  String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
+
+  @override
   String get noDeliveries => 'ገና ማድረሻ የለም';
 
   @override
@@ -1744,6 +1747,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get manageOrders => 'ገቢ ትዕዛዞችን ያስተዳድሩ';
+
+  @override
+  String get trackYourOrders => 'ትዕዛዞችዎን ይከታተሉ';
 
   @override
   String get orderPending => 'በመጠባበቅ';

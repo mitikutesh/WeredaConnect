@@ -2113,9 +2113,9 @@
   "@matchedLoads": {
     "description": "Stat label for matched loads"
   },
-  "farmersBrowsed": "Listings",
+  "farmersBrowsed": "Available Crops",
   "@farmersBrowsed": {
-    "description": "Stat label for available crop listings count"
+    "description": "Stat label for available crop listings count (buyer dashboard)"
   },
   "marketplace": "Marketplace",
   "@marketplace": {
@@ -2394,7 +2394,11 @@
   },
   "trackPayments": "Track your earnings & escrow",
   "@trackPayments": {
-    "description": "Subtitle for the payments tab header"
+    "description": "Subtitle for the payments tab header (farmer/trucker)"
+  },
+  "trackBuyerPayments": "Track your payments & escrow",
+  "@trackBuyerPayments": {
+    "description": "Subtitle for the payments tab header (buyer)"
   },
   "noDeliveries": "No deliveries yet",
   "@noDeliveries": {
@@ -2430,7 +2434,11 @@
   },
   "manageOrders": "Manage incoming orders",
   "@manageOrders": {
-    "description": "Subtitle for orders tab header"
+    "description": "Subtitle for orders tab header (farmer/trucker)"
+  },
+  "trackYourOrders": "Track your orders",
+  "@trackYourOrders": {
+    "description": "Subtitle for orders tab header (buyer)"
   },
   "orderPending": "Pending",
   "@orderPending": {

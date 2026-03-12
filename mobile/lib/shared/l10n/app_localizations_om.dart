@@ -1568,7 +1568,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get matchedLoads => 'Walsimatan';
 
   @override
-  String get farmersBrowsed => 'Tarreeffama';
+  String get farmersBrowsed => 'Midhaan Jiran';
 
   @override
   String get marketplace => 'Gabaa';
@@ -1774,6 +1774,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackPayments => 'Galii fi eesciroo kee hordofi';
 
   @override
+  String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
+
+  @override
   String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';
 
   @override
@@ -1799,6 +1802,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get manageOrders => 'Ajaja dhufu bulchi';
+
+  @override
+  String get trackYourOrders => 'Ajaja kee hordofi';
 
   @override
   String get orderPending => 'Eeggachaa';

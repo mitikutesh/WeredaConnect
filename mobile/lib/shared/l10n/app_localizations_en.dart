@@ -1557,7 +1557,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get matchedLoads => 'Matched';
 
   @override
-  String get farmersBrowsed => 'Listings';
+  String get farmersBrowsed => 'Available Crops';
 
   @override
   String get marketplace => 'Marketplace';
@@ -1761,6 +1761,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trackPayments => 'Track your earnings & escrow';
 
   @override
+  String get trackBuyerPayments => 'Track your payments & escrow';
+
+  @override
   String get noDeliveries => 'No deliveries yet';
 
   @override
@@ -1786,6 +1789,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get manageOrders => 'Manage incoming orders';
+
+  @override
+  String get trackYourOrders => 'Track your orders';
 
   @override
   String get orderPending => 'Pending';

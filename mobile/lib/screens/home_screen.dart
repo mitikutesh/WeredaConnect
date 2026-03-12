@@ -879,6 +879,12 @@ class _QuickActionsGrid extends StatelessWidget {
             },
           ),
           _QuickActionTile(
+            icon: Icons.receipt_long_outlined,
+            label: l10n.myOrders,
+            color: AppTheme.statusInfo,
+            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
+          ),
+          _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.accentGold,
@@ -903,6 +909,12 @@ class _QuickActionsGrid extends StatelessWidget {
                 ).then((_) => onRefresh?.call());
               }
             },
+          ),
+          _QuickActionTile(
+            icon: Icons.receipt_long_outlined,
+            label: l10n.myOrders,
+            color: AppTheme.statusInfo,
+            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
@@ -935,6 +947,12 @@ class _QuickActionsGrid extends StatelessWidget {
                 ).then((_) => onRefresh?.call());
               }
             },
+          ),
+          _QuickActionTile(
+            icon: Icons.receipt_long_outlined,
+            label: l10n.myOrders,
+            color: AppTheme.statusInfo,
+            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,

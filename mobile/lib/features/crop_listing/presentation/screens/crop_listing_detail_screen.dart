@@ -103,7 +103,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.cropListings),
+        title: Text(cropType.displayName(l10n)),
         elevation: 0,
       ),
       body: SafeArea(

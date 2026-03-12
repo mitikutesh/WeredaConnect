@@ -54,6 +54,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     return false;
   }
 
+  bool _isBuyer() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role == UserRole.buyer;
+    }
+    return false;
+  }
+
   void _loadOrders() {
     final userId = _getUserId();
     if (userId != null) {
@@ -342,7 +350,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    l10n.manageOrders,
+                    _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withAlpha(180),
@@ -391,7 +399,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      l10n.manageOrders,
+                      _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
                       style: const TextStyle(
                         fontSize: 14,
                         color: AppTheme.textMuted,

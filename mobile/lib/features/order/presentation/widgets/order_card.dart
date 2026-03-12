@@ -94,19 +94,23 @@ class OrderCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     if (onReject != null)
-                      OutlinedButton(
-                        onPressed: onReject,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
+                      Flexible(
+                        child: OutlinedButton(
+                          onPressed: onReject,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          child: Text(l10n.rejectOrder),
                         ),
-                        child: Text(l10n.rejectOrder),
                       ),
                     if (onAccept != null) ...[
                       const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: onAccept,
-                        child: Text(l10n.acceptOrder),
+                      Flexible(
+                        child: FilledButton(
+                          onPressed: onAccept,
+                          child: Text(l10n.acceptOrder),
+                        ),
                       ),
                     ],
                   ],
