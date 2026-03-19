@@ -4,6 +4,19 @@ Read this first before making any changes. It provides critical constraints, pro
 
 ---
 
+## Completeness Rules (MANDATORY)
+
+**Read `.ai/completeness-rules.md` before every task.** It defines:
+- **Rule 1**: All 3 user roles (Farmer, Trucker, Buyer) must be verified
+- **Rule 2**: Mobile + Web platform pairs must stay in sync
+- **Rule 3**: Cross-module contracts (server ↔ mobile ↔ admin) must align
+- **Rule 4**: Tests must follow code changes
+- **Rule 5**: Core marketplace flow must not break
+
+Violations are automatic FAIL — no exceptions.
+
+---
+
 ## Critical Constraints
 
 These cause build failures or bad architecture if ignored:
@@ -55,10 +68,10 @@ specs/contracts/               # API contracts (source of truth for cross-module
 | **Add mobile feature** | `specs/contracts/` for API | `.ai/standards.md` for patterns | `mobile/TESTING.md` |
 | **Add server endpoint** | `server/AOT_COMPLIANCE.md` | `specs/contracts/` for contract | `server/TESTING.md` |
 | **Add/update API contract** | `specs/contracts/README.md` | Existing contracts for format | `.ai/ownership.md` |
-| **Fix sync/offline bug** | `specs/contracts/sync-protocol.md` | `mobile/lib/core/sync/` source | `.agents/workflows.md` (bug fix) |
+| **Fix sync/offline bug** | `specs/contracts/sync-protocol.md` | `mobile/lib/core/sync/` source | `.ai/workflows.md` (bug fix) |
 | **Add localization** | `mobile/lib/shared/l10n/app_en.arb` | Run `flutter gen-l10n` | All 3 `.arb` files |
 | **Add infra** (table, Lambda) | `.ai/tech_stack.md` | `infra/lib/` existing patterns | `infra/TESTING.md` |
-| **Deploy** | `.ai/deployment.md` | `docs/developer/deployment.md` | `.agents/deployment_checklist.md` |
+| **Deploy** | `.ai/deployment.md` | `docs/developer/deployment.md` | `.ai/deployment-checklist.md` |
 | **Resume work / new session** | `STATE.md` → `TASK.md` | This file | `CLAUDE.md` |
 
 ---
@@ -98,14 +111,18 @@ Follow these existing patterns when adding new code:
 | Topic | Source of Truth |
 |-------|----------------|
 | Project principles & decision framework | `CLAUDE.md` |
+| Agentic SDLC & agent orchestration | `.ai/sdlc.md` |
 | Session state & resumption | `STATE.md` |
 | Active tasks & roadmap | `TASK.md` |
 | File ownership & scope rules | `.ai/ownership.md` |
 | Coding standards & commit rules | `.ai/standards.md` |
 | Tech versions & banned libs | `.ai/tech_stack.md` |
 | Testing philosophy | `.ai/testing.md` |
-| Workflows & checklists | `.agents/workflows.md` |
-| Pre-deployment validation | `.agents/deployment_checklist.md` |
+| Test users & credentials | `.ai/test-users.md` |
+| Completeness rules (MANDATORY) | `.ai/completeness-rules.md` |
+| Deployment & API reference | `.ai/deployment.md` |
+| Workflows & checklists | `.ai/workflows.md` |
+| Pre-deployment validation | `.ai/deployment-checklist.md` |
 | Ethiopian context & constraints | `docs/local_reality/README.md` |
 | Product definition (PRD) | `docs/project-background.md` |
 | API contracts | `specs/contracts/` |
@@ -131,4 +148,4 @@ Errors AI agents repeatedly make on this project:
 
 ---
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-03-19

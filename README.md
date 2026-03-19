@@ -20,7 +20,7 @@ WeredaConnect/
 ├── STATE.md                  # ⏸ Save Point (session checkpoint)
 ├── TASK.md                   # 🎯 Current Mission (active tasks)
 ├── .ai/                      # 🧠 Governance (agents, standards, tech stack)
-├── .agents/                  # 👮 Agent SOPs (workflows, checklists)
+├── .claude/                  # 🤖 Claude Code agents, commands, hooks
 ├── docs/                     # 📚 Knowledge Repository
 │   └── local_reality/        # Ethiopian context & constraints
 ├── specs/                    # 📋 Feature Specifications & ADRs

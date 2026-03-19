@@ -1,193 +1,193 @@
-# 📜 CLAUDE.md - Constitution (Root of Trust)
+# CLAUDE.md - Constitution (Root of Trust)
 
-## Purpose
-This document serves as the **constitutional foundation** for AI-assisted development on the WeredaConnect project. It defines the core principles, constraints, and decision-making framework that all AI agents must follow.
+**WeredaConnect** — Offline-first agritech logistics platform for Ethiopian rural communities. Farmers, truckers, buyers with Telebirr escrow payments. 3 languages: Amharic, Afan Oromo, English.
 
-## Project Identity
+---
 
-**WeredaConnect** is an offline-first agritech logistics platform designed for Ethiopian rural communities, connecting farmers, transport providers, and urban wholesalers. It focuses on:
-- **Offline-first architecture** (3G/intermittent connectivity)
-- **Voice-to-text in local languages** (Amharic, Afan Oromo, English for low-literacy users)
-- **Rural accessibility** (low-end Android devices, $50 phones)
-- **Data efficiency** (expensive mobile data costs)
-- **Logistics marketplace** (farmers → truckers → buyers with Telebirr escrow)
+## CRITICAL CONTEXT (always in scope — do not skip)
+
+### Role-Based Visibility Rules (HARD REQUIREMENT)
+
+| Role | Can Create | Sees Own Only | Sees ALL |
+|------|------------|---------------|----------|
+| **Farmer** | Crop listings | Own crops only | — |
+| **Trucker** | Trip listings | Own trips only | — |
+| **Buyer** | Purchase intents (NOT crops/trips) | Own intents | ALL crops + ALL trips from everyone |
+
+- Farmer MUST NOT see other farmers' crops. Trucker MUST NOT see other truckers' trips.
+- Buyer MUST see ALL crops and ALL trips from everyone.
+- Enforce in: server queries, mobile browse screens, BLoC data-fetching, API design.
+- **A violation is CRITICAL — automatic FAIL.**
+
+### Platform Pairs (Mobile + Web must stay in sync)
+
+| Mobile File | Web File | Shared Interface |
+|------------|----------|-----------------|
+| `core/auth/auth_storage_mobile.dart` | `core/auth/auth_storage_web.dart` | `auth_storage.dart` |
+| `core/auth/offline_auth_cache.dart` | `core/auth/offline_auth_cache_web.dart` | — |
+| `core/database/isar_service.dart` | `core/database/isar_service_web.dart` | — |
+| `core/sync/sync_executor.dart` | `core/sync/sync_executor_web.dart` | — |
+| `core/sync/sync_queue.dart` | `core/sync/sync_queue_web.dart` | — |
+| `core/network/cert_pinning_io.dart` | `core/network/cert_pinning_stub.dart` | — |
+| `core/database/schemas/*.dart` | `core/models/web/*.dart` | `core/models/*.dart` (barrel) |
+
+Canonical source: `.ai/completeness-rules.md` Rule 2 (verification steps + web constraints)
+
+- If you change one side, update the other. Isar does NOT work on web — web stubs use in-memory/no-op.
+- Run web build to catch breakage: `cd mobile && flutter build web --no-tree-shake-icons 2>&1 | tail -20`
+
+### Core Marketplace Flow (must never break)
+
+```
+Farmer creates crop listing → Buyer browses ALL listings → Buyer creates order
+→ Trucker creates trip → Buyer browses ALL trips → Delivery created
+→ Escrow payment (buyer pays → farmer receives after delivery confirmed)
+```
+
+### Test Users (dev environment)
+
+| Role | Phone | Password |
+|------|-------|----------|
+| Farmer | `+251900100001` | `TestPass1dev` |
+| Trucker | `+251900100002` | `TestPass1dev` |
+| Buyer | `+251900100003` | `TestPass1dev` |
+
+API: `https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`
+Login: `POST /auth/login` with `{"phoneNumber": "...", "password": "TestPass1dev"}`
+Full details: `.ai/test-users.md`
+
+### AOT Compliance (Server — violations break the build)
+
+**Banned**: Newtonsoft.Json, Entity Framework Core, Moq, AutoMapper, Autofac assembly scanning, all reflection APIs.
+**Required**: `System.Text.Json` with `JsonSerializerContext` source generators. Register types in `server/src/AppJsonContext.cs`.
+Full list: `server/AOT_COMPLIANCE.md`
+
+---
+
+## Context Loading — What to Read for Each Task
+
+Read this table BEFORE starting work. Load only what you need — don't read everything.
+
+| Task Type | Read These Files |
+|-----------|-----------------|
+| **Any code change** | `.ai/completeness-rules.md` (MANDATORY) |
+| **Mobile feature/fix** | `.ai/standards.md`, `specs/contracts/` for relevant API |
+| **Server endpoint/fix** | `server/AOT_COMPLIANCE.md`, `specs/contracts/` for relevant API |
+| **Infrastructure change** | `.ai/tech_stack.md`, `infra/lib/stacks/` for existing patterns |
+| **Sync/offline bug** | `specs/contracts/sync-protocol.md`, `mobile/lib/core/sync/` |
+| **Localization** | `mobile/lib/shared/l10n/app_en.arb` (check existing keys first) |
+| **API contract change** | `specs/contracts/README.md`, then the specific contract |
+| **Deployment** | `.ai/deployment.md`, `.ai/deployment-checklist.md` |
+| **Security audit** | Run `/harden`, read `TASK.md` TIER 3.5 |
+| **Resume / new session** | `STATE.md` → `TASK.md` → `.ai/quick-start.md` |
+| **Full codebase orientation** | `.ai/quick-start.md` (navigation hub for everything) |
+
+---
+
+## Completeness Rules (MANDATORY — automatic FAIL on violation)
+
+**Full rules with tables and verification steps: `.ai/completeness-rules.md`**
+
+1. **All 3 Roles**: If you change ANY role-dependent code (dashboards, navigation, browse screens, queries, BLoCs), verify Farmer, Trucker, AND Buyer.
+2. **Mobile + Web Together**: If you change a platform-paired file (see table above), update its counterpart. Run web build.
+3. **Cross-Module Sync**: Server DTO changes → check mobile models + admin types. Contract changes → check all modules. L10n → all 3 languages.
+4. **Tests Follow Code**: Every production code change needs test updates. Search `mobile/test/` and `server/tests/`. Flag missing tests.
+5. **Don't Break the Core Flow**: Trace your change through the marketplace flow above. If ANY step could break, verify it.
+
+### Self-Check Before "Done"
+
+- [ ] All 3 roles verified (Farmer, Trucker, Buyer)?
+- [ ] Both platforms verified (mobile + web build passes)?
+- [ ] Platform pair counterparts updated?
+- [ ] Cross-module contracts aligned (server ↔ mobile ↔ admin)?
+- [ ] All 3 language files updated (if UI strings changed)?
+- [ ] Affected tests updated and passing?
+- [ ] Core marketplace flow still works end-to-end?
+- [ ] No `dart:io` or Isar in shared/web code paths?
+
+---
 
 ## Core Principles
 
-### 1. **Local Reality First**
-- All technical decisions must account for Ethiopian infrastructure constraints
-- Optimize for offline functionality and minimal data usage
-- Test on low-end devices (2GB RAM, Android 8+)
+1. **Does it work offline?** (Non-negotiable)
+2. **Is it culturally appropriate?** (User trust)
+3. **Can it run on low-end devices?** (Accessibility — 2GB RAM, Android 8+)
+4. **Is it maintainable solo?** (Sustainability)
+5. **Does it minimize data usage?** (Cost to users — <3s on 3G, <50MB APK)
 
-### 2. **Cultural Authenticity**
-- Localization is not just translation—adapt UX for local context
-- Use agricultural/market terminology familiar to rural users
-- Respect local communication patterns and hierarchies
-
-### 3. **Solo Developer Sustainability**
-- Prioritize simplicity over cleverness
-- Maintain clear documentation for context switching
-- Automate repetitive tasks to preserve cognitive energy
-
-### 4. **Production Readiness**
-- Every feature must work offline before going online
-- Security and privacy are non-negotiable
-- Performance budgets: <3s load time on 3G, <50MB app size
+---
 
 ## Technical Constraints
 
-### Mobile (Flutter)
-- **Offline-first**: Isar database for local storage
-- **Sync engine**: Conflict resolution with server
-- **Languages**: Amharic, Afan Oromo, English (l10n atoms)
-- **Target**: Android 8+ (API 26+), 2GB RAM minimum
+### Mobile (Flutter 3.38.9, Dart 3.10.8)
+- **Offline-first**: Isar database for local storage, sync queue for deferred operations
+- **BLoC pattern**: Events → BLoC → States
+- **Localization**: All UI strings in `AppLocalizations.of(context)!.keyName`, 3 `.arb` files
+- **Target**: Android 8+ (API 26+), 2GB RAM, ARM64
 
-### Server (.NET 10)
-- **Native AOT**: Serverless, cold-start optimized
-- **Compliance**: See `server/AOT_COMPLIANCE.md` for banned libraries
-- **Architecture**: Event-driven, idempotent operations
+### Server (.NET 10 Native AOT)
+- **Native AOT**: No reflection — see AOT table above
+- **JSON**: `System.Text.Json` with source generators only
+- **Testing**: xUnit + NSubstitute + FluentAssertions (never Moq)
+- **DynamoDB**: Manual marshalling, no ORM
+- **Idempotency keys**: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`
+- **Cold start**: <100ms target
 
-### Infrastructure (AWS CDK)
-- **Cost-conscious**: Optimize for low-traffic scenarios
-- **Resilient**: Handle intermittent client connections
-- **Observable**: CloudWatch metrics for debugging
+### Infrastructure (AWS CDK 2.170.x, Node 20)
+- **Region**: `me-south-1` (Bahrain — closest to Ethiopia)
+- **Lambda**: ARM64 Graviton, 512MB, 10s timeout, reserved concurrency
+- **DynamoDB**: On-demand billing (12 tables)
+- **Never**: NAT Gateways, RDS, auto-scaling without cost caps
 
-## AI Agent Guidelines
+---
 
-### Before Making Changes
-1. **Read** `.ai/quick-start.md` — constraints, navigation, patterns
-2. **Read** `STATE.md` → `TASK.md` — current context and priorities
-3. **Read** the relevant contract in `specs/contracts/` if working on an API
+## Implementation Protocol (Mandatory)
 
-### Implementation Protocol (Mandatory)
+Follow this pipeline for **every** code change. Use `/implement` to automate it.
 
-Follow this pipeline for **every** code change — no exceptions. Do NOT skip steps or combine them.
+**Phase 1 — Analyze**: Identify ALL files, platform pairs, role impacts, cross-module effects. Present impact summary. **Wait for user confirmation.**
 
-**Phase 1 — Analyze** (before writing any code):
-1. Run impact analysis: identify all files that will need changes, including platform pairs (`*_web.dart`, `core/models/web/`), cross-module dependencies (server ↔ mobile ↔ admin), and affected tests.
-2. Present the impact summary to the user:
-   - Files to modify (grouped by module)
-   - Platform counterparts that need matching updates
-   - Cross-module impacts (e.g., "server DTO changed → mobile model + admin type")
-   - Risk level (LOW / MEDIUM / HIGH)
-3. **Wait for user confirmation before proceeding.** Do not write any code until the user approves the plan.
+**Phase 2 — Implement**: Make changes. Update platform counterparts together. Verify all 3 roles.
 
-**Phase 2 — Implement** (after user confirms):
-4. Make the changes as approved. Always update platform counterparts together — never leave a pair out of sync.
+**Phase 3 — Validate**: Run `/validate` → `/review` → `/test`. All must pass.
 
-**Phase 3 — Validate** (after implementation):
-5. Run `/validate` — cross-platform pair checks, cross-module impact, builds for all affected modules.
-6. Run `/review` — quality criteria (offline-first, AOT, l10n, security, cross-platform, cross-module).
-7. Run `/test` — tests for all affected modules.
+**Phase 4 — Fix loop**: If any fail, fix and re-run all three until clean.
 
-**Phase 4 — Fix loop** (if issues found):
-8. If any step in Phase 3 fails, fix the issues, then re-run **all three** (validate → review → test) until clean.
-9. Report final results to the user.
+**Exceptions**: Trivial changes (typos, comments, formatting) may skip Phase 1, but must still run Phase 3.
 
-**Exceptions**: Trivial changes (typo fixes, comment edits, formatting-only) may skip Phase 1 impact analysis, but must still run Phase 3 validation.
-
-### When Proposing Solutions
-- **Ask** before installing dependencies
-- **Explain** trade-offs in Ethiopian context
-- **Validate** against offline-first requirements
-- **Document** decisions in appropriate spec files
-
-### Scope & Ownership
-
-Before editing files, check `.ai/ownership.md` for scope boundaries. Use `specs/contracts/` (not source code) as the single source of truth for cross-module interfaces.
-
-### Git Commit Messages
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/). Full rules and examples in `.ai/standards.md`.
-
-### Session Handoffs
-- **Update** `STATE.md` before token limits
-- **Run** `scripts/checkpoint.sh` to automate handoff
-- **Commit** work-in-progress with clear messages following the convention above
+---
 
 ## Build & Validation
 
-After every code change, validate that the build succeeds before considering the work done.
-
-### Formatting (mandatory)
-Always format code after writing or editing. PostToolUse hooks auto-format in the main session, but **team agents must format manually**:
 ```bash
-# Dart files
+# Server
+cd server && dotnet build --no-restore && dotnet test --no-restore
+
+# Mobile
+cd mobile && flutter analyze && flutter test
+
+# Mobile Web (if shared code changed)
+cd mobile && flutter build web --no-tree-shake-icons 2>&1 | tail -20
+
+# Infrastructure
+cd infra && npx cdk synth --quiet
+
+# Formatting (auto-handled by PostToolUse hooks in main session)
 dart format <file_path>
-# C# files
 dotnet format server/WeredaConnect.Server.sln --include <file_path>
 ```
 
-### Server (.NET)
-```bash
-cd server && dotnet build --no-restore
-dotnet test --no-restore
-```
+---
 
-### Mobile (Flutter)
-```bash
-cd mobile && flutter analyze
-flutter test
-```
+## Git Commit Messages
 
-### Infrastructure (CDK)
-```bash
-cd infra && npx cdk synth --quiet
-```
+[Conventional Commits](https://www.conventionalcommits.org/). Full rules: `.ai/standards.md`.
 
-Run only the commands relevant to the module(s) you changed. If a build or test fails, fix the issue before proceeding.
+Format: `<type>(<scope>): <subject>`
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`, `perf`, `build`
+Scopes: `mobile`, `server`, `infra`, `docs`, `l10n`, `sync`, `escrow`, `auth`
 
-## Decision Framework
-
-When faced with technical choices, prioritize in this order:
-
-1. **Does it work offline?** (Non-negotiable)
-2. **Is it culturally appropriate?** (User trust)
-3. **Can it run on low-end devices?** (Accessibility)
-4. **Is it maintainable solo?** (Sustainability)
-5. **Does it minimize data usage?** (Cost to users)
-
-## Completeness Rules (Mandatory)
-
-These rules exist because of **repeated mistakes** — follow them strictly.
-
-### Rule 1: All User Roles
-WeredaConnect has **3 user roles**: Farmer, Trucker, Buyer. When testing, fixing, or changing **any** role-dependent feature (navigation, dashboards, permissions, UI flows):
-- **Always cover ALL 3 roles** — never test/fix only one role and call it done
-- If a nav button is broken for Farmer, check Trucker and Buyer too
-- If a screen layout changes, verify it works for all role-specific views
-- Use all 3 test users: Farmer (`+251900100001`), Trucker (`+251900100002`), Buyer (`+251900100003`)
-
-### Rule 2: Mobile + Web Counterparts
-Mobile and web share features but have separate implementations. When changing **any** of these:
-- **Always update both platforms together** — never change mobile without checking/updating web, and vice versa
-- Mobile models live in `mobile/lib/**/models/` — web counterparts in `mobile/lib/**/models/web/` or `*_web.dart`
-- If you change a screen/widget, check if a `_web.dart` or web-specific version exists and update it too
-- If you change a BLoC/cubit, check if web uses the same or a different one
-
-### Rule 3: Tests Must Follow Code
-When you change **any** production code:
-- **Always find and update corresponding test files** — never leave tests out of sync
-- Search `mobile/test/` and `server/tests/` for files that test the changed code
-- If a model changes, update its serialization/deserialization tests
-- If a BLoC/handler changes, update its unit tests
-- If no test exists yet, flag it to the user — don't silently skip
-
-### Rule 4: Documentation Must Follow Code
-When you change behavior, APIs, or data models:
-- **Update** relevant specs in `specs/` if the change affects contracts or features
-- **Update** `.ai/` docs if navigation, architecture, or patterns changed
-- **Update** ARB files (all 3 languages) if any user-facing string changed
-- **Flag** to the user if you're unsure which docs need updating — don't silently skip
-
-### Rule 5: Impact Checklist (self-check before reporting "done")
-Before telling the user a task is complete, verify:
-- [ ] All user roles covered (Farmer, Trucker, Buyer)?
-- [ ] Both platforms updated (mobile + web)?
-- [ ] All affected tests updated and passing?
-- [ ] All 3 language ARB files updated (if UI strings changed)?
-- [ ] Relevant documentation updated?
-- [ ] Server DTOs and mobile models in sync (if data layer changed)?
+---
 
 ## Forbidden Patterns
 
@@ -199,55 +199,73 @@ Before telling the user a task is complete, verify:
 ❌ **Never** fix a bug for one user role without checking all 3 roles
 ❌ **Never** change mobile code without checking if web needs the same change
 ❌ **Never** change production code without updating corresponding tests
-❌ **Never** change behavior without updating related documentation
+
+---
 
 ## Claude Code Infrastructure
 
 ### Agents (`.claude/agents/`)
 
-Specialized agents for team-based development:
-
 | Agent | Scope | Use When |
 |---|---|---|
-| `mobile` | `mobile/**` | Flutter/Dart work — offline-first repos, BLoC, l10n, Isar |
-| `server` | `server/**` | .NET AOT work — Lambda handlers, DynamoDB, JSON source gen |
-| `infra` | `infra/**` | AWS CDK work — stacks, constructs, cost optimization |
-| `reviewer` | Read-only | QA review — validates offline-first, AOT, l10n, security |
+| `mobile` | `mobile/**` | Flutter/Dart — offline-first, BLoC, l10n, Isar |
+| `server` | `server/**` | .NET AOT — Lambda handlers, DynamoDB, JSON source gen |
+| `infra` | `infra/**` | AWS CDK — stacks, constructs, cost optimization |
+| `reviewer` | Read-only | QA — role visibility + cross-platform are CRITICAL gates |
 
 ### Slash Commands (`.claude/commands/`)
 
 | Command | What It Does |
 |---|---|
-| `/implement` | Full pipeline: impact analysis → confirm → implement → validate → review → test |
-| `/impact` | Analyze blast radius of a file/feature change before modifying it |
-| `/validate` | Build checks + cross-platform pair checks + cross-module impact detection |
-| `/review` | Review recent changes against quality criteria |
-| `/test` | Run tests for all modules that have changes |
-| `/plan` | Create implementation spec in `specs/features/` before building |
-| `/checkpoint` | Run session handoff — updates STATE.md, prompts for commit |
+| `/implement` | Full pipeline: impact → confirm → implement → validate → review → test |
+| `/impact` | Analyze blast radius before modifying code |
+| `/validate` | Build + cross-platform + cross-role + cross-module checks |
+| `/review` | Quality review (role + platform = CRITICAL gates) |
+| `/test` | Run tests for changed modules |
+| `/harden` | Security audit: pentest findings, OWASP, role access, vulnerabilities |
+| `/monitor` | CloudWatch alarms, Lambda errors, DynamoDB throttles, API health |
+| `/backup` | DynamoDB backups: PITR status, create, list, restore |
+| `/deploy` | Deploy to AWS (dev/staging/prod) |
+| `/plan` | Create feature spec in `specs/features/` |
+| `/checkpoint` | Session handoff — updates STATE.md |
+| `/l10n` | Localization strings across 3 languages |
+| `/error-mapping` | Error handling audit between backend and frontend |
 
-### Hook-Enforced Guardrails
+### Hook-Enforced Guardrails (automatic)
 
-These are enforced automatically — you don't need to remember them:
+**PreToolUse**: Blocks `rm -rf` on critical dirs, `.env` writes, `git push --force` to main/master.
+**PostToolUse**: Auto-formats `.dart`/`.cs` files. Validates `.cs` AOT compliance (exit 2 = self-correct).
 
-**PreToolUse** (all tools):
-- Blocks `rm -rf` on critical directories (`mobile/`, `server/`, `infra/`, `.ai/`, `specs/`, `.claude/`)
-- Blocks writing to `.env` files (use `.env.example`)
-- Blocks `git push --force` to `main`/`master`
+### Scope & Ownership
 
-**PostToolUse** (Edit/Write):
-- Auto-formats `.dart` and `.cs` files after every edit
-- Validates `.cs` files for AOT compliance — blocks Newtonsoft.Json, Moq, EF Core, reflection APIs (exit code 2 forces self-correction)
+Before editing files, check `.ai/ownership.md`. Use `specs/contracts/` as the single source of truth for cross-module interfaces.
 
-## Success Metrics
+### Session Handoffs
 
-A feature is "done" when:
-- ✅ Works offline with graceful sync
-- ✅ Tested on 2GB RAM Android device
-- ✅ Localized in all three languages
-- ✅ Documented in `specs/` with context
-- ✅ Passes security threat model review
+Update `STATE.md` → run `scripts/checkpoint.sh` → commit WIP.
 
-**Last Updated**: 2026-02-28
-**Version**: 2.1.0
+---
 
+## Reference Index
+
+| Topic | File |
+|-------|------|
+| Completeness rules (MANDATORY) | `.ai/completeness-rules.md` |
+| Agentic SDLC & orchestration | `.ai/sdlc.md` |
+| Agent roles & boundaries | `.ai/agents.md` |
+| Navigation hub & patterns | `.ai/quick-start.md` |
+| Coding standards & commit rules | `.ai/standards.md` |
+| File ownership & scope | `.ai/ownership.md` |
+| Tech versions & banned libs | `.ai/tech_stack.md` |
+| Test users & credentials | `.ai/test-users.md` |
+| Testing philosophy | `.ai/testing.md` |
+| Deployment & API reference | `.ai/deployment.md` |
+| Pre-deploy checklist | `.ai/deployment-checklist.md` |
+| Workflows & branch naming | `.ai/workflows.md` |
+| AOT compliance (server) | `server/AOT_COMPLIANCE.md` |
+| API contracts | `specs/contracts/` |
+| Session state | `STATE.md` |
+| Task list & roadmap | `TASK.md` |
+
+**Last Updated**: 2026-03-19
+**Version**: 2.3.0
