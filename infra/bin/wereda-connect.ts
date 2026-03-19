@@ -87,6 +87,7 @@ const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
   tags: envConfig.tags,
   envConfig,
   apiUrl: apiStack.httpApiUrl,
+  apiId: apiStack.httpApiId,
 });
 monitoringStack.addDependency(apiStack);
 

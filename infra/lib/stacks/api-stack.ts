@@ -40,6 +40,7 @@ export interface ApiStackProps extends cdk.StackProps {
  */
 export class ApiStack extends cdk.Stack {
   public readonly httpApiUrl: string;
+  public readonly httpApiId: string;
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly adminUserPool: cognito.UserPool;
@@ -686,6 +687,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     this.httpApiUrl = httpApi.apiEndpoint;
+    this.httpApiId = httpApi.httpApiId;
 
     // ─── JWT Authorizer (mobile) ─────────────────────────────────────
     const jwtAuthorizer = new HttpUserPoolAuthorizer(
