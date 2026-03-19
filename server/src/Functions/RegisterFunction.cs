@@ -105,6 +105,9 @@ public class RegisterFunction
             return LambdaResponse.ValidationError(validation);
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        var sourceIp = AuditLogger.GetSourceIp(request);
+
         // Validate Fayda verification token (optional — two-tier model)
         FaydaVerificationResult? faydaVerification = null;
         if (!string.IsNullOrWhiteSpace(registerRequest!.FaydaVerificationToken))
@@ -146,6 +149,9 @@ public class RegisterFunction
         if (!cognitoResult.IsSuccess)
         {
             var error = cognitoResult.Error!;
+            AuditLogger.LogSecurity("REGISTER_FAILED",
+                detail: $"Cognito error: {error.Code}", correlationId: correlationId,
+                outcome: "failure", sourceIp: sourceIp);
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 
@@ -224,6 +230,10 @@ public class RegisterFunction
                 ? "Registration successful. Fayda identity verified."
                 : "Registration successful. Verify Fayda ID to unlock trades above 10,000 ETB."
         };
+
+        AuditLogger.LogSecurity("REGISTER",
+            userId: userId, correlationId: correlationId,
+            outcome: "success", sourceIp: sourceIp);
 
         return LambdaResponse.Created(response, AppJsonContext.Default.RegisterResponse);
     }

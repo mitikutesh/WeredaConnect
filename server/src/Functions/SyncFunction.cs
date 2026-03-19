@@ -270,6 +270,12 @@ public partial class SyncFunction
             await _rateLimitService.RecordSyncAsync(authenticatedUserId);
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+
+        AuditLogger.LogAudit("SYNC", "BATCH_START",
+            userId: authenticatedUserId, correlationId: correlationId,
+            detail: $"{syncRequest.Operations.Count} operations");
+
         // Process each operation independently
         var results = new List<SyncOperationResult>();
 
@@ -280,6 +286,13 @@ public partial class SyncFunction
                 $"Op {result.OperationId}: status={result.Status}, msg={result.Message ?? "none"}");
             results.Add(result);
         }
+
+        var successCount = results.Count(r => r.Status == "SYNC_SUCCESS" || r.Status == "SYNC_DUPLICATE");
+        var failCount = results.Count - successCount;
+
+        AuditLogger.LogAudit("SYNC", "BATCH_COMPLETE",
+            userId: authenticatedUserId, correlationId: correlationId,
+            detail: $"{successCount} ok, {failCount} failed");
 
         var response = new SyncResponse
         {

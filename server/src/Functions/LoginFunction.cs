@@ -86,11 +86,17 @@ public class LoginFunction
             return LambdaResponse.ValidationError(validation);
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        var sourceIp = AuditLogger.GetSourceIp(request);
+
         // Rate limit check: is account locked?
         var rateLimitCheck = await _rateLimitService.CheckLoginAllowedAsync(loginRequest!.PhoneNumber);
         if (!rateLimitCheck.IsSuccess)
         {
             var rlError = rateLimitCheck.Error!;
+            AuditLogger.LogSecurity("LOGIN_RATE_LIMITED",
+                detail: loginRequest.PhoneNumber, correlationId: correlationId,
+                outcome: "blocked", sourceIp: sourceIp);
             return LambdaResponse.Error(rlError.HttpStatus, rlError.Code, rlError.Message,
                 retryAfterSeconds: rlError.RetryAfterSeconds);
         }
@@ -115,6 +121,9 @@ public class LoginFunction
                 }
             }
 
+            AuditLogger.LogSecurity("LOGIN_FAILED",
+                detail: "Invalid credentials", correlationId: correlationId,
+                outcome: "failure", sourceIp: sourceIp);
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 
@@ -153,6 +162,10 @@ public class LoginFunction
             },
             User = user
         };
+
+        AuditLogger.LogSecurity("LOGIN",
+            userId: user.UserId, correlationId: correlationId,
+            outcome: "success", sourceIp: sourceIp);
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.LoginResponse);
     }

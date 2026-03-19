@@ -110,13 +110,23 @@ public class PasswordResetFunction
                 retryAfterSeconds: rlError.RetryAfterSeconds);
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        var sourceIp = AuditLogger.GetSourceIp(request);
+
         var result = await _authService.ForgotPasswordAsync(fpRequest.PhoneNumber);
 
         if (!result.IsSuccess)
         {
             var error = result.Error!;
+            AuditLogger.LogSecurity("FORGOT_PASSWORD",
+                correlationId: correlationId, detail: "code send failed",
+                outcome: "failure", sourceIp: sourceIp);
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
+
+        AuditLogger.LogSecurity("FORGOT_PASSWORD",
+            correlationId: correlationId, detail: "code sent",
+            outcome: "success", sourceIp: sourceIp);
 
         var response = new ForgotPasswordResponse
         {
@@ -175,6 +185,9 @@ public class PasswordResetFunction
             return LambdaResponse.Error(400, "AUTH_007", "New password is required.", "newPassword");
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        var sourceIp = AuditLogger.GetSourceIp(request);
+
         var result = await _authService.ConfirmForgotPasswordAsync(
             rpRequest.PhoneNumber,
             rpRequest.ConfirmationCode,
@@ -184,8 +197,15 @@ public class PasswordResetFunction
         {
             var error = result.Error!;
             await _rateLimitService.RecordFailedOtpAttemptAsync(rpRequest.PhoneNumber);
+            AuditLogger.LogSecurity("PASSWORD_RESET_FAILED",
+                correlationId: correlationId, detail: error.Code,
+                outcome: "failure", sourceIp: sourceIp);
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
+
+        AuditLogger.LogSecurity("PASSWORD_RESET",
+            correlationId: correlationId,
+            outcome: "success", sourceIp: sourceIp);
 
         var response = new ResetPasswordResponse
         {
