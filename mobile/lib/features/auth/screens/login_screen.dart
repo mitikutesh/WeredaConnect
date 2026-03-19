@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
@@ -379,23 +380,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {
-                    showDialog<void>(
-                      context: context,
-                      builder: (context) {
-                        final l10n = AppLocalizations.of(context)!;
-                        return AlertDialog(
-                          title: Text(l10n.forgotPassword),
-                          content: Text(
-                            l10n.forgotPasswordContactSupport,
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: Text(l10n.ok),
-                            ),
-                          ],
-                        );
-                      },
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ForgotPasswordScreen(
+                          initialPhoneNumber: _phoneController.text.trim(),
+                        ),
+                      ),
                     );
                   },
                   child: Text(l10n.forgotPassword),

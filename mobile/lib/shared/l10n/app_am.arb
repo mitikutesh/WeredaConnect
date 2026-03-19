@@ -2146,7 +2146,8 @@
   "cancelReason": "የሰረዙበት ምክንያት",
   "orderDetails": "የትዕዛዝ ዝርዝር",
   "priceBreakdown": "የዋጋ ዝርዝር",
-  "cbeAccountNumber": "ሂሳብ: 1000XXXXXXXXXX",
+  "cbeAccountNumber": "የCBE ሂሳብ ቁጥር",
+  "cbeAccountValue": "1000XXXXXXXXXX",
   "transferReference": "ማጣቀሻ",
   "paymentAmount": "መጠን",
   "quantity": "ብዛት (ኪግ)",
@@ -2267,5 +2268,16 @@
   },
   "myCrops": "ሰብሎቼ",
   "browseAll": "ያስሱ",
-  "myRequests": "ጥያቄዎቼ"
+  "myRequests": "ጥያቄዎቼ",
+  "enterPhoneForReset": "የማረጋገጫ ኮድ ለማግኘት ስልክ ቁጥርዎን ያስገቡ",
+  "sendResetCode": "የማስቀየሪያ ኮድ ላክ",
+  "resetCodeSent": "የማረጋገጫ ኮድ ወደ ስልክዎ ተልኳል",
+  "enterResetCode": "ወደ ስልክዎ የተላከውን የማረጋገጫ ኮድ ያስገቡ",
+  "verificationCode": "የማረጋገጫ ኮድ",
+  "newPassword": "አዲስ የይለፍ ቃል",
+  "confirmNewPassword": "አዲስ የይለፍ ቃል ያረጋግጡ",
+  "resetPassword": "የይለፍ ቃል ቀይር",
+  "passwordResetSuccess": "የይለፍ ቃል በተሳካ ሁኔታ ተቀይሯል! አሁን መግባት ይችላሉ።",
+  "codeRequired": "የማረጋገጫ ኮድ ያስፈልጋል",
+  "passwordTooShort": "የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ሊኖሩት ይገባል"
 }

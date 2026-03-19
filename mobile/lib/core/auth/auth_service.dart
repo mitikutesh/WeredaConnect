@@ -471,6 +471,92 @@ class AuthService {
     }
   }
 
+  /// Request password reset — sends verification code to user's phone.
+  Future<AuthResult> forgotPassword({
+    required String phoneNumber,
+  }) async {
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
+    }
+
+    try {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
+        return AuthResult.failure(
+          AuthErrorCode.networkError,
+          'Password reset requires internet connection',
+        );
+      }
+
+      await _dio.post<Map<String, dynamic>>(
+        ApiConfig.forgotPasswordEndpoint,
+        data: {'phoneNumber': phoneNumber},
+      );
+
+      return AuthResult.success(
+        const AuthTokens(
+          accessToken: '',
+          refreshToken: '',
+          idToken: '',
+        ),
+      );
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } on Exception {
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
+      );
+    }
+  }
+
+  /// Reset password with verification code.
+  Future<AuthResult> resetPassword({
+    required String phoneNumber,
+    required String confirmationCode,
+    required String newPassword,
+  }) async {
+    if (!Environment.isApiConfigured) {
+      return _notConfiguredResult();
+    }
+
+    try {
+      final connectivityResults = await _connectivity.checkConnectivity();
+      if (!connectivityResults
+          .any((result) => result != ConnectivityResult.none)) {
+        return AuthResult.failure(
+          AuthErrorCode.networkError,
+          'Password reset requires internet connection',
+        );
+      }
+
+      await _dio.post<Map<String, dynamic>>(
+        ApiConfig.resetPasswordEndpoint,
+        data: {
+          'phoneNumber': phoneNumber,
+          'confirmationCode': confirmationCode,
+          'newPassword': newPassword,
+        },
+      );
+
+      return AuthResult.success(
+        const AuthTokens(
+          accessToken: '',
+          refreshToken: '',
+          idToken: '',
+        ),
+      );
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } on Exception {
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
+      );
+    }
+  }
+
   // ============================================================================
   // Private methods
   // ============================================================================

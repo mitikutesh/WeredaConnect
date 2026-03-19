@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 export 'package:isar/isar.dart';
 
+import 'package:wereda_connect/core/database/field_encryptor.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
@@ -63,6 +64,14 @@ class IsarService {
   /// Check if the database is initialized
   bool get isInitialized => _isar != null;
 
+  /// Get the FieldEncryptor instance for encrypting/decrypting PII fields.
+  ///
+  /// The encryptor is initialized during [initialize()] with the same
+  /// AES-256 key stored in Android Keystore. Repositories should use this
+  /// to encrypt PII fields (phoneNumber, name, faydaId) before writing
+  /// to Isar and decrypt after reading.
+  FieldEncryptor get fieldEncryptor => FieldEncryptor.instance;
+
   /// Initialize the Isar database with encryption.
   ///
   /// This method:
@@ -83,13 +92,12 @@ class IsarService {
     // Get application directory for database storage
     final dir = await getApplicationDocumentsDirectory();
 
-    // Get or generate encryption key (for future use)
+    // Get or generate encryption key and initialize field-level encryptor.
     // Note: Isar 3.1 does not support built-in encryption.
-    // Encryption is handled at the field level (e.g., password hashing)
-    // and through secure storage for sensitive data.
-    // The encryption key is stored for potential future use or
-    // custom encryption implementation.
-    await _getEncryptionKey();
+    // PII fields (phone number, name, faydaId) are encrypted/decrypted
+    // at the repository layer using FieldEncryptor with AES-256-GCM.
+    final keyBytes = await _getEncryptionKey();
+    FieldEncryptor.instance.initialize(keyBytes);
 
     // Open Isar database
     _isar = await Isar.open(

@@ -113,3 +113,39 @@ public sealed record AuthError
     public string? Field { get; init; }
     public int? RetryAfterSeconds { get; init; }
 }
+
+/// <summary>
+/// POST /auth/forgot-password request body.
+/// </summary>
+public sealed record ForgotPasswordRequest
+{
+    public required string PhoneNumber { get; init; }
+}
+
+/// <summary>
+/// POST /auth/forgot-password success response (200 OK).
+/// </summary>
+public sealed record ForgotPasswordResponse
+{
+    public required string Message { get; init; }
+    public required string DeliveryMedium { get; init; }
+}
+
+/// <summary>
+/// POST /auth/reset-password request body.
+/// </summary>
+public sealed record ResetPasswordRequest
+{
+    public required string PhoneNumber { get; init; }
+    public required string ConfirmationCode { get; init; }
+    public required string NewPassword { get; init; }
+}
+
+/// <summary>
+/// POST /auth/reset-password success response (200 OK).
+/// </summary>
+public sealed record ResetPasswordResponse
+{
+    public required bool PasswordReset { get; init; }
+    public string? Message { get; init; }
+}

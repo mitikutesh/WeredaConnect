@@ -1885,7 +1885,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get priceBreakdown => 'የዋጋ ዝርዝር';
 
   @override
-  String get cbeAccountNumber => 'ሂሳብ: 1000XXXXXXXXXX';
+  String get cbeAccountNumber => 'የCBE ሂሳብ ቁጥር';
+
+  @override
+  String get cbeAccountValue => '1000XXXXXXXXXX';
 
   @override
   String get transferReference => 'ማጣቀሻ';
@@ -2122,4 +2125,37 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get myRequests => 'ጥያቄዎቼ';
+
+  @override
+  String get enterPhoneForReset => 'የማረጋገጫ ኮድ ለማግኘት ስልክ ቁጥርዎን ያስገቡ';
+
+  @override
+  String get sendResetCode => 'የማስቀየሪያ ኮድ ላክ';
+
+  @override
+  String get resetCodeSent => 'የማረጋገጫ ኮድ ወደ ስልክዎ ተልኳል';
+
+  @override
+  String get enterResetCode => 'ወደ ስልክዎ የተላከውን የማረጋገጫ ኮድ ያስገቡ';
+
+  @override
+  String get verificationCode => 'የማረጋገጫ ኮድ';
+
+  @override
+  String get newPassword => 'አዲስ የይለፍ ቃል';
+
+  @override
+  String get confirmNewPassword => 'አዲስ የይለፍ ቃል ያረጋግጡ';
+
+  @override
+  String get resetPassword => 'የይለፍ ቃል ቀይር';
+
+  @override
+  String get passwordResetSuccess => 'የይለፍ ቃል በተሳካ ሁኔታ ተቀይሯል! አሁን መግባት ይችላሉ።';
+
+  @override
+  String get codeRequired => 'የማረጋገጫ ኮድ ያስፈልጋል';
+
+  @override
+  String get passwordTooShort => 'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ሊኖሩት ይገባል';
 }

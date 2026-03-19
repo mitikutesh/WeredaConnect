@@ -2628,9 +2628,13 @@
   "@priceBreakdown": {
     "description": "Section header for price breakdown"
   },
-  "cbeAccountNumber": "Account: 1000XXXXXXXXXX",
+  "cbeAccountNumber": "CBE Account Number",
   "@cbeAccountNumber": {
-    "description": "CBE account number for payment"
+    "description": "Label for CBE account number field"
+  },
+  "cbeAccountValue": "1000XXXXXXXXXX",
+  "@cbeAccountValue": {
+    "description": "Masked CBE account number for payment transfer"
   },
   "transferReference": "Reference",
   "@transferReference": {
@@ -2837,5 +2841,49 @@
   "myRequests": "My Requests",
   "@myRequests": {
     "description": "Tab label for buyer's saved buying intents"
+  },
+  "enterPhoneForReset": "Enter your phone number to receive a verification code",
+  "@enterPhoneForReset": {
+    "description": "Instructions on forgot password screen"
+  },
+  "sendResetCode": "Send Reset Code",
+  "@sendResetCode": {
+    "description": "Button to send password reset code"
+  },
+  "resetCodeSent": "Verification code sent to your phone",
+  "@resetCodeSent": {
+    "description": "Message after reset code sent"
+  },
+  "enterResetCode": "Enter the verification code sent to your phone",
+  "@enterResetCode": {
+    "description": "Instructions on reset password screen"
+  },
+  "verificationCode": "Verification Code",
+  "@verificationCode": {
+    "description": "Label for verification code field"
+  },
+  "newPassword": "New Password",
+  "@newPassword": {
+    "description": "Label for new password field"
+  },
+  "confirmNewPassword": "Confirm New Password",
+  "@confirmNewPassword": {
+    "description": "Label for confirm new password field"
+  },
+  "resetPassword": "Reset Password",
+  "@resetPassword": {
+    "description": "Button to reset password"
+  },
+  "passwordResetSuccess": "Password reset successful! You can now log in.",
+  "@passwordResetSuccess": {
+    "description": "Success message after password reset"
+  },
+  "codeRequired": "Verification code is required",
+  "@codeRequired": {
+    "description": "Validation error for empty code"
+  },
+  "passwordTooShort": "Password must be at least 8 characters",
+  "@passwordTooShort": {
+    "description": "Validation error for short password"
   }
 }

@@ -1,3 +1,6 @@
+import 'package:wereda_connect/core/database/field_encryptor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/field_encryptor_web.dart';
+
 /// Web stub for IsarService — no Isar dependency.
 ///
 /// On web, there is no local database. All data goes through the API.
@@ -17,6 +20,9 @@ class IsarService {
   dynamic get db => null;
 
   bool get isInitialized => false;
+
+  /// Get the FieldEncryptor instance (no-op on web — returns plaintext).
+  FieldEncryptor get fieldEncryptor => FieldEncryptor.instance;
 
   Future<dynamic> initialize() async => null;
 

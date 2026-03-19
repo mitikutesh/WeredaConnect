@@ -68,6 +68,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthRefreshTokenRequested>(_onAuthRefreshTokenRequested);
     on<AuthCancelRequested>(_onAuthCancelRequested);
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
+    on<AuthForgotPasswordRequested>(_onForgotPassword);
+    on<AuthResetPasswordRequested>(_onResetPassword);
   }
 
   /// Save the current session phone number and user ID to secure storage.
@@ -492,6 +494,58 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await _clearSession();
 
       emit(const AuthUnauthenticated());
+    }
+  }
+
+  /// Handle forgot password request (sends verification code).
+  Future<void> _onForgotPassword(
+    AuthForgotPasswordRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+    final result = await _authService.forgotPassword(
+      phoneNumber: event.phoneNumber,
+    );
+    if (result.isSuccess) {
+      emit(AuthPasswordResetCodeSent(phoneNumber: event.phoneNumber));
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Failed to send reset code',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+          retryAfterSeconds: result.retryAfterSeconds,
+        ),
+      );
+    }
+  }
+
+  /// Handle password reset with verification code.
+  Future<void> _onResetPassword(
+    AuthResetPasswordRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthLoading());
+    final result = await _authService.resetPassword(
+      phoneNumber: event.phoneNumber,
+      confirmationCode: event.confirmationCode,
+      newPassword: event.newPassword,
+    );
+    if (result.isSuccess) {
+      emit(const AuthPasswordResetSuccess());
+    } else {
+      emit(
+        AuthError(
+          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+          errorMessage: result.errorMessage ??
+              result.errorCode?.userMessage ??
+              'Failed to reset password',
+          canRetry: result.errorCode?.isRecoverable ?? true,
+          retryAfterSeconds: result.retryAfterSeconds,
+        ),
+      );
     }
   }
 

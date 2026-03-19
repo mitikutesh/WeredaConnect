@@ -1944,7 +1944,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get priceBreakdown => 'Caccabsaa Gatii';
 
   @override
-  String get cbeAccountNumber => 'Herrega: 1000XXXXXXXXXX';
+  String get cbeAccountNumber => 'Lakk. Herrega CBE';
+
+  @override
+  String get cbeAccountValue => '1000XXXXXXXXXX';
 
   @override
   String get transferReference => 'Wabii';
@@ -2187,4 +2190,41 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get myRequests => 'Gaaffii Koo';
+
+  @override
+  String get enterPhoneForReset =>
+      'Koodii mirkaneessaa argachuuf lakkoofsa bilbilaa keessan galchaa';
+
+  @override
+  String get sendResetCode => 'Koodii Jijjiirraa Ergi';
+
+  @override
+  String get resetCodeSent =>
+      'Koodiin mirkaneessaa gara bilbila keessaniitti ergameera';
+
+  @override
+  String get enterResetCode =>
+      'Koodii mirkaneessaa gara bilbila keessaniitti ergame galchaa';
+
+  @override
+  String get verificationCode => 'Koodii Mirkaneessaa';
+
+  @override
+  String get newPassword => 'Jecha Darbii Haaraa';
+
+  @override
+  String get confirmNewPassword => 'Jecha Darbii Haaraa Mirkaneessi';
+
+  @override
+  String get resetPassword => 'Jecha Darbii Jijjiiri';
+
+  @override
+  String get passwordResetSuccess =>
+      'Jecha darbii milkaa\'inaan jijjiirameera! Amma seenuu dandeessu.';
+
+  @override
+  String get codeRequired => 'Koodiin mirkaneessaa barbaachisaadha';
+
+  @override
+  String get passwordTooShort => 'Jecha darbii xiqqaatu qubee 8 qabaachuu qaba';
 }

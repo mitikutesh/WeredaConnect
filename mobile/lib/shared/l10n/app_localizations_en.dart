@@ -1930,7 +1930,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get priceBreakdown => 'Price Breakdown';
 
   @override
-  String get cbeAccountNumber => 'Account: 1000XXXXXXXXXX';
+  String get cbeAccountNumber => 'CBE Account Number';
+
+  @override
+  String get cbeAccountValue => '1000XXXXXXXXXX';
 
   @override
   String get transferReference => 'Reference';
@@ -2171,4 +2174,39 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get myRequests => 'My Requests';
+
+  @override
+  String get enterPhoneForReset =>
+      'Enter your phone number to receive a verification code';
+
+  @override
+  String get sendResetCode => 'Send Reset Code';
+
+  @override
+  String get resetCodeSent => 'Verification code sent to your phone';
+
+  @override
+  String get enterResetCode => 'Enter the verification code sent to your phone';
+
+  @override
+  String get verificationCode => 'Verification Code';
+
+  @override
+  String get newPassword => 'New Password';
+
+  @override
+  String get confirmNewPassword => 'Confirm New Password';
+
+  @override
+  String get resetPassword => 'Reset Password';
+
+  @override
+  String get passwordResetSuccess =>
+      'Password reset successful! You can now log in.';
+
+  @override
+  String get codeRequired => 'Verification code is required';
+
+  @override
+  String get passwordTooShort => 'Password must be at least 8 characters';
 }

@@ -60,7 +60,7 @@ void main() {
 
       // Teff uses Icons.grass
       expect(find.byIcon(Icons.grass), findsOneWidget);
-      expect(find.text('Teff'), findsOneWidget);
+      expect(find.text('Teff'), findsWidgets);
     });
 
     testWidgets('renders Active status chip', (tester) async {

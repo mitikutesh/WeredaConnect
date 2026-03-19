@@ -23,4 +23,6 @@ abstract class RouteNames {
   static const String trips = 'trips';
   static const String myCrops = 'my-crops';
   static const String findCrops = 'find-crops';
+  static const String forgotPassword = 'forgot-password';
+  static const String resetPassword = 'reset-password';
 }

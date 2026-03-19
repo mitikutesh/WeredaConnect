@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:wereda_connect/core/routing/route_names.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
+import 'package:wereda_connect/features/auth/screens/reset_password_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
@@ -28,7 +30,9 @@ GoRouter createWebRouter(AuthBloc authBloc) {
       final authState = authBloc.state;
       final isAuthenticated = authState is AuthAuthenticated;
       final isAuthRoute = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
+          state.matchedLocation == '/register' ||
+          state.matchedLocation == '/forgot-password' ||
+          state.matchedLocation == '/reset-password';
 
       if (!isAuthenticated && !isAuthRoute) return '/login';
       if (isAuthenticated && isAuthRoute) return '/';
@@ -45,6 +49,22 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         path: '/register',
         name: RouteNames.register,
         builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/forgot-password',
+        name: RouteNames.forgotPassword,
+        builder: (context, state) => ForgotPasswordScreen(
+          initialPhoneNumber:
+              state.uri.queryParameters['phone'],
+        ),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        name: RouteNames.resetPassword,
+        builder: (context, state) => ResetPasswordScreen(
+          phoneNumber:
+              state.uri.queryParameters['phone'] ?? '',
+        ),
       ),
 
       // Authenticated routes with adaptive shell

@@ -425,28 +425,29 @@ After a successful online login or registration, the mobile client stores the fo
 7. If no match:
    a. Return AUTH_014 (invalid credentials)
    b. Increment offline attempt counter
-   c. After 3 failed offline attempts: require online login
+   c. Exponential backoff: 1st fail → 1min, 2nd → 5min, 3rd → 15min, 4th → 1hr lockout
+   d. After 5 failed offline attempts: clear credentials, require online login
 ```
 
 ### Cache TTL and Invalidation
 
 | Rule | Value | Rationale |
 |------|-------|-----------|
-| Maximum offline session | 7 days | Security: force online re-auth after 7 days |
-| Cache invalidated on | Logout, password change, 7-day expiry | Prevent stale credentials |
+| Maximum offline session | 48 hours | Security: force online re-auth after 48 hours (stolen-device mitigation) |
+| Cache invalidated on | Logout, password change, 48-hour expiry, 5 failed attempts | Prevent stale/brute-forced credentials |
 | Refresh token auto-refresh | Background job when connectivity detected | Keep tokens fresh |
-| Offline attempt limit | 3 failed attempts | Then require online login to reset |
+| Offline attempt lockout | Exponential backoff from 1st failure; 5th failure = permanent lockout | Stolen-device mitigation |
 
 ### Offline Session Expiry Flow
 
 ```
 1. User opens app (offline)
 2. Check offlineSessionTimestamp
-3. If now - offlineSessionTimestamp > 7 days:
+3. If now - offlineSessionTimestamp > 48 hours:
    a. Clear cached credentials
    b. Show "Session expired. Please connect to the internet to log in."
    c. Block app access until online login succeeds
-4. If within 7 days:
+4. If within 48 hours:
    a. Allow offline login as normal
 ```
 
@@ -621,12 +622,12 @@ App Launch
   |     |
   |     +-- YES: Check offline session age
   |     |     |
-  |     |     +-- < 7 days: Check connectivity
+  |     |     +-- < 48 hours: Check connectivity
   |     |     |     |
   |     |     |     +-- ONLINE: Refresh tokens silently --> App
   |     |     |     +-- OFFLINE: Use cached tokens --> App (offline mode)
   |     |     |
-  |     |     +-- >= 7 days: Clear cache --> Login screen
+  |     |     +-- >= 48 hours: Clear cache --> Login screen
   |     |
   |     +-- NO: Login screen
   |
@@ -664,8 +665,8 @@ These rules must always hold:
 2. **Online login is preferred.** If the device has connectivity, always authenticate via Cognito (not cached credentials).
 3. **Offline login never creates new sessions.** Offline login only works if the user has previously logged in online and credentials are cached.
 4. **Tokens are never stored in plaintext.** All tokens and password hashes must be in `flutter_secure_storage` (hardware-backed).
-5. **Failed offline attempts are bounded.** After 3 failed offline login attempts, the user must go online.
-6. **Offline sessions expire.** After 7 days without connectivity, the cached session is invalidated.
+5. **Failed offline attempts are bounded.** Exponential backoff from 1st failure (1min, 5min, 15min, 1hr). After 5 failed attempts, credentials are cleared and the user must go online.
+6. **Offline sessions expire.** After 48 hours without connectivity, the cached session is invalidated (stolen-device mitigation).
 7. **Logout clears tokens, not Isar data.** On logout, tokens and password hash are cleared from secure storage, but Isar data (crop listings, trips) is preserved for the next user or re-login.
 8. **Phone number is the identity.** All authentication flows use phone number as the primary identifier, never email.
 9. **Error messages do not leak information.** Login failures return generic "invalid credentials" regardless of whether the phone number exists.
