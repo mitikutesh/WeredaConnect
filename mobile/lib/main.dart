@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/config/environment.dart';
@@ -43,6 +44,7 @@ import 'package:wereda_connect/features/order/data/repositories/web_order_reposi
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
 
 Future<void> main() async {
+  if (kIsWeb) usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
 
   if (!Environment.isApiConfigured) {
@@ -105,8 +107,9 @@ Future<void> main() async {
               '"idToken":"${tokenData['idToken']}",'
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
+          final cacheKey = kIsWeb ? 'cached_tokens_$phone' : 'tokens_$phone';
           await secureStorage.write(
-            key: 'tokens_$phone',
+            key: cacheKey,
             value: tokensJson,
           );
         }

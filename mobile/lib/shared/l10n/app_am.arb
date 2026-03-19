@@ -1979,7 +1979,7 @@
   "activeFarmers": "ንቁ ገበሬዎች",
   "inTransit": "በመጓጓዝ ላይ",
   "matchedLoads": "ተዛምደው",
-  "farmersBrowsed": "ዝርዝሮች",
+  "farmersBrowsed": "ያሉ ሰብሎች",
   "marketplace": "የገበያ ቦታ",
   "browseVerifiedFarmers": "የተረጋገጡ ገበሬዎችን ያስሱ",
   "manageYourListings": "ዝርዝሮችዎን ያስተዳድሩ",
@@ -2090,6 +2090,7 @@
   "myPayments": "ክፍያዎቼ",
   "trackDeliveries": "የሰብል ማጓጓዣዎን ይከታተሉ",
   "trackPayments": "ገቢዎን እና ኤስክሮ ይከታተሉ",
+  "trackBuyerPayments": "ክፍያዎን እና ኤስክሮ ይከታተሉ",
   "noDeliveries": "ገና ማድረሻ የለም",
   "noPayments": "ገና ክፍያ የለም",
   "postTrip": "ጉዞ ያስገቡ",
@@ -2099,6 +2100,7 @@
   "trackDelivery": "ማድረሻ ተከታተል",
   "checkBalance": "ቀሪ ሂሳብ",
   "manageOrders": "ገቢ ትዕዛዞችን ያስተዳድሩ",
+  "trackYourOrders": "ትዕዛዞችዎን ይከታተሉ",
   "orderPending": "በመጠባበቅ",
   "orderAccepted": "ተቀብለዋል",
   "orderRejected": "ውድቅ ተደርጓል",
@@ -2172,7 +2174,7 @@
   "quantityNeeded": "የሚፈለግ መጠን (ኩንታል)",
   "maxPrice": "ከፍተኛ ዋጋ (ብር/ኪግ)",
   "deliverTo": "ማድረሻ",
-  "matchesFound": "{count} ተመሳሳይ ተገኝቷል",
+  "matchesFound": "{count, plural, =0{ተመሳሳይ አልተገኘም} =1{1 ተመሳሳይ ተገኝቷል} other{{count} ተመሳሳይ ተገኝቷል}}",
   "@matchesFound": {
     "placeholders": {
       "count": {
@@ -2213,6 +2215,7 @@
   "intentSaved": "ተቀምጧል! አዲስ ተመሳሳይ ሲኖር እናሳውቅዎታለን",
   "newMatchesAvailable": "አዲስ ተመሳሳይ ተገኝቷል!",
   "findCrops": "ሰብል ፈልግ",
+  "findTrips": "ጉዞ ፈልግ",
   "totalLabel": "ጠቅላላ",
   "startTrip": "ጉዞ ጀምር",
   "startTripConfirmation": "ይህን ጉዞ ይጀምሩ? ጭነቱን መውሰዳቸውን ያረጋግጣሉ።",

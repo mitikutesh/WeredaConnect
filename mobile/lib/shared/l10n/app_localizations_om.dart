@@ -1568,7 +1568,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get matchedLoads => 'Walsimatan';
 
   @override
-  String get farmersBrowsed => 'Tarreeffama';
+  String get farmersBrowsed => 'Midhaan Jiran';
 
   @override
   String get marketplace => 'Gabaa';
@@ -1774,6 +1774,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackPayments => 'Galii fi eesciroo kee hordofi';
 
   @override
+  String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
+
+  @override
   String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';
 
   @override
@@ -1799,6 +1802,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get manageOrders => 'Ajaja dhufu bulchi';
+
+  @override
+  String get trackYourOrders => 'Ajaja kee hordofi';
 
   @override
   String get orderPending => 'Eeggachaa';
@@ -2011,7 +2017,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String matchesFound(int count) {
-    return '$count walsimatu argame';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count walsimatu argame',
+      one: '1 walsimatu argame',
+      zero: 'Walsimatu hin argamne',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -2075,6 +2088,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get findCrops => 'Midhaan Barbaadi';
+
+  @override
+  String get findTrips => 'Imala Barbaadi';
 
   @override
   String get totalLabel => 'Waliigala';

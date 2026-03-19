@@ -1519,7 +1519,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get matchedLoads => 'ተዛምደው';
 
   @override
-  String get farmersBrowsed => 'ዝርዝሮች';
+  String get farmersBrowsed => 'ያሉ ሰብሎች';
 
   @override
   String get marketplace => 'የገበያ ቦታ';
@@ -1719,6 +1719,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trackPayments => 'ገቢዎን እና ኤስክሮ ይከታተሉ';
 
   @override
+  String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
+
+  @override
   String get noDeliveries => 'ገና ማድረሻ የለም';
 
   @override
@@ -1744,6 +1747,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get manageOrders => 'ገቢ ትዕዛዞችን ያስተዳድሩ';
+
+  @override
+  String get trackYourOrders => 'ትዕዛዞችዎን ይከታተሉ';
 
   @override
   String get orderPending => 'በመጠባበቅ';
@@ -1951,7 +1957,14 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String matchesFound(int count) {
-    return '$count ተመሳሳይ ተገኝቷል';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ተመሳሳይ ተገኝቷል',
+      one: '1 ተመሳሳይ ተገኝቷል',
+      zero: 'ተመሳሳይ አልተገኘም',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -2014,6 +2027,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get findCrops => 'ሰብል ፈልግ';
+
+  @override
+  String get findTrips => 'ጉዞ ፈልግ';
 
   @override
   String get totalLabel => 'ጠቅላላ';

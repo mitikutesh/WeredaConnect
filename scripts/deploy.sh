@@ -116,7 +116,7 @@ DART_DEFINES="$DART_DEFINES --dart-define=COGNITO_REGION=me-south-1"
 DART_DEFINES="$DART_DEFINES --dart-define=ENVIRONMENT=$ENV"
 
 # shellcheck disable=SC2086
-flutter build web --release --no-tree-shake-icons $DART_DEFINES
+flutter build web --release --no-tree-shake-icons --target lib/main_web.dart $DART_DEFINES
 echo "Web build complete: $MOBILE_DIR/build/web/"
 echo ""
 
@@ -177,7 +177,7 @@ if [[ -n "$WEBAPP_CF_ID" ]]; then
   echo "Invalidating CloudFront cache..."
   aws cloudfront create-invalidation \
     --distribution-id "$WEBAPP_CF_ID" \
-    --paths "/index.html" "/flutter_service_worker.js" "/version.json" \
+    --paths "/*" \
     --region us-east-1 \
     --output text
   echo "CloudFront invalidation submitted."

@@ -785,8 +785,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
-  void _showLogoutConfirmation(BuildContext context, AppLocalizations l10n) {
-    showDialog<void>(
+  Future<void> _showLogoutConfirmation(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -794,16 +797,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           content: Text(l10n.logoutConfirmation),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
               child: Text(l10n.cancel),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                context.read<AuthBloc>().add(
-                      const AuthLogoutRequested(clearCache: false),
-                    );
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(true),
               style: TextButton.styleFrom(
                 foregroundColor: AppTheme.statusError,
               ),
@@ -813,6 +811,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       },
     );
+    // Only logout when the user explicitly confirms.
+    // Escape key or barrier tap returns null, which is not true.
+    if (confirmed == true && context.mounted) {
+      context.read<AuthBloc>().add(
+            const AuthLogoutRequested(clearCache: false),
+          );
+    }
   }
 
   void _showResetTestData(BuildContext context) {

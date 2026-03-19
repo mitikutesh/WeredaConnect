@@ -405,64 +405,69 @@ class _SidebarItemState extends State<_SidebarItem> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.expanded ? 14 : 0,
-              vertical: 12,
-            ),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: widget.selected
-                  ? Border(
-                      left: BorderSide(
-                        color: AppTheme.accentGold,
-                        width: widget.expanded ? 3 : 0,
-                      ),
+      child: Semantics(
+        button: true,
+        label: widget.item.label,
+        selected: widget.selected,
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.expanded ? 14 : 0,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+                border: widget.selected
+                    ? Border(
+                        left: BorderSide(
+                          color: AppTheme.accentGold,
+                          width: widget.expanded ? 3 : 0,
+                        ),
+                      )
+                    : null,
+              ),
+              child: widget.expanded
+                  ? Row(
+                      children: [
+                        Icon(
+                          widget.selected
+                              ? widget.item.selectedIcon
+                              : widget.item.icon,
+                          color: iconColor,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 14),
+                        Text(
+                          widget.item.label,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 14,
+                            fontWeight: widget.selected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ],
                     )
-                  : null,
-            ),
-            child: widget.expanded
-                ? Row(
-                    children: [
-                      Icon(
-                        widget.selected
-                            ? widget.item.selectedIcon
-                            : widget.item.icon,
-                        color: iconColor,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 14),
-                      Text(
-                        widget.item.label,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 14,
-                          fontWeight: widget.selected
-                              ? FontWeight.w600
-                              : FontWeight.w400,
+                  : Center(
+                      child: Tooltip(
+                        message: widget.item.label,
+                        child: Icon(
+                          widget.selected
+                              ? widget.item.selectedIcon
+                              : widget.item.icon,
+                          color: iconColor,
+                          size: 24,
                         ),
                       ),
-                    ],
-                  )
-                : Center(
-                    child: Tooltip(
-                      message: widget.item.label,
-                      child: Icon(
-                        widget.selected
-                            ? widget.item.selectedIcon
-                            : widget.item.icon,
-                        color: iconColor,
-                        size: 24,
-                      ),
                     ),
-                  ),
+            ),
           ),
         ),
       ),
@@ -509,69 +514,73 @@ class _SidebarFooter extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           // User profile
-          GestureDetector(
-            onTap: onProfileTap,
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: Container(
-                padding: EdgeInsets.all(expanded ? 10 : 8),
-                decoration: BoxDecoration(
-                  color: isProfileActive
-                      ? Colors.white.withAlpha(25)
-                      : Colors.white.withAlpha(13),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: expanded
-                    ? Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: AppTheme.accentGold,
-                            child: Text(
-                              initials,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+          Semantics(
+            button: true,
+            label: name.isEmpty ? AppLocalizations.of(context)!.profile : name,
+            child: GestureDetector(
+              onTap: onProfileTap,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Container(
+                  padding: EdgeInsets.all(expanded ? 10 : 8),
+                  decoration: BoxDecoration(
+                    color: isProfileActive
+                        ? Colors.white.withAlpha(25)
+                        : Colors.white.withAlpha(13),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: expanded
+                      ? Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: AppTheme.accentGold,
+                              child: Text(
+                                initials,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Icon(
-                            Icons.chevron_right,
-                            size: 18,
-                            color: Colors.white.withAlpha(120),
-                          ),
-                        ],
-                      )
-                    : Center(
-                        child: Tooltip(
-                          message: name,
-                          child: CircleAvatar(
-                            radius: 16,
-                            backgroundColor: AppTheme.accentGold,
-                            child: Text(
-                              initials,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                            Icon(
+                              Icons.chevron_right,
+                              size: 18,
+                              color: Colors.white.withAlpha(120),
+                            ),
+                          ],
+                        )
+                      : Center(
+                          child: Tooltip(
+                            message: name,
+                            child: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: AppTheme.accentGold,
+                              child: Text(
+                                initials,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                ),
               ),
             ),
           ),
@@ -619,38 +628,43 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
             ? Colors.white.withAlpha(13)
             : Colors.transparent;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.expanded ? 14 : 0,
-            vertical: 10,
-          ),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: widget.expanded
-              ? Row(
-                  children: [
-                    Icon(displayIcon, color: iconColor, size: 20),
-                    const SizedBox(width: 14),
-                    Text(
-                      widget.label,
-                      style: TextStyle(color: textColor, fontSize: 13),
+    return Semantics(
+      button: true,
+      label: widget.label,
+      selected: widget.isActive,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.expanded ? 14 : 0,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: widget.expanded
+                ? Row(
+                    children: [
+                      Icon(displayIcon, color: iconColor, size: 20),
+                      const SizedBox(width: 14),
+                      Text(
+                        widget.label,
+                        style: TextStyle(color: textColor, fontSize: 13),
+                      ),
+                    ],
+                  )
+                : Center(
+                    child: Tooltip(
+                      message: widget.label,
+                      child: Icon(displayIcon, color: iconColor, size: 22),
                     ),
-                  ],
-                )
-              : Center(
-                  child: Tooltip(
-                    message: widget.label,
-                    child: Icon(displayIcon, color: iconColor, size: 22),
                   ),
-                ),
+          ),
         ),
       ),
     );

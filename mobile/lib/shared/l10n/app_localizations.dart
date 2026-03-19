@@ -2974,10 +2974,10 @@ abstract class AppLocalizations {
   /// **'Matched'**
   String get matchedLoads;
 
-  /// Stat label for available crop listings count
+  /// Stat label for available crop listings count (buyer dashboard)
   ///
   /// In en, this message translates to:
-  /// **'Listings'**
+  /// **'Available Crops'**
   String get farmersBrowsed;
 
   /// Title for marketplace/browse screen
@@ -3340,11 +3340,17 @@ abstract class AppLocalizations {
   /// **'Track your crop pickups & deliveries'**
   String get trackDeliveries;
 
-  /// Subtitle for the payments tab header
+  /// Subtitle for the payments tab header (farmer/trucker)
   ///
   /// In en, this message translates to:
   /// **'Track your earnings & escrow'**
   String get trackPayments;
+
+  /// Subtitle for the payments tab header (buyer)
+  ///
+  /// In en, this message translates to:
+  /// **'Track your payments & escrow'**
+  String get trackBuyerPayments;
 
   /// Empty state message when no deliveries exist
   ///
@@ -3394,11 +3400,17 @@ abstract class AppLocalizations {
   /// **'Check Balance'**
   String get checkBalance;
 
-  /// Subtitle for orders tab header
+  /// Subtitle for orders tab header (farmer/trucker)
   ///
   /// In en, this message translates to:
   /// **'Manage incoming orders'**
   String get manageOrders;
+
+  /// Subtitle for orders tab header (buyer)
+  ///
+  /// In en, this message translates to:
+  /// **'Track your orders'**
+  String get trackYourOrders;
 
   /// Order status label for pending orders
   ///
@@ -3799,7 +3811,7 @@ abstract class AppLocalizations {
   /// Count of matching listings
   ///
   /// In en, this message translates to:
-  /// **'{count} matches found'**
+  /// **'{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}'**
   String matchesFound(int count);
 
   /// Empty state when no listings match the intent
@@ -3915,6 +3927,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Find Crops'**
   String get findCrops;
+
+  /// Quick action label for buyers to find available trips
+  ///
+  /// In en, this message translates to:
+  /// **'Find Trips'**
+  String get findTrips;
 
   /// Total label in price breakdown
   ///

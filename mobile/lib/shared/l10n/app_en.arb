@@ -2113,9 +2113,9 @@
   "@matchedLoads": {
     "description": "Stat label for matched loads"
   },
-  "farmersBrowsed": "Listings",
+  "farmersBrowsed": "Available Crops",
   "@farmersBrowsed": {
-    "description": "Stat label for available crop listings count"
+    "description": "Stat label for available crop listings count (buyer dashboard)"
   },
   "marketplace": "Marketplace",
   "@marketplace": {
@@ -2394,7 +2394,11 @@
   },
   "trackPayments": "Track your earnings & escrow",
   "@trackPayments": {
-    "description": "Subtitle for the payments tab header"
+    "description": "Subtitle for the payments tab header (farmer/trucker)"
+  },
+  "trackBuyerPayments": "Track your payments & escrow",
+  "@trackBuyerPayments": {
+    "description": "Subtitle for the payments tab header (buyer)"
   },
   "noDeliveries": "No deliveries yet",
   "@noDeliveries": {
@@ -2430,7 +2434,11 @@
   },
   "manageOrders": "Manage incoming orders",
   "@manageOrders": {
-    "description": "Subtitle for orders tab header"
+    "description": "Subtitle for orders tab header (farmer/trucker)"
+  },
+  "trackYourOrders": "Track your orders",
+  "@trackYourOrders": {
+    "description": "Subtitle for orders tab header (buyer)"
   },
   "orderPending": "Pending",
   "@orderPending": {
@@ -2714,7 +2722,7 @@
   "@maxPrice": { "description": "Label for max price input on intent form" },
   "deliverTo": "Deliver to",
   "@deliverTo": { "description": "Label for delivery destination on intent form" },
-  "matchesFound": "{count} matches found",
+  "matchesFound": "{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}",
   "@matchesFound": { "description": "Count of matching listings", "placeholders": { "count": { "type": "int" } } },
   "noMatchesYet": "No matches yet",
   "@noMatchesYet": { "description": "Empty state when no listings match the intent" },
@@ -2754,6 +2762,8 @@
   "@newMatchesAvailable": { "description": "Badge text for new matches" },
   "findCrops": "Find Crops",
   "@findCrops": { "description": "Quick action label for buyer to find crops" },
+  "findTrips": "Find Trips",
+  "@findTrips": { "description": "Quick action label for buyers to find available trips" },
   "totalLabel": "Total",
   "@totalLabel": { "description": "Total label in price breakdown" },
 

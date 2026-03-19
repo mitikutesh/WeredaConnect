@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -17,6 +21,9 @@ class PaymentsTabScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final authState = context.read<AuthBloc>().state;
+    final isBuyer = authState is AuthAuthenticated &&
+        authState.role == UserRole.buyer;
 
     final isMobile = Breakpoints.isMobile(context);
     final isDesktop = Breakpoints.isDesktop(context);
@@ -69,7 +76,7 @@ class PaymentsTabScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  l10n.trackPayments,
+                  isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white.withAlpha(180),
@@ -108,7 +115,7 @@ class PaymentsTabScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    l10n.trackPayments,
+                    isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
                     style: const TextStyle(
                       fontSize: 14,
                       color: AppTheme.textMuted,
