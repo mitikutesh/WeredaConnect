@@ -2762,6 +2762,8 @@
   "@newMatchesAvailable": { "description": "Badge text for new matches" },
   "findCrops": "Find Crops",
   "@findCrops": { "description": "Quick action label for buyer to find crops" },
+  "findTrips": "Find Trips",
+  "@findTrips": { "description": "Quick action label for buyers to find available trips" },
   "totalLabel": "Total",
   "@totalLabel": { "description": "Total label in price breakdown" },
 

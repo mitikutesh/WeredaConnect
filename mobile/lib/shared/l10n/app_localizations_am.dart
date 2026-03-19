@@ -2029,6 +2029,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get findCrops => 'ሰብል ፈልግ';
 
   @override
+  String get findTrips => 'ጉዞ ፈልግ';
+
+  @override
   String get totalLabel => 'ጠቅላላ';
 
   @override

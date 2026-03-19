@@ -949,6 +949,23 @@ class _QuickActionsGrid extends StatelessWidget {
             },
           ),
           _QuickActionTile(
+            icon: Icons.route_outlined,
+            label: l10n.findTrips,
+            color: AppTheme.statusTransit,
+            onTap: () {
+              if (kIsWeb) {
+                context.go('/trips');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowseTripsScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
+            },
+          ),
+          _QuickActionTile(
             icon: Icons.receipt_long_outlined,
             label: l10n.myOrders,
             color: AppTheme.statusInfo,

@@ -3928,6 +3928,12 @@ abstract class AppLocalizations {
   /// **'Find Crops'**
   String get findCrops;
 
+  /// Quick action label for buyers to find available trips
+  ///
+  /// In en, this message translates to:
+  /// **'Find Trips'**
+  String get findTrips;
+
   /// Total label in price breakdown
   ///
   /// In en, this message translates to:

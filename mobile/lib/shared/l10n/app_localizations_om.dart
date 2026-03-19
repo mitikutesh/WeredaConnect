@@ -2090,6 +2090,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get findCrops => 'Midhaan Barbaadi';
 
   @override
+  String get findTrips => 'Imala Barbaadi';
+
+  @override
   String get totalLabel => 'Waliigala';
 
   @override

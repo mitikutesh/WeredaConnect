@@ -2075,6 +2075,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get findCrops => 'Find Crops';
 
   @override
+  String get findTrips => 'Find Trips';
+
+  @override
   String get totalLabel => 'Total';
 
   @override
