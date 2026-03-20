@@ -186,6 +186,7 @@ describe('MonitoringStack', () => {
       env: { account: '123456789012', region: devConfig.region },
       envConfig: devConfig,
       apiUrl: 'https://test.execute-api.me-south-1.amazonaws.com',
+      apiId: 'testapi123',
     });
 
     const template = Template.fromStack(stack);
