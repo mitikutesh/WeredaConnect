@@ -679,6 +679,7 @@ export class ApiStack extends cdk.Stack {
           "http://localhost:8080",
           `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
           `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+          "https://d32f0lzad1ens5.cloudfront.net",
         ];
 
     const httpApi = new apigateway.HttpApi(this, "HttpApi", {
