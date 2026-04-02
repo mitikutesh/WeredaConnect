@@ -308,6 +308,25 @@ public class PasswordResetFunctionTests
     }
 
     [Fact]
+    public async Task ResetPassword_UserNotFound_RecordsFailedOtpAttemptToPreventEnumeration()
+    {
+        _mockAuth.ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<bool>.Failure(404, "AUTH_013", "User not found.", "phoneNumber"));
+
+        var request = MakeRequest("/auth/reset-password", new
+        {
+            phoneNumber = "+251900000000",
+            confirmationCode = "123456",
+            newPassword = "NewPass1dev"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(404, response.StatusCode);
+        await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251900000000");
+    }
+
+    [Fact]
     public async Task ResetPassword_PasswordPolicyFailure_DoesNotRecordFailedOtpAttempt()
     {
         _mockAuth.ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())

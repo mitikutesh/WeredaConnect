@@ -214,7 +214,9 @@ class AuthService {
           role: UserRole.values.firstWhere(
             (r) =>
                 r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
-            orElse: () => UserRole.farmer,
+            orElse: () => throw StateError(
+              'Unknown role from server: ${user['role']}',
+            ),
           ),
           name: (user['displayName'] as String?) ?? '',
           woreda: user['woreda'] as String,

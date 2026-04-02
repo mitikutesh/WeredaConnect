@@ -33,7 +33,7 @@ public static class AuditLogger
             EntityType = entityType,
             EntityId = entityId,
             Detail = detail,
-            Outcome = outcome ?? "success",
+            Outcome = outcome ?? "unknown",
             ErrorCode = errorCode
         };
 
@@ -69,7 +69,7 @@ public static class AuditLogger
             UserId = userId,
             CorrelationId = correlationId,
             Detail = detail,
-            Outcome = outcome ?? "success",
+            Outcome = outcome ?? "unknown",
             SourceIp = sourceIp
         };
 

@@ -31,7 +31,14 @@ void applyCertPinning(Dio dio) {
       client.badCertificateCallback =
           (X509Certificate cert, String host, int port) {
         // Only pin our API host; reject everything else.
-        if (!host.contains('execute-api') && !host.contains('weredaconnect')) {
+        // Use exact-suffix matching to prevent substring attacks
+        // (e.g. malicious-execute-api.evil.com passing a contains() check).
+        final isApiGateway = RegExp(
+          r'\.execute-api\.[a-z0-9-]+\.amazonaws\.com$',
+        ).hasMatch(host);
+        final isWeredaConnect = host.endsWith('.weredaconnect.com') ||
+            host == 'weredaconnect.com';
+        if (!isApiGateway && !isWeredaConnect) {
           debugPrint('[CertPinning] REJECTED unknown host: $host:$port');
           return false;
         }

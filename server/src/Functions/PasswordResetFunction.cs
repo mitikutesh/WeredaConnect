@@ -19,9 +19,11 @@ public class PasswordResetFunction
     private readonly ICognitoAuthService _authService;
     private readonly IRateLimitService _rateLimitService;
 
-    // Cognito error codes for wrong/expired OTP — only these burn the OTP attempt counter.
+    // Cognito error codes that burn the OTP attempt counter.
+    // UserNotFound is included to prevent phone number enumeration via the reset endpoint.
     private const string CodeMismatchCode = "AUTH_018";
     private const string CodeExpiredCode = "AUTH_019";
+    private const string UserNotFoundCode = "AUTH_013";
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -201,9 +203,10 @@ public class PasswordResetFunction
         if (!result.IsSuccess)
         {
             var error = result.Error!;
-            // Only penalise wrong/expired codes — not password-policy failures or
-            // infrastructure errors (which should not burn the user's OTP budget).
-            if (error.Code is CodeMismatchCode or CodeExpiredCode)
+            // Penalise wrong/expired codes and unknown users to prevent phone number
+            // enumeration via the reset endpoint. Password-policy failures and
+            // infrastructure errors do not burn the OTP budget.
+            if (error.Code is CodeMismatchCode or CodeExpiredCode or UserNotFoundCode)
             {
                 await _rateLimitService.RecordFailedOtpAttemptAsync(rpRequest.PhoneNumber);
             }
