@@ -54,6 +54,7 @@ export class MonitoringStack extends cdk.Stack {
       { label: 'Auth Login', nameSuffix: 'auth-login' },
       { label: 'Auth Register', nameSuffix: 'auth-register' },
       { label: 'Auth Refresh', nameSuffix: 'auth-refresh' },
+      { label: 'Auth Password Reset', nameSuffix: 'auth-password-reset' },
       { label: 'Sync', nameSuffix: 'sync' },
       { label: 'Escrow', nameSuffix: 'escrow' },
       { label: 'Escrow Cron', nameSuffix: 'escrow-cron' },
@@ -440,11 +441,12 @@ export class MonitoringStack extends cdk.Stack {
     api5xxAlarm.addOkAction(snsAction);
 
     // Alarm 2: Lambda Errors — critical function errors > 3 in 5 minutes
-    // CloudWatch math expressions limited to 10 metrics — monitor the 8 most
+    // CloudWatch math expressions limited to 10 metrics — monitor the 9 most
     // critical functions (auth, sync, escrow, crops, trips, orders, deliveries, admin)
     const alarmLambdaFunctions: LambdaFunctionDef[] = [
       { label: 'Auth Login', nameSuffix: 'auth-login' },
       { label: 'Auth Register', nameSuffix: 'auth-register' },
+      { label: 'Auth Password Reset', nameSuffix: 'auth-password-reset' },
       { label: 'Sync', nameSuffix: 'sync' },
       { label: 'Escrow', nameSuffix: 'escrow' },
       { label: 'Crops', nameSuffix: 'crops' },

@@ -19,6 +19,8 @@ export interface EnvironmentConfig {
   readonly isProd: boolean;
   readonly tags: Record<string, string>;
   readonly domain: DomainConfig;
+  /** Extra CORS origins beyond the standard domain-derived ones (e.g. temp CloudFront URLs). */
+  readonly extraCorsOrigins?: readonly string[];
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
@@ -37,6 +39,9 @@ export const environments: Record<string, EnvironmentConfig> = {
       webappSubdomain: 'dev-app',
       adminSubdomain: 'dev-admin',
     },
+    // Temporary CloudFront distribution for dev webapp before custom domain is wired.
+    // Remove once dev-app.weredaconnect.com is fully configured.
+    extraCorsOrigins: ['https://d32f0lzad1ens5.cloudfront.net'],
   },
   staging: {
     name: 'staging',

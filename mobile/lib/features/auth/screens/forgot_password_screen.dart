@@ -62,8 +62,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     final normalizedPhone =
         normalizeEthiopianPhone(_phoneController.text.trim());
+    if (normalizedPhone == null) return;
     context.read<AuthBloc>().add(
-          AuthForgotPasswordRequested(phoneNumber: normalizedPhone!),
+          AuthForgotPasswordRequested(phoneNumber: normalizedPhone),
         );
   }
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
@@ -153,9 +155,11 @@ class IsarService {
           await _secureStorage.delete(key: keyName);
         }
       }
-    } on Exception {
-      // If reading fails, continue to generate new key
-      // This can happen on first install or after secure storage is cleared
+    } on Exception catch (e) {
+      // Reading failed — continue to generate a new key.
+      // Common on first install or after secure storage is cleared.
+      // Log so crashes are visible in Sentry/Crashlytics on real devices.
+      debugPrint('[IsarService] Failed to read encryption key: $e');
     }
 
     // Generate new 256-bit (32-byte) encryption key
@@ -168,10 +172,11 @@ class IsarService {
         key: keyName,
         value: base64Encode(key),
       );
-    } on Exception {
-      // Non-fatal: key works for this session but won't persist.
-      // This can happen on Linux without a keyring daemon (e.g., CI)
-      // or on first install with restricted storage access.
+    } on Exception catch (e) {
+      // Key works for this session but won't persist across restarts.
+      // Common on Linux CI (no keyring daemon) or restricted storage.
+      // Log so persistent failures surface in crash reporting.
+      debugPrint('[IsarService] Failed to persist encryption key: $e');
     }
 
     return key;

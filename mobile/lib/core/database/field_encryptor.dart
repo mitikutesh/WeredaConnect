@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 
 /// Provides AES-256-GCM field-level encryption for PII fields stored in Isar.
 ///
@@ -58,6 +59,9 @@ class FieldEncryptor {
   /// This ensures the app works during first-launch before the key is ready.
   Future<String> encrypt(String plaintext) async {
     if (!_initialized || _secretKey == null) {
+      // Encryptor not yet initialized — storing plaintext.
+      // IsarService.initialize() must complete before repositories write PII.
+      debugPrint('[FieldEncryptor] encrypt() called before initialization');
       return plaintext;
     }
 
@@ -66,12 +70,15 @@ class FieldEncryptor {
       secretKey: _secretKey!,
     );
 
-    // Pack nonce + ciphertext + mac into a single byte array
-    final combined = Uint8List.fromList([
-      ...secretBox.nonce,
-      ...secretBox.cipherText,
-      ...secretBox.mac.bytes,
-    ]);
+    // Pack nonce + ciphertext + mac into a single pre-allocated byte array.
+    final nonce = secretBox.nonce;
+    final cipherText = secretBox.cipherText;
+    final mac = secretBox.mac.bytes;
+    final combined = Uint8List(nonce.length + cipherText.length + mac.length);
+    var pos = 0;
+    combined.setAll(pos, nonce); pos += nonce.length;
+    combined.setAll(pos, cipherText); pos += cipherText.length;
+    combined.setAll(pos, mac);
 
     return base64Encode(combined);
   }
@@ -116,13 +123,15 @@ class FieldEncryptor {
 
       return utf8.decode(decrypted);
     } on FormatException {
-      // Not valid base64 — return as-is (unencrypted legacy data)
+      // Not valid base64 — unencrypted legacy data, return as-is.
       return ciphertext;
     } on SecretBoxAuthenticationError {
-      // MAC check failed — likely unencrypted legacy data
-      return ciphertext;
-    } on Exception {
-      // Any other decryption error — return as-is for safety
+      // MAC check failed — could be a wrong key or tampered data.
+      // Log at warning level so it surfaces in crash reporting.
+      debugPrint(
+        '[FieldEncryptor] MAC verification failed — possible key mismatch '
+        'or data tampering. Returning ciphertext as-is.',
+      );
       return ciphertext;
     }
   }

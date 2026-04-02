@@ -19,6 +19,10 @@ public class PasswordResetFunction
     private readonly ICognitoAuthService _authService;
     private readonly IRateLimitService _rateLimitService;
 
+    // Cognito error codes for wrong/expired OTP — only these burn the OTP attempt counter.
+    private const string CodeMismatchCode = "AUTH_018";
+    private const string CodeExpiredCode = "AUTH_019";
+
     /// <summary>
     /// Default constructor for Lambda runtime.
     /// </summary>
@@ -101,23 +105,19 @@ public class PasswordResetFunction
             return LambdaResponse.ValidationError(phoneValidation);
         }
 
-        // Rate limit: 3 per 10 min per phone
-        var rateLimitCheck = await _rateLimitService.CheckOtpAttemptAllowedAsync(fpRequest.PhoneNumber);
-        if (!rateLimitCheck.IsSuccess)
-        {
-            var rlError = rateLimitCheck.Error!;
-            return LambdaResponse.Error(rlError.HttpStatus, rlError.Code, rlError.Message,
-                retryAfterSeconds: rlError.RetryAfterSeconds);
-        }
-
         var correlationId = AuditLogger.GetCorrelationId(request);
         var sourceIp = AuditLogger.GetSourceIp(request);
+
+        var rateLimitResponse = await EnforceOtpRateLimitAsync(
+            fpRequest.PhoneNumber, "FORGOT_PASSWORD_RATE_LIMITED", correlationId, sourceIp);
+        if (rateLimitResponse != null) return rateLimitResponse;
 
         var result = await _authService.ForgotPasswordAsync(fpRequest.PhoneNumber);
 
         if (!result.IsSuccess)
         {
             var error = result.Error!;
+            await _rateLimitService.RecordFailedOtpAttemptAsync(fpRequest.PhoneNumber);
             AuditLogger.LogSecurity("FORGOT_PASSWORD",
                 correlationId: correlationId, detail: "code send failed",
                 outcome: "failure", sourceIp: sourceIp);
@@ -188,6 +188,11 @@ public class PasswordResetFunction
         var correlationId = AuditLogger.GetCorrelationId(request);
         var sourceIp = AuditLogger.GetSourceIp(request);
 
+        // Rate limit: check before calling Cognito so recorded failures have teeth.
+        var rateLimitResponse = await EnforceOtpRateLimitAsync(
+            rpRequest.PhoneNumber, "RESET_PASSWORD_RATE_LIMITED", correlationId, sourceIp);
+        if (rateLimitResponse != null) return rateLimitResponse;
+
         var result = await _authService.ConfirmForgotPasswordAsync(
             rpRequest.PhoneNumber,
             rpRequest.ConfirmationCode,
@@ -196,7 +201,12 @@ public class PasswordResetFunction
         if (!result.IsSuccess)
         {
             var error = result.Error!;
-            await _rateLimitService.RecordFailedOtpAttemptAsync(rpRequest.PhoneNumber);
+            // Only penalise wrong/expired codes — not password-policy failures or
+            // infrastructure errors (which should not burn the user's OTP budget).
+            if (error.Code is CodeMismatchCode or CodeExpiredCode)
+            {
+                await _rateLimitService.RecordFailedOtpAttemptAsync(rpRequest.PhoneNumber);
+            }
             AuditLogger.LogSecurity("PASSWORD_RESET_FAILED",
                 correlationId: correlationId, detail: error.Code,
                 outcome: "failure", sourceIp: sourceIp);
@@ -214,5 +224,22 @@ public class PasswordResetFunction
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResetPasswordResponse);
+    }
+
+    /// <summary>
+    /// Checks the OTP rate limit for [phone]. Returns an error response if the limit is
+    /// exceeded (caller should return it immediately), or null if the request is allowed.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse?> EnforceOtpRateLimitAsync(
+        string phone, string auditAction, string correlationId, string? sourceIp)
+    {
+        var check = await _rateLimitService.CheckOtpAttemptAllowedAsync(phone);
+        if (check.IsSuccess) return null;
+
+        var error = check.Error!;
+        AuditLogger.LogSecurity(auditAction,
+            correlationId: correlationId, outcome: "rate_limited", sourceIp: sourceIp);
+        return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message,
+            retryAfterSeconds: error.RetryAfterSeconds);
     }
 }

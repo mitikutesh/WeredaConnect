@@ -503,20 +503,30 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
-    final result = await _authService.forgotPassword(
-      phoneNumber: event.phoneNumber,
-    );
-    if (result.isSuccess) {
-      emit(AuthPasswordResetCodeSent(phoneNumber: event.phoneNumber));
-    } else {
+    try {
+      final result = await _authService.forgotPassword(
+        phoneNumber: event.phoneNumber,
+      );
+      if (result.isSuccess) {
+        emit(AuthPasswordResetCodeSent(phoneNumber: event.phoneNumber));
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Failed to send reset code',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+            retryAfterSeconds: result.retryAfterSeconds,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] ForgotPassword failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Failed to send reset code',
-          canRetry: result.errorCode?.isRecoverable ?? true,
-          retryAfterSeconds: result.retryAfterSeconds,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Failed to send reset code. Please try again.',
         ),
       );
     }
@@ -528,22 +538,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(const AuthLoading());
-    final result = await _authService.resetPassword(
-      phoneNumber: event.phoneNumber,
-      confirmationCode: event.confirmationCode,
-      newPassword: event.newPassword,
-    );
-    if (result.isSuccess) {
-      emit(const AuthPasswordResetSuccess());
-    } else {
+    try {
+      final result = await _authService.resetPassword(
+        phoneNumber: event.phoneNumber,
+        confirmationCode: event.confirmationCode,
+        newPassword: event.newPassword,
+      );
+      if (result.isSuccess) {
+        emit(const AuthPasswordResetSuccess());
+      } else {
+        emit(
+          AuthError(
+            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+            errorMessage: result.errorMessage ??
+                result.errorCode?.userMessage ??
+                'Failed to reset password',
+            canRetry: result.errorCode?.isRecoverable ?? true,
+            retryAfterSeconds: result.retryAfterSeconds,
+          ),
+        );
+      }
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] ResetPassword failed unexpectedly: $e');
       emit(
-        AuthError(
-          errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-          errorMessage: result.errorMessage ??
-              result.errorCode?.userMessage ??
-              'Failed to reset password',
-          canRetry: result.errorCode?.isRecoverable ?? true,
-          retryAfterSeconds: result.retryAfterSeconds,
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Failed to reset password. Please try again.',
         ),
       );
     }

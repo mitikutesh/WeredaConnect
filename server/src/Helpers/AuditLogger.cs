@@ -37,8 +37,17 @@ public static class AuditLogger
             ErrorCode = errorCode
         };
 
-        var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.AuditLogEntry);
-        Console.WriteLine(json);
+        try
+        {
+            var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.AuditLogEntry);
+            Console.WriteLine(json);
+        }
+        catch (Exception ex)
+        {
+            // Never let logging crash the Lambda — write raw fallback to stderr.
+            Console.Error.WriteLine(
+                $"[AuditLogger] Serialization failed: {ex.Message} | category={category} action={action}");
+        }
     }
 
     /// <summary>
@@ -64,21 +73,37 @@ public static class AuditLogger
             SourceIp = sourceIp
         };
 
-        var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.SecurityLogEntry);
-        Console.WriteLine(json);
+        try
+        {
+            var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.SecurityLogEntry);
+            Console.WriteLine(json);
+        }
+        catch (Exception ex)
+        {
+            // Never let logging crash the Lambda — write raw fallback to stderr.
+            Console.Error.WriteLine(
+                $"[AuditLogger] Serialization failed: {ex.Message} | action={action}");
+        }
     }
 
     /// <summary>
     /// Extract the X-Correlation-Id header from an API Gateway request.
     /// If the header is missing, generates a short unique ID.
     /// </summary>
+    private const int MaxCorrelationIdLength = 64;
+
     public static string GetCorrelationId(APIGatewayProxyRequest request)
     {
         if (request.Headers != null &&
             request.Headers.TryGetValue("X-Correlation-Id", out var correlationId) &&
             !string.IsNullOrWhiteSpace(correlationId))
         {
-            return correlationId;
+            // Clamp to prevent log injection via oversized or malicious header values.
+            if (correlationId.Length <= MaxCorrelationIdLength &&
+                correlationId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_'))
+            {
+                return correlationId;
+            }
         }
 
         return Guid.NewGuid().ToString("N")[..12];
