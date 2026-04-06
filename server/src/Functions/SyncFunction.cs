@@ -257,6 +257,8 @@ public partial class SyncFunction
             return LambdaResponse.Error(401, "UNAUTHORIZED", "Authentication required.");
         }
 
+        var authenticatedRole = AuthHelper.GetClaim(request, "custom:role");
+
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
         if (_rateLimitService != null)
@@ -281,7 +283,7 @@ public partial class SyncFunction
 
         foreach (var operation in syncRequest.Operations)
         {
-            var result = await ProcessOperationAsync(operation, authenticatedUserId, context);
+            var result = await ProcessOperationAsync(operation, authenticatedUserId, authenticatedRole, context);
             context.Logger.LogInformation(
                 $"Op {result.OperationId}: status={result.Status}, msg={result.Message ?? "none"}");
             results.Add(result);
@@ -309,6 +311,7 @@ public partial class SyncFunction
     private async Task<SyncOperationResult> ProcessOperationAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
+        string? authenticatedRole,
         ILambdaContext context)
     {
         // Validate required fields
@@ -366,10 +369,10 @@ public partial class SyncFunction
             // 2. Route to entity handler
             var result = operation.EntityType switch
             {
-                "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, context),
-                "trip" => await ProcessTripAsync(operation, authenticatedUserId, context),
+                "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "trip" => await ProcessTripAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
-                "order" => await ProcessOrderAsync(operation, authenticatedUserId, context),
+                "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -484,6 +487,7 @@ public partial class SyncFunction
     private async Task<SyncOperationResult> ProcessCropListingAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
+        string? authenticatedRole,
         ILambdaContext context)
     {
         switch (operation.Action)
@@ -497,6 +501,17 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "Create operation requires data payload."
+                        };
+                    }
+
+                    // Role check: only farmers can create crop listings
+                    if (!string.Equals(authenticatedRole, "farmer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "CROP_UNAUTHORIZED: Only farmers can create crop listings."
                         };
                     }
 
@@ -824,6 +839,7 @@ public partial class SyncFunction
     private async Task<SyncOperationResult> ProcessTripAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
+        string? authenticatedRole,
         ILambdaContext context)
     {
         switch (operation.Action)
@@ -837,6 +853,17 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "Create operation requires data payload."
+                        };
+                    }
+
+                    // Role check: only truckers can create trip listings
+                    if (!string.Equals(authenticatedRole, "trucker", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "TRIP_UNAUTHORIZED: Only truckers can create trip listings."
                         };
                     }
 
@@ -2621,12 +2648,13 @@ public partial class SyncFunction
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
+        string? authenticatedRole,
         ILambdaContext context)
     {
         switch (operation.Action)
         {
             case "create":
-                return await ProcessOrderCreateAsync(operation, authenticatedUserId, context);
+                return await ProcessOrderCreateAsync(operation, authenticatedUserId, authenticatedRole, context);
             case "update":
                 return await ProcessOrderUpdateAsync(operation, authenticatedUserId, context);
             default:
@@ -2642,6 +2670,7 @@ public partial class SyncFunction
     private async Task<SyncOperationResult> ProcessOrderCreateAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
+        string? authenticatedRole,
         ILambdaContext context)
     {
         if (operation.Data == null || operation.Data.Count == 0)
@@ -2651,6 +2680,17 @@ public partial class SyncFunction
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = "Create operation requires data payload."
+            };
+        }
+
+        // Role check: only buyers can create orders
+        if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: Only buyers can create orders."
             };
         }
 
