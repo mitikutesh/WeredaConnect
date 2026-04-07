@@ -186,7 +186,7 @@ describe('MonitoringStack', () => {
     const stack = new MonitoringStack(app, 'TestMonitoringStack', {
       env: { account: '123456789012', region: devConfig.region },
       envConfig: devConfig,
-      apiUrl: 'https://test.execute-api.me-south-1.amazonaws.com',
+      apiUrl: `https://test.execute-api.${devConfig.region}.amazonaws.com`,
       apiId: 'testapi123',
     });
 

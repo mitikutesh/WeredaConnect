@@ -52,7 +52,7 @@ Farmer creates crop listing → Buyer browses ALL listings → Buyer creates ord
 | Trucker | `+251900100002` | `TestPass1dev` |
 | Buyer | `+251900100003` | `TestPass1dev` |
 
-API: `https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`
+API: `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
 Login: `POST /auth/login` with `{"phoneNumber": "...", "password": "TestPass1dev"}`
 Full details: `.ai/test-users.md`
 
@@ -134,7 +134,7 @@ Read this table BEFORE starting work. Load only what you need — don't read eve
 - **Cold start**: <100ms target
 
 ### Infrastructure (AWS CDK 2.170.x, Node 20)
-- **Region**: `me-south-1` (Bahrain — closest to Ethiopia)
+- **Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
 - **Lambda**: ARM64 Graviton, 512MB, 10s timeout, reserved concurrency
 - **DynamoDB**: On-demand billing (12 tables)
 - **Never**: NAT Gateways, RDS, auto-scaling without cost caps

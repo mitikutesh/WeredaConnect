@@ -20,7 +20,7 @@ Implemented in `.claude/agents/`. Read each agent file for full scope, constrain
 |-------|------|------|----------------|
 | Mobile | `.claude/agents/mobile.md` | `mobile/**` | Offline-first, Isar, BLoC, all 3 roles, mobile+web parity |
 | Server | `.claude/agents/server.md` | `server/**` | AOT compliance, role-based query filtering, cross-module impact |
-| Infrastructure | `.claude/agents/infra.md` | `infra/**` | Cost optimization, ARM64, me-south-1 region |
+| Infrastructure | `.claude/agents/infra.md` | `infra/**` | Cost optimization, ARM64, eu-north-1 (dev) / me-south-1 (staging/prod) |
 | Reviewer | `.claude/agents/reviewer.md` | Read-only | Role + cross-platform checks are CRITICAL FAIL gates |
 
 ## Governance Roles

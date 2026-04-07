@@ -16,15 +16,15 @@ Playwright web tests, Maestro mobile tests, and manual QA.
 
 ## API Details
 
-- **API URL:** `https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`
-- **Cognito Pool:** `me-south-1_ZoNImlLr7`
-- **Client ID:** `430thc2sqqtpefbrmo98lacpg6`
+- **API URL:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
+- **Cognito Pool:** `eu-north-1_1LL9tzoxw`
+- **Client ID:** `5s1bblbi8vl6cb58q02vk9paml`
 - **Auth Flow:** `USER_PASSWORD_AUTH`
 
 ## Login Example (curl)
 
 ```bash
-curl -X POST https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com/auth/login \
+curl -X POST https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com/auth/login \
   -H "Content-Type: application/json" \
   -d '{"phoneNumber": "+251900100001", "password": "TestPass1dev"}'
 ```
@@ -35,7 +35,7 @@ curl -X POST https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com/auth/login 
 import json
 from urllib.request import Request, urlopen
 
-BASE_URL = "https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com"
+BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 
 def login(phone: str, password: str = "TestPass1dev") -> dict:
     req = Request(f"{BASE_URL}/auth/login", method="POST",

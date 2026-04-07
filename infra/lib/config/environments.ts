@@ -1,8 +1,8 @@
 /**
  * Environment configuration for WeredaConnect infrastructure.
  *
- * Region: me-south-1 (Bahrain) — closest AWS region to Ethiopia.
- * All environments use the same region to minimize latency for Ethiopian users.
+ * Region: eu-north-1 (Stockholm) for dev; me-south-1 (Bahrain) for staging/prod.
+ * Dev uses Stockholm for lower cost during development (working from Finland).
  */
 
 export interface DomainConfig {
@@ -26,7 +26,7 @@ export interface EnvironmentConfig {
 export const environments: Record<string, EnvironmentConfig> = {
   dev: {
     name: 'dev',
-    region: 'me-south-1',
+    region: 'eu-north-1',
     isProd: false,
     tags: {
       Environment: 'development',

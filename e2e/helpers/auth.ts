@@ -29,7 +29,7 @@ export const TEST_USERS = {
 
 export const API_URL =
   process.env.API_URL ||
-  "https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com";
+  "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com";
 
 /** Login via the API and return tokens. Useful for setting auth state directly. */
 export async function apiLogin(

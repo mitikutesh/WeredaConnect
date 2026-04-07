@@ -102,8 +102,8 @@ NEXT: Start Sprint 1 — fix 3 failing tests (S1-01), then hardcoded string (S1-
 
 ## Deployment
 
-- **API:** `https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`
-- **Region:** me-south-1 (Bahrain)
+- **API:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
+- **Region:** eu-north-1 (Stockholm) — dev only; staging/prod remain me-south-1
 - **Lambda:** 15 functions, ARM64 Native AOT
 - **DynamoDB:** 12+ tables (on-demand billing)
 - **Web:** CloudFront + S3 (webapp + admin + website)

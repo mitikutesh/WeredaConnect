@@ -581,7 +581,9 @@ void main() {
           () => authService.forgotPassword(
             phoneNumber: any(named: 'phoneNumber'),
           ),
-        ).thenAnswer((_) async => AuthResult.success(null));
+        ).thenAnswer((_) async => AuthResult.success(
+              const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+            ));
 
         final bloc = buildBloc();
         addTearDown(bloc.close);
@@ -624,7 +626,8 @@ void main() {
         expect(states[1], isA<AuthError>());
       });
 
-      test('emits [AuthLoading, AuthError] with retryAfterSeconds on rate limit',
+      test(
+          'emits [AuthLoading, AuthError] with retryAfterSeconds on rate limit',
           () async {
         when(
           () => authService.forgotPassword(
@@ -687,7 +690,11 @@ void main() {
             confirmationCode: any(named: 'confirmationCode'),
             newPassword: any(named: 'newPassword'),
           ),
-        ).thenAnswer((_) async => AuthResult.success(null));
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+          ),
+        );
 
         final bloc = buildBloc();
         addTearDown(bloc.close);

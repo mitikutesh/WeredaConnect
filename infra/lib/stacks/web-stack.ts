@@ -14,7 +14,7 @@ export interface WebStackProps extends cdk.StackProps {
 /**
  * Web stack: S3 buckets + CloudFront distributions for website, webapp, and admin.
  *
- * Deployed in me-south-1 (Bahrain) for regional consistency. The ACM certificate
+ * Deployed in eu-north-1 (Stockholm) for dev; me-south-1 (Bahrain) for staging/prod. The ACM certificate
  * is created in a separate stack in us-east-1 (hard AWS requirement for CloudFront)
  * and passed here via cross-region references.
  */
@@ -31,6 +31,11 @@ export class WebStack extends cdk.Stack {
 
     const { envConfig, certificate } = props;
     const prefix = `wereda-connect-${envConfig.name}`;
+    // S3 bucket names are globally unique. Dev was previously deployed in me-south-1;
+    // adding the region prevents name collisions when redeploying dev in eu-north-1.
+    // Staging/prod keep their existing names (already deployed, must not change).
+    const bucketPrefix =
+      envConfig.name === "dev" ? `${prefix}-${envConfig.region}` : prefix;
     const { domain } = envConfig;
 
     // ─── CloudFront Function: rewrite /path/ → /path/index.html ───
@@ -63,7 +68,7 @@ function handler(event) {
         securityHeadersBehavior: {
           contentSecurityPolicy: {
             contentSecurityPolicy:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.me-south-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.me-south-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.eu-north-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.eu-north-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
             override: true,
           },
           strictTransportSecurity: {
@@ -89,7 +94,7 @@ function handler(event) {
     );
 
     // ─── Website (marketing site — Astro SSG) ─────────────────────
-    const websiteBucket = this.createBucket(`${prefix}-website`, "Website");
+    const websiteBucket = this.createBucket(`${bucketPrefix}-website`, "Website");
     const websiteDomain = `${domain.websiteSubdomain}.${domain.zoneName}`;
     const websiteDistribution = this.createDistribution(
       "WebsiteDistribution",
@@ -130,7 +135,7 @@ function handler(event) {
     );
 
     // ─── Webapp (Flutter web — SPA) ───────────────────────────────
-    const webappBucket = this.createBucket(`${prefix}-webapp`, "Webapp");
+    const webappBucket = this.createBucket(`${bucketPrefix}-webapp`, "Webapp");
     const webappDomain = `${domain.webappSubdomain}.${domain.zoneName}`;
     const webappDistribution = this.createDistribution(
       "WebappDistribution",
@@ -167,7 +172,7 @@ function handler(event) {
     );
 
     // ─── Admin (React Vite — SPA) ─────────────────────────────────
-    const adminBucket = this.createBucket(`${prefix}-admin`, "Admin");
+    const adminBucket = this.createBucket(`${bucketPrefix}-admin`, "Admin");
     const adminDomain = `${domain.adminSubdomain}.${domain.zoneName}`;
     const adminDistribution = this.createDistribution(
       "AdminDistribution",

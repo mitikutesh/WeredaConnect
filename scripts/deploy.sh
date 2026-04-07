@@ -72,7 +72,7 @@ cd "$MOBILE_DIR"
 API_STACK="wereda-connect-${ENV}-api"
 API_BASE_URL=$(aws cloudformation describe-stacks \
   --stack-name "$API_STACK" \
-  --region me-south-1 \
+  --region eu-north-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
   --output text 2>/dev/null || echo "")
 
@@ -80,7 +80,7 @@ if [[ -z "$API_BASE_URL" ]]; then
   echo "Warning: Could not resolve API_BASE_URL from stack $API_STACK. Checking ApiEndpoint..."
   API_BASE_URL=$(aws cloudformation describe-stacks \
     --stack-name "$API_STACK" \
-    --region me-south-1 \
+    --region eu-north-1 \
     --query 'Stacks[0].Outputs[?contains(OutputKey, `Api`)].OutputValue' \
     --output text 2>/dev/null | head -1 || echo "")
 fi
@@ -88,13 +88,13 @@ fi
 AUTH_STACK="wereda-connect-${ENV}-api"
 COGNITO_USER_POOL_ID=$(aws cloudformation describe-stacks \
   --stack-name "$AUTH_STACK" \
-  --region me-south-1 \
+  --region eu-north-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' \
   --output text 2>/dev/null || echo "")
 
 COGNITO_CLIENT_ID=$(aws cloudformation describe-stacks \
   --stack-name "$AUTH_STACK" \
-  --region me-south-1 \
+  --region eu-north-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
   --output text 2>/dev/null || echo "")
 
@@ -112,7 +112,7 @@ fi
 if [[ -n "$COGNITO_CLIENT_ID" ]]; then
   DART_DEFINES="$DART_DEFINES --dart-define=COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID"
 fi
-DART_DEFINES="$DART_DEFINES --dart-define=COGNITO_REGION=me-south-1"
+DART_DEFINES="$DART_DEFINES --dart-define=COGNITO_REGION=eu-north-1"
 DART_DEFINES="$DART_DEFINES --dart-define=ENVIRONMENT=$ENV"
 
 # shellcheck disable=SC2086
@@ -126,13 +126,13 @@ echo "[6/6] Deploying web app to S3..."
 WEB_STACK="wereda-connect-${ENV}-web"
 WEBAPP_BUCKET=$(aws cloudformation describe-stacks \
   --stack-name "$WEB_STACK" \
-  --region me-south-1 \
+  --region eu-north-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`WebappBucketName`].OutputValue' \
   --output text 2>/dev/null || echo "")
 
 WEBAPP_CF_ID=$(aws cloudformation describe-stacks \
   --stack-name "$WEB_STACK" \
-  --region me-south-1 \
+  --region eu-north-1 \
   --query 'Stacks[0].Outputs[?OutputKey==`WebappDistributionIdOutput`].OutputValue' \
   --output text 2>/dev/null || echo "")
 
@@ -152,23 +152,23 @@ aws s3 sync "$MOBILE_DIR/build/web/" "s3://$WEBAPP_BUCKET/" \
   --exclude "index.html" \
   --exclude "flutter_service_worker.js" \
   --exclude "version.json" \
-  --region me-south-1
+  --region eu-north-1
 
 # Upload mutable files with no-cache
 aws s3 cp "$MOBILE_DIR/build/web/index.html" \
   "s3://$WEBAPP_BUCKET/index.html" \
   --cache-control "public, max-age=0, must-revalidate" \
-  --region me-south-1
+  --region eu-north-1
 
 aws s3 cp "$MOBILE_DIR/build/web/flutter_service_worker.js" \
   "s3://$WEBAPP_BUCKET/flutter_service_worker.js" \
   --cache-control "public, max-age=0, must-revalidate" \
-  --region me-south-1
+  --region eu-north-1
 
 aws s3 cp "$MOBILE_DIR/build/web/version.json" \
   "s3://$WEBAPP_BUCKET/version.json" \
   --cache-control "public, max-age=0, must-revalidate" \
-  --region me-south-1
+  --region eu-north-1
 
 echo "S3 sync complete."
 

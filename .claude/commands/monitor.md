@@ -2,7 +2,7 @@ Check observability health: CloudWatch alarms, Lambda errors, DynamoDB throttles
 
 The user may provide: $ARGUMENTS (specific check: "alarms", "errors", "health", "costs", or environment name)
 
-Prerequisites: AWS CLI configured with access to `me-south-1`.
+Prerequisites: AWS CLI configured with access to `eu-north-1`.
 
 Steps:
 
@@ -17,7 +17,7 @@ Steps:
 2. **Health check**:
    ```bash
    # API health endpoint
-   curl -s https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com/health | python3 -m json.tool
+   curl -s https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com/health | python3 -m json.tool
    ```
 
 3. **Check CloudWatch alarms exist** (run in parallel):
@@ -25,7 +25,7 @@ Steps:
    # List all alarms for the environment
    aws cloudwatch describe-alarms \
      --alarm-name-prefix "wereda-connect-$ENV" \
-     --region me-south-1 \
+     --region eu-north-1 \
      --query 'MetricAlarms[].{Name:AlarmName,State:StateValue,Metric:MetricName}' \
      --output table
    ```
@@ -45,7 +45,7 @@ Steps:
        --log-group-name "/aws/lambda/wereda-connect-$ENV-$fn" \
        --filter-pattern "ERROR" \
        --start-time $(date -u -v-1H +%s)000 \
-       --region me-south-1 \
+       --region eu-north-1 \
        --query 'events[].message' \
        --output text 2>/dev/null | head -5
    done
@@ -60,7 +60,7 @@ Steps:
      --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
      --period 3600 \
      --statistics Sum \
-     --region me-south-1 \
+     --region eu-north-1 \
      --query 'Datapoints[?Sum>`0`]'
    ```
 
@@ -70,7 +70,7 @@ Steps:
      --log-group-name "/aws/lambda/wereda-connect-$ENV-health" \
      --filter-pattern "Init Duration" \
      --start-time $(date -u -v-24H +%s)000 \
-     --region me-south-1 \
+     --region eu-north-1 \
      --query 'events[].message' \
      --output text | head -10
    ```

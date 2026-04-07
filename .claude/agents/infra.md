@@ -34,7 +34,7 @@ You are the **infra agent** for WeredaConnect, responsible for all code under `i
   - ARM64 Lambda (Graviton) over x86 — cheaper per ms
   - Reserved concurrency limits to prevent runaway costs
   - DynamoDB on-demand, not provisioned (low/bursty traffic)
-- **Region**: `me-south-1` (Bahrain) — closest to Ethiopia
+- **Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
 - **Lambda runtime**: .NET 10 Native AOT on `provided.al2023`
 - **CDK version**: 2.170.x, Node 20
 - **Never**: Provision NAT Gateways (expensive), use RDS (overkill), enable auto-scaling without cost caps

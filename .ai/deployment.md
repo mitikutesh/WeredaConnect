@@ -28,7 +28,7 @@ Quick reference for deploying WeredaConnect and understanding all API endpoints.
               SSM Parameter Store
 ```
 
-**Region**: `me-south-1` (Bahrain — closest to Ethiopia)
+**Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
 **Compute**: Lambda on Graviton2 (ARM64), 512MB, 10s timeout
 **Runtime**: .NET 10 Native AOT on `provided.al2023`
 
@@ -66,7 +66,7 @@ Config source: `infra/lib/config/environments.ts`
 # Deploy all CDK stacks (Database, API, Web, Monitoring, Certificate)
 cd infra
 npm install
-npx cdk bootstrap aws://<ACCOUNT_ID>/me-south-1
+npx cdk bootstrap aws://<ACCOUNT_ID>/eu-north-1
 npx cdk deploy --all --context environment=dev
 
 # Configure GitHub secrets from CDK outputs
@@ -126,7 +126,7 @@ flutter build web --release \
   --dart-define=API_BASE_URL=$API_BASE_URL \
   --dart-define=COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID \
   --dart-define=COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID \
-  --dart-define=COGNITO_REGION=me-south-1
+  --dart-define=COGNITO_REGION=eu-north-1
 aws s3 sync build/web/ s3://wereda-connect-dev-webapp/ --delete
 aws cloudfront create-invalidation --distribution-id <ID> --paths "/index.html" "/flutter_service_worker.js"
 
@@ -135,7 +135,7 @@ cd admin
 VITE_API_BASE_URL=$API_BASE_URL \
 VITE_COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID \
 VITE_COGNITO_ADMIN_CLIENT_ID=$COGNITO_ADMIN_CLIENT_ID \
-VITE_COGNITO_REGION=me-south-1 \
+VITE_COGNITO_REGION=eu-north-1 \
 npm run build
 aws s3 sync dist/ s3://wereda-connect-dev-admin/ --delete
 aws cloudfront create-invalidation --distribution-id <ID> --paths "/index.html"
@@ -196,7 +196,7 @@ Removal policy: RETAIN (prod), DESTROY (dev/staging).
 
 ## API Endpoints
 
-**Base URL**: `https://<api-id>.execute-api.me-south-1.amazonaws.com`
+**Base URL**: `https://<api-id>.execute-api.eu-north-1.amazonaws.com` (dev) / `me-south-1` (staging/prod)
 **Rate Limit**: 25 req/s sustained, 50 burst (API Gateway level)
 
 ### Authentication (public, no JWT required)
@@ -367,7 +367,7 @@ Set via `./scripts/setup-gh-secrets.sh --env <env>`:
 | `COGNITO_USER_POOL_ID` | CDK ApiStack `UserPoolId` output |
 | `COGNITO_CLIENT_ID` | CDK ApiStack `UserPoolClientId` output |
 | `COGNITO_ADMIN_CLIENT_ID` | CDK ApiStack `AdminClientId` output |
-| `COGNITO_REGION` | `me-south-1` |
+| `COGNITO_REGION` | `eu-north-1` (dev) / `me-south-1` (staging/prod) |
 | `WEBSITE_S3_BUCKET` | CDK WebStack output |
 | `WEBAPP_S3_BUCKET` | CDK WebStack output |
 | `ADMIN_S3_BUCKET` | CDK WebStack output |

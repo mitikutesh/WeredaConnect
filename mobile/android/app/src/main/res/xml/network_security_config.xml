@@ -23,7 +23,7 @@
 
     <!-- AWS API Gateway domain (deployed infrastructure) -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">execute-api.me-south-1.amazonaws.com</domain>
+        <domain includeSubdomains="true">execute-api.eu-north-1.amazonaws.com</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

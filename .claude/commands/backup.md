@@ -2,7 +2,7 @@ Create, verify, or restore DynamoDB backups. Check Point-in-Time Recovery (PITR)
 
 The user may provide: $ARGUMENTS ("check", "create", "list", "restore <table> <datetime>", or specific table name)
 
-Prerequisites: AWS CLI configured with access to `me-south-1`.
+Prerequisites: AWS CLI configured with access to `eu-north-1`.
 
 Steps:
 
@@ -15,10 +15,10 @@ Steps:
 2. **Check PITR status** (always run first):
    ```bash
    # List all WeredaConnect tables and their PITR status
-   for table in $(aws dynamodb list-tables --region me-south-1 \
+   for table in $(aws dynamodb list-tables --region eu-north-1 \
      --query 'TableNames[?contains(@, `wereda-connect`)]' --output text); do
      pitr=$(aws dynamodb describe-continuous-backups \
-       --table-name "$table" --region me-south-1 \
+       --table-name "$table" --region eu-north-1 \
        --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus' \
        --output text 2>/dev/null)
      echo "$table: PITR=$pitr"
@@ -35,13 +35,13 @@ Steps:
 3. **Create on-demand backups** (if "create"):
    ```bash
    TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-   for table in $(aws dynamodb list-tables --region me-south-1 \
+   for table in $(aws dynamodb list-tables --region eu-north-1 \
      --query 'TableNames[?contains(@, `wereda-connect`)]' --output text); do
      echo "Backing up $table..."
      aws dynamodb create-backup \
        --table-name "$table" \
        --backup-name "${table}-${TIMESTAMP}" \
-       --region me-south-1 \
+       --region eu-north-1 \
        --query 'BackupDetails.{Name:BackupName,Status:BackupStatus,Size:BackupSizeBytes}' \
        --output table
    done
@@ -49,7 +49,7 @@ Steps:
 
 4. **List existing backups** (if "list"):
    ```bash
-   aws dynamodb list-backups --region me-south-1 \
+   aws dynamodb list-backups --region eu-north-1 \
      --query 'BackupSummaries[?contains(TableName, `wereda-connect`)].{Table:TableName,Name:BackupName,Created:BackupCreationDateTime,Status:BackupStatus,Size:BackupSizeBytes}' \
      --output table
    ```
@@ -64,7 +64,7 @@ Steps:
      --source-table-name <table> \
      --target-table-name <table>-restored-$(date +%Y%m%d) \
      --restore-date-time <ISO8601-datetime> \
-     --region me-south-1
+     --region eu-north-1
    ```
 
    After restore:
@@ -96,6 +96,6 @@ Steps:
    aws dynamodb update-continuous-backups \
      --table-name <table> \
      --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true \
-     --region me-south-1
+     --region eu-north-1
    ```
    Also suggest adding PITR to the CDK DynamoDB construct so it's always enabled.

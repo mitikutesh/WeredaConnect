@@ -109,7 +109,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             },
           ],
         },
-        "BucketName": "wereda-connect-dev-access-logs-123456789012",
+        "BucketName": "wereda-connect-dev-eu-north-1-access-logs-123456789012",
         "LifecycleConfiguration": {
           "Rules": [
             {
@@ -322,7 +322,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       ],
       "Properties": {
         "Code": {
-          "S3Bucket": "cdk-hnb659fds-assets-123456789012-me-south-1",
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-eu-north-1",
           "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip",
         },
         "Description": {
@@ -1118,7 +1118,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             },
           ],
         },
-        "BucketName": "wereda-connect-dev-uploads-123456789012",
+        "BucketName": "wereda-connect-dev-eu-north-1-uploads-123456789012",
         "LifecycleConfiguration": {
           "Rules": [
             {

@@ -7,7 +7,7 @@ describe('Database Stack Snapshot', () => {
   test('database stack matches snapshot', () => {
     const app = new cdk.App();
     const stack = new DatabaseStack(app, 'SnapshotDbStack', {
-      env: { account: '123456789012', region: 'me-south-1' },
+      env: { account: '123456789012', region: environments['dev'].region },
       envConfig: environments['dev'],
     });
 

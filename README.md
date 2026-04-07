@@ -103,7 +103,7 @@ Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then 
 |-----------|--------|---------|----------------|
 | **Mobile** (Flutter) | `mobile/README.md` | `mobile/TESTING.md` | Offline-first, 2GB RAM, BLoC pattern |
 | **Server** (.NET 10 AOT) | `server/README.md` | `server/TESTING.md` | No reflection libs — see `server/AOT_COMPLIANCE.md` |
-| **Infrastructure** (CDK) | `infra/README.md` | `infra/TESTING.md` | ARM64, on-demand billing, me-south-1 |
+| **Infrastructure** (CDK) | `infra/README.md` | `infra/TESTING.md` | ARM64, on-demand billing, eu-north-1 (dev) / me-south-1 (staging/prod) |
 
 ## More Documentation
 

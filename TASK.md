@@ -184,8 +184,8 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 
 ## Deployment
 
-- **API:** `https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`
-- **Region:** me-south-1 (Bahrain)
+- **API:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
+- **Region:** eu-north-1 (Stockholm) — dev only; staging/prod remain me-south-1
 - **Lambda:** 15 functions, ARM64 Native AOT
 - **DynamoDB:** 12+ tables (on-demand billing)
 - **Web:** CloudFront + S3 (webapp + admin + website)

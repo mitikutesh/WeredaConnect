@@ -67,7 +67,7 @@ const certStack = new CertificateStack(app, `${stackPrefix}-Certificate`, {
   envConfig,
 });
 
-// 3b. Web stack (me-south-1 — S3 buckets + CloudFront in Bahrain)
+// 3b. Web stack (eu-north-1 for dev, me-south-1 for staging/prod — S3 + CloudFront)
 const webStack = new WebStack(app, `${stackPrefix}-Web`, {
   env: envProps,
   stackName: `wereda-connect-${envConfig.name}-web`,

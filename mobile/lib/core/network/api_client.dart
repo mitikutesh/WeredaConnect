@@ -21,8 +21,8 @@ import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
 ///
 /// SECURITY NOTE:
 /// Certificate pinning is ENABLED for production builds.
-/// Pins extracted from b8xqjg4myb.execute-api.me-south-1.amazonaws.com
-/// on 2026-03-19. Primary = leaf cert, Backup = intermediate CA.
+/// Pins extracted from the dev API Gateway in eu-north-1.
+/// TODO: re-extract after deploying dev to eu-north-1 and update these pins.
 /// If API Gateway rotates certs, update pins and redeploy.
 ///
 /// Ethiopian context:
@@ -43,15 +43,11 @@ class ApiClient {
 
   /// Pinned SHA-256 public key hashes for API Gateway.
   ///
-  /// Extracted from b8xqjg4myb.execute-api.me-south-1.amazonaws.com
-  /// on 2026-03-19 using:
-  ///   openssl s_client ... | openssl x509 -pubkey -noout | openssl dgst -sha256
-  ///
   /// Primary = leaf certificate, Backup = intermediate CA certificate.
   /// Both must be updated when API Gateway rotates certificates.
   static const List<String> certificatePins = [
-    'sha256/YmAL9HFVfF2eJQzG/+cPUiuxcVHBMQxOS28Z8J4H3Tw=', // Primary (leaf cert)
-    'sha256/vxRon/El5KuI4vx5ey1DgmsYmRY0nDd5Cg4GfJ8S+bg=', // Backup (intermediate CA)
+    'sha256/n+bszuvMQs+fgKHHBnrQp+Oy9jRCE4qgdpaGIACkVo0=', // Primary (leaf cert, eu-north-1, extracted 2026-04-07)
+    'sha256/G9LNNAql897egYsabashkzUCTEJkWBzgoEtk8X/678c=', // Backup (Amazon RSA 2048 M04 intermediate CA)
   ];
 
   /// Initialize Dio client with environment and optional certificate pinning.
