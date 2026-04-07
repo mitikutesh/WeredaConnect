@@ -6,6 +6,7 @@ import { ApiStack } from "../lib/stacks/api-stack";
 import { WebStack } from "../lib/stacks/web-stack";
 import { CertificateStack } from "../lib/stacks/certificate-stack";
 import { MonitoringStack } from "../lib/stacks/monitoring-stack";
+import { GithubActionsStack } from "../lib/stacks/github-actions-stack";
 import { environments } from "../lib/config/environments";
 
 const app = new cdk.App();
@@ -90,5 +91,26 @@ const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
   apiId: apiStack.httpApiId,
 });
 monitoringStack.addDependency(apiStack);
+
+// 5. GitHub Actions OIDC deploy role (depends on Web for bucket/distribution names)
+const githubActionsStack = new GithubActionsStack(
+  app,
+  `${stackPrefix}-GithubActions`,
+  {
+    env: envProps,
+    stackName: `wereda-connect-${envConfig.name}-github-actions`,
+    description: `WeredaConnect ${envConfig.name} - GitHub Actions OIDC deploy role`,
+    tags: envConfig.tags,
+    envConfig,
+    githubRepo: "mitikutesh/WeredaConnect",
+    websiteBucketName: webStack.websiteBucketName,
+    webappBucketName: webStack.webappBucketName,
+    adminBucketName: webStack.adminBucketName,
+    websiteDistributionId: webStack.websiteDistributionId,
+    webappDistributionId: webStack.webappDistributionId,
+    adminDistributionId: webStack.adminDistributionId,
+  },
+);
+githubActionsStack.addDependency(webStack);
 
 app.synth();
