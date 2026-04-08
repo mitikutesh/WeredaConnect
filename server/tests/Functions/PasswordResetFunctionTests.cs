@@ -79,7 +79,7 @@ public class PasswordResetFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("Verification code sent", response.Body);
+        Assert.Contains("verification code", response.Body);
     }
 
     [Fact]
@@ -159,6 +159,27 @@ public class PasswordResetFunctionTests
         Assert.Equal(429, response.StatusCode);
         Assert.Contains("AUTH_006", response.Body);
         await _mockAuth.DidNotReceive().ForgotPasswordAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ForgotPassword_UserNotFound_Returns200ToPreventEnumeration()
+    {
+        // UserNotFound must not be distinguishable from success — prevents phone enumeration.
+        _mockAuth.ForgotPasswordAsync(Arg.Any<string>())
+            .Returns(AuthResult<string>.Failure(404, "AUTH_013", "User not found.", "phoneNumber"));
+
+        var request = MakeRequest("/auth/forgot-password", new
+        {
+            phoneNumber = "+251900000000"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        // Must be 200, not 404 — client cannot tell whether the number is registered
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("AUTH_013", response.Body);
+        Assert.DoesNotContain("not found", response.Body);
+        await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251900000000");
     }
 
     [Fact]
@@ -308,8 +329,9 @@ public class PasswordResetFunctionTests
     }
 
     [Fact]
-    public async Task ResetPassword_UserNotFound_RecordsFailedOtpAttemptToPreventEnumeration()
+    public async Task ResetPassword_UserNotFound_NormalizesToCodeMismatchToPreventEnumeration()
     {
+        // UserNotFound must be indistinguishable from a wrong code — prevents phone enumeration.
         _mockAuth.ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(AuthResult<bool>.Failure(404, "AUTH_013", "User not found.", "phoneNumber"));
 
@@ -322,7 +344,10 @@ public class PasswordResetFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(404, response.StatusCode);
+        // Must return AUTH_018 (code mismatch), not 404/AUTH_013
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("AUTH_018", response.Body);
+        Assert.DoesNotContain("AUTH_013", response.Body);
         await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251900000000");
     }
 

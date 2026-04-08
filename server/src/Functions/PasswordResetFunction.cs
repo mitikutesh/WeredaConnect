@@ -121,8 +121,22 @@ public class PasswordResetFunction
             var error = result.Error!;
             await _rateLimitService.RecordFailedOtpAttemptAsync(fpRequest.PhoneNumber);
             AuditLogger.LogSecurity("FORGOT_PASSWORD",
-                correlationId: correlationId, detail: "code send failed",
+                correlationId: correlationId, detail: error.Code,
                 outcome: "failure", sourceIp: sourceIp);
+
+            // Return a uniform 200 when the user doesn't exist to prevent phone number
+            // enumeration — the client cannot tell whether the number is registered.
+            // Infrastructure failures (5xx) still surface as errors.
+            if (error.Code == UserNotFoundCode)
+            {
+                var uniformResponse = new ForgotPasswordResponse
+                {
+                    Message = "If this number is registered, a verification code has been sent.",
+                    DeliveryMedium = "SMS"
+                };
+                return LambdaResponse.Ok(uniformResponse, AppJsonContext.Default.ForgotPasswordResponse);
+            }
+
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 
@@ -132,7 +146,7 @@ public class PasswordResetFunction
 
         var response = new ForgotPasswordResponse
         {
-            Message = "Verification code sent to your phone.",
+            Message = "If this number is registered, a verification code has been sent.",
             DeliveryMedium = result.Value ?? "SMS"
         };
 
@@ -213,7 +227,12 @@ public class PasswordResetFunction
             AuditLogger.LogSecurity("PASSWORD_RESET_FAILED",
                 correlationId: correlationId, detail: error.Code,
                 outcome: "failure", sourceIp: sourceIp);
-            return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
+            // Normalize UserNotFound to CodeMismatch so the client cannot distinguish
+            // "phone not registered" from "wrong code" — prevents enumeration.
+            var (httpStatus, code, message, field) = error.Code == UserNotFoundCode
+                ? (400, CodeMismatchCode, "Invalid or expired verification code.", "confirmationCode")
+                : (error.HttpStatus, error.Code, error.Message, error.Field);
+            return LambdaResponse.Error(httpStatus, code, message, field);
         }
 
         AuditLogger.LogSecurity("PASSWORD_RESET",
