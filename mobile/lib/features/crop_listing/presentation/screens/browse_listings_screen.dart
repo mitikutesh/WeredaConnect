@@ -26,13 +26,19 @@ import 'package:wereda_connect/shared/widgets/listing_card.dart';
 ///
 /// When [embedded] is true, the screen omits its own Scaffold and back
 /// arrow so it can live inside the adaptive shell as a tab child.
+///
+/// When [showHeader] is false, the green header is hidden — use this when
+/// embedding inside a screen that already has its own header (e.g. inside
+/// [FindCropsScreen]). A compact search bar is shown instead for buyer mode.
 class BrowseListingsScreen extends StatefulWidget {
   final bool ownerMode;
   final bool embedded;
+  final bool showHeader;
 
   const BrowseListingsScreen({
     this.ownerMode = false,
     this.embedded = false,
+    this.showHeader = true,
     super.key,
   });
 
@@ -124,79 +130,116 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
         Column(
           children: [
             // ── Header ──────────────────────────────────────────────────
-            GreenHeader(
-              height: widget.embedded ? 140 : 170,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (!widget.embedded)
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 4, bottom: 4),
-                        child: Icon(
-                          Icons.arrow_back,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  Text(
-                    widget.ownerMode ? l10n.myListings : l10n.market,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.ownerMode
-                        ? l10n.yourCropListings
-                        : l10n.browseVerifiedFarmers,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withAlpha(180),
-                    ),
-                  ),
-                  // Search bar (marketplace browse only — wereda
-                  // filter is not used in owner mode)
-                  if (!widget.ownerMode) ...[
-                    const SizedBox(height: 10),
-                    Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: 42,
-                        child: TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            hintText: l10n.searchListings,
-                            hintStyle: const TextStyle(
-                              fontSize: 14,
-                              color: AppTheme.textMuted,
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: AppTheme.textMuted,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 10),
+            if (widget.showHeader)
+              GreenHeader(
+                height: widget.embedded ? 140 : 170,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!widget.embedded)
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 4, bottom: 4),
+                          child: Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                            size: 24,
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              _weredaFilter = value.isEmpty ? null : value;
-                            });
-                            _debouncedApplyFilters();
-                          },
                         ),
                       ),
+                    Text(
+                      widget.ownerMode ? l10n.myListings : l10n.market,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.ownerMode
+                          ? l10n.yourCropListings
+                          : l10n.browseVerifiedFarmers,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withAlpha(180),
+                      ),
+                    ),
+                    // Search bar (marketplace browse only — wereda
+                    // filter is not used in owner mode)
+                    if (!widget.ownerMode) ...[
+                      const SizedBox(height: 10),
+                      Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          height: 42,
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: l10n.searchListings,
+                              hintStyle: const TextStyle(
+                                fontSize: 14,
+                                color: AppTheme.textMuted,
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.search,
+                                color: AppTheme.textMuted,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                _weredaFilter = value.isEmpty ? null : value;
+                              });
+                              _debouncedApplyFilters();
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
+            // Compact search bar when header is hidden (buyer browse embedded mode)
+            if (!widget.showHeader && !widget.ownerMode)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Material(
+                  color: AppTheme.surfaceWhite,
+                  borderRadius: BorderRadius.circular(12),
+                  elevation: 1,
+                  child: SizedBox(
+                    height: 42,
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: l10n.searchListings,
+                        hintStyle: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.textMuted,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: AppTheme.textMuted,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _weredaFilter = value.isEmpty ? null : value;
+                        });
+                        _debouncedApplyFilters();
+                      },
+                    ),
+                  ),
+                ),
+              ),
             const OfflineBanner(),
             // Crop type filter chips
             _CropTypeFilterChipsRow(
