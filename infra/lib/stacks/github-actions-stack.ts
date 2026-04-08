@@ -74,7 +74,7 @@ export class GithubActionsStack extends cdk.Stack {
     // Deploy role — assumed by GitHub Actions via OIDC
     const deployRole = new iam.Role(this, "DeployRole", {
       roleName: `${prefix}-github-deploy`,
-      description: `GitHub Actions deploy role for WeredaConnect ${envConfig.name} — S3 + CloudFront`,
+      description: `GitHub Actions deploy role for WeredaConnect ${envConfig.name} - S3 + CloudFront`,
       assumedBy: new iam.WebIdentityPrincipal(
         oidcProvider.openIdConnectProviderArn,
         {
