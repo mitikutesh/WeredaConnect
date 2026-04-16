@@ -5,7 +5,6 @@ import { DatabaseStack } from "../lib/stacks/database-stack";
 import { ApiStack } from "../lib/stacks/api-stack";
 import { WebStack } from "../lib/stacks/web-stack";
 import { CertificateStack } from "../lib/stacks/certificate-stack";
-import { MonitoringStack } from "../lib/stacks/monitoring-stack";
 import { GithubActionsStack } from "../lib/stacks/github-actions-stack";
 import { environments } from "../lib/config/environments";
 
@@ -80,19 +79,7 @@ const webStack = new WebStack(app, `${stackPrefix}-Web`, {
 });
 webStack.addDependency(certStack);
 
-// 4. Monitoring stack (depends on API)
-const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
-  env: envProps,
-  stackName: `wereda-connect-${envConfig.name}-monitoring`,
-  description: `WeredaConnect ${envConfig.name} - CloudWatch dashboards and alarms`,
-  tags: envConfig.tags,
-  envConfig,
-  apiUrl: apiStack.httpApiUrl,
-  apiId: apiStack.httpApiId,
-});
-monitoringStack.addDependency(apiStack);
-
-// 5. GitHub Actions OIDC deploy role (depends on Web for bucket/distribution names)
+// 4. GitHub Actions OIDC deploy role (depends on Web for bucket/distribution names)
 const githubActionsStack = new GithubActionsStack(
   app,
   `${stackPrefix}-GithubActions`,
