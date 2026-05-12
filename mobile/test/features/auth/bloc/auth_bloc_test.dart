@@ -583,7 +583,7 @@ void main() {
           ),
         ).thenAnswer((_) async => AuthResult.success(
               const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
-            ));
+            ),);
 
         final bloc = buildBloc();
         addTearDown(bloc.close);

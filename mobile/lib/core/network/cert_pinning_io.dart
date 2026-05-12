@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -26,7 +25,7 @@ void applyCertPinning(Dio dio) {
     createHttpClient: () {
       // withTrustedRoots: false → no system CAs are trusted → every cert
       // triggers badCertificateCallback, giving us the hook for pin checking.
-      final context = SecurityContext(withTrustedRoots: false);
+      final context = SecurityContext(); // withTrustedRoots defaults to false — no system CAs trusted
       final client = HttpClient(context: context);
       client.badCertificateCallback =
           (X509Certificate cert, String host, int port) {
@@ -36,8 +35,8 @@ void applyCertPinning(Dio dio) {
         final isApiGateway = RegExp(
           r'\.execute-api\.[a-z0-9-]+\.amazonaws\.com$',
         ).hasMatch(host);
-        final isWeredaConnect = host.endsWith('.weredaconnect.com') ||
-            host == 'weredaconnect.com';
+        final isWeredaConnect =
+            host.endsWith('.weredaconnect.com') || host == 'weredaconnect.com';
         if (!isApiGateway && !isWeredaConnect) {
           debugPrint('[CertPinning] REJECTED unknown host: $host:$port');
           return false;
@@ -123,7 +122,7 @@ Uint8List? _extractSpki(Uint8List der) {
     if (spkiEnd > der.length) return null;
 
     return der.sublist(spkiStart, spkiEnd);
-  } on RangeError {
+  } on RangeError { // ignore: avoid_catching_errors — malformed DER triggers bounds violations; null rejects the certificate.
     return null;
   }
 }
