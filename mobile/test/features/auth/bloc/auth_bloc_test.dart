@@ -581,9 +581,11 @@ void main() {
           () => authService.forgotPassword(
             phoneNumber: any(named: 'phoneNumber'),
           ),
-        ).thenAnswer((_) async => AuthResult.success(
-              const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
-            ),);
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+          ),
+        );
 
         final bloc = buildBloc();
         addTearDown(bloc.close);

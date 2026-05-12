@@ -25,7 +25,8 @@ void applyCertPinning(Dio dio) {
     createHttpClient: () {
       // withTrustedRoots: false → no system CAs are trusted → every cert
       // triggers badCertificateCallback, giving us the hook for pin checking.
-      final context = SecurityContext(); // withTrustedRoots defaults to false — no system CAs trusted
+      final context =
+          SecurityContext(); // withTrustedRoots defaults to false — no system CAs trusted
       final client = HttpClient(context: context);
       client.badCertificateCallback =
           (X509Certificate cert, String host, int port) {
@@ -122,7 +123,8 @@ Uint8List? _extractSpki(Uint8List der) {
     if (spkiEnd > der.length) return null;
 
     return der.sublist(spkiStart, spkiEnd);
-  } on RangeError { // ignore: avoid_catching_errors — malformed DER triggers bounds violations; null rejects the certificate.
+  } on RangeError {
+    // ignore: avoid_catching_errors — malformed DER triggers bounds violations; null rejects the certificate.
     return null;
   }
 }

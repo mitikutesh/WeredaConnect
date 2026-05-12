@@ -84,12 +84,30 @@ class _DeliveryStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (color, label) = switch (status) {
-      DeliveryStatus.pending => (AppTheme.statusWarning, l10n.deliveryStatusPending),
-      DeliveryStatus.pickedUp => (AppTheme.statusInfo, l10n.deliveryStatusPickedUp),
-      DeliveryStatus.inTransit => (AppTheme.statusTransit, l10n.deliveryStatusInTransit),
-      DeliveryStatus.delivered => (AppTheme.statusSuccess, l10n.deliveryStatusDelivered),
-      DeliveryStatus.disputed => (AppTheme.statusError, l10n.deliveryStatusDisputed),
-      DeliveryStatus.cancelled => (AppTheme.textMuted, l10n.deliveryStatusCancelled),
+      DeliveryStatus.pending => (
+          AppTheme.statusWarning,
+          l10n.deliveryStatusPending
+        ),
+      DeliveryStatus.pickedUp => (
+          AppTheme.statusInfo,
+          l10n.deliveryStatusPickedUp
+        ),
+      DeliveryStatus.inTransit => (
+          AppTheme.statusTransit,
+          l10n.deliveryStatusInTransit
+        ),
+      DeliveryStatus.delivered => (
+          AppTheme.statusSuccess,
+          l10n.deliveryStatusDelivered
+        ),
+      DeliveryStatus.disputed => (
+          AppTheme.statusError,
+          l10n.deliveryStatusDisputed
+        ),
+      DeliveryStatus.cancelled => (
+          AppTheme.textMuted,
+          l10n.deliveryStatusCancelled
+        ),
     };
 
     return Container(

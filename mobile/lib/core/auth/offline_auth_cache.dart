@@ -468,8 +468,7 @@ class OfflineAuthCache {
     final lockoutDuration = _lockoutTiers[tierIndex];
 
     // Check if most recent attempt is within lockout window
-    final lastAttempt =
-        recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastAttempt = recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
     return DateTime.now().toUtc().difference(lastAttempt) < lockoutDuration;
   }
 
@@ -500,8 +499,7 @@ class OfflineAuthCache {
         .clamp(0, _lockoutTiers.length - 1);
     final lockoutDuration = _lockoutTiers[tierIndex];
 
-    final lastAttempt =
-        recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastAttempt = recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
     final lockoutEnd = lastAttempt.add(lockoutDuration);
     final remaining = lockoutEnd.difference(DateTime.now().toUtc());
 

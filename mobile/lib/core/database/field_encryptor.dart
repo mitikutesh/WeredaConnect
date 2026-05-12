@@ -75,8 +75,10 @@ class FieldEncryptor {
     final mac = secretBox.mac.bytes;
     final combined = Uint8List(nonce.length + cipherText.length + mac.length);
     var pos = 0;
-    combined.setAll(pos, nonce); pos += nonce.length;
-    combined.setAll(pos, cipherText); pos += cipherText.length;
+    combined.setAll(pos, nonce);
+    pos += nonce.length;
+    combined.setAll(pos, cipherText);
+    pos += cipherText.length;
     combined.setAll(pos, mac);
 
     return base64Encode(combined);

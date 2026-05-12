@@ -54,16 +54,14 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         path: '/forgot-password',
         name: RouteNames.forgotPassword,
         builder: (context, state) => ForgotPasswordScreen(
-          initialPhoneNumber:
-              state.uri.queryParameters['phone'],
+          initialPhoneNumber: state.uri.queryParameters['phone'],
         ),
       ),
       GoRoute(
         path: '/reset-password',
         name: RouteNames.resetPassword,
         builder: (context, state) => ResetPasswordScreen(
-          phoneNumber:
-              state.uri.queryParameters['phone'] ?? '',
+          phoneNumber: state.uri.queryParameters['phone'] ?? '',
         ),
       ),
 

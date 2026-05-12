@@ -78,8 +78,7 @@ Future<void> runMobile({
     clientId: 'mobile-${DateTime.now().millisecondsSinceEpoch}',
     conflictResolver: ConflictResolver(IsarService.instance.db),
     conflictNotificationService: conflictNotificationService,
-    getCurrentUserId: () =>
-        secureStorage.read(key: AuthBloc.currentUserIdKey),
+    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
@@ -97,8 +96,7 @@ Future<void> runMobile({
 
   // AuthBloc with Isar for offline data cleanup on logout
   final authBloc = AuthBloc(
-    isar:
-        IsarService.instance.isInitialized ? IsarService.instance.db : null,
+    isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
   )..add(const AuthCheckRequested());
 
   // Lifecycle observer for resource cleanup
@@ -244,8 +242,7 @@ class WeredaConnectApp extends StatelessWidget {
           ),
           BlocProvider<ConflictBloc>(
             create: (context) => ConflictBloc(
-              notificationService:
-                  context.read<ConflictNotificationService>(),
+              notificationService: context.read<ConflictNotificationService>(),
             ),
           ),
           BlocProvider<EscrowBloc>(

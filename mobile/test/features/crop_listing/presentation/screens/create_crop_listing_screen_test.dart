@@ -55,7 +55,8 @@ void main() {
     mockGpsService = MockGpsCaptureService();
 
     when(() => authBloc.state).thenReturn(
-      const AuthAuthenticated(userId: 'farmer-001', tokens: _testTokens, role: UserRole.farmer),
+      const AuthAuthenticated(
+          userId: 'farmer-001', tokens: _testTokens, role: UserRole.farmer),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => cropListingBloc.state).thenReturn(const CropListingInitial());
