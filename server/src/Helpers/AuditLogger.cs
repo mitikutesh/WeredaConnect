@@ -95,7 +95,8 @@ public static class AuditLogger
     public static string GetCorrelationId(APIGatewayProxyRequest request)
     {
         if (request.Headers != null &&
-            request.Headers.TryGetValue("X-Correlation-Id", out var correlationId) &&
+            (request.Headers.TryGetValue("X-Correlation-Id", out var correlationId) ||
+             request.Headers.TryGetValue("x-correlation-id", out correlationId)) &&
             !string.IsNullOrWhiteSpace(correlationId))
         {
             // Clamp to prevent log injection via oversized or malicious header values.

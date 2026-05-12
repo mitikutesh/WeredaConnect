@@ -8,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -375,10 +376,9 @@ void main() {
       await tester.ensureVisible(forgotPassword);
       await tester.pumpAndSettle();
       await tester.tap(forgotPassword);
-      // Use pump() instead of pumpAndSettle() — navigation may trigger
-      // a build error in the ForgotPasswordScreen due to missing dependencies.
-      await tester.pump();
-      tester.takeException();
+      await tester.pumpAndSettle();
+      expect(find.byType(ForgotPasswordScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

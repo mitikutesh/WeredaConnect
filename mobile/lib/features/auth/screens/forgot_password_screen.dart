@@ -164,10 +164,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
                 ],
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n.phoneNumber;
-                  }
-                  if (!isValidEthiopianPhone(value)) {
+                  if (value == null ||
+                      value.isEmpty ||
+                      !isValidEthiopianPhone(value)) {
                     return l10n.invalidPhoneFormat;
                   }
                   return null;

@@ -200,10 +200,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 obscureText: _obscurePassword,
                 maxLength: 128,
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n.newPassword;
-                  }
-                  if (value.length < 8) {
+                  if (value == null || value.isEmpty || value.length < 8) {
                     return l10n.passwordTooShort;
                   }
                   return null;
@@ -240,10 +237,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 obscureText: _obscureConfirmPassword,
                 maxLength: 128,
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n.confirmNewPassword;
-                  }
-                  if (value != _passwordController.text) {
+                  if (value == null ||
+                      value.isEmpty ||
+                      value != _passwordController.text) {
                     return l10n.passwordsDoNotMatch;
                   }
                   return null;

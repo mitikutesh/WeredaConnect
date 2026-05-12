@@ -511,17 +511,17 @@ public sealed class CognitoAuthService : ICognitoAuthService
         }
         catch (CodeMismatchException)
         {
-            return AuthResult<bool>.Failure(400, "AUTH_018",
+            return AuthResult<bool>.Failure(400, "AUTH_022",
                 "Invalid or expired verification code.", "confirmationCode");
         }
         catch (ExpiredCodeException)
         {
-            return AuthResult<bool>.Failure(400, "AUTH_019",
+            return AuthResult<bool>.Failure(400, "AUTH_023",
                 "Verification code expired.", "confirmationCode");
         }
         catch (InvalidPasswordException)
         {
-            return AuthResult<bool>.Failure(400, "AUTH_008",
+            return AuthResult<bool>.Failure(400, "AUTH_024",
                 "Password does not meet requirements.", "newPassword");
         }
         catch (TooManyRequestsException)

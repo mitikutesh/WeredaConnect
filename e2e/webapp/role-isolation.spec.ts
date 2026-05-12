@@ -46,7 +46,7 @@ async function tryApiLogin(
 /** Extract userId (sub) from a JWT token. */
 function getUserIdFromToken(idToken: string): string {
   const payload = JSON.parse(
-    Buffer.from(idToken.split(".")[1], "base64").toString(),
+    Buffer.from(idToken.split(".")[1], "base64url").toString(),
   );
   return payload.sub;
 }

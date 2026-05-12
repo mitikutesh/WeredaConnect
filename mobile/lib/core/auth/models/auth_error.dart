@@ -44,6 +44,11 @@ class AuthErrorCode {
   // Registration: Fayda token validation
   static const invalidFaydaToken = 'AUTH_021';
 
+  // Password reset errors (AUTH_022 - AUTH_024)
+  static const resetCodeInvalid = 'AUTH_022';
+  static const resetCodeExpired = 'AUTH_023';
+  static const resetPasswordRequirements = 'AUTH_024';
+
   // Aliases for backward compatibility within mobile code
   static const tokenExpired = 'AUTH_018';
   static const accountDisabled = 'AUTH_015'; // Reuse accountLocked code
@@ -101,6 +106,14 @@ extension AuthErrorCodeExtension on String {
         return 'Account locked due to too many failed attempts. Try again later';
       case AuthErrorCode.userNotConfirmed:
         return 'Please verify your phone number first';
+
+      // Password reset errors
+      case AuthErrorCode.resetCodeInvalid:
+        return 'Invalid verification code. Please check and try again';
+      case AuthErrorCode.resetCodeExpired:
+        return 'Verification code has expired. Please request a new one';
+      case AuthErrorCode.resetPasswordRequirements:
+        return 'Password must be at least 8 characters with a lowercase letter and a number';
 
       // Token errors
       case AuthErrorCode.missingRefreshToken:
