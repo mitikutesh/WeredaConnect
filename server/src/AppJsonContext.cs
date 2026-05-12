@@ -25,6 +25,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(LogoutResponse))]
 [JsonSerializable(typeof(AuthErrorResponse))]
 [JsonSerializable(typeof(AuthError))]
+// Password reset DTOs
+[JsonSerializable(typeof(ForgotPasswordRequest))]
+[JsonSerializable(typeof(ForgotPasswordResponse))]
+[JsonSerializable(typeof(ResetPasswordRequest))]
+[JsonSerializable(typeof(ResetPasswordResponse))]
 [JsonSerializable(typeof(SyncRequest))]
 [JsonSerializable(typeof(SyncOperationRequest))]
 [JsonSerializable(typeof(List<SyncOperationRequest>))]

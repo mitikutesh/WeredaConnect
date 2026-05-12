@@ -58,11 +58,20 @@ jobs:
           VITE_COGNITO_ADMIN_CLIENT_ID: ${{ secrets.COGNITO_ADMIN_CLIENT_ID }}
           VITE_COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
 
+      - name: Set AWS region
+        id: region
+        run: |
+          if [[ "${{ github.event.inputs.environment || 'prod' }}" == "dev" ]]; then
+            echo "region=eu-north-1" >> $GITHUB_OUTPUT
+          else
+            echo "region=me-south-1" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ steps.region.outputs.region }}
 
       - name: Sync to S3
         run: |

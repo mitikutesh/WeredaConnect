@@ -7,16 +7,16 @@
 # Required environment variables (set in your shell or .env):
 #   COGNITO_USER_POOL_ID  — Cognito User Pool ID (from CDK output)
 #   USERS_TABLE           — DynamoDB users table name (from CDK output)
-#   AWS_REGION            — AWS region (default: me-south-1)
+#   AWS_REGION            — AWS region (default: eu-north-1)
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-me-south-1}"
+REGION="${AWS_REGION:-eu-north-1}"
 
 if [ -z "${COGNITO_USER_POOL_ID:-}" ]; then
   echo "Error: COGNITO_USER_POOL_ID environment variable is not set."
   echo "Set it from your CDK stack output, e.g.:"
-  echo "  export COGNITO_USER_POOL_ID=me-south-1_XXXXXXX"
+  echo "  export COGNITO_USER_POOL_ID=eu-north-1_XXXXXXX"
   exit 1
 fi
 

@@ -3670,11 +3670,17 @@ abstract class AppLocalizations {
   /// **'Price Breakdown'**
   String get priceBreakdown;
 
-  /// CBE account number for payment
+  /// Label for CBE account number field
   ///
   /// In en, this message translates to:
-  /// **'Account: 1000XXXXXXXXXX'**
+  /// **'CBE Account Number'**
   String get cbeAccountNumber;
+
+  /// Masked CBE account number for payment transfer
+  ///
+  /// In en, this message translates to:
+  /// **'1000XXXXXXXXXX'**
+  String get cbeAccountValue;
 
   /// Label for transfer reference number
   ///
@@ -4101,6 +4107,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My Requests'**
   String get myRequests;
+
+  /// Instructions on forgot password screen
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your phone number to receive a verification code'**
+  String get enterPhoneForReset;
+
+  /// Button to send password reset code
+  ///
+  /// In en, this message translates to:
+  /// **'Send Reset Code'**
+  String get sendResetCode;
+
+  /// Message after reset code sent
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code sent to your phone'**
+  String get resetCodeSent;
+
+  /// Instructions on reset password screen
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the verification code sent to your phone'**
+  String get enterResetCode;
+
+  /// Label for verification code field
+  ///
+  /// In en, this message translates to:
+  /// **'Verification Code'**
+  String get verificationCode;
+
+  /// Label for new password field
+  ///
+  /// In en, this message translates to:
+  /// **'New Password'**
+  String get newPassword;
+
+  /// Label for confirm new password field
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm New Password'**
+  String get confirmNewPassword;
+
+  /// Button to reset password
+  ///
+  /// In en, this message translates to:
+  /// **'Reset Password'**
+  String get resetPassword;
+
+  /// Success message after password reset
+  ///
+  /// In en, this message translates to:
+  /// **'Password reset successful! You can now log in.'**
+  String get passwordResetSuccess;
+
+  /// Validation error for empty code
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code is required'**
+  String get codeRequired;
+
+  /// Validation error for short password
+  ///
+  /// In en, this message translates to:
+  /// **'Password must be at least 8 characters'**
+  String get passwordTooShort;
 }
 
 class _AppLocalizationsDelegate

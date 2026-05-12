@@ -113,7 +113,11 @@ void main() {
     deliveryStreamController = StreamController<DeliveryState>.broadcast();
 
     when(() => authBloc.state).thenReturn(
-      const AuthAuthenticated(userId: 'trucker-001', tokens: _testTokens, role: UserRole.trucker),
+      const AuthAuthenticated(
+        userId: 'trucker-001',
+        tokens: _testTokens,
+        role: UserRole.trucker,
+      ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
 

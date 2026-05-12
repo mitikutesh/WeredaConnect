@@ -1,8 +1,8 @@
 /**
  * Environment configuration for WeredaConnect infrastructure.
  *
- * Region: me-south-1 (Bahrain) — closest AWS region to Ethiopia.
- * All environments use the same region to minimize latency for Ethiopian users.
+ * Region: eu-north-1 (Stockholm) for dev; me-south-1 (Bahrain) for staging/prod.
+ * Dev uses Stockholm for lower cost during development (working from Finland).
  */
 
 export interface DomainConfig {
@@ -19,12 +19,14 @@ export interface EnvironmentConfig {
   readonly isProd: boolean;
   readonly tags: Record<string, string>;
   readonly domain: DomainConfig;
+  /** Extra CORS origins beyond the standard domain-derived ones (e.g. temp CloudFront URLs). */
+  readonly extraCorsOrigins?: readonly string[];
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
   dev: {
     name: 'dev',
-    region: 'me-south-1',
+    region: 'eu-north-1',
     isProd: false,
     tags: {
       Environment: 'development',
@@ -37,6 +39,9 @@ export const environments: Record<string, EnvironmentConfig> = {
       webappSubdomain: 'dev-app',
       adminSubdomain: 'dev-admin',
     },
+    // Temporary CloudFront distribution for dev webapp before custom domain is wired.
+    // Remove once dev-app.weredaconnect.com is fully configured.
+    extraCorsOrigins: ['https://d32f0lzad1ens5.cloudfront.net'],
   },
   staging: {
     name: 'staging',

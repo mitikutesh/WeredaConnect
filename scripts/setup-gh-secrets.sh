@@ -23,7 +23,7 @@ NC='\033[0m'
 ENV="dev"
 MANUAL=false
 REPO=""
-AWS_REGION="me-south-1"
+AWS_REGION="eu-north-1"
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -246,9 +246,9 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 if [[ "$MANUAL" == true ]]; then
   # ── Manual mode: prompt for everything ──
-  API_BASE_URL=$(prompt_value "API_BASE_URL" "https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com")
-  COGNITO_USER_POOL_ID=$(prompt_value "COGNITO_USER_POOL_ID" "me-south-1_ZoNImlLr7")
-  COGNITO_CLIENT_ID=$(prompt_value "COGNITO_CLIENT_ID (mobile)" "430thc2sqqtpefbrmo98lacpg6")
+  API_BASE_URL=$(prompt_value "API_BASE_URL" "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com")
+  COGNITO_USER_POOL_ID=$(prompt_value "COGNITO_USER_POOL_ID" "eu-north-1_1LL9tzoxw")
+  COGNITO_CLIENT_ID=$(prompt_value "COGNITO_CLIENT_ID (mobile)" "5s1bblbi8vl6cb58q02vk9paml")
   COGNITO_ADMIN_CLIENT_ID=$(prompt_value "COGNITO_ADMIN_CLIENT_ID" "5v277d3f7kufgp5661njtnsi36")
   COGNITO_REGION=$(prompt_value "COGNITO_REGION" "$AWS_REGION")
 

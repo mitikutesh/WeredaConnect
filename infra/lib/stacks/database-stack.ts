@@ -34,6 +34,11 @@ export class DatabaseStack extends cdk.Stack {
 
     const { envConfig } = props;
     const prefix = `wereda-connect-${envConfig.name}`;
+    // S3 bucket names are globally unique. Dev was previously deployed in me-south-1;
+    // adding the region prevents name collisions when redeploying dev in eu-north-1.
+    // Staging/prod keep their existing names (already deployed, must not change).
+    const bucketPrefix =
+      envConfig.name === "dev" ? `${prefix}-${envConfig.region}` : prefix;
 
     // Users table
     const users = new WeredaDynamoTable(this, "UsersTable", {
@@ -401,7 +406,7 @@ export class DatabaseStack extends cdk.Stack {
 
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
-      bucketName: `${prefix}-access-logs-${this.account}`,
+      bucketName: `${bucketPrefix}-access-logs-${this.account}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: envConfig.isProd
@@ -419,7 +424,7 @@ export class DatabaseStack extends cdk.Stack {
 
     // S3 uploads bucket (F-18: versioning + access logging enabled)
     this.uploadsBucket = new s3.Bucket(this, "UploadsBucket", {
-      bucketName: `${prefix}-uploads-${this.account}`,
+      bucketName: `${bucketPrefix}-uploads-${this.account}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: envConfig.isProd

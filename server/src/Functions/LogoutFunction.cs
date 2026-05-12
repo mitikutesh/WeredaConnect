@@ -60,6 +60,10 @@ public class LogoutFunction
             return LambdaResponse.ValidationError(validation);
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        var sourceIp = AuditLogger.GetSourceIp(request);
+        var userId = AuthHelper.GetUserId(request);
+
         // Cognito logout (revoke refresh token)
         var logoutResult = await _authService.LogoutAsync(logoutRequest!.RefreshToken);
 
@@ -68,6 +72,10 @@ public class LogoutFunction
             var error = logoutResult.Error!;
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
+
+        AuditLogger.LogSecurity("LOGOUT",
+            userId: userId, correlationId: correlationId,
+            outcome: "success", sourceIp: sourceIp);
 
         var response = new LogoutResponse
         {

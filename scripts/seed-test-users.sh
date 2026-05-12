@@ -9,14 +9,14 @@
 #   ./scripts/seed-test-users.sh
 #
 # Prerequisites:
-#   - AWS CLI configured with me-south-1 access
+#   - AWS CLI configured with eu-north-1 access
 #   - Dev environment deployed (CDK stacks running)
 
 set -euo pipefail
 
-REGION="me-south-1"
-USER_POOL_ID="me-south-1_ZoNImlLr7"
-CLIENT_ID="430thc2sqqtpefbrmo98lacpg6"
+REGION="eu-north-1"
+USER_POOL_ID="eu-north-1_1LL9tzoxw"
+CLIENT_ID="5s1bblbi8vl6cb58q02vk9paml"
 USERS_TABLE="wereda-connect-dev-users"
 PASSWORD="TestPass1dev"
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

@@ -40,6 +40,7 @@ export interface ApiStackProps extends cdk.StackProps {
  */
 export class ApiStack extends cdk.Stack {
   public readonly httpApiUrl: string;
+  public readonly httpApiId: string;
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly adminUserPool: cognito.UserPool;
@@ -280,6 +281,20 @@ export class ApiStack extends cdk.Stack {
       "cognito-idp:RevokeToken",
       "cognito-idp:GlobalSignOut",
       "cognito-idp:AdminUserGlobalSignOut",
+    ]);
+
+    const passwordResetFn = new WeredaLambda(this, "PasswordResetFunction", {
+      functionName: `${prefix}-auth-password-reset`,
+      description:
+        "POST /auth/forgot-password, /auth/reset-password — password reset flow",
+      handlerName: "PasswordResetFunction",
+      environment: cognitoEnv,
+      reservedConcurrentExecutions: 10,
+    });
+    props.rateLimitsTable.grantReadWriteData(passwordResetFn.function);
+    this.grantCognito(passwordResetFn.function, [
+      "cognito-idp:ForgotPassword",
+      "cognito-idp:ConfirmForgotPassword",
     ]);
 
     // ─── Sync Function ───────────────────────────────────────────────
@@ -664,6 +679,7 @@ export class ApiStack extends cdk.Stack {
           "http://localhost:8080",
           `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
           `https://${envConfig.domain.adminSubdomain}.${envConfig.domain.zoneName}`,
+          ...(envConfig.extraCorsOrigins ?? []),
         ];
 
     const httpApi = new apigateway.HttpApi(this, "HttpApi", {
@@ -686,6 +702,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     this.httpApiUrl = httpApi.apiEndpoint;
+    this.httpApiId = httpApi.httpApiId;
 
     // ─── JWT Authorizer (mobile) ─────────────────────────────────────
     const jwtAuthorizer = new HttpUserPoolAuthorizer(
@@ -759,6 +776,30 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "LogoutInt",
         logoutFn.function,
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/forgot-password",
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "ForgotPasswordInt",
+        passwordResetFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/reset-password",
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "ResetPasswordInt",
+        passwordResetFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 

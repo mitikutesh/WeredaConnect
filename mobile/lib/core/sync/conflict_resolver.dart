@@ -101,8 +101,7 @@ class ConflictResolver {
         listing ??= CropListing()..listingId = operation.entityId;
 
         listing!.farmerId = serverData['farmerId'] as String;
-        listing!.farmerName =
-            (serverData['farmerName'] as String?) ?? '';
+        listing!.farmerName = (serverData['farmerName'] as String?) ?? '';
         listing!.cropType = serverData['cropType'] as String;
         listing!.quantity = (serverData['quantity'] as num).toDouble();
         listing!.pricePerKg = (serverData['pricePerKg'] as num).toDouble();

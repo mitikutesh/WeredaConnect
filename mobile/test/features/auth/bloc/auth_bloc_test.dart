@@ -570,5 +570,207 @@ void main() {
         expect(authenticated.userId, equals('user-001'));
       });
     });
+
+    // -----------------------------------------------------------------------
+    // Forgot password flow
+    // -----------------------------------------------------------------------
+    group('Forgot password flow', () {
+      test('emits [AuthLoading, AuthPasswordResetCodeSent] on success',
+          () async {
+        when(
+          () => authService.forgotPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthForgotPasswordRequested(phoneNumber: '+251911234567'),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthPasswordResetCodeSent>());
+
+        final codeSent = states[1] as AuthPasswordResetCodeSent;
+        expect(codeSent.phoneNumber, equals('+251911234567'));
+      });
+
+      test('emits [AuthLoading, AuthError] on failure', () async {
+        when(
+          () => authService.forgotPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.internalServerError,
+            'Failed to send code',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthForgotPasswordRequested(phoneNumber: '+251911234567'),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+      });
+
+      test(
+          'emits [AuthLoading, AuthError] with retryAfterSeconds on rate limit',
+          () async {
+        when(
+          () => authService.forgotPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.rateLimitExceeded,
+            'Too many attempts',
+            retryAfterSeconds: 600,
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthForgotPasswordRequested(phoneNumber: '+251911234567'),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+
+        final error = states[1] as AuthError;
+        expect(error.retryAfterSeconds, equals(600));
+      });
+
+      test('emits [AuthLoading, AuthError] on unexpected exception', () async {
+        when(
+          () => authService.forgotPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(Exception('network timeout'));
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthForgotPasswordRequested(phoneNumber: '+251911234567'),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Reset password flow
+    // -----------------------------------------------------------------------
+    group('Reset password flow', () {
+      test('emits [AuthLoading, AuthPasswordResetSuccess] on success',
+          () async {
+        when(
+          () => authService.resetPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+            confirmationCode: any(named: 'confirmationCode'),
+            newPassword: any(named: 'newPassword'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            const AuthTokens(accessToken: '', refreshToken: '', idToken: ''),
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthResetPasswordRequested(
+            phoneNumber: '+251911234567',
+            confirmationCode: '123456',
+            newPassword: 'NewPass1dev',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthPasswordResetSuccess>());
+      });
+
+      test('emits [AuthLoading, AuthError] on wrong code', () async {
+        when(
+          () => authService.resetPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+            confirmationCode: any(named: 'confirmationCode'),
+            newPassword: any(named: 'newPassword'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.failure(
+            AuthErrorCode.internalServerError,
+            'Invalid or expired verification code.',
+          ),
+        );
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthResetPasswordRequested(
+            phoneNumber: '+251911234567',
+            confirmationCode: 'wrong',
+            newPassword: 'NewPass1dev',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+      });
+
+      test('emits [AuthLoading, AuthError] on unexpected exception', () async {
+        when(
+          () => authService.resetPassword(
+            phoneNumber: any(named: 'phoneNumber'),
+            confirmationCode: any(named: 'confirmationCode'),
+            newPassword: any(named: 'newPassword'),
+          ),
+        ).thenThrow(Exception('socket error'));
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthResetPasswordRequested(
+            phoneNumber: '+251911234567',
+            confirmationCode: '123456',
+            newPassword: 'NewPass1dev',
+          ),
+        );
+
+        expect(states.length, greaterThanOrEqualTo(2));
+        expect(states[0], isA<AuthLoading>());
+        expect(states[1], isA<AuthError>());
+      });
+    });
   });
 }

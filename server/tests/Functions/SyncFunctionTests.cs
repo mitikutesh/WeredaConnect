@@ -110,7 +110,7 @@ public class SyncFunctionTests
         _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -127,7 +127,7 @@ public class SyncFunctionTests
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
 
         var op = MakeCropCreateOp();
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         await _function.FunctionHandler(request, _context);
 
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
@@ -167,7 +167,7 @@ public class SyncFunctionTests
         };
         _mockCropRepo.GetByIdAsync("crop-001").Returns(serverData);
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -308,7 +308,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object> { { "cropType", "wheat" }, { "farmerId", "farmer-001" } }
         };
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op1, op2), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op1, op2), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -423,7 +423,7 @@ public class SyncFunctionTests
     public async Task CropCreate_FarmerIdMismatch_ReturnsUnauthorized()
     {
         var op = MakeCropCreateOp(farmerId: "farmer-999");
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -449,7 +449,7 @@ public class SyncFunctionTests
                 { "secretField", "malicious" }
             }
         };
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -515,17 +515,22 @@ public class SyncFunctionTests
     // ===== Trip Sync Operation Tests =====
 
     private static APIGatewayProxyRequest MakeAuthenticatedRequest(
-        object body, string userId = "trucker-001") => new()
+        object body, string userId = "trucker-001", string? role = null)
+    {
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "userId", userId } };
+        if (role != null)
+        {
+            authorizer["custom:role"] = role;
+        }
+        return new APIGatewayProxyRequest
         {
             Body = JsonSerializer.Serialize(body, SerializerOptions),
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
-                Authorizer = new APIGatewayCustomAuthorizerContext
-            {
-                { "userId", userId }
-            }
+                Authorizer = authorizer
             }
         };
+    }
 
     private static SyncOperationRequest MakeTripCreateOp(
         string truckerId = "trucker-001",
@@ -611,7 +616,7 @@ public class SyncFunctionTests
     public async Task TripCreate_ValidData_ReturnsSuccessWithVersion1()
     {
         var op = MakeTripCreateOp();
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -638,7 +643,7 @@ public class SyncFunctionTests
     public async Task TripCreate_InvalidCapacity_ReturnsValidationError()
     {
         var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object> { { "capacity", -1 } });
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -655,7 +660,7 @@ public class SyncFunctionTests
             { "fromWoreda", "Bishoftu" },
             { "toWoreda", "Bishoftu" }
         });
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -668,7 +673,7 @@ public class SyncFunctionTests
     public async Task TripCreate_ForcesStatusOpen()
     {
         var op = MakeTripCreateOp(); // no status in data
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -699,7 +704,7 @@ public class SyncFunctionTests
             Action = "create",
             Data = data
         };
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -717,7 +722,7 @@ public class SyncFunctionTests
         {
             { "departureDate", DateTime.UtcNow.AddDays(-1).ToString("o") }
         });
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -733,7 +738,7 @@ public class SyncFunctionTests
         {
             { "departureDate", DateTime.UtcNow.AddDays(31).ToString("o") }
         });
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -755,7 +760,7 @@ public class SyncFunctionTests
         {
             { "truckerPhone", phone }
         });
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op));
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -818,7 +823,7 @@ public class SyncFunctionTests
     public async Task TripCreate_TruckerIdMismatch_ReturnsUnauthorized()
     {
         var op = MakeTripCreateOp(truckerId: "trucker-999");
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -1108,7 +1113,7 @@ public class SyncFunctionTests
             _mockSyncMeta, _mockCropRepo, _mockDynamoDb,
             "test-trips-table", "test-deliveries-table", mockRateLimiter);
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await rateLimitedFunction.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -1682,5 +1687,167 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("DELIVERY_PARTICIPANT_MISMATCH", response.Body);
         Assert.Contains("buyerId must reference a buyer", response.Body);
+    }
+
+    // ===== Role-Based Create Authorization Tests =====
+    // Verifies that only the correct role can create each entity type,
+    // closing the bypass where any authenticated user could set their own
+    // userId as the owner field and create any entity type.
+
+    private static SyncOperationRequest MakeOrderCreateOp(
+        string buyerId = "buyer-001",
+        string opId = "op-order-create",
+        string entityId = "order-001") => new()
+        {
+            OperationId = opId,
+            IdempotencyKey = $"user:order:{entityId}:create:12345",
+            EntityType = "order",
+            EntityId = entityId,
+            Action = "create",
+            Data = new Dictionary<string, object>
+        {
+            { "buyerId", buyerId },
+            { "farmerId", "farmer-001" },
+            { "listingId", "listing-001" },
+            { "buyerName", "Meron Alemu" },
+            { "farmerName", "Abebe Kebede" },
+            { "cropType", "teff" },
+            { "quantity", 50 },
+            { "pricePerUnit", 45.5 }
+        }
+        };
+
+    [Fact]
+    public async Task CropCreate_BuyerRole_ReturnsUnauthorized()
+    {
+        // Buyer sets buyerId = their own userId — server must reject on role, not just ownership
+        var op = MakeCropCreateOp(farmerId: "buyer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only farmers can create crop listings", response.Body);
+    }
+
+    [Fact]
+    public async Task CropCreate_TruckerRole_ReturnsUnauthorized()
+    {
+        var op = MakeCropCreateOp(farmerId: "trucker-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only farmers can create crop listings", response.Body);
+    }
+
+    [Fact]
+    public async Task CropCreate_NoRole_ReturnsUnauthorized()
+    {
+        // Missing role claim (unauthenticated / stripped JWT) must also be rejected
+        var op = MakeCropCreateOp(farmerId: "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001"); // no role
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only farmers can create crop listings", response.Body);
+    }
+
+    [Fact]
+    public async Task TripCreate_FarmerRole_ReturnsUnauthorized()
+    {
+        // Farmer sets truckerId = their own userId — must be rejected on role
+        var op = MakeTripCreateOp(truckerId: "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only truckers can create trip listings", response.Body);
+    }
+
+    [Fact]
+    public async Task TripCreate_BuyerRole_ReturnsUnauthorized()
+    {
+        var op = MakeTripCreateOp(truckerId: "buyer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only truckers can create trip listings", response.Body);
+    }
+
+    [Fact]
+    public async Task TripCreate_NoRole_ReturnsUnauthorized()
+    {
+        var op = MakeTripCreateOp(truckerId: "trucker-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001"); // no role
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only truckers can create trip listings", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_FarmerRole_ReturnsUnauthorized()
+    {
+        // Farmer sets buyerId = their own userId — must be rejected on role
+        var op = MakeOrderCreateOp(buyerId: "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only buyers can create orders", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_TruckerRole_ReturnsUnauthorized()
+    {
+        var op = MakeOrderCreateOp(buyerId: "trucker-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only buyers can create orders", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_NoRole_ReturnsUnauthorized()
+    {
+        var op = MakeOrderCreateOp(buyerId: "buyer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001"); // no role
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        Assert.Contains("Only buyers can create orders", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_ValidBuyerRole_DoesNotReturnRoleError()
+    {
+        // Sanity check: a proper buyer role should NOT get a role error
+        // (will fail later at buyerId ownership or validation, but NOT role check)
+        var op = MakeOrderCreateOp(buyerId: "buyer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("Only buyers can create orders", response.Body);
     }
 }

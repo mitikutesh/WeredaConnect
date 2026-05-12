@@ -7,7 +7,7 @@ Steps:
 1. Parse the environment from arguments. Default to `dev` if not specified. Reject unknown environments.
 
 2. **Pre-flight checks** (run in parallel):
-   - Verify AWS credentials: `aws sts get-caller-identity --region me-south-1`
+   - Verify AWS credentials: `aws sts get-caller-identity --region eu-north-1`
    - Verify Docker is running: `docker info > /dev/null 2>&1`
    - Check current branch and uncommitted changes: `git status --short`
    - If deploying to `prod`, STOP and confirm with the user before proceeding
@@ -24,8 +24,8 @@ Steps:
 
 5. **Post-deploy verification** (run in parallel):
    - Health check: `curl -s https://<api-url>/health`
-   - Check Lambda cold start logs: `aws logs tail /aws/lambda/wereda-connect-$ENV-health --since 5m --region me-south-1 | head -5`
-   - Verify DynamoDB tables exist: `aws dynamodb list-tables --region me-south-1 --query 'TableNames[?contains(@, `wereda-connect-$ENV`)]'`
+   - Check Lambda cold start logs: `aws logs tail /aws/lambda/wereda-connect-$ENV-health --since 5m --region eu-north-1 | head -5`
+   - Verify DynamoDB tables exist: `aws dynamodb list-tables --region eu-north-1 --query 'TableNames[?contains(@, `wereda-connect-$ENV`)]'`
 
 6. **Report results**:
    - API URL (from CDK outputs)

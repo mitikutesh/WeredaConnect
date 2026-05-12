@@ -20,8 +20,8 @@ import 'package:wereda_connect/core/models/user.dart';
 /// - PBKDF2 hash with device-specific salt prevents rainbow table attacks
 /// - 100,000 iterations (OWASP recommended for 2026)
 /// - All data encrypted at rest (secure storage + Isar encryption)
-/// - Rate limiting: 5 failed attempts → exponential backoff (1min → 5min → 15min → 1hr)
-/// - 10 failures in 24 hours → requires online re-authentication
+/// - Rate limiting: exponential backoff from 1st failure (1min → 5min → 15min → 1hr)
+/// - 5th failure → permanent lockout (credentials cleared, online re-auth required)
 ///
 /// Ethiopian context:
 /// - Enables login during poor connectivity (common in rural areas)
@@ -38,23 +38,26 @@ class OfflineAuthCache {
   static const _pbkdf2KeyLength = 32; // 256 bits
   static const _saltLength = 32; // 32 bytes
 
-  // Rate limiting parameters (prevent offline brute force)
-  static const _maxFailedAttempts = 5;
+  // Rate limiting parameters (prevent offline brute force — stolen-device mitigation)
+  // Lockout starts from the 1st failed attempt (no free failures).
+  static const _maxFailedAttempts = 1;
 
   // Exponential backoff lockout durations (by consecutive failure count)
   static const _lockoutTiers = [
-    Duration(minutes: 1), // After 5 failures
-    Duration(minutes: 5), // After 6 failures
-    Duration(minutes: 15), // After 7 failures
-    Duration(hours: 1), // After 8 failures
+    Duration(minutes: 1), // After 1st failure
+    Duration(minutes: 5), // After 2nd failure
+    Duration(minutes: 15), // After 3rd failure
+    Duration(hours: 1), // After 4th failure
   ];
 
-  // After this many failures in 24 hours, require online re-authentication
-  static const _maxDailyFailures = 10;
+  // After this many failures → permanent lockout: clear credentials and
+  // require online re-authentication (stolen-device mitigation S3-03).
+  static const _permanentLockoutThreshold = 5;
   static const _dailyFailureWindow = Duration(hours: 24);
 
-  // Offline session TTL — per auth-api.md contract: 7 days max offline session
-  static const _offlineSessionTtl = Duration(days: 7);
+  // Offline session TTL — reduced from 7 days to 48 hours for stolen-device
+  // mitigation (S3-03). Users must re-authenticate online after 48 hours.
+  static const _offlineSessionTtl = Duration(hours: 48);
 
   // Rate limit storage key prefix
   static const _rateLimitKeyPrefix = 'rate_limit_';
@@ -159,14 +162,14 @@ class OfflineAuthCache {
   ///
   /// Security features:
   /// - Constant-time comparison to prevent timing attacks
-  /// - Rate limiting: 5 failed attempts → exponential backoff (1min → 5min → 15min → 1hr)
-  /// - 10 failures in 24 hours → requires online re-authentication
+  /// - Rate limiting: exponential backoff from 1st failure (1min → 5min → 15min → 1hr)
+  /// - 5th failure → permanent lockout (credentials cleared, online re-auth required)
   /// - Failed attempts tracked per phone number
   ///
   /// Throws [RateLimitException] if too many failed attempts.
   Future<bool> verifyPassword(String phoneNumber, String password) async {
     try {
-      // Check offline session TTL (7-day expiry)
+      // Check offline session TTL (48-hour expiry)
       if (await _isSessionExpired(phoneNumber)) {
         // Clear expired credentials
         await clearCredentials(phoneNumber);
@@ -239,7 +242,7 @@ class OfflineAuthCache {
   /// Returns null if tokens are not cached.
   Future<AuthTokens?> getCachedTokens(String phoneNumber) async {
     try {
-      // Check offline session TTL (7-day expiry)
+      // Check offline session TTL (48-hour expiry)
       if (await _isSessionExpired(phoneNumber)) {
         return null;
       }
@@ -271,7 +274,7 @@ class OfflineAuthCache {
       );
 
       // Reset offline session TTL — a successful token refresh proves
-      // the user had connectivity, so the 7-day clock restarts.
+      // the user had connectivity, so the 48-hour clock restarts.
       await _secureStorage.write(
         key: _sessionTimestampKey(phoneNumber),
         value: DateTime.now().toUtc().toIso8601String(),
@@ -430,38 +433,42 @@ class OfflineAuthCache {
 
   /// Check if user is rate limited due to too many failed attempts.
   ///
-  /// Implements exponential backoff: after 5 failures the lockout grows
-  /// from 1 min up to 1 hour. After 10 failures in 24 hours the user
-  /// must re-authenticate online.
+  /// Implements exponential backoff from the 1st failure: lockout grows
+  /// from 1 min up to 1 hour. After 5 failures the credentials are
+  /// permanently cleared and online re-authentication is required
+  /// (stolen-device mitigation S3-03).
   ///
   /// Persisted to secure storage so rate limits survive app restarts.
   Future<bool> _isRateLimited(String phoneNumber) async {
     final attempts = await _readAttempts(phoneNumber);
     if (attempts.isEmpty) return false;
 
-    // Check 24-hour total failure cap
-    final dailyAttempts = attempts
+    // Check failures within the tracking window
+    final recentAttempts = attempts
         .where(
           (time) =>
               DateTime.now().toUtc().difference(time) < _dailyFailureWindow,
         )
         .toList();
 
-    if (dailyAttempts.length >= _maxDailyFailures) {
-      return true; // Require online re-auth
+    // Permanent lockout: 5+ failures → clear credentials, require online re-auth
+    if (recentAttempts.length >= _permanentLockoutThreshold) {
+      await clearCredentials(phoneNumber);
+      await _clearFailedAttempts(phoneNumber);
+      return true;
     }
 
-    if (dailyAttempts.length < _maxFailedAttempts) {
+    if (recentAttempts.length < _maxFailedAttempts) {
       return false; // Under threshold
     }
 
     // Determine lockout tier based on consecutive failures beyond threshold
-    final tierIndex = (dailyAttempts.length - _maxFailedAttempts)
+    final tierIndex = (recentAttempts.length - _maxFailedAttempts)
         .clamp(0, _lockoutTiers.length - 1);
     final lockoutDuration = _lockoutTiers[tierIndex];
 
     // Check if most recent attempt is within lockout window
-    final lastAttempt = dailyAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastAttempt = recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
     return DateTime.now().toUtc().difference(lastAttempt) < lockoutDuration;
   }
 
@@ -470,29 +477,29 @@ class OfflineAuthCache {
     final attempts = await _readAttempts(phoneNumber);
     if (attempts.isEmpty) return Duration.zero;
 
-    final dailyAttempts = attempts
+    final recentAttempts = attempts
         .where(
           (time) =>
               DateTime.now().toUtc().difference(time) < _dailyFailureWindow,
         )
         .toList();
 
-    if (dailyAttempts.isEmpty) return Duration.zero;
+    if (recentAttempts.isEmpty) return Duration.zero;
 
-    // If daily cap exceeded, return large duration to force online re-auth
-    if (dailyAttempts.length >= _maxDailyFailures) {
+    // Permanent lockout: credentials already cleared, force online re-auth
+    if (recentAttempts.length >= _permanentLockoutThreshold) {
       return const Duration(hours: 24);
     }
 
-    if (dailyAttempts.length < _maxFailedAttempts) {
+    if (recentAttempts.length < _maxFailedAttempts) {
       return Duration.zero;
     }
 
-    final tierIndex = (dailyAttempts.length - _maxFailedAttempts)
+    final tierIndex = (recentAttempts.length - _maxFailedAttempts)
         .clamp(0, _lockoutTiers.length - 1);
     final lockoutDuration = _lockoutTiers[tierIndex];
 
-    final lastAttempt = dailyAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastAttempt = recentAttempts.reduce((a, b) => a.isAfter(b) ? a : b);
     final lockoutEnd = lastAttempt.add(lockoutDuration);
     final remaining = lockoutEnd.difference(DateTime.now().toUtc());
 
@@ -514,7 +521,7 @@ class OfflineAuthCache {
     await _secureStorage.delete(key: '$_rateLimitKeyPrefix$phoneNumber');
   }
 
-  /// Check if offline session has expired (7-day TTL).
+  /// Check if offline session has expired (48-hour TTL).
   Future<bool> _isSessionExpired(String phoneNumber) async {
     final timestampStr = await _secureStorage.read(
       key: _sessionTimestampKey(phoneNumber),

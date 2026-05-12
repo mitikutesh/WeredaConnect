@@ -5,7 +5,7 @@ import { DatabaseStack } from "../lib/stacks/database-stack";
 import { ApiStack } from "../lib/stacks/api-stack";
 import { WebStack } from "../lib/stacks/web-stack";
 import { CertificateStack } from "../lib/stacks/certificate-stack";
-import { MonitoringStack } from "../lib/stacks/monitoring-stack";
+import { GithubActionsStack } from "../lib/stacks/github-actions-stack";
 import { environments } from "../lib/config/environments";
 
 const app = new cdk.App();
@@ -67,7 +67,7 @@ const certStack = new CertificateStack(app, `${stackPrefix}-Certificate`, {
   envConfig,
 });
 
-// 3b. Web stack (me-south-1 — S3 buckets + CloudFront in Bahrain)
+// 3b. Web stack (eu-north-1 for dev, me-south-1 for staging/prod — S3 + CloudFront)
 const webStack = new WebStack(app, `${stackPrefix}-Web`, {
   env: envProps,
   stackName: `wereda-connect-${envConfig.name}-web`,
@@ -79,15 +79,25 @@ const webStack = new WebStack(app, `${stackPrefix}-Web`, {
 });
 webStack.addDependency(certStack);
 
-// 4. Monitoring stack (depends on API)
-const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
-  env: envProps,
-  stackName: `wereda-connect-${envConfig.name}-monitoring`,
-  description: `WeredaConnect ${envConfig.name} - CloudWatch dashboards and alarms`,
-  tags: envConfig.tags,
-  envConfig,
-  apiUrl: apiStack.httpApiUrl,
-});
-monitoringStack.addDependency(apiStack);
+// 4. GitHub Actions OIDC deploy role (depends on Web for bucket/distribution names)
+const githubActionsStack = new GithubActionsStack(
+  app,
+  `${stackPrefix}-GithubActions`,
+  {
+    env: envProps,
+    stackName: `wereda-connect-${envConfig.name}-github-actions`,
+    description: `WeredaConnect ${envConfig.name} - GitHub Actions OIDC deploy role`,
+    tags: envConfig.tags,
+    envConfig,
+    githubRepo: "mitikutesh/WeredaConnect",
+    websiteBucketName: webStack.websiteBucketName,
+    webappBucketName: webStack.webappBucketName,
+    adminBucketName: webStack.adminBucketName,
+    websiteDistributionId: webStack.websiteDistributionId,
+    webappDistributionId: webStack.webappDistributionId,
+    adminDistributionId: webStack.adminDistributionId,
+  },
+);
+githubActionsStack.addDependency(webStack);
 
 app.synth();

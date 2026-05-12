@@ -9,7 +9,7 @@
 git checkout main
 git pull origin main
 
-# Create scoped branch (see .agents/branch-protocol.md)
+# Create scoped branch (see .ai/workflows.md)
 git checkout -b mobile/your-feature-name  # or server/, infra/, etc.
 
 # Update dependencies (if needed)
@@ -53,7 +53,7 @@ git push origin mobile/your-feature-name
 
 **Valid scope prefixes**: `mobile`, `server`, `infra`, `l10n`, `testing`, `security`, `architect`
 
-See `.agents/branch-protocol.md` for full details.
+See `.ai/workflows.md` for full branch naming rules and workflow details.
 
 ---
 

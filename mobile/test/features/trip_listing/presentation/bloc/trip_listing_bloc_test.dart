@@ -120,6 +120,12 @@ void main() {
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
 
+      // Load trips first so the BLoC has them in state for optimistic update
+      bloc.add(const LoadTrips(truckerId: 'trucker-001'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      states.clear();
+
       bloc.add(
         CancelTrip(
           tripId: trip.tripId,
@@ -131,7 +137,7 @@ void main() {
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
       expect(states[1], isA<TripsLoaded>());
-      // Trip should be cancelled now
+      // Trip should be cancelled now via optimistic update
       final loaded = states[1] as TripsLoaded;
       expect(loaded.trips.first.status, TripStatus.cancelled);
 
@@ -346,6 +352,12 @@ void main() {
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
 
+      // Load trips first so the BLoC has them in state for optimistic update
+      bloc.add(const LoadTrips(truckerId: 'trucker-001'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      states.clear();
+
       bloc.add(
         CancelTrip(
           tripId: trip.tripId,
@@ -354,7 +366,7 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      // CancelTrip emits Loading then TripsLoaded (reloads trucker trips)
+      // CancelTrip uses optimistic update from loaded state
       expect(states.length, 2);
       expect(states[1], isA<TripsLoaded>());
       final loaded = states[1] as TripsLoaded;

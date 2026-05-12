@@ -67,7 +67,7 @@ Features failing 3+ gates are marked DEFERRED.
 - **Why Now**: Must prevent recurrence of S-01 before any further development.
 - **Risk If Delayed**: Another secret leak, especially as auth credentials and API keys are introduced.
 - **Dependencies**: F-01 (purge first, then prevent)
-- **Next Engineering Task**: Install `gitleaks` as a pre-commit hook. Add `.gitleaks.toml` configuration. Add to CI/CD pipeline as well. Document in `.agents/security-sop.md`.
+- **Next Engineering Task**: Install `gitleaks` as a pre-commit hook. Add `.gitleaks.toml` configuration. Add to CI/CD pipeline as well. Document in `.ai/workflows.md`.
 - **Responsible Agent**: @Security
 
 ### F-03: API Authentication -- Cognito User Pool + JWT (I-01)

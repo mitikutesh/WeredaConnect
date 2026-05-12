@@ -132,3 +132,31 @@ class AuthLogoutRequested extends AuthEvent {
   @override
   List<Object?> get props => [clearCache];
 }
+
+/// Event to request password reset (sends verification code).
+class AuthForgotPasswordRequested extends AuthEvent {
+  final String phoneNumber;
+
+  const AuthForgotPasswordRequested({
+    required this.phoneNumber,
+  });
+
+  @override
+  List<Object?> get props => [phoneNumber];
+}
+
+/// Event to confirm password reset with verification code.
+class AuthResetPasswordRequested extends AuthEvent {
+  final String phoneNumber;
+  final String confirmationCode;
+  final String newPassword;
+
+  const AuthResetPasswordRequested({
+    required this.phoneNumber,
+    required this.confirmationCode,
+    required this.newPassword,
+  });
+
+  @override
+  List<Object?> get props => [phoneNumber, confirmationCode, newPassword];
+}

@@ -1,0 +1,156 @@
+using System.Text.Json;
+
+namespace WeredaConnect.Server.Helpers;
+
+/// <summary>
+/// Structured audit logger for CloudWatch Logs.
+/// Writes JSON-formatted log entries to stdout (captured by Lambda runtime).
+/// AOT-compatible — uses source-generated JSON serialization.
+/// </summary>
+public static class AuditLogger
+{
+    /// <summary>
+    /// Log an audit event with structured data.
+    /// </summary>
+    public static void LogAudit(
+        string category,
+        string action,
+        string? userId = null,
+        string? correlationId = null,
+        string? entityType = null,
+        string? entityId = null,
+        string? detail = null,
+        string? outcome = null,
+        string? errorCode = null)
+    {
+        var entry = new AuditLogEntry
+        {
+            Timestamp = DateTime.UtcNow.ToString("O"),
+            Category = category,
+            Action = action,
+            UserId = userId,
+            CorrelationId = correlationId,
+            EntityType = entityType,
+            EntityId = entityId,
+            Detail = detail,
+            Outcome = outcome ?? "unknown",
+            ErrorCode = errorCode
+        };
+
+        try
+        {
+            var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.AuditLogEntry);
+            Console.WriteLine(json);
+        }
+        catch (Exception ex)
+        {
+            // Never let logging crash the Lambda — write raw fallback to stderr.
+            Console.Error.WriteLine(
+                $"[AuditLogger] Serialization failed: {ex.Message} | category={category} action={action}");
+        }
+    }
+
+    /// <summary>
+    /// Log a security-relevant event (login, failed auth, rate limit, etc).
+    /// </summary>
+    public static void LogSecurity(
+        string action,
+        string? userId = null,
+        string? correlationId = null,
+        string? detail = null,
+        string? outcome = null,
+        string? sourceIp = null)
+    {
+        var entry = new SecurityLogEntry
+        {
+            Timestamp = DateTime.UtcNow.ToString("O"),
+            Category = "SECURITY",
+            Action = action,
+            UserId = userId,
+            CorrelationId = correlationId,
+            Detail = detail,
+            Outcome = outcome ?? "unknown",
+            SourceIp = sourceIp
+        };
+
+        try
+        {
+            var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.SecurityLogEntry);
+            Console.WriteLine(json);
+        }
+        catch (Exception ex)
+        {
+            // Never let logging crash the Lambda — write raw fallback to stderr.
+            Console.Error.WriteLine(
+                $"[AuditLogger] Serialization failed: {ex.Message} | action={action}");
+        }
+    }
+
+    /// <summary>
+    /// Extract the X-Correlation-Id header from an API Gateway request.
+    /// If the header is missing, generates a short unique ID.
+    /// </summary>
+    private const int MaxCorrelationIdLength = 64;
+
+    public static string GetCorrelationId(APIGatewayProxyRequest request)
+    {
+        if (request.Headers != null &&
+            (request.Headers.TryGetValue("X-Correlation-Id", out var correlationId) ||
+             request.Headers.TryGetValue("x-correlation-id", out correlationId)) &&
+            !string.IsNullOrWhiteSpace(correlationId))
+        {
+            // Clamp to prevent log injection via oversized or malicious header values.
+            if (correlationId.Length <= MaxCorrelationIdLength &&
+                correlationId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_'))
+            {
+                return correlationId;
+            }
+        }
+
+        return Guid.NewGuid().ToString("N")[..12];
+    }
+
+    /// <summary>
+    /// Extract the source IP address from the API Gateway request context.
+    /// </summary>
+    public static string? GetSourceIp(APIGatewayProxyRequest request)
+    {
+        return request.RequestContext?.Identity?.SourceIp;
+    }
+}
+
+public sealed record AuditLogEntry
+{
+    public required string Timestamp { get; init; }
+    public required string Category { get; init; }
+    public required string Action { get; init; }
+    public string? UserId { get; init; }
+    public string? CorrelationId { get; init; }
+    public string? EntityType { get; init; }
+    public string? EntityId { get; init; }
+    public string? Detail { get; init; }
+    public required string Outcome { get; init; }
+    public string? ErrorCode { get; init; }
+}
+
+public sealed record SecurityLogEntry
+{
+    public required string Timestamp { get; init; }
+    public required string Category { get; init; }
+    public required string Action { get; init; }
+    public string? UserId { get; init; }
+    public string? CorrelationId { get; init; }
+    public string? Detail { get; init; }
+    public required string Outcome { get; init; }
+    public string? SourceIp { get; init; }
+}
+
+[JsonSerializable(typeof(AuditLogEntry))]
+[JsonSerializable(typeof(SecurityLogEntry))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+internal partial class AuditLogJsonContext : JsonSerializerContext
+{
+}

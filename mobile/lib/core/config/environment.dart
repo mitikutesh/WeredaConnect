@@ -43,7 +43,7 @@ class Environment {
     }
   }
 
-  /// Development environment configuration (AWS Deployment - me-south-1).
+  /// Development environment configuration (AWS Deployment - eu-north-1 Stockholm).
   /// SECURITY: All credentials MUST be passed via --dart-define at build time.
   /// No defaults are provided for Cognito/API values to prevent accidental leaks.
   static const development = Environment._(

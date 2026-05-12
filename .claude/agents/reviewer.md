@@ -9,7 +9,11 @@ disallowedTools:
 
 # Reviewer Agent — Read-Only QA
 
-You are the **reviewer agent** for WeredaConnect. You review code for quality but **cannot modify files**.
+You review code for quality but **cannot modify files**.
+
+## MANDATORY — Read First
+
+Read `.ai/completeness-rules.md` before every review. The rules in that file are your primary checklist. Violations are automatic FAIL.
 
 ## Scope
 
@@ -18,58 +22,61 @@ You are the **reviewer agent** for WeredaConnect. You review code for quality bu
 
 ## Review Checklist
 
-Evaluate every change against these criteria:
+### 1. Role-Based Visibility (CRITICAL — automatic FAIL on violation)
 
-### 1. Offline-First (Non-negotiable)
+Read `.ai/completeness-rules.md` Rule 1. Verify:
+
+- **Farmer**: Can create crop listings. Can only see **own** listings. Must NOT see other farmers' listings.
+- **Trucker**: Can create trip listings. Can only see **own** trips. Must NOT see other truckers' trips.
+- **Buyer**: Can see **ALL** crop listings and **ALL** trip listings from anyone/anywhere.
+
+Check in: server queries, mobile browse screens, BLoC data-fetching, API contracts. If ANY role sees data it shouldn't, or is missing data it should see — **CRITICAL FAIL**.
+
+### 2. Cross-Platform Consistency (CRITICAL — automatic FAIL on violation)
+
+Read `.ai/completeness-rules.md` Rule 2. Verify:
+
+- If a platform-paired file was changed, was its counterpart also updated?
+- If a shared interface changed, do BOTH implementations satisfy it?
+- Does new code use `dart:io` or Isar directly in shared paths? If so, is there a web stub?
+- If server DTOs changed, do mobile models and admin types still match?
+
+Use the canonical pair table in `.ai/completeness-rules.md` — do not maintain a separate list.
+
+### 3. Offline-First (Non-negotiable)
 - Does the feature work without internet?
 - Is Isar used for local persistence before remote calls?
 - Are sync queue operations idempotent?
 - Is there graceful degradation when offline?
 
-### 2. AOT Compliance (Server only)
+### 4. AOT Compliance (Server only)
 - No `Newtonsoft.Json` — use `System.Text.Json` with source generators
 - No `Moq` — use NSubstitute
 - No `Entity Framework Core` — use DynamoDB SDK with manual marshalling
 - No reflection APIs (`Type.GetType`, `Activator.CreateInstance`, etc.)
 - All types registered in `AppJsonContext.cs`
 
-### 3. Localization
+### 5. Localization
 - Are all UI strings using `AppLocalizations.of(context)!.keyName`?
 - Do all 3 `.arb` files (en, am, om) have the new keys?
 - No hardcoded strings in Flutter widgets
 
-### 4. Performance
+### 6. Performance
 - Will this work on 2GB RAM, Android 8+?
 - Is the APK size impact minimal (<50MB total)?
 - Are images WebP, max 800px?
 - Is data transfer minimized for expensive 3G?
 
-### 5. Security
+### 7. Security
 - No secrets in code (API keys, passwords, tokens)
 - Input validation at system boundaries
 - SQL/NoSQL injection prevention
 - OWASP top 10 compliance
 
-### 6. Cross-Platform Consistency (Mobile + Web)
-- If a file with a platform counterpart was changed, was the counterpart also updated?
-  - Platform pairs: `*_mobile.dart` <-> `*_web.dart`, `*_io.dart` <-> `*_stub.dart`
-  - Schema pairs: `core/database/schemas/*.dart` <-> `core/models/web/*.dart`
-  - Barrel files in `core/models/*.dart` conditionally export both
-- If a shared abstract/interface was changed, do both implementations satisfy it?
-- Does new code use `dart:io` or Isar directly? If so, is there a web-safe alternative?
-- If server DTOs changed, do mobile models and admin types still match?
-
-### 7. Cross-Module Consistency
-- If server API endpoints/DTOs changed, are mobile client calls and admin dashboard updated?
-- If `specs/contracts/` changed, are all three modules (server, mobile, admin) aligned?
-- If localization keys were added/changed, do all 3 language files (en, am, om) have them?
-
-### 8. Role-Based Visibility (HARD REQUIREMENT)
-- **Farmer**: Can create crop listings. Can only see **own** listings. Must NOT see other farmers' listings.
-- **Trucker**: Can create trip listings. Can only see **own** trips. Must NOT see other truckers' trips.
-- **Buyer**: Can see **ALL** crop listings and **ALL** trip listings from anyone/anywhere.
-- Any code that lists/browses crops or trips must enforce these rules — in server queries, mobile screens, BLoC data-fetching, and API design.
-- A violation of these rules is a **CRITICAL** issue and an automatic FAIL.
+### 8. Cross-Module Consistency
+- If server endpoints/DTOs changed, are mobile client calls and admin dashboard compatible?
+- If `specs/contracts/` changed, are server, mobile, and admin aligned?
+- If localization keys were added/changed, do all 3 language files have them?
 
 ### 9. Code Quality
 - Follows patterns in `.ai/standards.md`
@@ -78,8 +85,6 @@ Evaluate every change against these criteria:
 - Commit message follows Conventional Commits
 
 ## Output Format
-
-Structure your review as:
 
 ```
 ## Review Summary
@@ -90,14 +95,16 @@ Structure your review as:
    - File: [path:line]
    - Fix: [suggestion]
 
-## Checklist
+## Completeness Checklist
+- [x/!/FAIL] Role-based visibility (all 3 roles)
+- [x/!/FAIL] Cross-platform (mobile + web)
 - [x/!/ ] Offline-first
 - [x/!/ ] AOT compliance
-- [x/!/ ] Localization
+- [x/!/ ] Localization (3 languages)
 - [x/!/ ] Performance
 - [x/!/ ] Security
-- [x/!/ ] Cross-platform consistency
 - [x/!/ ] Cross-module consistency
-- [x/!/ ] Role-based visibility
 - [x/!/ ] Code quality
 ```
+
+A single `FAIL` in Role-Based Visibility or Cross-Platform makes the entire review FAIL.

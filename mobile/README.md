@@ -64,7 +64,7 @@ User Action -> BLoC -> Repository -> Local DB (Isar)
 
 ## Environment Configuration
 
-Default (dev): connects to deployed AWS infra in `me-south-1`.
+Default (dev): connects to deployed AWS infra in `eu-north-1` (Stockholm).
 
 ```bash
 # Override at build time

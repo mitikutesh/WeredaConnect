@@ -1,8 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Template, Match } from 'aws-cdk-lib/assertions';
 import { DatabaseStack } from '../../lib/stacks/database-stack';
 import { ApiStack } from '../../lib/stacks/api-stack';
 import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
+import { GithubActionsStack } from '../../lib/stacks/github-actions-stack';
 import { environments } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
@@ -87,8 +88,8 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates fifteen Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 15);
+  test('creates sixteen Lambda functions on ARM64', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 16);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -96,13 +97,14 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 22 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
+    // 24 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
     //                 /sync, /crops, /crops/{id}, /trips, /trips/{id},
     //                 /orders, /orders/{id},
     //                 /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
-    //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history
+    //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history,
+    //                 /auth/forgot-password, /auth/reset-password
     // 15 admin routes: 12 GET + 3 POST
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 37);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 39);
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {
@@ -185,10 +187,115 @@ describe('MonitoringStack', () => {
     const stack = new MonitoringStack(app, 'TestMonitoringStack', {
       env: { account: '123456789012', region: devConfig.region },
       envConfig: devConfig,
-      apiUrl: 'https://test.execute-api.me-south-1.amazonaws.com',
+      apiUrl: `https://test.execute-api.${devConfig.region}.amazonaws.com`,
+      apiId: 'testapi123',
     });
 
     const template = Template.fromStack(stack);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+  });
+});
+
+describe('GithubActionsStack', () => {
+  let template: Template;
+
+  beforeAll(() => {
+    const app = new cdk.App();
+    const stack = new GithubActionsStack(app, 'TestGithubActionsStack', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: devConfig,
+      githubRepo: 'mitikutesh/WeredaConnect',
+      websiteBucketName: 'wereda-connect-dev-eu-north-1-website',
+      webappBucketName: 'wereda-connect-dev-eu-north-1-webapp',
+      adminBucketName: 'wereda-connect-dev-eu-north-1-admin',
+      websiteDistributionId: 'ETEST001',
+      webappDistributionId: 'ETEST002',
+      adminDistributionId: 'ETEST003',
+    });
+    template = Template.fromStack(stack);
+  });
+
+  test('creates a single IAM role with correct name', () => {
+    template.resourceCountIs('AWS::IAM::Role', 1);
+    template.hasResourceProperties('AWS::IAM::Role', {
+      RoleName: 'wereda-connect-dev-github-deploy',
+    });
+  });
+
+  test('role trust policy uses GitHub OIDC provider', () => {
+    template.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: {
+        Statement: [
+          {
+            Action: 'sts:AssumeRoleWithWebIdentity',
+            Condition: {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+              },
+              StringLike: {
+                'token.actions.githubusercontent.com:sub': 'repo:mitikutesh/WeredaConnect:*',
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  test('policy grants s3:ListBucket on bucket ARNs (not on /*)', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          {
+            Sid: 'S3ListBuckets',
+            Action: 's3:ListBucket',
+            Effect: 'Allow',
+            Resource: [
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-website',
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-webapp',
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-admin',
+            ],
+          },
+        ]),
+      },
+    });
+  });
+
+  test('policy grants s3 object operations on bucket/* paths', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          {
+            Sid: 'S3SyncObjects',
+            Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+            Effect: 'Allow',
+            Resource: [
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-website/*',
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-webapp/*',
+              'arn:aws:s3:::wereda-connect-dev-eu-north-1-admin/*',
+            ],
+          },
+        ]),
+      },
+    });
+  });
+
+  test('policy grants cloudfront:CreateInvalidation scoped to specific distributions', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          {
+            Sid: 'CloudFrontInvalidate',
+            Action: 'cloudfront:CreateInvalidation',
+            Effect: 'Allow',
+            Resource: [
+              'arn:aws:cloudfront::123456789012:distribution/ETEST001',
+              'arn:aws:cloudfront::123456789012:distribution/ETEST002',
+              'arn:aws:cloudfront::123456789012:distribution/ETEST003',
+            ],
+          },
+        ]),
+      },
+    });
   });
 });

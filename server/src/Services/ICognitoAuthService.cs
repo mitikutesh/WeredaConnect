@@ -56,4 +56,16 @@ public interface ICognitoAuthService
     /// Revoke a refresh token (global sign-out for that session).
     /// </summary>
     Task<AuthResult<bool>> LogoutAsync(string refreshToken);
+
+    /// <summary>
+    /// Initiate forgot-password flow — sends a verification code via SMS.
+    /// Returns the delivery medium (e.g. "SMS") on success.
+    /// </summary>
+    Task<AuthResult<string>> ForgotPasswordAsync(string phone);
+
+    /// <summary>
+    /// Confirm forgot-password with verification code and new password.
+    /// Returns true on success.
+    /// </summary>
+    Task<AuthResult<bool>> ConfirmForgotPasswordAsync(string phone, string confirmationCode, string newPassword);
 }

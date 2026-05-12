@@ -8,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -365,7 +366,7 @@ void main() {
       tester.takeException();
     });
 
-    testWidgets('forgot password dialog appears on tap', (tester) async {
+    testWidgets('forgot password navigates on tap', (tester) async {
       setMobileSize(tester);
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
@@ -376,13 +377,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(forgotPassword);
       await tester.pumpAndSettle();
-
-      // Dialog should appear with support contact info
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(
-        find.textContaining('+251-111-234567'),
-        findsOneWidget,
-      );
+      expect(find.byType(ForgotPasswordScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

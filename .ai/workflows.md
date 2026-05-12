@@ -1,6 +1,6 @@
 # Agent Workflows
 
-Consolidated reference for branch naming, feature implementation, bug fixes, and session handoffs. For commit message format, see `CLAUDE.md`. For coding patterns, see `.ai/standards.md`. For deployment steps, see `.agents/deployment_checklist.md`.
+Consolidated reference for branch naming, feature implementation, bug fixes, and session handoffs. For commit message format, see `CLAUDE.md`. For coding patterns, see `.ai/standards.md`. For deployment steps, see `.ai/deployment-checklist.md`.
 
 ---
 

@@ -58,11 +58,11 @@ jobs:
 
     services:
       localstack:
-        image: localstack/localstack:latest
+        image: localstack/localstack:3
         ports:
           - 4566:4566
         env:
-          SERVICES: dynamodb,s3,lambda
+          SERVICES: dynamodb,s3
           DEBUG: 1
           DISABLE_EVENTS: 1
           DEFAULT_REGION: us-east-1

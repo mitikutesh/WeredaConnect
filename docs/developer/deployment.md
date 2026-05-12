@@ -32,7 +32,7 @@ Before any deployment workflow can run, you must configure GitHub repository sec
 ./scripts/setup-gh-secrets.sh --manual
 
 # With explicit AWS region
-./scripts/setup-gh-secrets.sh --env dev --region me-south-1
+./scripts/setup-gh-secrets.sh --env dev --region eu-north-1
 ```
 
 The script configures these 12 secrets:
@@ -44,7 +44,7 @@ The script configures these 12 secrets:
 | `COGNITO_USER_POOL_ID` | CDK `UserPoolId` output / `.env` | Webapp, Admin |
 | `COGNITO_CLIENT_ID` | CDK `UserPoolClientId` output / `.env` | Webapp |
 | `COGNITO_ADMIN_CLIENT_ID` | CDK `AdminClientId` output / `admin/.env` | Admin |
-| `COGNITO_REGION` | AWS region (e.g. `me-south-1`) | Webapp, Admin |
+| `COGNITO_REGION` | AWS region (e.g. `eu-north-1`) | Webapp, Admin |
 | `WEBSITE_S3_BUCKET` | CDK `WebsiteBucketName` output | Website |
 | `WEBAPP_S3_BUCKET` | CDK `WebappBucketName` output | Webapp |
 | `ADMIN_S3_BUCKET` | CDK `AdminBucketName` output | Admin |

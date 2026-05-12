@@ -442,4 +442,112 @@ public sealed class CognitoAuthService : ICognitoAuthService
                 "Authentication service temporarily unavailable.");
         }
     }
+
+    public async Task<AuthResult<string>> ForgotPasswordAsync(string phone)
+    {
+        // Use fully-qualified name to avoid conflict with Models.ForgotPasswordRequest
+        var request = new Amazon.CognitoIdentityProvider.Model.ForgotPasswordRequest
+        {
+            ClientId = _clientId,
+            Username = phone
+        };
+
+        try
+        {
+            var response = await _cognito.ForgotPasswordAsync(request);
+            var deliveryMedium = response.CodeDeliveryDetails?.DeliveryMedium?.Value ?? "SMS";
+            return AuthResult<string>.Success(deliveryMedium);
+        }
+        catch (UserNotFoundException)
+        {
+            return AuthResult<string>.Failure(404, "AUTH_013",
+                "User not found.", "phoneNumber");
+        }
+        catch (TooManyRequestsException)
+        {
+            return AuthResult<string>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
+        {
+            return AuthResult<string>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (InvalidParameterException)
+        {
+            return AuthResult<string>.Failure(400, "AUTH_007",
+                "Invalid parameter.", "phoneNumber");
+        }
+        catch (InternalErrorException)
+        {
+            return AuthResult<string>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+        catch (AmazonServiceException)
+        {
+            return AuthResult<string>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+    }
+
+    public async Task<AuthResult<bool>> ConfirmForgotPasswordAsync(
+        string phone,
+        string confirmationCode,
+        string newPassword)
+    {
+        // Use fully-qualified name to avoid conflict with Models.ResetPasswordRequest
+        var request = new Amazon.CognitoIdentityProvider.Model.ConfirmForgotPasswordRequest
+        {
+            ClientId = _clientId,
+            Username = phone,
+            ConfirmationCode = confirmationCode,
+            Password = newPassword
+        };
+
+        try
+        {
+            await _cognito.ConfirmForgotPasswordAsync(request);
+            return AuthResult<bool>.Success(true);
+        }
+        catch (CodeMismatchException)
+        {
+            return AuthResult<bool>.Failure(400, "AUTH_022",
+                "Invalid or expired verification code.", "confirmationCode");
+        }
+        catch (ExpiredCodeException)
+        {
+            return AuthResult<bool>.Failure(400, "AUTH_023",
+                "Verification code expired.", "confirmationCode");
+        }
+        catch (InvalidPasswordException)
+        {
+            return AuthResult<bool>.Failure(400, "AUTH_024",
+                "Password does not meet requirements.", "newPassword");
+        }
+        catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (UserNotFoundException)
+        {
+            return AuthResult<bool>.Failure(404, "AUTH_013",
+                "User not found.", "phoneNumber");
+        }
+        catch (LimitExceededException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests. Please try again later.");
+        }
+        catch (InternalErrorException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+        catch (AmazonServiceException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008",
+                "Authentication service temporarily unavailable.");
+        }
+    }
 }

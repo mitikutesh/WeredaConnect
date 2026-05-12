@@ -122,9 +122,14 @@ class _FindCropsScreenState extends State<FindCropsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
+              // Disable swipe-to-change-tab: the horizontal filter chips
+              // inside the Browse tab would otherwise cause accidental tab
+              // switches when the user scrolls the chip row.
+              physics: const NeverScrollableScrollPhysics(),
               children: [
-                // Browse tab — reuse the marketplace listings screen
-                const BrowseListingsScreen(embedded: true),
+                // Browse tab — reuse the marketplace listings screen.
+                // showHeader: false because FindCropsScreen owns the header.
+                const BrowseListingsScreen(embedded: true, showHeader: false),
 
                 // My Requests tab
                 _MyRequestsTab(

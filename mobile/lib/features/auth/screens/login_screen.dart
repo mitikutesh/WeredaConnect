@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
@@ -379,24 +381,21 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {
-                    showDialog<void>(
-                      context: context,
-                      builder: (context) {
-                        final l10n = AppLocalizations.of(context)!;
-                        return AlertDialog(
-                          title: Text(l10n.forgotPassword),
-                          content: Text(
-                            l10n.forgotPasswordContactSupport,
+                    final phone = _phoneController.text.trim();
+                    if (kIsWeb) {
+                      final query = phone.isNotEmpty
+                          ? '?phone=${Uri.encodeComponent(phone)}'
+                          : '';
+                      GoRouter.of(context).go('/forgot-password$query');
+                    } else {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ForgotPasswordScreen(
+                            initialPhoneNumber: phone,
                           ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: Text(l10n.ok),
-                            ),
-                          ],
-                        );
-                      },
-                    );
+                        ),
+                      );
+                    }
                   },
                   child: Text(l10n.forgotPassword),
                 ),

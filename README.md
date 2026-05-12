@@ -20,7 +20,7 @@ WeredaConnect/
 ├── STATE.md                  # ⏸ Save Point (session checkpoint)
 ├── TASK.md                   # 🎯 Current Mission (active tasks)
 ├── .ai/                      # 🧠 Governance (agents, standards, tech stack)
-├── .agents/                  # 👮 Agent SOPs (workflows, checklists)
+├── .claude/                  # 🤖 Claude Code agents, commands, hooks
 ├── docs/                     # 📚 Knowledge Repository
 │   └── local_reality/        # Ethiopian context & constraints
 ├── specs/                    # 📋 Feature Specifications & ADRs
@@ -103,7 +103,7 @@ Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then 
 |-----------|--------|---------|----------------|
 | **Mobile** (Flutter) | `mobile/README.md` | `mobile/TESTING.md` | Offline-first, 2GB RAM, BLoC pattern |
 | **Server** (.NET 10 AOT) | `server/README.md` | `server/TESTING.md` | No reflection libs — see `server/AOT_COMPLIANCE.md` |
-| **Infrastructure** (CDK) | `infra/README.md` | `infra/TESTING.md` | ARM64, on-demand billing, me-south-1 |
+| **Infrastructure** (CDK) | `infra/README.md` | `infra/TESTING.md` | ARM64, on-demand billing, eu-north-1 (dev) / me-south-1 (staging/prod) |
 
 ## More Documentation
 

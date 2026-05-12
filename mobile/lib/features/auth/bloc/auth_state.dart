@@ -69,3 +69,18 @@ class AuthError extends AuthState {
   List<Object?> get props =>
       [errorCode, errorMessage, canRetry, retryAfterSeconds];
 }
+
+/// State when password reset code has been sent.
+class AuthPasswordResetCodeSent extends AuthState {
+  final String phoneNumber;
+
+  const AuthPasswordResetCodeSent({required this.phoneNumber});
+
+  @override
+  List<Object?> get props => [phoneNumber];
+}
+
+/// State when password has been successfully reset.
+class AuthPasswordResetSuccess extends AuthState {
+  const AuthPasswordResetSuccess();
+}

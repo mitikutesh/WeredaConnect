@@ -49,6 +49,12 @@ class ApiConfig {
   /// POST /auth/logout - Logout and invalidate tokens
   static const String logoutEndpoint = '/auth/logout';
 
+  /// POST /auth/forgot-password — send verification code for password reset
+  static const String forgotPasswordEndpoint = '/auth/forgot-password';
+
+  /// POST /auth/reset-password — reset password with verification code
+  static const String resetPasswordEndpoint = '/auth/reset-password';
+
   // ============================================================================
   // Future endpoints (to be added in later sprints)
   // ============================================================================

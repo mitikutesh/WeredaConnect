@@ -22,7 +22,7 @@ Clearing rate limits:
 
     aws dynamodb scan \\
       --table-name wereda-connect-dev-rate-limits \\
-      --region me-south-1 \\
+      --region eu-north-1 \\
       --filter-expression "begins_with(pk, :prefix)" \\
       --expression-attribute-values '{":prefix":{"S":"SYNC#"}}' \\
       --projection-expression "pk,sk" \\
@@ -35,7 +35,7 @@ Clearing rate limits:
         subprocess.run([
             'aws', 'dynamodb', 'delete-item',
             '--table-name', 'wereda-connect-dev-rate-limits',
-            '--region', 'me-south-1', '--key', key
+            '--region', 'eu-north-1', '--key', key
         ], capture_output=True)
     print(f'Cleared {len(items)} SYNC rate limit entries')
     "
@@ -65,7 +65,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-_BASE_URL = "https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com"
+_BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 PASSWORD = "testpass1a"  # 8+ chars, lowercase + digit
 
 # ---------------------------------------------------------------------------

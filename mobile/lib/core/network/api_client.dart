@@ -20,13 +20,10 @@ import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
 /// - Automatic error transformation to typed exceptions
 ///
 /// SECURITY NOTE:
-/// Certificate pinning is currently DISABLED (foundation only).
-/// Before production deployment:
-/// 1. Deploy F-16 Lambda API Gateway
-/// 2. Extract actual certificate SHA-256 hashes
-/// 3. Update [certificatePins] with real values
-/// 4. Uncomment certificate pinning code in [initialize]
-/// 5. Test with production API
+/// Certificate pinning is ENABLED for production builds.
+/// Pins extracted from the dev API Gateway in eu-north-1.
+/// TODO: re-extract after deploying dev to eu-north-1 and update these pins.
+/// If API Gateway rotates certs, update pins and redeploy.
 ///
 /// Ethiopian context:
 /// - 3G networks are vulnerable to MitM attacks
@@ -44,16 +41,13 @@ class ApiClient {
   /// Whether the API client has been initialized.
   bool get isInitialized => _isInitialized;
 
-  /// Pinned SHA-256 certificate hashes for API Gateway.
+  /// Pinned SHA-256 public key hashes for API Gateway.
   ///
-  /// TODO: Replace with actual certificate hashes after F-16 deployment.
-  /// See /specs/decisions/cert-pinning.md for extraction procedure.
-  ///
-  /// Format: 'sha256/BASE64_ENCODED_HASH'
-  /// Example: 'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+  /// Primary = leaf certificate, Backup = intermediate CA certificate.
+  /// Both must be updated when API Gateway rotates certificates.
   static const List<String> certificatePins = [
-    'sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', // Primary cert (placeholder)
-    'sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=', // Backup cert (placeholder)
+    'sha256/n+bszuvMQs+fgKHHBnrQp+Oy9jRCE4qgdpaGIACkVo0=', // Primary (leaf cert, eu-north-1, extracted 2026-04-07)
+    'sha256/G9LNNAql897egYsabashkzUCTEJkWBzgoEtk8X/678c=', // Backup (Amazon RSA 2048 M04 intermediate CA)
   ];
 
   /// Initialize Dio client with environment and optional certificate pinning.
@@ -63,10 +57,11 @@ class ApiClient {
   /// - [enableCertPinning]: Whether to enable certificate pinning (default: false)
   /// - [interceptors]: Custom interceptors to add (e.g., AuthInterceptor, LoggingInterceptor)
   ///
-  /// IMPORTANT: Do not enable cert pinning until real certificates are deployed!
+  /// Certificate pinning is enabled by default for production security.
+  /// Set [enableCertPinning] to false only for local development/testing.
   void initialize({
     Environment? environment,
-    bool enableCertPinning = false,
+    bool enableCertPinning = true,
     List<Interceptor>? interceptors,
   }) {
     if (_isInitialized) return;

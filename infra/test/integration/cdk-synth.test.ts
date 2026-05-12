@@ -38,6 +38,7 @@ describe('CDK Integration Tests', () => {
       env: envProps,
       envConfig,
       apiUrl: apiStack.httpApiUrl,
+      apiId: apiStack.httpApiId,
     });
     monitoringStack.addDependency(apiStack);
 
@@ -77,6 +78,7 @@ describe('CDK Integration Tests', () => {
         env: envProps,
         envConfig,
         apiUrl: apiStack.httpApiUrl,
+        apiId: apiStack.httpApiId,
       });
 
       const assembly = app.synth();

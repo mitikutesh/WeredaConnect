@@ -27,8 +27,8 @@ These files are shared across scopes and require extra care:
 |------|---------------|----------|
 | `CLAUDE.md` | Architect only | Propose changes via `TASK.md`, human approves |
 | `STATE.md` | Any scope | Update before session handoff (append, don't overwrite) |
-| `TASK.md` | Any scope | Claim with `@Scope` tag before editing tasks (see `.agents/task-protocol.md`) |
-| `.agents/*.md` | Architect only | Propose changes via `TASK.md` |
+| `TASK.md` | Any scope | Claim with `@Scope` tag before editing tasks |
+| `.ai/workflows.md`, `.ai/deployment-checklist.md` | Architect only | Propose changes via `TASK.md` |
 | `specs/contracts/*.md` | Architect only | Mobile/Server propose changes via `TASK.md` |
 
 ---
@@ -52,5 +52,5 @@ If two scopes believe they own the same file:
 
 ---
 
-**Last Updated**: 2026-02-09
-**Version**: 1.0.0
+**Last Updated**: 2026-03-19
+**Version**: 1.1.0

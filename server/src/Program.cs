@@ -88,6 +88,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new EscrowFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("PasswordResetFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new PasswordResetFunction().FunctionHandler, serializer),
+
             var h when h.Contains("HealthCheckFunction") =>
                 HandlerWrapper.GetHandlerWrapper(
                     (Func<APIGatewayProxyRequest, ILambdaContext, APIGatewayProxyResponse>)

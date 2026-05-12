@@ -2173,7 +2173,8 @@
   "cancelReason": "Sababa haquuf",
   "orderDetails": "Ibsa Ajajaa",
   "priceBreakdown": "Caccabsaa Gatii",
-  "cbeAccountNumber": "Herrega: 1000XXXXXXXXXX",
+  "cbeAccountNumber": "Lakk. Herrega CBE",
+  "cbeAccountValue": "1000XXXXXXXXXX",
   "transferReference": "Wabii",
   "paymentAmount": "Hamma",
   "quantity": "Hamma (kg)",
@@ -2263,5 +2264,16 @@
   "paymentStatusTitle": "Kaffaltii {status}",
   "myCrops": "Midhaan Koo",
   "browseAll": "Barbaadi",
-  "myRequests": "Gaaffii Koo"
+  "myRequests": "Gaaffii Koo",
+  "enterPhoneForReset": "Koodii mirkaneessaa argachuuf lakkoofsa bilbilaa keessan galchaa",
+  "sendResetCode": "Koodii Jijjiirraa Ergi",
+  "resetCodeSent": "Koodiin mirkaneessaa gara bilbila keessaniitti ergameera",
+  "enterResetCode": "Koodii mirkaneessaa gara bilbila keessaniitti ergame galchaa",
+  "verificationCode": "Koodii Mirkaneessaa",
+  "newPassword": "Jecha Darbii Haaraa",
+  "confirmNewPassword": "Jecha Darbii Haaraa Mirkaneessi",
+  "resetPassword": "Jecha Darbii Jijjiiri",
+  "passwordResetSuccess": "Jecha darbii milkaa'inaan jijjiirameera! Amma seenuu dandeessu.",
+  "codeRequired": "Koodiin mirkaneessaa barbaachisaadha",
+  "passwordTooShort": "Jecha darbii xiqqaatu qubee 8 qabaachuu qaba"
 }

@@ -12,7 +12,7 @@ export interface CertificateStackProps extends cdk.StackProps {
  *
  * CloudFront requires ACM certificates in us-east-1. This is a hard AWS
  * constraint. The certificate is created here and passed to the WebStack
- * (deployed in me-south-1) via cross-region references.
+ * (deployed in eu-north-1 for dev, me-south-1 for staging/prod) via cross-region references.
  */
 export class CertificateStack extends cdk.Stack {
   public readonly certificate: acm.ICertificate;

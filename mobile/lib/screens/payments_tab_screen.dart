@@ -22,8 +22,8 @@ class PaymentsTabScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final authState = context.read<AuthBloc>().state;
-    final isBuyer = authState is AuthAuthenticated &&
-        authState.role == UserRole.buyer;
+    final isBuyer =
+        authState is AuthAuthenticated && authState.role == UserRole.buyer;
 
     final isMobile = Breakpoints.isMobile(context);
     final isDesktop = Breakpoints.isDesktop(context);

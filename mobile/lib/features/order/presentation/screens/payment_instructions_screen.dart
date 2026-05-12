@@ -104,7 +104,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                           _DetailRow(
                             icon: Icons.credit_card,
                             label: l10n.cbeAccountNumber,
-                            value: '1000XXXXXXXXXX',
+                            value: l10n.cbeAccountValue,
                             showCopy: true,
                           ),
                           const Divider(height: 24),

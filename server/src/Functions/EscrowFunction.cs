@@ -148,6 +148,8 @@ public class EscrowFunction
             }
         }
 
+        var correlationId = AuditLogger.GetCorrelationId(request);
+
         try
         {
             var result = await _escrowService.InitiateAsync(body, userId);
@@ -158,6 +160,21 @@ public class EscrowFunction
                 await _fraudService.RecordPaymentInitiatedAsync(userId);
             }
 
+            if (result.IsSuccess)
+            {
+                AuditLogger.LogAudit("ESCROW", "INITIATE",
+                    userId: userId, correlationId: correlationId,
+                    entityType: "escrow", entityId: result.Value?.EscrowId,
+                    outcome: "success");
+            }
+            else
+            {
+                AuditLogger.LogAudit("ESCROW", "INITIATE",
+                    userId: userId, correlationId: correlationId,
+                    entityType: "escrow",
+                    outcome: "failure", errorCode: result.Error?.Code);
+            }
+
             return MapResult(result,
                 value => value.IsDuplicate
                     ? LambdaResponse.Ok(value, AppJsonContext.Default.InitiateEscrowResponse)
@@ -166,6 +183,10 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error initiating escrow: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "INITIATE",
+                userId: userId, correlationId: correlationId,
+                entityType: "escrow",
+                outcome: "error", errorCode: "ESCROW_012");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -206,16 +227,28 @@ public class EscrowFunction
         }
 
         var role = GetAuthenticatedUserRole(request);
+        var releaseCorrelationId = AuditLogger.GetCorrelationId(request);
 
         try
         {
             var result = await _escrowService.ReleaseAsync(body, userId, role);
+
+            AuditLogger.LogAudit("ESCROW", "RELEASE",
+                userId: userId, correlationId: releaseCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: result.IsSuccess ? "success" : "failure",
+                errorCode: result.Error?.Code);
+
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.ReleaseEscrowResponse));
         }
         catch (Exception ex)
         {
             context.Logger.LogError($"Error releasing escrow: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "RELEASE",
+                userId: userId, correlationId: releaseCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: "error", errorCode: "ESCROW_012");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -255,15 +288,28 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
+        var disputeCorrelationId = AuditLogger.GetCorrelationId(request);
+
         try
         {
             var result = await _escrowService.DisputeAsync(body, userId);
+
+            AuditLogger.LogAudit("ESCROW", "DISPUTE",
+                userId: userId, correlationId: disputeCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: result.IsSuccess ? "success" : "failure",
+                errorCode: result.Error?.Code);
+
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.DisputeEscrowResponse));
         }
         catch (Exception ex)
         {
             context.Logger.LogError($"Error disputing escrow: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "DISPUTE",
+                userId: userId, correlationId: disputeCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: "error", errorCode: "ESCROW_012");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -304,16 +350,28 @@ public class EscrowFunction
         }
 
         var role = GetAuthenticatedUserRole(request);
+        var refundCorrelationId = AuditLogger.GetCorrelationId(request);
 
         try
         {
             var result = await _escrowService.RefundAsync(body, userId, role);
+
+            AuditLogger.LogAudit("ESCROW", "REFUND",
+                userId: userId, correlationId: refundCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: result.IsSuccess ? "success" : "failure",
+                errorCode: result.Error?.Code);
+
             return MapResult(result,
                 value => LambdaResponse.Ok(value, AppJsonContext.Default.RefundEscrowResponse));
         }
         catch (Exception ex)
         {
             context.Logger.LogError($"Error refunding escrow: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "REFUND",
+                userId: userId, correlationId: refundCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: "error", errorCode: "ESCROW_012");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
