@@ -79,6 +79,7 @@ jobs:
           - 4566:4566
         env:
           SERVICES: dynamodb,s3,lambda,apigateway
+          LAMBDA_EXECUTOR: local
           DEBUG: 1
         options: >-
           --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
