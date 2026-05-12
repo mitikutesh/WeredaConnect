@@ -85,58 +85,56 @@ void applyCertPinning(Dio dio) {
 ///
 /// Returns null if the DER is malformed or too short.
 Uint8List? _extractSpki(Uint8List der) {
-  try {
-    var offset = 0;
+  var offset = 0;
 
-    // Certificate SEQUENCE
-    if (der[offset] != 0x30) return null;
-    offset++;
-    offset = _skipDerLength(der, offset).$2;
+  // Certificate SEQUENCE
+  if (offset >= der.length || der[offset] != 0x30) return null;
+  offset++;
+  final s1 = _skipDerLength(der, offset);
+  if (s1 == null) return null;
+  offset = s1.$2;
 
-    // TBSCertificate SEQUENCE
-    if (der[offset] != 0x30) return null;
-    offset++;
-    offset = _skipDerLength(der, offset).$2;
+  // TBSCertificate SEQUENCE
+  if (offset >= der.length || der[offset] != 0x30) return null;
+  offset++;
+  final s2 = _skipDerLength(der, offset);
+  if (s2 == null) return null;
+  offset = s2.$2;
 
-    // version [0] EXPLICIT (optional — present only in v2/v3 certs)
-    if (der[offset] == 0xa0) {
-      offset = _derSkipElement(der, offset);
-    }
-
-    // serialNumber INTEGER
-    offset = _derSkipElement(der, offset);
-    // signature AlgorithmIdentifier SEQUENCE
-    offset = _derSkipElement(der, offset);
-    // issuer Name SEQUENCE
-    offset = _derSkipElement(der, offset);
-    // validity Validity SEQUENCE
-    offset = _derSkipElement(der, offset);
-    // subject Name SEQUENCE
-    offset = _derSkipElement(der, offset);
-
-    // subjectPublicKeyInfo SEQUENCE — this is the SPKI we want
-    if (der[offset] != 0x30) return null;
-    final spkiStart = offset;
-    offset++;
-    final (spkiContentLength, afterLength) = _skipDerLength(der, offset);
-    final spkiEnd = afterLength + spkiContentLength;
-    if (spkiEnd > der.length) return null;
-
-    return der.sublist(spkiStart, spkiEnd);
-  } on RangeError {
-    // ignore: avoid_catching_errors — malformed DER triggers bounds violations; null rejects the certificate.
-    return null;
+  // version [0] EXPLICIT (optional — present only in v2/v3 certs)
+  if (offset >= der.length) return null;
+  if (der[offset] == 0xa0) {
+    final next = _derSkipElement(der, offset);
+    if (next == null) return null;
+    offset = next;
   }
+
+  // serialNumber, signature, issuer, validity, subject
+  for (var i = 0; i < 5; i++) {
+    final next = _derSkipElement(der, offset);
+    if (next == null) return null;
+    offset = next;
+  }
+
+  // subjectPublicKeyInfo SEQUENCE — this is the SPKI we want
+  if (offset >= der.length || der[offset] != 0x30) return null;
+  final spkiStart = offset;
+  offset++;
+  final s3 = _skipDerLength(der, offset);
+  if (s3 == null) return null;
+  final spkiEnd = s3.$2 + s3.$1;
+  if (spkiEnd > der.length) return null;
+
+  return der.sublist(spkiStart, spkiEnd);
 }
 
-/// Parse the DER length at [offset].
-/// Returns (content length, offset of content start).
-(int, int) _skipDerLength(Uint8List der, int offset) {
+/// Parse the DER length at [offset]; returns null if out of bounds.
+(int, int)? _skipDerLength(Uint8List der, int offset) {
+  if (offset >= der.length) return null;
   final first = der[offset];
-  if (first < 0x80) {
-    return (first, offset + 1);
-  }
+  if (first < 0x80) return (first, offset + 1);
   final numBytes = first & 0x7f;
+  if (offset + 1 + numBytes > der.length) return null;
   var length = 0;
   for (var i = 0; i < numBytes; i++) {
     length = (length << 8) | der[offset + 1 + i];
@@ -144,10 +142,11 @@ Uint8List? _extractSpki(Uint8List der) {
   return (length, offset + 1 + numBytes);
 }
 
-/// Skip the DER element (tag + length + content) at [offset].
-/// Returns the offset of the next element.
-int _derSkipElement(Uint8List der, int offset) {
+/// Skip the DER element at [offset]; returns next offset or null if malformed.
+int? _derSkipElement(Uint8List der, int offset) {
+  if (offset >= der.length) return null;
   offset++; // skip tag
-  final (length, contentStart) = _skipDerLength(der, offset);
-  return contentStart + length;
+  final result = _skipDerLength(der, offset);
+  if (result == null) return null;
+  return result.$2 + result.$1;
 }
