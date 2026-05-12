@@ -38,8 +38,11 @@ class PendingIntentCard extends StatelessWidget {
                 color: AppTheme.statusWarning.withAlpha(25),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.sync,
-                  color: AppTheme.statusWarning, size: 20),
+              child: const Icon(
+                Icons.sync,
+                color: AppTheme.statusWarning,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             // Details

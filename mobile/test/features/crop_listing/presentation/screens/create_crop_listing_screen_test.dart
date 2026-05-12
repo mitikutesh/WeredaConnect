@@ -56,7 +56,10 @@ void main() {
 
     when(() => authBloc.state).thenReturn(
       const AuthAuthenticated(
-          userId: 'farmer-001', tokens: _testTokens, role: UserRole.farmer),
+        userId: 'farmer-001',
+        tokens: _testTokens,
+        role: UserRole.farmer,
+      ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => cropListingBloc.state).thenReturn(const CropListingInitial());

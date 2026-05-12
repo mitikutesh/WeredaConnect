@@ -114,7 +114,10 @@ void main() {
 
     when(() => authBloc.state).thenReturn(
       const AuthAuthenticated(
-          userId: 'trucker-001', tokens: _testTokens, role: UserRole.trucker),
+        userId: 'trucker-001',
+        tokens: _testTokens,
+        role: UserRole.trucker,
+      ),
     );
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
 
