@@ -1,0 +1,45 @@
+name: Aikido Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly full scan on Monday at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  aikido-scan:
+    name: Aikido Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Aikido Security Scan
+        uses: AikidoSec/github-actions-workflow@v1.0.13
+        with:
+          secret-key: ${{ secrets.AIKIDO_SECRET_KEY }}
+          fail-on-dependency-scan: 'true'
+          fail-on-sast-scan: 'true'
+          fail-on-iac-scan: 'true'
+          minimum-severity: 'MEDIUM'
+          post-scan-status-comment: 'on'
+          post-sast-review-comments: 'on'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
