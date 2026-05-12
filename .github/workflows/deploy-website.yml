@@ -19,7 +19,7 @@ on:
           - prod
 
 concurrency:
-  group: deploy-website-${{ github.event.inputs.environment || 'prod' }}
+  group: deploy-website-${{ github.event.inputs.environment || 'dev' }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
     name: Build & Deploy Website
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: ${{ github.event.inputs.environment || 'prod' }}
+    environment: ${{ github.event.inputs.environment || 'dev' }}
 
     permissions:
       id-token: write
@@ -55,7 +55,7 @@ jobs:
       - name: Set AWS region
         id: region
         run: |
-          if [[ "${{ github.event.inputs.environment || 'prod' }}" == "dev" ]]; then
+          if [[ "${{ github.event.inputs.environment || 'dev' }}" == "dev" ]]; then
             echo "region=eu-north-1" >> $GITHUB_OUTPUT
           else
             echo "region=me-south-1" >> $GITHUB_OUTPUT
