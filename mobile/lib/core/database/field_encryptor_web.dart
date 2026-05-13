@@ -15,7 +15,13 @@ class FieldEncryptor {
 
   bool get isInitialized => false;
 
-  void initialize(List<int> keyBytes) {
+  /// Signature parity with mobile. `legacyPlaintextAllowed` is accepted
+  /// but ignored — web has no Isar / no on-disk PII, so the HS-3 migration
+  /// escape hatch is irrelevant here.
+  void initialize(
+    List<int> keyBytes, {
+    bool legacyPlaintextAllowed = false,
+  }) {
     // No-op on web — no Isar, no PII on disk
   }
 

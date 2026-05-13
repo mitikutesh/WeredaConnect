@@ -50,26 +50,30 @@ void main() {
       );
     });
 
-    test('encrypt returns plaintext when not initialized', () async {
-      const plaintext = '+251911234567';
-      final result = await encryptor.encrypt(
-        plaintext,
-        collection: aadCollection,
-        column: aadColumn,
-        rowKey: aadRowKey,
+    test('encrypt throws StateError when not initialized', () async {
+      // S1-02 fail-closed: previously this returned plaintext.
+      expect(
+        () => encryptor.encrypt(
+          '+251911234567',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<StateError>()),
       );
-      expect(result, equals(plaintext));
     });
 
-    test('decrypt returns ciphertext when not initialized', () async {
-      const ciphertext = 'someBase64Data==';
-      final result = await encryptor.decrypt(
-        ciphertext,
-        collection: aadCollection,
-        column: aadColumn,
-        rowKey: aadRowKey,
+    test('decrypt throws StateError when not initialized', () async {
+      // S1-02 fail-closed: previously this returned the input unchanged.
+      expect(
+        () => encryptor.decrypt(
+          'someBase64Data==',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<StateError>()),
       );
-      expect(result, equals(ciphertext));
     });
 
     test('encrypt produces different output than plaintext', () async {
@@ -179,29 +183,46 @@ void main() {
       );
     });
 
-    test('decrypt returns non-base64 input as-is (legacy data)', () async {
+    test('decrypt throws on unprefixed input (downgrade attack closed)',
+        () async {
+      // S1-02 fail-closed: previously returned input unchanged.
       encryptor.initialize(generateKey());
-      const legacyData = '+251911234567';
-      final result = await encryptor.decrypt(
-        legacyData,
-        collection: aadCollection,
-        column: aadColumn,
-        rowKey: aadRowKey,
+      expect(
+        () => encryptor.decrypt(
+          '+251911234567',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<FieldDecryptionException>()),
       );
-      expect(result, equals(legacyData));
     });
 
-    test('decrypt returns short base64 as-is (too short for AES-GCM)',
-        () async {
+    test('decrypt throws on invalid base64 body', () async {
       encryptor.initialize(generateKey());
-      const shortData = 'AAAA'; // 3 bytes — below 28-byte GCM minimum
-      final result = await encryptor.decrypt(
-        shortData,
-        collection: aadCollection,
-        column: aadColumn,
-        rowKey: aadRowKey,
+      expect(
+        () => encryptor.decrypt(
+          'enc:v1:!!!not-base64!!!',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<FieldDecryptionException>()),
       );
-      expect(result, equals(shortData));
+    });
+
+    test('decrypt throws on truncated body (< 28 bytes)', () async {
+      encryptor.initialize(generateKey());
+      // Valid base64 ('AAAA' = 3 bytes), prefixed, but below GCM minimum.
+      expect(
+        () => encryptor.decrypt(
+          'enc:v1:AAAA',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<FieldDecryptionException>()),
+      );
     });
 
     test('reset clears initialization state', () {
@@ -234,89 +255,84 @@ void main() {
       final encryptor2 = FieldEncryptor.instance;
       encryptor2.initialize(generateKey());
 
-      // S1-01 keeps the fail-open behavior on MAC failure (changed in S1-02).
-      // For now, the call returns the ciphertext as-is.
-      final result = await encryptor2.decrypt(
-        encrypted,
-        collection: aadCollection,
-        column: aadColumn,
-        rowKey: aadRowKey,
+      // S1-02 fail-closed: MAC failure now throws instead of returning input.
+      expect(
+        () => encryptor2.decrypt(
+          encrypted,
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        throwsA(isA<FieldDecryptionException>()),
       );
-      expect(result, equals(encrypted));
     });
 
-    // ─── AAD binding (S1-01 acceptance) ────────────────────────────────
+    // ─── AAD binding (S1-02 fail-closed) ───────────────────────────────
 
     group('AAD binding', () {
-      test('cross-row swap is rejected: decrypt of row-A blob with row-B AAD '
-          'fails MAC and falls back to ciphertext', () async {
+      test('cross-row swap throws FieldDecryptionException', () async {
         encryptor.initialize(generateKey());
-        const plaintext = 'Abebe Kebede';
         final blobRowA = await encryptor.encrypt(
-          plaintext,
+          'Abebe Kebede',
           collection: 'User',
           column: 'displayName',
           rowKey: 'sub-A',
         );
 
         // Attacker plants blobRowA into User row sub-B's displayName.
-        // S1-01 leaves the fail-open behavior in place; the bytes come
-        // back as-is because the MAC check fails. S1-02 will throw.
-        final result = await encryptor.decrypt(
-          blobRowA,
-          collection: 'User',
-          column: 'displayName',
-          rowKey: 'sub-B',
+        // S1-02 fail-closed: MAC failure under AAD mismatch throws.
+        expect(
+          () => encryptor.decrypt(
+            blobRowA,
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub-B',
+          ),
+          throwsA(isA<FieldDecryptionException>()),
+          reason: 'plaintext must NEVER leak under row-AAD mismatch',
         );
-        expect(result, equals(blobRowA),
-            reason: 'MAC check should fail under AAD mismatch — '
-                'fail-open returns input unchanged until S1-02');
-        expect(result, isNot(equals(plaintext)),
-            reason: 'plaintext must NEVER leak under AAD mismatch');
       });
 
-      test('cross-column swap is rejected: phone-column blob fails as a '
-          'displayName-column read', () async {
+      test('cross-column swap throws FieldDecryptionException', () async {
         encryptor.initialize(generateKey());
-        const phone = '+251911234567';
         final phoneBlob = await encryptor.encrypt(
-          phone,
+          '+251911234567',
           collection: 'User',
           column: 'phoneNumber',
           rowKey: 'sub-A',
         );
 
-        final result = await encryptor.decrypt(
-          phoneBlob,
-          collection: 'User',
-          column: 'displayName',
-          rowKey: 'sub-A',
+        expect(
+          () => encryptor.decrypt(
+            phoneBlob,
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<FieldDecryptionException>()),
+          reason: 'plaintext must NEVER leak under column-AAD mismatch',
         );
-        expect(result, equals(phoneBlob),
-            reason: 'AAD mismatch → MAC fail → fail-open returns ciphertext');
-        expect(result, isNot(equals(phone)),
-            reason: 'plaintext must NEVER leak under column-AAD mismatch');
       });
 
-      test('cross-collection swap is rejected: User blob fails as a '
-          'CropListing read', () async {
+      test('cross-collection swap throws FieldDecryptionException',
+          () async {
         encryptor.initialize(generateKey());
-        const name = 'Abebe Kebede';
         final userBlob = await encryptor.encrypt(
-          name,
+          'Abebe Kebede',
           collection: 'User',
           column: 'displayName',
           rowKey: 'sub-A',
         );
 
-        final result = await encryptor.decrypt(
-          userBlob,
-          collection: 'CropListing',
-          column: 'displayName',
-          rowKey: 'sub-A',
+        expect(
+          () => encryptor.decrypt(
+            userBlob,
+            collection: 'CropListing',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<FieldDecryptionException>()),
         );
-        expect(result, equals(userBlob));
-        expect(result, isNot(equals(name)));
       });
 
       test('matching AAD trio decrypts cleanly even after a swap attempt',
@@ -451,6 +467,124 @@ void main() {
         expect(
           () => encryptor.encrypt('any',
               collection: 'User', column: 'displayName', rowKey: ''),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+    });
+
+    // ─── Prefix + fail-closed contract (S1-02) ─────────────────────────
+
+    group('cipher prefix + fail-closed', () {
+      test('encrypt output starts with enc:v1: prefix', () async {
+        encryptor.initialize(generateKey());
+        final out = await encryptor.encrypt(
+          'hello',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        );
+        expect(out, startsWith(FieldEncryptor.cipherPrefix));
+        expect(FieldEncryptor.cipherPrefix, equals('enc:v1:'));
+      });
+
+      test('decrypt throws on tampered MAC byte', () async {
+        encryptor.initialize(generateKey());
+        final blob = await encryptor.encrypt(
+          'Abebe',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        );
+        // Flip the last MAC byte.
+        final body = base64Decode(
+          blob.substring(FieldEncryptor.cipherPrefix.length),
+        );
+        body[body.length - 1] ^= 0x01;
+        final tampered = '${FieldEncryptor.cipherPrefix}${base64Encode(body)}';
+        expect(
+          () => encryptor.decrypt(
+            tampered,
+            collection: aadCollection,
+            column: aadColumn,
+            rowKey: aadRowKey,
+          ),
+          throwsA(isA<FieldDecryptionException>()),
+        );
+      });
+
+      test('FieldDecryptionException toString reveals reason without leaks',
+          () async {
+        const ex = FieldDecryptionException('MAC verification failed');
+        expect(ex.toString(), contains('MAC verification failed'));
+        // Must not leak rowKey or plaintext content into the exception.
+        expect(ex.toString(), isNot(contains('sub-')));
+        expect(ex.toString(), isNot(contains('Abebe')));
+      });
+    });
+
+    // ─── Legacy plaintext mode (HS-3 migration escape hatch, gated) ────
+
+    group('legacyPlaintextAllowed flag', () {
+      test('defaults to false: unprefixed input on decrypt throws', () async {
+        encryptor.initialize(generateKey());
+        expect(
+          () => encryptor.decrypt(
+            'plaintext-row',
+            collection: aadCollection,
+            column: aadColumn,
+            rowKey: aadRowKey,
+          ),
+          throwsA(isA<FieldDecryptionException>()),
+        );
+      });
+
+      test('when true, unprefixed input is returned unchanged', () async {
+        encryptor.initialize(generateKey(), legacyPlaintextAllowed: true);
+        final out = await encryptor.decrypt(
+          'plaintext-row',
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        );
+        expect(out, equals('plaintext-row'));
+      });
+
+      test('reset clears the legacy flag', () async {
+        encryptor.initialize(generateKey(), legacyPlaintextAllowed: true);
+        // Sanity: flag is on.
+        expect(
+          await encryptor.decrypt(
+            'plain',
+            collection: aadCollection,
+            column: aadColumn,
+            rowKey: aadRowKey,
+          ),
+          equals('plain'),
+        );
+
+        encryptor.reset();
+        encryptor.initialize(generateKey()); // no flag → default false
+        expect(
+          () => encryptor.decrypt(
+            'plain',
+            collection: aadCollection,
+            column: aadColumn,
+            rowKey: aadRowKey,
+          ),
+          throwsA(isA<FieldDecryptionException>()),
+        );
+      });
+
+      test('legacy mode does not weaken AAD validation', () async {
+        encryptor.initialize(generateKey(), legacyPlaintextAllowed: true);
+        // Empty collection still rejected — _aad is upstream of legacy check.
+        expect(
+          () => encryptor.decrypt(
+            'plain',
+            collection: '',
+            column: aadColumn,
+            rowKey: aadRowKey,
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
