@@ -178,10 +178,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Security-relevant source-code lints (S1-04 onward). Cheap shell
+  # checks that run on every PR regardless of path filter.
+  security-lints:
+    name: Security Lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint — legacyPlaintextAllowed flag (S1-04)
+        run: bash scripts/check_legacy_plaintext_flag.sh
+
+      - name: Lint — self-test fixtures
+        run: bash scripts/check_legacy_plaintext_flag.sh --self-test
+
   # Final validation check
   pr-validation-complete:
     name: PR Validation Complete
-    needs: [detect-changes, mobile-tests, server-tests, infra-tests, e2e-tests, secret-scan]
+    needs: [detect-changes, mobile-tests, server-tests, infra-tests, e2e-tests, secret-scan, security-lints]
     if: always()
     runs-on: ubuntu-latest
 
@@ -193,13 +210,15 @@ jobs:
           echo "Infra Tests: ${{ needs.infra-tests.result }}"
           echo "E2E Tests: ${{ needs.e2e-tests.result }}"
           echo "Secret Scan: ${{ needs.secret-scan.result }}"
+          echo "Security Lints: ${{ needs.security-lints.result }}"
 
           # Fail if any required job failed
           if [[ "${{ needs.mobile-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.server-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.infra-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.e2e-tests.result }}" == "failure" ]] || \
-             [[ "${{ needs.secret-scan.result }}" == "failure" ]]; then
+             [[ "${{ needs.secret-scan.result }}" == "failure" ]] || \
+             [[ "${{ needs.security-lints.result }}" == "failure" ]]; then
             echo "❌ One or more test suites failed"
             exit 1
           fi
