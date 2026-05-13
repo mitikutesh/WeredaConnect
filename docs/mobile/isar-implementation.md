@@ -702,6 +702,24 @@ bool _constantTimeEq(List<int> a, List<int> b) {
 }
 ```
 
+### Legacy-flag CI enforcement (S1-04)
+
+The `legacyPlaintextAllowed: true` flag is the HS-3 migration's only
+sanctioned downgrade path. Setting it outside the allow-list
+(`mobile/lib/core/database/migrations/` and `mobile/test/`) reopens
+the C-1 downgrade-attack surface that S1-02 closed.
+
+CI enforcement: `scripts/check_legacy_plaintext_flag.sh`, wired into
+`pr-validation.yml`'s `security-lints` job. Any PR that introduces
+`legacyPlaintextAllowed: true` outside the allow-list fails the check.
+
+The lint is line-oriented grep — a determined contributor could split
+`legacyPlaintextAllowed:\n    true` across two lines to evade it. That
+is an explicit non-goal; code review catches that case.
+
+Self-test fixtures live at `mobile/test/fixtures/lint/{good,bad}_example.dart`
+and are exercised by the same CI job via `--self-test`.
+
 ### Biometric gate before key load
 
 `local_auth` is in `pubspec.yaml`. Use it. The current init flow loads the AES
