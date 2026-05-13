@@ -50,16 +50,38 @@ class FieldEncryptor {
     _initialized = true;
   }
 
+  /// Build the AAD (Associated Authenticated Data) for a given field.
+  ///
+  /// AES-GCM authenticates this string alongside the ciphertext: a blob
+  /// encrypted for `(User, displayName, sub-A)` will fail MAC verification
+  /// if decrypted with `(User, displayName, sub-B)` or
+  /// `(User, phoneNumber, sub-A)`. Without AAD, ciphertexts are portable
+  /// between columns and rows, which is a substitution-attack surface for
+  /// any attacker with write access to the Isar file.
+  ///
+  /// `rowKey` MUST be a stable identifier (server UUID, Cognito sub) — not
+  /// the local autoincrement Isar `id`, which can be reassigned on import.
+  String _aad(String collection, String column, String rowKey) =>
+      '$collection:$column:$rowKey';
+
   /// Encrypt a plaintext string to a base64-encoded ciphertext.
   ///
-  /// Format: base64(nonce + ciphertext + mac)
+  /// Format: base64(nonce + ciphertext + mac), with AAD bound to the trio
+  /// `(collection, column, rowKey)`. See [_aad] for the rationale.
   ///
   /// Returns plaintext as fallback if the encryptor is not initialized.
   /// This ensures the app works during first-launch before the key is ready.
-  Future<String> encrypt(String plaintext) async {
+  /// Note: fail-closed behavior on uninitialized encryptor lands in S1-02.
+  Future<String> encrypt(
+    String plaintext, {
+    required String collection,
+    required String column,
+    required String rowKey,
+  }) async {
     if (!_initialized || _secretKey == null) {
       // Encryptor not yet initialized — storing plaintext.
       // IsarService.initialize() must complete before repositories write PII.
+      // TODO(S1-02): replace this fail-open path with a StateError throw.
       debugPrint('[FieldEncryptor] encrypt() called before initialization');
       return plaintext;
     }
@@ -67,6 +89,7 @@ class FieldEncryptor {
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plaintext),
       secretKey: _secretKey!,
+      aad: utf8.encode(_aad(collection, column, rowKey)),
     );
 
     // Pack nonce + ciphertext + mac into a single pre-allocated byte array.
@@ -86,14 +109,25 @@ class FieldEncryptor {
 
   /// Decrypt a base64-encoded ciphertext back to plaintext.
   ///
+  /// Caller MUST supply the same `(collection, column, rowKey)` trio used at
+  /// encrypt time — AAD mismatch fails the MAC check.
+  ///
   /// Returns the input string as-is if:
   /// - The encryptor is not initialized (graceful fallback)
   /// - The input doesn't appear to be encrypted (not valid base64 or too short)
-  /// - Decryption fails (data was stored before encryption was enabled)
+  /// - Decryption fails (data was stored before encryption was enabled,
+  ///   or the AAD trio doesn't match)
   ///
-  /// This graceful fallback ensures existing unencrypted data continues to work
-  /// after encryption is enabled — a migration-friendly design.
-  Future<String> decrypt(String ciphertext) async {
+  /// This graceful fallback ensures existing unencrypted data continues to
+  /// work after encryption is enabled — a migration-friendly design.
+  /// Note: this fail-open behavior is itself a downgrade-attack vector and
+  /// is replaced with `enc:v1:` prefix + fail-closed in S1-02.
+  Future<String> decrypt(
+    String ciphertext, {
+    required String collection,
+    required String column,
+    required String rowKey,
+  }) async {
     if (!_initialized || _secretKey == null) {
       return ciphertext;
     }
@@ -120,6 +154,7 @@ class FieldEncryptor {
       final decrypted = await _algorithm.decrypt(
         secretBox,
         secretKey: _secretKey!,
+        aad: utf8.encode(_aad(collection, column, rowKey)),
       );
 
       return utf8.decode(decrypted);
@@ -127,11 +162,12 @@ class FieldEncryptor {
       // Not valid base64 — unencrypted legacy data, return as-is.
       return ciphertext;
     } on SecretBoxAuthenticationError {
-      // MAC check failed — could be a wrong key or tampered data.
-      // Log at warning level so it surfaces in crash reporting.
+      // MAC check failed — wrong key, tampered data, or AAD mismatch
+      // (column/row swap). Log so it surfaces in crash reporting.
       debugPrint(
-        '[FieldEncryptor] MAC verification failed — possible key mismatch '
-        'or data tampering. Returning ciphertext as-is.',
+        '[FieldEncryptor] MAC verification failed for '
+        '$collection:$column — possible key mismatch, AAD mismatch, or '
+        'tampering. Returning ciphertext as-is.',
       );
       return ciphertext;
     }

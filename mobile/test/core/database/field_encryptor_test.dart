@@ -7,6 +7,13 @@ void main() {
   group('FieldEncryptor', () {
     late FieldEncryptor encryptor;
 
+    // Representative AAD trio used by tests that don't care about the values.
+    // For tests that DO care (cross-row / cross-column swap), they specify
+    // their own trio inline.
+    const aadCollection = 'TestCollection';
+    const aadColumn = 'testField';
+    const aadRowKey = 'test-row-1';
+
     setUp(() {
       FieldEncryptor.resetInstance();
       encryptor = FieldEncryptor.instance;
@@ -45,74 +52,155 @@ void main() {
 
     test('encrypt returns plaintext when not initialized', () async {
       const plaintext = '+251911234567';
-      final result = await encryptor.encrypt(plaintext);
+      final result = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(result, equals(plaintext));
     });
 
     test('decrypt returns ciphertext when not initialized', () async {
       const ciphertext = 'someBase64Data==';
-      final result = await encryptor.decrypt(ciphertext);
+      final result = await encryptor.decrypt(
+        ciphertext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(result, equals(ciphertext));
     });
 
     test('encrypt produces different output than plaintext', () async {
       encryptor.initialize(generateKey());
       const plaintext = '+251911234567';
-      final encrypted = await encryptor.encrypt(plaintext);
+      final encrypted = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(encrypted, isNot(equals(plaintext)));
     });
 
-    test('decrypt reverses encrypt', () async {
+    test('decrypt reverses encrypt with matching AAD', () async {
       encryptor.initialize(generateKey());
       const plaintext = '+251911234567';
-      final encrypted = await encryptor.encrypt(plaintext);
-      final decrypted = await encryptor.decrypt(encrypted);
+      final encrypted = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
+      final decrypted = await encryptor.decrypt(
+        encrypted,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(decrypted, equals(plaintext));
     });
 
     test('encrypt/decrypt works with Amharic text', () async {
       encryptor.initialize(generateKey());
-      const plaintext = '\u12a0\u1260\u1260 \u12a8\u1260\u12f0'; // Amharic name
-      final encrypted = await encryptor.encrypt(plaintext);
+      const plaintext = 'አበበ ከበደ'; // Amharic name
+      final encrypted = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(encrypted, isNot(equals(plaintext)));
-      final decrypted = await encryptor.decrypt(encrypted);
+      final decrypted = await encryptor.decrypt(
+        encrypted,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(decrypted, equals(plaintext));
     });
 
     test('encrypt/decrypt works with empty string', () async {
       encryptor.initialize(generateKey());
       const plaintext = '';
-      final encrypted = await encryptor.encrypt(plaintext);
-      final decrypted = await encryptor.decrypt(encrypted);
+      final encrypted = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
+      final decrypted = await encryptor.decrypt(
+        encrypted,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(decrypted, equals(plaintext));
     });
 
-    test('each encryption produces unique ciphertext (random nonce)', () async {
+    test('each encryption produces unique ciphertext (random nonce)',
+        () async {
       encryptor.initialize(generateKey());
       const plaintext = 'test-data';
-      final encrypted1 = await encryptor.encrypt(plaintext);
-      final encrypted2 = await encryptor.encrypt(plaintext);
-      // Same plaintext should produce different ciphertext due to random nonce
+      final encrypted1 = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
+      final encrypted2 = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
+      // Same plaintext + same AAD should still produce different ciphertext
+      // due to fresh nonce on every call.
       expect(encrypted1, isNot(equals(encrypted2)));
-      // But both should decrypt to the same plaintext
-      expect(await encryptor.decrypt(encrypted1), equals(plaintext));
-      expect(await encryptor.decrypt(encrypted2), equals(plaintext));
+      // Both should decrypt to the same plaintext under matching AAD.
+      expect(
+        await encryptor.decrypt(
+          encrypted1,
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        equals(plaintext),
+      );
+      expect(
+        await encryptor.decrypt(
+          encrypted2,
+          collection: aadCollection,
+          column: aadColumn,
+          rowKey: aadRowKey,
+        ),
+        equals(plaintext),
+      );
     });
 
     test('decrypt returns non-base64 input as-is (legacy data)', () async {
       encryptor.initialize(generateKey());
-      // This is not valid base64, so it should be returned unchanged
       const legacyData = '+251911234567';
-      final result = await encryptor.decrypt(legacyData);
+      final result = await encryptor.decrypt(
+        legacyData,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(result, equals(legacyData));
     });
 
     test('decrypt returns short base64 as-is (too short for AES-GCM)',
         () async {
       encryptor.initialize(generateKey());
-      // Valid base64 but too short to be AES-GCM (needs 12+0+16 = 28 bytes min)
-      const shortData = 'AAAA'; // 3 bytes
-      final result = await encryptor.decrypt(shortData);
+      const shortData = 'AAAA'; // 3 bytes — below 28-byte GCM minimum
+      final result = await encryptor.decrypt(
+        shortData,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(result, equals(shortData));
     });
 
@@ -132,19 +220,124 @@ void main() {
 
     test('data encrypted with one key cannot be decrypted with another',
         () async {
-      // Encrypt with key 1
       encryptor.initialize(generateKey());
       const plaintext = 'sensitive-pii-data';
-      final encrypted = await encryptor.encrypt(plaintext);
+      final encrypted = await encryptor.encrypt(
+        plaintext,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
 
-      // Try to decrypt with key 2
+      // Try to decrypt with a different key.
       FieldEncryptor.resetInstance();
       final encryptor2 = FieldEncryptor.instance;
       encryptor2.initialize(generateKey());
 
-      // Should return ciphertext as-is (MAC check fails, falls back)
-      final result = await encryptor2.decrypt(encrypted);
+      // S1-01 keeps the fail-open behavior on MAC failure (changed in S1-02).
+      // For now, the call returns the ciphertext as-is.
+      final result = await encryptor2.decrypt(
+        encrypted,
+        collection: aadCollection,
+        column: aadColumn,
+        rowKey: aadRowKey,
+      );
       expect(result, equals(encrypted));
+    });
+
+    // ─── AAD binding (S1-01 acceptance) ────────────────────────────────
+
+    group('AAD binding', () {
+      test('cross-row swap is rejected: decrypt of row-A blob with row-B AAD '
+          'fails MAC and falls back to ciphertext', () async {
+        encryptor.initialize(generateKey());
+        const plaintext = 'Abebe Kebede';
+        final blobRowA = await encryptor.encrypt(
+          plaintext,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+
+        // Attacker plants blobRowA into User row sub-B's displayName.
+        // S1-01 leaves the fail-open behavior in place; the bytes come
+        // back as-is because the MAC check fails. S1-02 will throw.
+        final result = await encryptor.decrypt(
+          blobRowA,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-B',
+        );
+        expect(result, equals(blobRowA),
+            reason: 'MAC check should fail under AAD mismatch — '
+                'fail-open returns input unchanged until S1-02');
+        expect(result, isNot(equals(plaintext)),
+            reason: 'plaintext must NEVER leak under AAD mismatch');
+      });
+
+      test('cross-column swap is rejected: phone-column blob fails as a '
+          'displayName-column read', () async {
+        encryptor.initialize(generateKey());
+        const phone = '+251911234567';
+        final phoneBlob = await encryptor.encrypt(
+          phone,
+          collection: 'User',
+          column: 'phoneNumber',
+          rowKey: 'sub-A',
+        );
+
+        final result = await encryptor.decrypt(
+          phoneBlob,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(result, equals(phoneBlob),
+            reason: 'AAD mismatch → MAC fail → fail-open returns ciphertext');
+        expect(result, isNot(equals(phone)),
+            reason: 'plaintext must NEVER leak under column-AAD mismatch');
+      });
+
+      test('cross-collection swap is rejected: User blob fails as a '
+          'CropListing read', () async {
+        encryptor.initialize(generateKey());
+        const name = 'Abebe Kebede';
+        final userBlob = await encryptor.encrypt(
+          name,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+
+        final result = await encryptor.decrypt(
+          userBlob,
+          collection: 'CropListing',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(result, equals(userBlob));
+        expect(result, isNot(equals(name)));
+      });
+
+      test('matching AAD trio decrypts cleanly even after a swap attempt',
+          () async {
+        encryptor.initialize(generateKey());
+        const plaintext = 'Abebe Kebede';
+        final blob = await encryptor.encrypt(
+          plaintext,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+
+        final result = await encryptor.decrypt(
+          blob,
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(result, equals(plaintext));
+      });
     });
   });
 }

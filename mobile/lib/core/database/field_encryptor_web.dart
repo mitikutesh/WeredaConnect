@@ -20,10 +20,26 @@ class FieldEncryptor {
   }
 
   /// Returns plaintext unchanged (no encryption on web).
-  Future<String> encrypt(String plaintext) async => plaintext;
+  ///
+  /// Signature parity with the mobile implementation. The AAD parameters
+  /// are accepted but ignored — web has no Isar, no on-disk PII, so AAD
+  /// binding has nothing to protect against.
+  Future<String> encrypt(
+    String plaintext, {
+    required String collection,
+    required String column,
+    required String rowKey,
+  }) async => plaintext;
 
   /// Returns ciphertext unchanged (no decryption on web).
-  Future<String> decrypt(String ciphertext) async => ciphertext;
+  ///
+  /// Signature parity with the mobile implementation. See [encrypt] note.
+  Future<String> decrypt(
+    String ciphertext, {
+    required String collection,
+    required String column,
+    required String rowKey,
+  }) async => ciphertext;
 
   void reset() {}
 
