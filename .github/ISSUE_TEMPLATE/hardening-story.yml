@@ -1,0 +1,150 @@
+name: Isar Hardening Story
+description: Create a story for the Isar hardening roadmap (specs/features/isar-hardening)
+title: "[HS-#] <Short summary>"
+labels: ["mobile", "security", "isar-hardening"]
+projects: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for stories in the Isar hardening roadmap.
+        See `specs/features/isar-hardening/sprints.md` for the canonical catalog and `stories.csv` for the same data as a table.
+        Stories follow the `S{sprint}-{order}` naming convention (e.g. `S2-02`).
+
+  - type: input
+    id: story_id
+    attributes:
+      label: Story ID
+      description: e.g. S1-01, S3-02. Must match the catalog in sprints.md.
+      placeholder: "S1-01"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: epic
+    attributes:
+      label: Epic
+      options:
+        - "E1 — Encrypt at rest"
+        - "E2 — Safe sync under flap & shared device"
+        - "E3 — Observability & ops"
+        - "E4 — Long-term key hygiene"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sprint
+    attributes:
+      label: Sprint
+      options:
+        - "HS-1 (May 19 – May 30)"
+        - "HS-2 (Jun 02 – Jun 13)"
+        - "HS-3 (Jun 16 – Jun 27)"
+        - "HS-4 (Jun 30 – Jul 11)"
+        - "HS-5 (Jul 14 – Jul 25)"
+        - "HS-6 (Jul 28 – Aug 08)"
+        - "HS-7 (Aug 11 – Aug 20)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: points
+    attributes:
+      label: Story Points
+      options:
+        - "1"
+        - "2"
+        - "3"
+        - "5"
+        - "8"
+        - "13"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      description: Story-level blast radius if this ships broken.
+      options:
+        - "Low"
+        - "Medium"
+        - "High"
+        - "Critical (unrecoverable)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User story
+      description: As a {role}, I want {outcome}, so that {business value}.
+      placeholder: |
+        As a security engineer
+        I want FieldEncryptor.encrypt/decrypt to require (collection, column, rowKey) AAD
+        So that ciphertexts cannot be swapped between columns or rows
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist. Every box must be tickable for "done."
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files to touch
+      description: Real file paths from the repo. Helps reviewers map the diff fast.
+      placeholder: |
+        - mobile/lib/core/database/field_encryptor.dart
+        - mobile/lib/core/database/field_encryptor_web.dart
+
+  - type: textarea
+    id: test_approach
+    attributes:
+      label: Test approach
+      description: Which tests prove this works? Reference §15 of docs/mobile/isar-implementation.md if relevant.
+    validations:
+      required: true
+
+  - type: input
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: Comma-separated story IDs (e.g. "S1-01, S1-04")
+      placeholder: "S1-01"
+
+  - type: input
+    id: blocks
+    attributes:
+      label: Blocks
+      description: Comma-separated story IDs this work unblocks.
+      placeholder: "S2-01, S3-01"
+
+  - type: textarea
+    id: risk_notes
+    attributes:
+      label: Risk notes
+      description: What can go wrong? What's the mitigation?
+
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      description: All boxes ticked before close.
+      options:
+        - label: Acceptance checklist 100% complete
+        - label: PR merged to `main`
+        - label: Tests green in CI
+        - label: Aikido security scan passing on touched paths
+        - label: Doc cross-references updated where relevant (sprints.md, README.md, stories.csv)
+        - label: For security-critical stories — security reviewer signed off on the PR

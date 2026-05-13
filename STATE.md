@@ -2,14 +2,52 @@
 
 ## Checkpoint
 
-**Date:** 2026-03-19
-**Branch:** `fix-feat`
-**Status:** R4 COMPLETE — All features done. Sprint plan created for ship-ready + security + production.
-**Latest Commit:** 0f2f0c6 - refactor(docs): restructure AI agent infrastructure with centralized completeness rules
+**Date:** 2026-05-13 (security-review addendum; prior checkpoint 2026-03-19 still authoritative for pre-launch sprint state)
+**Branch:** `feat/github-workflow-scanner` (current); `fix-feat` retains 2026-03-19 baseline
+**Status:** R4 COMPLETE. May security review produced 7-sprint **Isar Hardening Roadmap** — see `specs/features/isar-hardening/`. Supersedes the 4h `S3-04` estimate in the March sprint plan.
+**Latest Commit:** ef13030 - ci: auto-deploy to dev on merge to main, scope webapp triggers
 
 ---
 
 ## Resumption Context
+
+```
+ADDENDUM — ISAR HARDENING ROADMAP (May 13, 2026)
+
+A deep security review of the Isar local-DB layer produced a 7-sprint
+program closing 17 gaps. Start here before resuming the March sprint plan
+if the next work session is on encryption / sync / mobile data-at-rest.
+
+ENTRY POINTS:
+  - Roadmap overview:   specs/features/isar-hardening/README.md
+  - 28 JIRA-ready stories: specs/features/isar-hardening/sprints.md
+                         + specs/features/isar-hardening/stories.csv
+  - HS-3 migration rollout: specs/features/isar-hardening/sprint-3-rollout.md
+  - Threat model & specs:   docs/mobile/isar-implementation.md
+
+KEY FACTS:
+  - FieldEncryptor exists but is NEVER called in production — every PII
+    field (phoneNumber, faydaId, displayName, Fayda ID images) is stored
+    plaintext today. Closing that gap is HS-1 + HS-2.
+  - Server-side idempotency (EscrowIdempotencyRepository,
+    ISyncMetadataRepository.IdempotencyKeyExistsAsync) is already wired
+    — HS-4 just makes the client use it correctly.
+  - allowBackup="false" and cert pinning are already live; doc updated to
+    reference them.
+  - HS-3 (one-shot v1→v2 migration) is the only sprint with unrecoverable
+    failure modes — gated by dev cohort + 5%/25%/100% staged rollout.
+
+TOP OPEN PO DECISIONS:
+  1. cryptography: 2.7.0 exact pin (default: yes)
+  2. HMAC pepper strategy for phoneSearchHash (default: build-time env)
+  3. Approve 750 ETB dev-cohort airtime budget
+  4. Designate on-call engineer for HS-3 staged rollout window
+
+NEXT IF RESUMING THIS WORK:
+  - PO sign-off on the 4 decisions above
+  - Kick off HS-1 (Sprint goal: AAD-bound FieldEncryptor + key-integrity
+    HMAC, no production callers yet). Start with story S1-01 in sprints.md.
+```
 
 ```
 PO AUDIT COMPLETE (Mar 19, 2026)

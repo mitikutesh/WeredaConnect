@@ -8,6 +8,7 @@
 **MVP Completion:** ~95%
 **Launch Target:** Sprint 1 (ship-ready) → Sprint 2 (security) → Sprint 3 (production)
 **Sprint Plan:** `specs/features/sprint-plan-2026-03-19.md`
+**Isar Hardening Roadmap (2026-05-13):** `specs/features/isar-hardening/README.md` — 7-sprint program closing all 17 Isar gaps surfaced in the May security review. Supersedes the 4h estimate for `S3-04` below.
 
 ---
 
@@ -101,9 +102,37 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S3-01 | Replace mock Telebirr with real API | TBD | Pending |
 | S3-02 | Wire real Cognito auth | 1-2 weeks | Pending |
 | S3-03 | Reduce offline session TTL to 48h | 1h | Pending |
-| S3-04 | Implement Isar field-level encryption | 4h | Pending |
+| S3-04 | Implement Isar field-level encryption | **expanded — see Isar Hardening roadmap** | Pending |
 | S3-05 | Add Flutter web E2E tests | 4h | Pending |
 | S3-06 | OTP resend + forgot password | 8h | Pending |
+
+---
+
+## Isar Hardening Roadmap (2026-05-19 → 2026-08-20)
+
+**Source:** `specs/features/isar-hardening/` · **Status:** Proposed, awaiting PO sign-off
+**Trigger:** May 2026 deep security review uncovered 17 gaps; the 4-hour `S3-04` estimate was insufficient.
+
+| Sprint | Dates | Goal | Pts | Risk |
+|--------|-------|------|-----|------|
+| HS-1 | May 19 – May 30 | Encryptor v1: AAD + prefix + key-integrity HMAC | 15 | Low |
+| HS-2 | Jun 02 – Jun 13 | Wire encryption into User + Crop repositories | 18 | High |
+| HS-3 | Jun 16 – Jun 27 | One-shot v1→v2 migration (dev-cohort gated) | 16 | **Critical** |
+| HS-4 | Jun 30 – Jul 11 | Sync queue session gating + idempotency wiring | 17 | Medium |
+| HS-5 | Jul 14 – Jul 25 | Biometric gate + WorkManager hardening | 14 | Medium |
+| HS-6 | Jul 28 – Aug 08 | Observability + release tooling | 13 | Low |
+| HS-7 | Aug 11 – Aug 20 | Key rotation + Keystore platform channel | 12 | Low |
+
+**Detail:**
+- Stories: `specs/features/isar-hardening/sprints.md` (28 JIRA-ready stories) · CSV: `specs/features/isar-hardening/stories.csv`
+- Migration rollout runbook: `specs/features/isar-hardening/sprint-3-rollout.md`
+- Threat model + acceptance specs: `docs/mobile/isar-implementation.md`
+
+**Top open PO decisions before HS-1 kickoff:**
+1. Pin `cryptography: 2.7.0` exact (no `^`) — confirm
+2. HMAC pepper strategy for `phoneSearchHash` — default: app-static secret via build env
+3. Approve airtime budget for HS-3 dev cohort (15 users × 50 ETB = 750 ETB)
+4. Designate on-call engineer for HS-3 staged-rollout window (Jul 04 – Jul 10)
 
 ---
 
@@ -133,7 +162,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 ### Unfixed (MEDIUM priority)
 - [ ] **T-SEC-TTL**: 7-day offline session TTL (too long) — Sprint 3
-- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — Sprint 3
+- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — 7-sprint program: `specs/features/isar-hardening/README.md` (start 2026-05-19, ship 2026-08-20)
 - [ ] **T-SEC-JWT**: Dead JwtValidator with testing bypass — Sprint 1
 
 ---
