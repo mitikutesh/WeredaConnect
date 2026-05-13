@@ -2,17 +2,17 @@
 
 ## Checkpoint
 
-**Date:** 2026-05-13 (security-review addendum; prior checkpoint 2026-03-19 still authoritative for pre-launch sprint state)
-**Branch:** `feat/github-workflow-scanner` (current); `fix-feat` retains 2026-03-19 baseline
-**Status:** R4 COMPLETE. May security review produced 7-sprint **Isar Hardening Roadmap** — see `specs/features/isar-hardening/`. Supersedes the 4h `S3-04` estimate in the March sprint plan.
-**Latest Commit:** ef13030 - ci: auto-deploy to dev on merge to main, scope webapp triggers
+**Date:** 2026-05-13 (HS-1 closeout; prior checkpoint 2026-03-19 still authoritative for pre-launch sprint state)
+**Branch:** `hs1/s1-05-test-suite-closeout` (closing HS-1); `main` has HS-1 fully merged
+**Status:** R4 COMPLETE. **HS-1 (encryption foundation) COMPLETE** — AAD, prefix + fail-closed, key-integrity HMAC, legacy-flag CI guardrail all live in main. HS-2 (repository wiring) is the next sprint. May security review's 7-sprint roadmap continues — see `specs/features/isar-hardening/`.
+**Latest Commit:** 016652a - Merge pull request #22 from mitikutesh/hs1/s1-04-legacy-plaintext-guardrail
 
 ---
 
 ## Resumption Context
 
 ```
-ADDENDUM — ISAR HARDENING ROADMAP (May 13, 2026)
+ADDENDUM — ISAR HARDENING ROADMAP (updated 2026-05-13)
 
 A deep security review of the Isar local-DB layer produced a 7-sprint
 program closing 17 gaps. Start here before resuming the March sprint plan
@@ -25,10 +25,35 @@ ENTRY POINTS:
   - HS-3 migration rollout: specs/features/isar-hardening/sprint-3-rollout.md
   - Threat model & specs:   docs/mobile/isar-implementation.md
 
+HS-1 STATUS: COMPLETE
+  All four foundation primitives live in main:
+    S1-01  AAD-bound FieldEncryptor encrypt/decrypt           (PR #18)
+    S1-02  enc:v1: ciphertext prefix + fail-closed decrypt   (PR #19)
+    S1-03  HMAC-SHA256 integrity tag on persisted AES key    (PR #20)
+    S1-04  CI lint: legacyPlaintextAllowed allow-list        (PR #22)
+  Plus type-design follow-up:
+    PR #21  abstract CryptoFailure + enum reasons
+
+  Hardening-table items closed by HS-1:
+    #3  No AAD / domain separation
+    #10 No key-integrity HMAC on the persisted key
+
+  Closed by HS-1 work outside the original table:
+    C-1 Plaintext-on-decrypt-failure downgrade attack (S1-02)
+    N-C1 Cross-field ciphertext substitution (S1-01)
+    N-H4 Tampered-key undetected on read-back (S1-03)
+
+NEXT SPRINT: HS-2 (wire encryption into User + Crop repositories)
+  - 5 stories (S2-01..S2-05), 18 pts
+  - Highest-risk story: S2-02 phoneSearchHash + phoneEncrypted split
+    (8 pts, breaking schema)
+  - Scaffolds ready in specs/features/isar-hardening/pr-templates/
+
 KEY FACTS:
-  - FieldEncryptor exists but is NEVER called in production — every PII
-    field (phoneNumber, faydaId, displayName, Fayda ID images) is stored
-    plaintext today. Closing that gap is HS-1 + HS-2.
+  - HS-1 made the encryption primitive correct, AAD-bound, fail-closed,
+    and integrity-tagged. HS-2 actually wires it into production
+    repositories — until S2-01..S2-04 land, PII is still plaintext at
+    rest in the User and CropListing collections.
   - Server-side idempotency (EscrowIdempotencyRepository,
     ISyncMetadataRepository.IdempotencyKeyExistsAsync) is already wired
     — HS-4 just makes the client use it correctly.
@@ -37,16 +62,20 @@ KEY FACTS:
   - HS-3 (one-shot v1→v2 migration) is the only sprint with unrecoverable
     failure modes — gated by dev cohort + 5%/25%/100% staged rollout.
 
-TOP OPEN PO DECISIONS:
-  1. cryptography: 2.7.0 exact pin (default: yes)
+TOP OPEN PO DECISIONS (carried forward into HS-2):
+  1. cryptography: 2.7.0 exact pin (default: yes) — DONE; in pubspec
   2. HMAC pepper strategy for phoneSearchHash (default: build-time env)
   3. Approve 750 ETB dev-cohort airtime budget
   4. Designate on-call engineer for HS-3 staged rollout window
 
 NEXT IF RESUMING THIS WORK:
-  - PO sign-off on the 4 decisions above
-  - Kick off HS-1 (Sprint goal: AAD-bound FieldEncryptor + key-integrity
-    HMAC, no production callers yet). Start with story S1-01 in sprints.md.
+  - PO decisions 2-4 above
+  - Kick off HS-2: start with S2-01 (encrypt User PII fields).
+    Scaffold at specs/features/isar-hardening/pr-templates/S2-01-encrypt-user-pii.md.
+  - Note: S2-01 also has to create the UserRepository abstraction —
+    no production UserRepository exists today; User reads/writes
+    scatter across profile_screen.dart, offline_auth_cache.dart,
+    and conflict_resolver.dart.
 ```
 
 ```

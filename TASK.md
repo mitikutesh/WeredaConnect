@@ -115,7 +115,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 | Sprint | Dates | Goal | Pts | Risk |
 |--------|-------|------|-----|------|
-| HS-1 | May 19 – May 30 | Encryptor v1: AAD + prefix + key-integrity HMAC | 15 | Low |
+| HS-1 | May 19 – May 30 | Encryptor v1: AAD + prefix + key-integrity HMAC | 15 | ✅ **COMPLETE** (PRs #18 #19 #20 #21 #22) |
 | HS-2 | Jun 02 – Jun 13 | Wire encryption into User + Crop repositories | 18 | High |
 | HS-3 | Jun 16 – Jun 27 | One-shot v1→v2 migration (dev-cohort gated) | 16 | **Critical** |
 | HS-4 | Jun 30 – Jul 11 | Sync queue session gating + idempotency wiring | 17 | Medium |
@@ -162,7 +162,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 ### Unfixed (MEDIUM priority)
 - [ ] **T-SEC-TTL**: 7-day offline session TTL (too long) — Sprint 3
-- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — 7-sprint program: `specs/features/isar-hardening/README.md` (start 2026-05-19, ship 2026-08-20)
+- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — HS-1 (encryption foundation) **complete** as of 2026-05-13; HS-2..HS-7 in flight. 7-sprint program: `specs/features/isar-hardening/README.md` (ship target 2026-08-20). Until HS-2 wires the primitive into User + CropListing repositories, PII is still plaintext at rest in those collections.
 - [ ] **T-SEC-JWT**: Dead JwtValidator with testing bypass — Sprint 1
 
 ---

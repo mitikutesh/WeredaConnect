@@ -19,19 +19,25 @@ rationale lives in the sections referenced; the items are summarized here so
 reviewers and contributors can scan one place.
 
 > **Execution plan:** `specs/features/isar-hardening/` holds the 7-sprint roadmap, 28 JIRA-ready stories (and CSV), the Sprint-3 dev-cohort rollout runbook, per-story PR scaffolds, and the founder/security risk-acceptance sign-off page.
+>
+> **HS-1 status — COMPLETE.** The four foundation primitives (AAD binding,
+> `enc:v1:` prefix + fail-closed, key-integrity HMAC, legacy-flag CI guardrail)
+> are live in `main`. Closed in this table: items #3 and #10. The remaining
+> open items below ship in HS-2 through HS-7. The companion type-design refactor
+> (`abstract class CryptoFailure` + enum reasons) shipped in PR #21.
 
 | # | Gap | Status | Section |
 |---|---|---|---|
 | 1 | `FieldEncryptor.encrypt/decrypt` has **zero production call sites** | OPEN | §7, §8 |
 | 2 | `@Index(unique: true) phoneNumber` cannot be both indexed and encrypted as-is | OPEN | §7 (HMAC search column) |
-| 3 | No AAD / domain separation — ciphertext is portable between columns and rows | OPEN | §7 |
+| 3 | No AAD / domain separation — ciphertext is portable between columns and rows | **CLOSED (HS-1 / S1-01)** | §7 |
 | 4 | Fayda ID images stored as **filesystem paths**, not encrypted blobs | OPEN | §7 (image pattern) |
 | 5 | `SyncOperation.payload` may contain plaintext PII (encrypt-then-enqueue is not enforced) | OPEN | §9 |
 | 6 | `SyncOperation` has no `userId` → background isolate can flush under wrong session | OPEN | §9, §11 |
 | 7 | `lastError` is `e.toString()` → can persist tokens/URLs to disk and telemetry | OPEN | §10 |
 | 8 | `rotateEncryptionKey()` throws `UnimplementedError` | OPEN | §7 |
 | 9 | No biometric gate before loading the AES key from secure storage | OPEN | §7 |
-| 10 | No integrity HMAC on the persisted key → swap attack possible | OPEN | §7 |
+| 10 | No integrity HMAC on the persisted key → swap attack possible | **CLOSED (HS-1 / S1-03)** | §7 |
 | 11 | Migrations not provably idempotent under `enc:v1:` prefix check | OPEN | §14 |
 | 12 | WorkManager uses `ExistingWorkPolicy.keep` → survives user switch | OPEN | §11 |
 | 13 | `Isar.clear()` doesn't shred WAL pages | OPEN | §5 |
