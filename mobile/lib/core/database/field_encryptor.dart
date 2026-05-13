@@ -3,6 +3,22 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 
+/// Thrown by [FieldEncryptor.decrypt] when a ciphertext fails any of:
+/// - missing `enc:v1:` version prefix (downgrade attack or legacy data)
+/// - invalid base64 body
+/// - truncated body (< 12-byte nonce + 16-byte MAC = 28 bytes)
+/// - GCM MAC verification failure (wrong key, tampering, or AAD mismatch)
+///
+/// Callers MUST treat this as abnormal. Never catch-and-fallback to the
+/// raw input value — doing so reintroduces the downgrade-attack surface
+/// this exception was added to close.
+class FieldDecryptionException implements Exception {
+  final String reason;
+  const FieldDecryptionException(this.reason);
+  @override
+  String toString() => 'FieldDecryptionException: $reason';
+}
+
 /// Provides AES-256-GCM field-level encryption for PII fields stored in Isar.
 ///
 /// Isar 3.1 does not support built-in encryption, so sensitive fields
@@ -10,10 +26,12 @@ import 'package:flutter/foundation.dart';
 /// layer before writing to / after reading from the database.
 ///
 /// Security design:
-/// - AES-256-GCM provides authenticated encryption (confidentiality + integrity)
-/// - A fresh 12-byte nonce is generated per encryption call (prepended to ciphertext)
-/// - The encryption key is derived from FlutterSecureStorage (Android Keystore-backed)
-/// - Ciphertext is base64-encoded for safe storage in Isar String fields
+/// - AES-256-GCM with authenticated encryption (confidentiality + integrity)
+/// - Fresh 12-byte nonce generated per encryption call
+/// - AAD bound to (collection, column, rowKey) — see [_aad]
+/// - `enc:v1:` version prefix on every ciphertext — see [cipherPrefix]
+/// - Fail-closed: decrypt throws [FieldDecryptionException] on any anomaly
+/// - Key derived from FlutterSecureStorage (Android Keystore-backed)
 ///
 /// Ethiopian context:
 /// - Protects user PII on shared devices common in rural communities
@@ -26,7 +44,20 @@ class FieldEncryptor {
   SecretKey? _secretKey;
   bool _initialized = false;
 
-  // Private constructor for singleton pattern
+  /// Version tag prepended to every ciphertext written by [encrypt].
+  /// [decrypt] rejects anything without this prefix unless
+  /// [_legacyPlaintextAllowed] is set — see [initialize].
+  ///
+  /// Public so the HS-3 migration can skip already-prefixed rows for
+  /// idempotency under crash-retry.
+  static const String cipherPrefix = 'enc:v1:';
+
+  /// MIGRATION-ONLY escape hatch. When `true`, [decrypt] returns unprefixed
+  /// inputs unchanged so the HS-3 migration can read existing plaintext
+  /// rows once before re-encrypting them. Production reads MUST always run
+  /// with this `false`. Cleared by [reset].
+  bool _legacyPlaintextAllowed = false;
+
   FieldEncryptor._();
 
   /// Get the singleton instance of FieldEncryptor.
@@ -40,13 +71,22 @@ class FieldEncryptor {
 
   /// Initialize the encryptor with the encryption key bytes.
   ///
-  /// Must be called once during app startup (from IsarService.initialize()).
+  /// Must be called once during app startup (from `IsarService.initialize()`).
   /// The [keyBytes] should be the 32-byte AES-256 key from secure storage.
-  void initialize(List<int> keyBytes) {
+  ///
+  /// [legacyPlaintextAllowed] is the HS-3 v1→v2 migration escape hatch. When
+  /// `true`, [decrypt] returns unprefixed inputs as-is. Migration code flips
+  /// it back to `false` after the last row is re-encrypted. Default `false`
+  /// so production reads always fail closed.
+  void initialize(
+    List<int> keyBytes, {
+    bool legacyPlaintextAllowed = false,
+  }) {
     if (keyBytes.length != 32) {
       throw ArgumentError('Encryption key must be 32 bytes (AES-256)');
     }
     _secretKey = SecretKey(Uint8List.fromList(keyBytes));
+    _legacyPlaintextAllowed = legacyPlaintextAllowed;
     _initialized = true;
   }
 
@@ -82,12 +122,12 @@ class FieldEncryptor {
     return '$collection:$column:$rowKey';
   }
 
-  /// Encrypt a plaintext string to a base64-encoded ciphertext.
+  /// Encrypt a plaintext string to `enc:v1:base64(nonce + ct + mac)`.
   ///
-  /// Format: base64(nonce + ciphertext + mac), with AAD bound to the trio
-  /// `(collection, column, rowKey)`. See [_aad] for the rationale.
+  /// AAD is bound to the `(collection, column, rowKey)` trio — see [_aad].
+  /// A fresh 12-byte nonce is generated for every call.
   ///
-  /// Returns plaintext as fallback if the encryptor is not initialized.
+  /// **Fail-closed:** throws [StateError] if [initialize] has not run.
   /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
   Future<String> encrypt(
     String plaintext, {
@@ -96,11 +136,10 @@ class FieldEncryptor {
     required String rowKey,
   }) async {
     if (!_initialized || _secretKey == null) {
-      // Encryptor not yet initialized — storing plaintext.
-      // IsarService.initialize() must complete before repositories write PII.
-      // TODO(S1-02): replace this fail-open path with a StateError throw.
-      debugPrint('[FieldEncryptor] encrypt() called before initialization');
-      return plaintext;
+      throw StateError(
+        'FieldEncryptor.encrypt called before initialize(). '
+        'IsarService.initialize() must complete before any repository write.',
+      );
     }
 
     final secretBox = await _algorithm.encrypt(
@@ -121,45 +160,63 @@ class FieldEncryptor {
     pos += cipherText.length;
     combined.setAll(pos, mac);
 
-    return base64Encode(combined);
+    return '$cipherPrefix${base64Encode(combined)}';
   }
 
-  /// Decrypt a base64-encoded ciphertext back to plaintext.
+  /// Decrypt `enc:v1:base64(nonce + ct + mac)` back to plaintext.
   ///
   /// Caller MUST supply the same `(collection, column, rowKey)` trio used at
   /// encrypt time — AAD mismatch fails the MAC check.
   ///
-  /// Returns the input string as-is if:
-  /// - The encryptor is not initialized (graceful fallback)
-  /// - The input is not valid base64 (legacy plaintext row)
-  /// - The decoded body is too short to be AES-GCM ciphertext
-  /// - MAC verification fails (wrong key, tampered data, or AAD mismatch)
+  /// **Fail-closed contract:**
+  /// - Uninitialized        → [StateError]
+  /// - No `enc:v1:` prefix  → [FieldDecryptionException] (unless legacy mode)
+  /// - Bad base64           → [FieldDecryptionException]
+  /// - Truncated body       → [FieldDecryptionException]
+  /// - MAC verify failed    → [FieldDecryptionException]
   ///
   /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
   Future<String> decrypt(
-    String ciphertext, {
+    String value, {
     required String collection,
     required String column,
     required String rowKey,
   }) async {
     if (!_initialized || _secretKey == null) {
-      return ciphertext;
+      throw StateError(
+        'FieldEncryptor.decrypt called before initialize(). '
+        'IsarService.initialize() must complete before any repository read.',
+      );
     }
 
-    // _aad ArgumentError must escape the fail-open branches below.
+    // _aad ArgumentError must escape the failure branches below.
     final aadBytes = utf8.encode(_aad(collection, column, rowKey));
 
-    // Narrow base64-only try so utf8.decode of forged-MAC-valid bytes
-    // can't masquerade as "legacy plaintext row". TODO(S1-02): remove.
-    final List<int> combined;
-    try {
-      combined = base64Decode(ciphertext);
-    } on FormatException {
-      return ciphertext; // legacy plaintext row
+    if (!value.startsWith(cipherPrefix)) {
+      if (_legacyPlaintextAllowed) {
+        // ONLY reachable while the HS-3 v2-encryption migration is running.
+        return value;
+      }
+      _report('Missing cipher prefix on read for $collection:$column');
+      throw const FieldDecryptionException('Missing cipher prefix');
     }
 
+    final body = value.substring(cipherPrefix.length);
+    final List<int> combined;
+    try {
+      combined = base64Decode(body);
+    } on FormatException {
+      _report('Ciphertext is not valid base64 for $collection:$column');
+      throw const FieldDecryptionException('Invalid base64');
+    }
     // GCM envelope: 12-byte nonce + ciphertext + 16-byte MAC, min 28 bytes.
-    if (combined.length < 28) return ciphertext;
+    if (combined.length < 28) {
+      _report(
+        'Ciphertext truncated (length=${combined.length}) for '
+        '$collection:$column',
+      );
+      throw const FieldDecryptionException('Truncated ciphertext');
+    }
 
     final nonce = combined.sublist(0, 12);
     final mac = combined.sublist(combined.length - 16);
@@ -174,21 +231,29 @@ class FieldEncryptor {
       return utf8.decode(decrypted);
     } on SecretBoxAuthenticationError {
       // MAC fail = wrong key, tampered data, or AAD mismatch (col/row swap).
-      // S6-01 wires this to Sentry; debugPrint is silenced in release.
       // collection/column are validated colon-free by _aad before reaching here.
-      debugPrint('[FieldEncryptor] MAC verification failed for '
-          '$collection:$column — key mismatch, AAD mismatch, or tampering.');
-      return ciphertext;
+      _report('GCM MAC verification failed for $collection:$column');
+      throw const FieldDecryptionException('MAC verification failed');
     }
   }
 
-  /// Reset the encryptor (for testing or key rotation).
+  /// Telemetry hook. S6-01 wires this to Sentry.captureMessage at warning
+  /// level. Do NOT include the raw value or the AAD `rowKey` here — those
+  /// can leak PII or identifiers into the telemetry sink.
+  void _report(String reason) {
+    debugPrint('[FieldEncryptor] $reason');
+    // S6-01: Sentry.captureMessage(reason, level: SentryLevel.warning);
+  }
+
+  /// Reset the encryptor (for testing, logout, or key rotation).
   ///
-  /// After calling this, [initialize] must be called again before
-  /// encryption/decryption will work (they will fall back to plaintext).
+  /// Clears the in-memory key, the initialized flag, and the legacy-plaintext
+  /// flag. After calling, [initialize] must run again before encrypt/decrypt
+  /// will work — they will throw [StateError] until then.
   void reset() {
     _secretKey = null;
     _initialized = false;
+    _legacyPlaintextAllowed = false;
   }
 
   /// Reset the singleton instance (for testing only).

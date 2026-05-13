@@ -36,9 +36,12 @@ void main() {
       expect(out, equals('ciphertext-bytes'));
     });
 
-    test('initialize accepts a key list', () {
+    test('initialize accepts key bytes and legacyPlaintextAllowed flag', () {
       // 32-byte key (matches mobile expectations).
-      encryptor.initialize(List<int>.filled(32, 0));
+      encryptor.initialize(
+        List<int>.filled(32, 0),
+        legacyPlaintextAllowed: true,
+      );
       // Web stub keeps isInitialized false by design.
       expect(encryptor.isInitialized, isFalse);
     });
