@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wereda_connect/core/database/crypto_failure.dart';
+import 'package:wereda_connect/core/database/field_encryptor.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 
 /// Mocked flutter_secure_storage method channel for orchestration tests.
@@ -161,7 +163,7 @@ void main() {
         // Locks the contract: the exception string carries the reason
         // literal and nothing else. Any future maintainer interpolating
         // bytes / IDs / PII into toString() will break this test.
-        const ex = KeyIntegrityFailure('HMAC tag mismatch on key read');
+        const ex = KeyIntegrityFailure(KeyIntegrityReason.hmacMismatch);
         expect(
           ex.toString(),
           equals('KeyIntegrityFailure: HMAC tag mismatch on key read'),
@@ -172,7 +174,7 @@ void main() {
         // Property check: a 64-hex-char substring would indicate a raw
         // tag or key leaked into the exception. Reason strings are all
         // fixed literals in this PR; this test guards future contributors.
-        const ex = KeyIntegrityFailure('HMAC tag mismatch on key read');
+        const ex = KeyIntegrityFailure(KeyIntegrityReason.hmacMismatch);
         expect(
           RegExp(r'[0-9a-fA-F]{64}').hasMatch(ex.toString()),
           isFalse,
@@ -290,6 +292,48 @@ void main() {
         base64Decode(store[tagName]!),
         equals(IsarService.computeTagForTesting(result)),
       );
+    });
+  });
+
+  group('CryptoFailure supertype (type-design refactor)', () {
+    test('KeyIntegrityFailure is catchable as CryptoFailure', () {
+      try {
+        throw const KeyIntegrityFailure(KeyIntegrityReason.hmacMismatch);
+      } on CryptoFailure catch (e) {
+        expect(e, isA<KeyIntegrityFailure>());
+        expect(e.reason, equals('HMAC tag mismatch on key read'));
+      } catch (_) {
+        fail('Expected CryptoFailure catch to match KeyIntegrityFailure');
+      }
+    });
+
+    test('FieldDecryptionException is catchable as CryptoFailure', () {
+      try {
+        throw const FieldDecryptionException(
+          FieldDecryptionReason.macVerificationFailed,
+        );
+      } on CryptoFailure catch (e) {
+        expect(e, isA<FieldDecryptionException>());
+        expect(e.reason, equals('MAC verification failed'));
+      } catch (_) {
+        fail('Expected CryptoFailure catch to match FieldDecryptionException');
+      }
+    });
+
+    test('KeyIntegrityReason enum exposes message and is exhaustive', () {
+      // Locks the closed-set contract. If a new mode is added without
+      // updating the message, this test forces the update.
+      for (final r in KeyIntegrityReason.values) {
+        expect(r.message, isNotEmpty);
+      }
+      expect(KeyIntegrityReason.values.length, equals(1));
+    });
+
+    test('FieldDecryptionReason enum exposes message and is exhaustive', () {
+      for (final r in FieldDecryptionReason.values) {
+        expect(r.message, isNotEmpty);
+      }
+      expect(FieldDecryptionReason.values.length, equals(4));
     });
   });
 }

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 export 'package:isar/isar.dart';
 
+import 'package:wereda_connect/core/database/crypto_failure.dart';
 import 'package:wereda_connect/core/database/field_encryptor.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
@@ -20,6 +21,15 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+
+/// Closed set of key-integrity failure modes. Each mode carries a fixed
+/// human-readable message; nothing dynamic is interpolated.
+enum KeyIntegrityReason {
+  hmacMismatch('HMAC tag mismatch on key read');
+
+  const KeyIntegrityReason(this.message);
+  final String message;
+}
 
 /// Thrown when the AES encryption key fails its integrity check at
 /// read-back. The bytes returned by [FlutterSecureStorage] don't match
@@ -33,11 +43,16 @@ import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 /// `initialize()` call lands in the fresh-key branch and proceeds
 /// cleanly. The caller is responsible for routing the rethrow to the
 /// auth flow (e.g. a "Device security was reset" screen + re-login).
-class KeyIntegrityFailure implements Exception {
-  final String reason;
-  const KeyIntegrityFailure(this.reason);
+///
+/// Implements [CryptoFailure] so callers can catch the shared supertype
+/// alongside [FieldDecryptionException] when the handling is identical.
+class KeyIntegrityFailure implements CryptoFailure {
+  final KeyIntegrityReason kind;
+  const KeyIntegrityFailure(this.kind);
   @override
-  String toString() => 'KeyIntegrityFailure: $reason';
+  String get reason => kind.message;
+  @override
+  String toString() => 'KeyIntegrityFailure: ${kind.message}';
 }
 
 /// Service for managing the encrypted Isar database.
@@ -244,7 +259,7 @@ class IsarService {
       }
       final expectedTag = _computeTagStatic(keyBytes);
       if (!_constantTimeEqStatic(persistedTag, expectedTag)) {
-        throw const KeyIntegrityFailure('HMAC tag mismatch on key read');
+        throw const KeyIntegrityFailure(KeyIntegrityReason.hmacMismatch);
       }
       return keyBytes;
     }
