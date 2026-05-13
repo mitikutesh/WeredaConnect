@@ -212,14 +212,21 @@ jobs:
           echo "Secret Scan: ${{ needs.secret-scan.result }}"
           echo "Security Lints: ${{ needs.security-lints.result }}"
 
-          # Fail if any required job failed
+          # Path-conditional jobs (mobile-tests, server-tests, infra-tests,
+          # e2e-tests) can be legitimately 'skipped' when their paths
+          # weren't touched — only explicit 'failure' is fatal for those.
+          #
+          # The unconditional security jobs (secret-scan, security-lints)
+          # MUST produce 'success'. Treating 'cancelled' or 'skipped' as
+          # acceptable here would let a workflow-cancellation or
+          # misconfiguration bypass the security gate.
           if [[ "${{ needs.mobile-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.server-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.infra-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.e2e-tests.result }}" == "failure" ]] || \
-             [[ "${{ needs.secret-scan.result }}" == "failure" ]] || \
-             [[ "${{ needs.security-lints.result }}" == "failure" ]]; then
-            echo "❌ One or more test suites failed"
+             [[ "${{ needs.secret-scan.result }}" != "success" ]] || \
+             [[ "${{ needs.security-lints.result }}" != "success" ]]; then
+            echo "❌ One or more required jobs failed or were not successful"
             exit 1
           fi
 

@@ -92,11 +92,18 @@ RAW=$(grep -rnE \
   "$PATTERN" \
   "$SCAN_TARGET" 2>/dev/null || true)
 
-# In default-scan mode, strip allow-listed paths. The full test tree is
-# permitted (tests exercise both branches), and migrations/ is permitted
-# (HS-3 migration code is the legitimate caller).
+# In default-scan mode, strip allow-listed paths. The allow-list is
+# anchored to specific path prefixes so that a future file like
+# `mobile/lib/features/auth/migrations/foo.dart` is NOT silently exempted
+# by a loose `/migrations/` substring match. The full test tree
+# (`mobile/test/`) is permitted because tests exercise both branches of
+# the flag; only the canonical migration directory
+# (`mobile/lib/core/database/migrations/`) is permitted under
+# `mobile/lib/`.
 if [[ "$USE_ALLOWLIST" == "1" ]]; then
-  VIOLATIONS=$(echo "$RAW" | grep -vE "/migrations/|/test/" | sed '/^$/d' || true)
+  VIOLATIONS=$(echo "$RAW" \
+    | grep -vE "(^|/)mobile/lib/core/database/migrations/|(^|/)mobile/test/" \
+    | sed '/^$/d' || true)
 else
   VIOLATIONS=$(echo "$RAW" | sed '/^$/d' || true)
 fi
