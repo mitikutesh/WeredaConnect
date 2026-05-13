@@ -1,9 +1,13 @@
+import 'package:wereda_connect/core/database/base_field_encryptor.dart';
+
 /// Web stub for FieldEncryptor — no-op implementation.
 ///
 /// On web, there is no Isar database and no PII stored on disk,
 /// so field-level encryption is not needed. This stub satisfies
-/// the import so screens compile for web.
-class FieldEncryptor {
+/// the import so screens compile for web, and extends
+/// [BaseFieldEncryptor] so repositories typed against the abstract
+/// surface work on both platforms.
+class FieldEncryptor extends BaseFieldEncryptor {
   static FieldEncryptor? _instance;
 
   FieldEncryptor._();

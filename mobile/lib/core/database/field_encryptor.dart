@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 import 'package:wereda_connect/core/database/crypto_failure.dart';
 
 /// Closed set of decrypt failure modes. Each mode carries a fixed
@@ -56,7 +57,7 @@ class FieldDecryptionException implements CryptoFailure {
 /// - Protects user PII on shared devices common in rural communities
 /// - Works entirely offline — no network calls needed
 /// - Minimal CPU overhead on low-end Android 8+ devices
-class FieldEncryptor {
+class FieldEncryptor extends BaseFieldEncryptor {
   static FieldEncryptor? _instance;
 
   final AesGcm _algorithm = AesGcm.with256bits();
