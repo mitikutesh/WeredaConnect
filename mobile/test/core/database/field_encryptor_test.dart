@@ -376,9 +376,8 @@ void main() {
         );
       });
 
-      test('decrypt throws ArgumentError on colon in any AAD component',
+      test('decrypt throws ArgumentError if collection contains ":"',
           () async {
-        // Build a valid ciphertext, then try to decrypt under a bad AAD trio.
         final blob = await encryptor.encrypt(
           'plain',
           collection: 'User',
@@ -392,6 +391,66 @@ void main() {
             column: 'displayName',
             rowKey: 'sub-A',
           ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('decrypt throws ArgumentError if column contains ":"', () async {
+        final blob = await encryptor.encrypt(
+          'plain',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(
+          () => encryptor.decrypt(
+            blob,
+            collection: 'User',
+            column: 'display:Name',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('decrypt throws ArgumentError if rowKey contains ":"', () async {
+        final blob = await encryptor.encrypt(
+          'plain',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(
+          () => encryptor.decrypt(
+            blob,
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub:A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt throws ArgumentError on empty collection', () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: '', column: 'displayName', rowKey: 'sub-A'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt throws ArgumentError on empty column', () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: 'User', column: '', rowKey: 'sub-A'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt throws ArgumentError on empty rowKey', () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: 'User', column: 'displayName', rowKey: ''),
           throwsA(isA<ArgumentError>()),
         );
       });

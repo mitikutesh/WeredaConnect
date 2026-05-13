@@ -60,15 +60,23 @@ class FieldEncryptor {
   /// any attacker with write access to the Isar file.
   ///
   /// `rowKey` MUST be a stable identifier (server UUID, Cognito sub) — not
-  /// the local autoincrement Isar `id`. Components must not contain ':' —
-  /// distinct trios would collide and break swap detection.
+  /// the local autoincrement Isar `id`. Components must be non-empty and
+  /// must not contain ':' — both are rejected with `ArgumentError`, because
+  /// otherwise distinct trios could collide on the same AAD string and
+  /// silently defeat swap detection.
   String _aad(String collection, String column, String rowKey) {
     for (final (name, value) in [
       ('collection', collection), ('column', column), ('rowKey', rowKey),
     ]) {
+      if (value.isEmpty) {
+        throw ArgumentError.value(
+          value, name, 'AAD component must not be empty',
+        );
+      }
       if (value.contains(':')) {
-        throw ArgumentError.value(value, name,
-            "AAD components must not contain ':'");
+        throw ArgumentError.value(
+          value, name, "AAD component must not contain ':'",
+        );
       }
     }
     return '$collection:$column:$rowKey';
@@ -80,8 +88,7 @@ class FieldEncryptor {
   /// `(collection, column, rowKey)`. See [_aad] for the rationale.
   ///
   /// Returns plaintext as fallback if the encryptor is not initialized.
-  /// This ensures the app works during first-launch before the key is ready.
-  /// Note: fail-closed behavior on uninitialized encryptor lands in S1-02.
+  /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
   Future<String> encrypt(
     String plaintext, {
     required String collection,
@@ -124,14 +131,11 @@ class FieldEncryptor {
   ///
   /// Returns the input string as-is if:
   /// - The encryptor is not initialized (graceful fallback)
-  /// - The input doesn't appear to be encrypted (not valid base64 or too short)
-  /// - Decryption fails (data was stored before encryption was enabled,
-  ///   or the AAD trio doesn't match)
+  /// - The input is not valid base64 (legacy plaintext row)
+  /// - The decoded body is too short to be AES-GCM ciphertext
+  /// - MAC verification fails (wrong key, tampered data, or AAD mismatch)
   ///
-  /// This graceful fallback ensures existing unencrypted data continues to
-  /// work after encryption is enabled — a migration-friendly design.
-  /// Note: this fail-open behavior is itself a downgrade-attack vector and
-  /// is replaced with `enc:v1:` prefix + fail-closed in S1-02.
+  /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
   Future<String> decrypt(
     String ciphertext, {
     required String collection,
@@ -142,43 +146,38 @@ class FieldEncryptor {
       return ciphertext;
     }
 
+    // _aad ArgumentError must escape the fail-open branches below.
+    final aadBytes = utf8.encode(_aad(collection, column, rowKey));
+
+    // Narrow base64-only try so utf8.decode of forged-MAC-valid bytes
+    // can't masquerade as "legacy plaintext row". TODO(S1-02): remove.
+    final List<int> combined;
     try {
-      final combined = base64Decode(ciphertext);
-
-      // AES-GCM: 12-byte nonce + ciphertext + 16-byte MAC
-      // Minimum length: 12 (nonce) + 0 (empty plaintext) + 16 (MAC) = 28
-      if (combined.length < 28) {
-        return ciphertext; // Too short to be encrypted data
-      }
-
-      final nonce = combined.sublist(0, 12);
-      final mac = combined.sublist(combined.length - 16);
-      final encrypted = combined.sublist(12, combined.length - 16);
-
-      final secretBox = SecretBox(
-        encrypted,
-        nonce: nonce,
-        mac: Mac(mac),
-      );
-
-      final decrypted = await _algorithm.decrypt(
-        secretBox,
-        secretKey: _secretKey!,
-        aad: utf8.encode(_aad(collection, column, rowKey)),
-      );
-
-      return utf8.decode(decrypted);
+      combined = base64Decode(ciphertext);
     } on FormatException {
-      // Not valid base64 — unencrypted legacy data, return as-is.
-      return ciphertext;
-    } on SecretBoxAuthenticationError {
-      // MAC check failed — wrong key, tampered data, or AAD mismatch
-      // (column/row swap). Log so it surfaces in crash reporting.
-      debugPrint(
-        '[FieldEncryptor] MAC verification failed for '
-        '$collection:$column — possible key mismatch, AAD mismatch, or '
-        'tampering. Returning ciphertext as-is.',
+      return ciphertext; // legacy plaintext row
+    }
+
+    // GCM envelope: 12-byte nonce + ciphertext + 16-byte MAC, min 28 bytes.
+    if (combined.length < 28) return ciphertext;
+
+    final nonce = combined.sublist(0, 12);
+    final mac = combined.sublist(combined.length - 16);
+    final encrypted = combined.sublist(12, combined.length - 16);
+
+    try {
+      final decrypted = await _algorithm.decrypt(
+        SecretBox(encrypted, nonce: nonce, mac: Mac(mac)),
+        secretKey: _secretKey!,
+        aad: aadBytes,
       );
+      return utf8.decode(decrypted);
+    } on SecretBoxAuthenticationError {
+      // MAC fail = wrong key, tampered data, or AAD mismatch (col/row swap).
+      // S6-01 wires this to Sentry; debugPrint is silenced in release.
+      // collection/column are validated colon-free by _aad before reaching here.
+      debugPrint('[FieldEncryptor] MAC verification failed for '
+          '$collection:$column — key mismatch, AAD mismatch, or tampering.');
       return ciphertext;
     }
   }
