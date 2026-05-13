@@ -339,5 +339,62 @@ void main() {
         expect(result, equals(plaintext));
       });
     });
+
+    // ─── AAD validation (S1-01 review #1: delimiter collision) ─────────
+
+    group('AAD validation', () {
+      setUp(() => encryptor.initialize(generateKey()));
+
+      test('encrypt throws ArgumentError if collection contains ":"',
+          () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: 'User:Extra',
+              column: 'displayName',
+              rowKey: 'sub-A'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt throws ArgumentError if column contains ":"', () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: 'User',
+              column: 'display:Name',
+              rowKey: 'sub-A'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt throws ArgumentError if rowKey contains ":"', () async {
+        expect(
+          () => encryptor.encrypt('any',
+              collection: 'User',
+              column: 'displayName',
+              rowKey: 'sub:A'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('decrypt throws ArgumentError on colon in any AAD component',
+          () async {
+        // Build a valid ciphertext, then try to decrypt under a bad AAD trio.
+        final blob = await encryptor.encrypt(
+          'plain',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(
+          () => encryptor.decrypt(
+            blob,
+            collection: 'User:Tampered',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+    });
   });
 }

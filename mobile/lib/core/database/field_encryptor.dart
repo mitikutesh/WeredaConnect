@@ -60,9 +60,19 @@ class FieldEncryptor {
   /// any attacker with write access to the Isar file.
   ///
   /// `rowKey` MUST be a stable identifier (server UUID, Cognito sub) — not
-  /// the local autoincrement Isar `id`, which can be reassigned on import.
-  String _aad(String collection, String column, String rowKey) =>
-      '$collection:$column:$rowKey';
+  /// the local autoincrement Isar `id`. Components must not contain ':' —
+  /// distinct trios would collide and break swap detection.
+  String _aad(String collection, String column, String rowKey) {
+    for (final (name, value) in [
+      ('collection', collection), ('column', column), ('rowKey', rowKey),
+    ]) {
+      if (value.contains(':')) {
+        throw ArgumentError.value(value, name,
+            "AAD components must not contain ':'");
+      }
+    }
+    return '$collection:$column:$rowKey';
+  }
 
   /// Encrypt a plaintext string to a base64-encoded ciphertext.
   ///
