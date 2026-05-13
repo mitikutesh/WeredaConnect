@@ -26,8 +26,13 @@ import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 /// the HMAC tag stored alongside them — i.e. they were tampered with,
 /// corrupted, or restored from a different device's backup.
 ///
-/// [IsarService.initialize] catches this exception, wipes both the key
-/// and the tag, then rethrows so the auth flow can force a clean re-login.
+/// [IsarService.initialize] catches this exception, calls
+/// [IsarService._wipeForIntegrityFailure] (which deletes both the key
+/// and tag entries, resets [FieldEncryptor], and nulls the in-memory
+/// Isar handle), then rethrows. The recovery path is: a subsequent
+/// `initialize()` call lands in the fresh-key branch and proceeds
+/// cleanly. The caller is responsible for routing the rethrow to the
+/// auth flow (e.g. a "Device security was reset" screen + re-login).
 class KeyIntegrityFailure implements Exception {
   final String reason;
   const KeyIntegrityFailure(this.reason);
@@ -67,7 +72,7 @@ class IsarService {
 
   /// LOAD-BEARING. Changing this constant invalidates every existing
   /// user's tag and triggers [KeyIntegrityFailure] on their next launch.
-  /// Rotate only as part of a coordinated major-version release.
+  /// Rotate only as part of a planned key-rotation migration (HS-7 / S7-01).
   static const String _hmacLabel = 'wereda-isar-key-v1';
 
   // Private constructor for singleton pattern
@@ -190,6 +195,9 @@ class IsarService {
       } on FormatException {
         // Corrupt key entry — unambiguous corruption, not tampering.
         // Wipe both entries and regenerate; do not raise KeyIntegrityFailure.
+        debugPrint(
+          '[IsarService] Corrupt key entry (base64) — wiping and regenerating.',
+        );
         await _secureStorage.delete(key: _keyName);
         await _secureStorage.delete(key: _tagName);
         return _generateAndPersistKey();
@@ -197,6 +205,10 @@ class IsarService {
 
       if (keyBytes.length != 32) {
         // Invalid key length — treat as corruption.
+        debugPrint(
+          '[IsarService] Invalid key length ${keyBytes.length} '
+          '— wiping and regenerating.',
+        );
         await _secureStorage.delete(key: _keyName);
         await _secureStorage.delete(key: _tagName);
         return _generateAndPersistKey();
@@ -204,10 +216,13 @@ class IsarService {
 
       if (existingTagB64 == null) {
         // Legacy pre-S1-03 install: key present, tag absent. Policy A:
-        // write a tag for the existing key and continue. Sentry tag
-        // (TODO S6-01) lets ops measure how often this fires.
-        debugPrint('[IsarService] No integrity tag — legacy install. '
-            'Writing tag and continuing.');
+        // trust the existing key and seal it with a fresh tag (one-time,
+        // per device).
+        // TODO(S6-01): emit Sentry counter for legacy-tag-write events.
+        debugPrint(
+          '[IsarService] No integrity tag — legacy pre-S1-03 install. '
+          'Sealing existing key with a fresh tag (one-time, per device).',
+        );
         await _writeTagFor(keyBytes);
         return keyBytes;
       }
@@ -217,45 +232,87 @@ class IsarService {
       try {
         persistedTag = base64Decode(existingTagB64);
       } on FormatException {
-        throw const KeyIntegrityFailure('Tag entry is not valid base64');
+        // Corrupt tag entry — symmetric with corrupt-key handling above.
+        // A flaky write that produces a truncated tag shouldn't nuke the
+        // user's DB; treat as corruption and regenerate.
+        debugPrint(
+          '[IsarService] Corrupt tag entry (base64) — wiping and regenerating.',
+        );
+        await _secureStorage.delete(key: _keyName);
+        await _secureStorage.delete(key: _tagName);
+        return _generateAndPersistKey();
       }
-      final expectedTag = _computeTag(keyBytes);
-      if (!_constantTimeEq(persistedTag, expectedTag)) {
+      final expectedTag = _computeTagStatic(keyBytes);
+      if (!_constantTimeEqStatic(persistedTag, expectedTag)) {
         throw const KeyIntegrityFailure('HMAC tag mismatch on key read');
       }
       return keyBytes;
     }
 
     // No key entry — first install, or after a prior wipe.
+    // Any orphan tag entry is overwritten by _writeTagFor inside
+    // _generateAndPersistKey below.
     return _generateAndPersistKey();
   }
 
   Future<List<int>> _generateAndPersistKey() async {
     final random = Random.secure();
     final key = List<int>.generate(32, (_) => random.nextInt(256));
+
+    // Persist key first. If this fails, the key works for the current
+    // session but won't survive a restart — common on Linux CI without
+    // a keyring daemon.
     try {
       await _secureStorage.write(key: _keyName, value: base64Encode(key));
+    } on Exception catch (e) {
+      debugPrint('[IsarService] Failed to persist key: $e');
+      return key;
+    }
+
+    // Persist tag separately. If the tag write fails AFTER the key
+    // write succeeded, roll back the key — otherwise the next launch
+    // sees key-without-tag and incorrectly trusts the orphan as a
+    // legacy install, minting a fresh tag over potentially-corrupted
+    // bytes.
+    try {
       await _writeTagFor(key);
     } on Exception catch (e) {
-      // Key works for this session but won't persist across restarts.
-      // Common on Linux CI (no keyring daemon) or restricted storage.
-      debugPrint('[IsarService] Failed to persist key/tag: $e');
+      debugPrint(
+        '[IsarService] Key persisted but tag write failed: $e — '
+        'rolling back key to avoid orphan-trusted-as-legacy.',
+      );
+      try {
+        await _secureStorage.delete(key: _keyName);
+      } on Exception catch (_) {
+        // Best-effort rollback; next launch's legacy path handles it.
+      }
     }
     return key;
   }
 
   Future<void> _writeTagFor(List<int> key) async {
-    final tag = _computeTag(key);
+    final tag = _computeTagStatic(key);
     await _secureStorage.write(key: _tagName, value: base64Encode(tag));
   }
 
+  /// Test-only: exposes the key-management orchestration so unit tests
+  /// can verify the legacy-upgrade / corrupt-recovery / tag-mismatch
+  /// branches without opening Isar. Must be paired with a mocked
+  /// `FlutterSecureStorage` method-channel handler.
+  @visibleForTesting
+  Future<List<int>> getEncryptionKeyForTesting() => _getEncryptionKey();
+
+  /// Test-only: exposes the secure-storage keys so tests can assert
+  /// what was written without duplicating the constants.
+  @visibleForTesting
+  static String get keyStorageNameForTesting => _keyName;
+  @visibleForTesting
+  static String get tagStorageNameForTesting => _tagName;
+
   /// Computes `HMAC-SHA256(key, _hmacLabel).bytes`.
   @visibleForTesting
-  static List<int> computeTagForTesting(List<int> key, {String? label}) {
-    return _computeTagStatic(key, label: label);
-  }
-
-  List<int> _computeTag(List<int> key) => _computeTagStatic(key);
+  static List<int> computeTagForTesting(List<int> key, {String? label}) =>
+      _computeTagStatic(key, label: label);
 
   static List<int> _computeTagStatic(List<int> key, {String? label}) {
     final hmac = crypto.Hmac(crypto.sha256, key);
@@ -267,9 +324,6 @@ class IsarService {
   /// an attacker guess one byte at a time.
   @visibleForTesting
   static bool constantTimeEqForTesting(List<int> a, List<int> b) =>
-      _constantTimeEqStatic(a, b);
-
-  bool _constantTimeEq(List<int> a, List<int> b) =>
       _constantTimeEqStatic(a, b);
 
   static bool _constantTimeEqStatic(List<int> a, List<int> b) {

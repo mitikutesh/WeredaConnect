@@ -45,8 +45,23 @@ Future<void> runMobile({
   required LanguageProvider languageProvider,
   required SettingsProvider settingsProvider,
 }) async {
-  // Initialize Isar before runApp
-  await IsarService.instance.initialize();
+  // Initialize Isar before runApp.
+  //
+  // KeyIntegrityFailure means the persisted AES key didn't match its
+  // HMAC tag (tampering, cross-device backup-restore, firmware corruption).
+  // IsarService.initialize() has already wiped both secure-storage entries
+  // and reset FieldEncryptor by the time we get here. The next initialize()
+  // call will land in the fresh-key branch, so we retry once. If the user
+  // had local-only data, it's now gone — they'll need to re-sync from the
+  // server. The auth gate handles the relogin flow.
+  try {
+    await IsarService.instance.initialize();
+  } on KeyIntegrityFailure catch (e) {
+    debugPrint('[runMobile] KeyIntegrityFailure on first init: $e — '
+        'retrying after wipe (fresh-key path).');
+    // S6-01 will route this to Sentry as a security-relevant event.
+    await IsarService.instance.initialize();
+  }
 
   // Connectivity monitor
   final connectivityMonitor = ConnectivityMonitor(dio: ApiClient().dio);
