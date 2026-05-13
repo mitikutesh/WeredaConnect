@@ -3,6 +3,20 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:wereda_connect/core/database/crypto_failure.dart';
+
+/// Closed set of decrypt failure modes. Each mode carries a fixed
+/// human-readable message; nothing dynamic is interpolated.
+enum FieldDecryptionReason {
+  missingPrefix('Missing cipher prefix'),
+  invalidBase64('Invalid base64'),
+  truncatedCiphertext('Truncated ciphertext'),
+  macVerificationFailed('MAC verification failed');
+
+  const FieldDecryptionReason(this.message);
+  final String message;
+}
+
 /// Thrown by [FieldEncryptor.decrypt] when a ciphertext fails any of:
 /// - missing `enc:v1:` version prefix (downgrade attack or legacy data)
 /// - invalid base64 body
@@ -12,11 +26,16 @@ import 'package:flutter/foundation.dart';
 /// Callers MUST treat this as abnormal. Never catch-and-fallback to the
 /// raw input value — doing so reintroduces the downgrade-attack surface
 /// this exception was added to close.
-class FieldDecryptionException implements Exception {
-  final String reason;
-  const FieldDecryptionException(this.reason);
+///
+/// Implements [CryptoFailure] so callers can catch the shared supertype
+/// alongside [KeyIntegrityFailure] when the handling is identical.
+class FieldDecryptionException implements CryptoFailure {
+  final FieldDecryptionReason kind;
+  const FieldDecryptionException(this.kind);
   @override
-  String toString() => 'FieldDecryptionException: $reason';
+  String get reason => kind.message;
+  @override
+  String toString() => 'FieldDecryptionException: ${kind.message}';
 }
 
 /// Provides AES-256-GCM field-level encryption for PII fields stored in Isar.
@@ -198,7 +217,7 @@ class FieldEncryptor {
         return value;
       }
       _report('Missing cipher prefix on read for $collection:$column');
-      throw const FieldDecryptionException('Missing cipher prefix');
+      throw const FieldDecryptionException(FieldDecryptionReason.missingPrefix);
     }
 
     final body = value.substring(cipherPrefix.length);
@@ -207,7 +226,7 @@ class FieldEncryptor {
       combined = base64Decode(body);
     } on FormatException {
       _report('Ciphertext is not valid base64 for $collection:$column');
-      throw const FieldDecryptionException('Invalid base64');
+      throw const FieldDecryptionException(FieldDecryptionReason.invalidBase64);
     }
     // GCM envelope: 12-byte nonce + ciphertext + 16-byte MAC, min 28 bytes.
     if (combined.length < 28) {
@@ -215,7 +234,9 @@ class FieldEncryptor {
         'Ciphertext truncated (length=${combined.length}) for '
         '$collection:$column',
       );
-      throw const FieldDecryptionException('Truncated ciphertext');
+      throw const FieldDecryptionException(
+        FieldDecryptionReason.truncatedCiphertext,
+      );
     }
 
     final nonce = combined.sublist(0, 12);
@@ -233,7 +254,9 @@ class FieldEncryptor {
       // MAC fail = wrong key, tampered data, or AAD mismatch (col/row swap).
       // collection/column are validated colon-free by _aad before reaching here.
       _report('GCM MAC verification failed for $collection:$column');
-      throw const FieldDecryptionException('MAC verification failed');
+      throw const FieldDecryptionException(
+        FieldDecryptionReason.macVerificationFailed,
+      );
     }
   }
 

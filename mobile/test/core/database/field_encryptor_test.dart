@@ -514,7 +514,9 @@ void main() {
 
       test('FieldDecryptionException toString reveals reason without leaks',
           () async {
-        const ex = FieldDecryptionException('MAC verification failed');
+        const ex = FieldDecryptionException(
+          FieldDecryptionReason.macVerificationFailed,
+        );
         expect(ex.toString(), contains('MAC verification failed'));
         // Must not leak rowKey or plaintext content into the exception.
         expect(ex.toString(), isNot(contains('sub-')));
