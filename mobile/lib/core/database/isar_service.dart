@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -19,6 +20,20 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
+
+/// Thrown when the AES encryption key fails its integrity check at
+/// read-back. The bytes returned by [FlutterSecureStorage] don't match
+/// the HMAC tag stored alongside them — i.e. they were tampered with,
+/// corrupted, or restored from a different device's backup.
+///
+/// [IsarService.initialize] catches this exception, wipes both the key
+/// and the tag, then rethrows so the auth flow can force a clean re-login.
+class KeyIntegrityFailure implements Exception {
+  final String reason;
+  const KeyIntegrityFailure(this.reason);
+  @override
+  String toString() => 'KeyIntegrityFailure: $reason';
+}
 
 /// Service for managing the encrypted Isar database.
 ///
@@ -42,6 +57,18 @@ class IsarService {
       encryptedSharedPreferences: true,
     ),
   );
+
+  /// Secure-storage key for the AES encryption key bytes.
+  static const String _keyName = 'isar_encryption_key';
+
+  /// Secure-storage key for the HMAC integrity tag.
+  /// Stored as base64(HMAC-SHA256(key, _hmacLabel)).
+  static const String _tagName = 'isar_encryption_key_tag';
+
+  /// LOAD-BEARING. Changing this constant invalidates every existing
+  /// user's tag and triggers [KeyIntegrityFailure] on their next launch.
+  /// Rotate only as part of a coordinated major-version release.
+  static const String _hmacLabel = 'wereda-isar-key-v1';
 
   // Private constructor for singleton pattern
   IsarService._();
@@ -98,7 +125,17 @@ class IsarService {
     // Note: Isar 3.1 does not support built-in encryption.
     // PII fields (phone number, name, faydaId) are encrypted/decrypted
     // at the repository layer using FieldEncryptor with AES-256-GCM.
-    final keyBytes = await _getEncryptionKey();
+    final List<int> keyBytes;
+    try {
+      keyBytes = await _getEncryptionKey();
+    } on KeyIntegrityFailure catch (e) {
+      // Tampering, corruption, or cross-device restore. The DB is
+      // already unrecoverable with the bad key. Wipe persisted state
+      // and let the auth flow restart from scratch.
+      debugPrint('[IsarService] Key integrity failure: $e — wiping.');
+      await _wipeForIntegrityFailure();
+      rethrow;
+    }
     FieldEncryptor.instance.initialize(keyBytes);
 
     // Open Isar database
@@ -123,63 +160,141 @@ class IsarService {
 
   /// Get or generate the encryption key for the Isar database.
   ///
-  /// Key storage flow:
-  /// 1. Try to read existing key from secure storage
-  /// 2. If not found, generate new 256-bit (32-byte) key
-  /// 3. Store key in Android Keystore (hardware-backed if available)
-  /// 4. Return key as Uint8List for Isar
+  /// Key + tag storage flow:
+  /// 1. Try to read both `_keyName` and `_tagName` from secure storage.
+  /// 2. If both present and valid, recompute the HMAC tag from the key
+  ///    bytes and constant-time-compare to the persisted tag.
+  /// 3. On match → return the key.
+  /// 4. On mismatch → throw [KeyIntegrityFailure]. Caller wipes + re-logins.
+  /// 5. If only the key is present (legacy pre-S1-03 install) → write a
+  ///    tag for it and continue. Policy A: trust the existing key.
+  /// 6. If neither is present → generate a fresh key + tag and persist both.
   ///
-  /// Security notes:
-  /// - Uses cryptographically secure random number generator
-  /// - Key is stored in Android Keystore (encrypted at rest)
-  /// - On devices with hardware security module, key is stored in TEE
-  /// - Key cannot be extracted from secure storage
-  ///
-  /// Returns a 32-byte encryption key.
+  /// Throws [KeyIntegrityFailure] if the persisted key fails its tag check.
   Future<List<int>> _getEncryptionKey() async {
-    const keyName = 'isar_encryption_key';
-
+    String? existingKeyB64;
+    String? existingTagB64;
     try {
-      // Try to read existing key
-      final existingKey = await _secureStorage.read(key: keyName);
-
-      if (existingKey != null && existingKey.isNotEmpty) {
-        // Decode base64-encoded key
-        final keyBytes = base64Decode(existingKey);
-
-        // Validate key length (must be 32 bytes for AES-256)
-        if (keyBytes.length == 32) {
-          return keyBytes;
-        } else {
-          // Invalid key length - regenerate
-          await _secureStorage.delete(key: keyName);
-        }
-      }
+      existingKeyB64 = await _secureStorage.read(key: _keyName);
+      existingTagB64 = await _secureStorage.read(key: _tagName);
     } on Exception catch (e) {
-      // Reading failed — continue to generate a new key.
-      // Common on first install or after secure storage is cleared.
-      // Log so crashes are visible in Sentry/Crashlytics on real devices.
-      debugPrint('[IsarService] Failed to read encryption key: $e');
+      // Reading failed — common on first install or restricted storage.
+      // Fall through to regenerate.
+      debugPrint('[IsarService] Failed to read secure storage: $e');
     }
 
-    // Generate new 256-bit (32-byte) encryption key
+    if (existingKeyB64 != null && existingKeyB64.isNotEmpty) {
+      final List<int> keyBytes;
+      try {
+        keyBytes = base64Decode(existingKeyB64);
+      } on FormatException {
+        // Corrupt key entry — unambiguous corruption, not tampering.
+        // Wipe both entries and regenerate; do not raise KeyIntegrityFailure.
+        await _secureStorage.delete(key: _keyName);
+        await _secureStorage.delete(key: _tagName);
+        return _generateAndPersistKey();
+      }
+
+      if (keyBytes.length != 32) {
+        // Invalid key length — treat as corruption.
+        await _secureStorage.delete(key: _keyName);
+        await _secureStorage.delete(key: _tagName);
+        return _generateAndPersistKey();
+      }
+
+      if (existingTagB64 == null) {
+        // Legacy pre-S1-03 install: key present, tag absent. Policy A:
+        // write a tag for the existing key and continue. Sentry tag
+        // (TODO S6-01) lets ops measure how often this fires.
+        debugPrint('[IsarService] No integrity tag — legacy install. '
+            'Writing tag and continuing.');
+        await _writeTagFor(keyBytes);
+        return keyBytes;
+      }
+
+      // Both present — verify.
+      final List<int> persistedTag;
+      try {
+        persistedTag = base64Decode(existingTagB64);
+      } on FormatException {
+        throw const KeyIntegrityFailure('Tag entry is not valid base64');
+      }
+      final expectedTag = _computeTag(keyBytes);
+      if (!_constantTimeEq(persistedTag, expectedTag)) {
+        throw const KeyIntegrityFailure('HMAC tag mismatch on key read');
+      }
+      return keyBytes;
+    }
+
+    // No key entry — first install, or after a prior wipe.
+    return _generateAndPersistKey();
+  }
+
+  Future<List<int>> _generateAndPersistKey() async {
     final random = Random.secure();
     final key = List<int>.generate(32, (_) => random.nextInt(256));
-
-    // Store key in secure storage (backed by Android Keystore)
     try {
-      await _secureStorage.write(
-        key: keyName,
-        value: base64Encode(key),
-      );
+      await _secureStorage.write(key: _keyName, value: base64Encode(key));
+      await _writeTagFor(key);
     } on Exception catch (e) {
       // Key works for this session but won't persist across restarts.
       // Common on Linux CI (no keyring daemon) or restricted storage.
-      // Log so persistent failures surface in crash reporting.
-      debugPrint('[IsarService] Failed to persist encryption key: $e');
+      debugPrint('[IsarService] Failed to persist key/tag: $e');
     }
-
     return key;
+  }
+
+  Future<void> _writeTagFor(List<int> key) async {
+    final tag = _computeTag(key);
+    await _secureStorage.write(key: _tagName, value: base64Encode(tag));
+  }
+
+  /// Computes `HMAC-SHA256(key, _hmacLabel).bytes`.
+  @visibleForTesting
+  static List<int> computeTagForTesting(List<int> key, {String? label}) {
+    return _computeTagStatic(key, label: label);
+  }
+
+  List<int> _computeTag(List<int> key) => _computeTagStatic(key);
+
+  static List<int> _computeTagStatic(List<int> key, {String? label}) {
+    final hmac = crypto.Hmac(crypto.sha256, key);
+    return hmac.convert(utf8.encode(label ?? _hmacLabel)).bytes;
+  }
+
+  /// Constant-time list-of-bytes equality. NEVER short-circuits on the
+  /// first differing byte — a timing oracle on tag comparison would let
+  /// an attacker guess one byte at a time.
+  @visibleForTesting
+  static bool constantTimeEqForTesting(List<int> a, List<int> b) =>
+      _constantTimeEqStatic(a, b);
+
+  bool _constantTimeEq(List<int> a, List<int> b) =>
+      _constantTimeEqStatic(a, b);
+
+  static bool _constantTimeEqStatic(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+  }
+
+  /// Called when the AES key fails its integrity check. Deletes both
+  /// secure-storage entries and asks [FieldEncryptor] to drop any
+  /// in-memory state. The Isar file itself remains on disk but is now
+  /// permanently unreadable; S5-04 will delete the file too once that
+  /// story lands.
+  Future<void> _wipeForIntegrityFailure() async {
+    try {
+      await _secureStorage.delete(key: _keyName);
+      await _secureStorage.delete(key: _tagName);
+    } on Exception catch (e) {
+      debugPrint('[IsarService] secure-storage wipe failed: $e');
+    }
+    FieldEncryptor.instance.reset();
+    _isar = null;
   }
 
   /// Close the database connection.
@@ -212,12 +327,16 @@ class IsarService {
     // Close database connection
     await close();
 
-    // Delete encryption key from secure storage
-    const keyName = 'isar_encryption_key';
-    await _secureStorage.delete(key: keyName);
+    // Delete both the encryption key and its integrity tag (S1-03).
+    await _secureStorage.delete(key: _keyName);
+    await _secureStorage.delete(key: _tagName);
 
-    // Note: The old database file still exists but is unreadable without the key
-    // Isar will create a new database on next initialize()
+    // Drop in-memory key material.
+    FieldEncryptor.instance.reset();
+
+    // Note: The old database file still exists but is unreadable without the
+    // key. S5-04 will physically delete the file too. Isar will create a new
+    // database on next initialize().
   }
 
   /// Rotate the encryption key (advanced operation).
