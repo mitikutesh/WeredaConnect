@@ -19,7 +19,7 @@ on:
           - prod
 
 concurrency:
-  group: deploy-admin-${{ github.event.inputs.environment || 'prod' }}
+  group: deploy-admin-${{ github.event.inputs.environment || 'dev' }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
     name: Build & Deploy Admin
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: ${{ github.event.inputs.environment || 'prod' }}
+    environment: ${{ github.event.inputs.environment || 'dev' }}
 
     permissions:
       id-token: write
@@ -52,7 +52,7 @@ jobs:
         working-directory: admin
         run: npm run build
         env:
-          VITE_ENVIRONMENT: ${{ github.event.inputs.environment || 'prod' }}
+          VITE_ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
           VITE_API_BASE_URL: ${{ secrets.API_BASE_URL }}
           VITE_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
           VITE_COGNITO_ADMIN_CLIENT_ID: ${{ secrets.COGNITO_ADMIN_CLIENT_ID }}
@@ -61,7 +61,7 @@ jobs:
       - name: Set AWS region
         id: region
         run: |
-          if [[ "${{ github.event.inputs.environment || 'prod' }}" == "dev" ]]; then
+          if [[ "${{ github.event.inputs.environment || 'dev' }}" == "dev" ]]; then
             echo "region=eu-north-1" >> $GITHUB_OUTPUT
           else
             echo "region=me-south-1" >> $GITHUB_OUTPUT

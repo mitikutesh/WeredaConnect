@@ -4,7 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'mobile/**'
+      - 'mobile/lib/**'
+      - 'mobile/web/**'
+      - 'mobile/assets/**'
+      - 'mobile/pubspec.yaml'
+      - 'mobile/pubspec.lock'
       - '.github/workflows/deploy-webapp.yml'
   workflow_dispatch:
     inputs:
@@ -19,7 +23,7 @@ on:
           - prod
 
 concurrency:
-  group: deploy-webapp-${{ github.event.inputs.environment || 'prod' }}
+  group: deploy-webapp-${{ github.event.inputs.environment || 'dev' }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +31,7 @@ jobs:
     name: Build & Deploy Webapp
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: ${{ github.event.inputs.environment || 'prod' }}
+    environment: ${{ github.event.inputs.environment || 'dev' }}
 
     permissions:
       id-token: write
@@ -54,7 +58,7 @@ jobs:
           flutter build web \
             --release \
             --target lib/main_web.dart \
-            --dart-define=ENVIRONMENT=${{ github.event.inputs.environment || 'prod' }} \
+            --dart-define=ENVIRONMENT=${{ github.event.inputs.environment || 'dev' }} \
             --dart-define=API_BASE_URL=${{ secrets.API_BASE_URL }} \
             --dart-define=COGNITO_USER_POOL_ID=${{ secrets.COGNITO_USER_POOL_ID }} \
             --dart-define=COGNITO_CLIENT_ID=${{ secrets.COGNITO_CLIENT_ID }} \
@@ -63,7 +67,7 @@ jobs:
       - name: Set AWS region
         id: region
         run: |
-          if [[ "${{ github.event.inputs.environment || 'prod' }}" == "dev" ]]; then
+          if [[ "${{ github.event.inputs.environment || 'dev' }}" == "dev" ]]; then
             echo "region=eu-north-1" >> $GITHUB_OUTPUT
           else
             echo "region=me-south-1" >> $GITHUB_OUTPUT
