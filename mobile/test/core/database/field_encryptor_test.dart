@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -143,8 +144,7 @@ void main() {
       expect(decrypted, equals(plaintext));
     });
 
-    test('each encryption produces unique ciphertext (random nonce)',
-        () async {
+    test('each encryption produces unique ciphertext (random nonce)', () async {
       encryptor.initialize(generateKey());
       const plaintext = 'test-data';
       final encrypted1 = await encryptor.encrypt(
@@ -314,8 +314,7 @@ void main() {
         );
       });
 
-      test('cross-collection swap throws FieldDecryptionException',
-          () async {
+      test('cross-collection swap throws FieldDecryptionException', () async {
         encryptor.initialize(generateKey());
         final userBlob = await encryptor.encrypt(
           'Abebe Kebede',
@@ -361,39 +360,43 @@ void main() {
     group('AAD validation', () {
       setUp(() => encryptor.initialize(generateKey()));
 
-      test('encrypt throws ArgumentError if collection contains ":"',
-          () async {
+      test('encrypt throws ArgumentError if collection contains ":"', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User:Extra',
-              column: 'displayName',
-              rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User:Extra',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError if column contains ":"', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User',
-              column: 'display:Name',
-              rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'display:Name',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError if rowKey contains ":"', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User',
-              column: 'displayName',
-              rowKey: 'sub:A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub:A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
-      test('decrypt throws ArgumentError if collection contains ":"',
-          () async {
+      test('decrypt throws ArgumentError if collection contains ":"', () async {
         final blob = await encryptor.encrypt(
           'plain',
           collection: 'User',
@@ -449,24 +452,36 @@ void main() {
 
       test('encrypt throws ArgumentError on empty collection', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: '', column: 'displayName', rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: '',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError on empty column', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User', column: '', rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: '',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError on empty rowKey', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User', column: 'displayName', rowKey: ''),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: '',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });

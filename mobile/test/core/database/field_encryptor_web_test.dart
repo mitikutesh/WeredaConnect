@@ -10,11 +10,19 @@
 // assertions beyond identity (web stub returns input unchanged).
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 import 'package:wereda_connect/core/database/field_encryptor_web.dart';
 
 void main() {
   group('FieldEncryptor (web stub) — signature parity', () {
     final encryptor = FieldEncryptor.instance;
+
+    test('web stub is a BaseFieldEncryptor (subtype canary)', () {
+      // Pins that repositories typed against BaseFieldEncryptor accept
+      // the web stub. If FieldEncryptor stops extending the abstract
+      // base, this fails before the build-web step does.
+      expect(encryptor, isA<BaseFieldEncryptor>());
+    });
 
     test('encrypt accepts AAD named params and returns plaintext', () async {
       final out = await encryptor.encrypt(
@@ -36,22 +44,54 @@ void main() {
       expect(out, equals('ciphertext-bytes'));
     });
 
-    test('initialize accepts key bytes and legacyPlaintextAllowed flag', () {
+    test('initialize sets isInitialized true and accepts legacy flag', () {
+      // Reset to a known-false state before this test, since other tests
+      // in this group (or earlier runs of this one) may have flipped it.
+      FieldEncryptor.resetInstance();
+      final fresh = FieldEncryptor.instance;
+      expect(fresh.isInitialized, isFalse);
+
       // 32-byte key (matches mobile expectations).
-      encryptor.initialize(
+      fresh.initialize(
         List<int>.filled(32, 0),
         legacyPlaintextAllowed: true,
       );
-      // Web stub keeps isInitialized false by design.
-      expect(encryptor.isInitialized, isFalse);
+      // Web stub now flips isInitialized to true for parity with mobile.
+      expect(fresh.isInitialized, isTrue);
     });
 
-    test('reset and resetInstance are callable', () {
-      encryptor.reset();
+    test('initialize rejects wrong-length key (parity with mobile)', () {
+      // The real FieldEncryptor throws on != 32 bytes. The stub validates
+      // the same way so a test that passes a malformed key fails on web
+      // and on mobile identically — no silent platform divergence.
+      expect(
+        () => encryptor.initialize(List<int>.filled(16, 0)),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => encryptor.initialize(<int>[]),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('reset clears isInitialized', () {
       FieldEncryptor.resetInstance();
-      // Re-fetching the singleton should produce a new instance after reset.
       final fresh = FieldEncryptor.instance;
-      expect(fresh, isA<FieldEncryptor>());
+      fresh.initialize(List<int>.filled(32, 0));
+      expect(fresh.isInitialized, isTrue);
+      fresh.reset();
+      expect(fresh.isInitialized, isFalse);
+    });
+
+    test('resetInstance produces a fresh singleton', () {
+      FieldEncryptor.resetInstance();
+      final a = FieldEncryptor.instance;
+      a.initialize(List<int>.filled(32, 0));
+      FieldEncryptor.resetInstance();
+      final b = FieldEncryptor.instance;
+      // New instance starts uninitialized.
+      expect(identical(a, b), isFalse);
+      expect(b.isInitialized, isFalse);
     });
   });
 }

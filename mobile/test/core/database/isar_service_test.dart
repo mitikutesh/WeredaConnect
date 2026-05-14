@@ -15,7 +15,7 @@ const _secureStorageChannel =
 /// Set up the mock channel with a per-test in-memory store. Call from
 /// `setUp` in the relevant test group.
 void _installSecureStorageMock(Map<String, String> store) {
-  TestDefaultBinaryMessengerBinding.instance!.defaultBinaryMessenger
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(_secureStorageChannel, (call) async {
     final args = call.arguments as Map?;
     final key = args?['key'] as String?;
@@ -81,8 +81,7 @@ void main() {
         // Confirms the algorithm/parameters match the public spec.
         final key = List<int>.generate(32, (i) => i + 1);
         const label = 'wereda-isar-key-v1';
-        final expected =
-            Hmac(sha256, key).convert(utf8.encode(label)).bytes;
+        final expected = Hmac(sha256, key).convert(utf8.encode(label)).bytes;
         expect(IsarService.computeTagForTesting(key), equals(expected));
       });
 
@@ -195,7 +194,7 @@ void main() {
     });
 
     tearDown(() {
-      TestDefaultBinaryMessengerBinding.instance!.defaultBinaryMessenger
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(_secureStorageChannel, null);
     });
 
@@ -226,7 +225,8 @@ void main() {
       );
     });
 
-    test('I-2: legacy install (key present, tag absent) writes a tag and '
+    test(
+        'I-2: legacy install (key present, tag absent) writes a tag and '
         'returns the existing key', () async {
       // Pre-S1-03 shape: key entry only, no tag.
       final key = List<int>.generate(32, (i) => i * 2 % 256);
@@ -242,7 +242,8 @@ void main() {
       expect(writtenTag, equals(IsarService.computeTagForTesting(key)));
     });
 
-    test('I-3: corrupt-base64 key wipes and regenerates (NOT '
+    test(
+        'I-3: corrupt-base64 key wipes and regenerates (NOT '
         'KeyIntegrityFailure)', () async {
       store[keyName] = '!!!not-base64!!!';
       store[tagName] = base64Encode(List<int>.filled(32, 0));
@@ -258,7 +259,8 @@ void main() {
       );
     });
 
-    test('I-3: wrong-length key wipes and regenerates (NOT '
+    test(
+        'I-3: wrong-length key wipes and regenerates (NOT '
         'KeyIntegrityFailure)', () async {
       // 16-byte key (valid base64, but wrong length for AES-256).
       store[keyName] = base64Encode(List<int>.filled(16, 1));
@@ -302,7 +304,7 @@ void main() {
       } on CryptoFailure catch (e) {
         expect(e, isA<KeyIntegrityFailure>());
         expect(e.reason, equals('HMAC tag mismatch on key read'));
-      } catch (_) {
+      } on Object catch (_) {
         fail('Expected CryptoFailure catch to match KeyIntegrityFailure');
       }
     });
@@ -315,7 +317,7 @@ void main() {
       } on CryptoFailure catch (e) {
         expect(e, isA<FieldDecryptionException>());
         expect(e.reason, equals('MAC verification failed'));
-      } catch (_) {
+      } on Object catch (_) {
         fail('Expected CryptoFailure catch to match FieldDecryptionException');
       }
     });
