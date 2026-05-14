@@ -51,6 +51,54 @@ void main() {
       expect(fake.legacyFlag, isTrue);
     });
 
+    test('encrypt before initialize throws StateError', () async {
+      // Pins parity with the real FieldEncryptor precondition — repository
+      // tests that forget initialize() should fail loudly, not silently
+      // produce valid-looking wrapped output.
+      expect(
+        () => fake.encrypt(
+          'p',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('decrypt before initialize throws StateError', () async {
+      expect(
+        () => fake.decrypt(
+          'fake:User:displayName:sub-A:p',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('cross-instance determinism: same inputs → same wrapped output',
+        () async {
+      // Tests that don't reuse a single fake (e.g. multi-repo wiring)
+      // still get identical bytes for identical (key, plaintext, AAD).
+      final a = FakeFieldEncryptor()..initialize(List<int>.filled(32, 0));
+      final b = FakeFieldEncryptor()..initialize(List<int>.filled(32, 0));
+      final outA = await a.encrypt(
+        'p',
+        collection: 'User',
+        column: 'displayName',
+        rowKey: 'sub-A',
+      );
+      final outB = await b.encrypt(
+        'p',
+        collection: 'User',
+        column: 'displayName',
+        rowKey: 'sub-A',
+      );
+      expect(outA, equals(outB));
+    });
+
     group('encrypt / decrypt', () {
       setUp(() => fake.initialize(List<int>.filled(32, 0)));
 
@@ -188,6 +236,96 @@ void main() {
           rowKey: 'sub-A',
         );
         expect(back, equals(pt));
+      });
+
+      test('decrypt throws on positional swap of collection/column', () async {
+        // Repo tests that accidentally swap named args at the callsite
+        // (`column: collection, collection: column`) must fail loudly —
+        // mirrors the real GCM MAC failure under AAD position swap.
+        final blob = await fake.encrypt(
+          'p',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(
+          () => fake.decrypt(
+            blob,
+            collection: 'displayName',
+            column: 'User',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt rejects empty AAD component (collection)', () async {
+        expect(
+          () => fake.encrypt(
+            'p',
+            collection: '',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt rejects empty AAD component (column)', () async {
+        expect(
+          () => fake.encrypt(
+            'p',
+            collection: 'User',
+            column: '',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt rejects empty AAD component (rowKey)', () async {
+        expect(
+          () => fake.encrypt(
+            'p',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: '',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('encrypt rejects ":" in AAD component (rowKey collision risk)',
+          () async {
+        // Without this check, ('User', 'col', 'sub:A') and
+        // ('User:col', 'sub', 'A') would produce the same AAD string.
+        expect(
+          () => fake.encrypt(
+            'p',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub:A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('decrypt rejects ":" in AAD component', () async {
+        final blob = await fake.encrypt(
+          'p',
+          collection: 'User',
+          column: 'displayName',
+          rowKey: 'sub-A',
+        );
+        expect(
+          () => fake.decrypt(
+            blob,
+            collection: 'User',
+            column: 'display:Name',
+            rowKey: 'sub-A',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
       });
     });
   });

@@ -10,11 +10,19 @@
 // assertions beyond identity (web stub returns input unchanged).
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 import 'package:wereda_connect/core/database/field_encryptor_web.dart';
 
 void main() {
   group('FieldEncryptor (web stub) — signature parity', () {
     final encryptor = FieldEncryptor.instance;
+
+    test('web stub is a BaseFieldEncryptor (subtype canary)', () {
+      // Pins that repositories typed against BaseFieldEncryptor accept
+      // the web stub. If FieldEncryptor stops extending the abstract
+      // base, this fails before the build-web step does.
+      expect(encryptor, isA<BaseFieldEncryptor>());
+    });
 
     test('encrypt accepts AAD named params and returns plaintext', () async {
       final out = await encryptor.encrypt(
@@ -44,6 +52,20 @@ void main() {
       );
       // Web stub keeps isInitialized false by design.
       expect(encryptor.isInitialized, isFalse);
+    });
+
+    test('initialize rejects wrong-length key (parity with mobile)', () {
+      // The real FieldEncryptor throws on != 32 bytes. The stub validates
+      // the same way so a test that passes a malformed key fails on web
+      // and on mobile identically — no silent platform divergence.
+      expect(
+        () => encryptor.initialize(List<int>.filled(16, 0)),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => encryptor.initialize(<int>[]),
+        throwsA(isA<ArgumentError>()),
+      );
     });
 
     test('reset and resetInstance are callable', () {

@@ -4,15 +4,25 @@ import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 ///
 /// Designed to be drop-in for any repository constructor that takes
 /// [BaseFieldEncryptor]. Encrypt outputs a readable string with the
-/// AAD trio embedded; decrypt strips the wrapper. AAD-mismatch on
-/// decrypt throws `ArgumentError` — mirrors the real production
-/// failure shape so tests assert "AAD propagation happened" without
-/// pulling in `package:cryptography`.
+/// AAD trio embedded; decrypt strips the wrapper.
+///
+/// **Use this fake for AAD-propagation tests.** It pins that a
+/// repository passes the correct `(collection, column, rowKey)` trio
+/// through to the encryptor — substring assertions on the wrapped
+/// output make that immediately visible. It is NOT a substitute for
+/// the real `FieldEncryptor` when asserting on the production failure
+/// types: the real impl throws [FieldDecryptionException] on prefix /
+/// MAC failures, this fake throws [ArgumentError] on prefix mismatch.
 ///
 /// Behavior:
 /// - `encrypt(p, c, col, rk)` → `'fake:c:col:rk:p'`
 /// - `decrypt('fake:c:col:rk:p', c, col, rk)` → `'p'`
 /// - `decrypt('fake:c:col:rk:p', X, col, rk)` where X ≠ c → throws
+///   [ArgumentError] (NOT `FieldDecryptionException`)
+/// - AAD validation (empty / colon in components) → [ArgumentError]
+///   from [BaseFieldEncryptor.buildAad], matching the production check
+/// - encrypt / decrypt before [initialize] → [StateError], matching
+///   the real `FieldEncryptor` precondition
 ///
 /// The shape lets tests assert with substring matches (e.g.
 /// `expect(stored, contains('fake:User:displayName:sub-A:'))`) which
@@ -37,9 +47,9 @@ class FakeFieldEncryptor extends BaseFieldEncryptor {
 
   @override
   void initialize(
-    List<int> keyBytes,
-    {bool legacyPlaintextAllowed = false}
-  ) {
+    List<int> keyBytes, {
+    bool legacyPlaintextAllowed = false,
+  }) {
     _initialized = true;
     _legacy = legacyPlaintextAllowed;
   }
@@ -51,6 +61,16 @@ class FakeFieldEncryptor extends BaseFieldEncryptor {
     required String column,
     required String rowKey,
   }) async {
+    if (!_initialized) {
+      throw StateError(
+        'FakeFieldEncryptor.encrypt called before initialize(). '
+        'Tests must call initialize() before encrypting — mirrors the '
+        'real FieldEncryptor precondition.',
+      );
+    }
+    // Validate the AAD trio (empty / colon) — same check the real
+    // FieldEncryptor runs. Throws ArgumentError on violation.
+    BaseFieldEncryptor.buildAad(collection, column, rowKey);
     return 'fake:$collection:$column:$rowKey:$plaintext';
   }
 
@@ -61,10 +81,21 @@ class FakeFieldEncryptor extends BaseFieldEncryptor {
     required String column,
     required String rowKey,
   }) async {
+    if (!_initialized) {
+      throw StateError(
+        'FakeFieldEncryptor.decrypt called before initialize(). '
+        'Tests must call initialize() before decrypting — mirrors the '
+        'real FieldEncryptor precondition.',
+      );
+    }
+    // AAD trio validation must run before prefix check, so an invalid
+    // trio fails the same way for encrypt and decrypt.
+    BaseFieldEncryptor.buildAad(collection, column, rowKey);
     final prefix = 'fake:$collection:$column:$rowKey:';
     if (!value.startsWith(prefix)) {
-      // Mirror the real FieldEncryptor's AAD-mismatch failure: throw a
-      // typed exception so tests catch propagation errors loudly.
+      // Surface AAD mismatch as a typed exception so tests catch
+      // propagation errors loudly. NOTE: this is ArgumentError, not
+      // FieldDecryptionException — see the class doc.
       throw ArgumentError.value(
         value.length > 60 ? '${value.substring(0, 60)}…' : value,
         'value',

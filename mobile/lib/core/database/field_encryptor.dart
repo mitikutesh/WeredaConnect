@@ -48,7 +48,7 @@ class FieldDecryptionException implements CryptoFailure {
 /// Security design:
 /// - AES-256-GCM with authenticated encryption (confidentiality + integrity)
 /// - Fresh 12-byte nonce generated per encryption call
-/// - AAD bound to (collection, column, rowKey) — see [_aad]
+/// - AAD bound to (collection, column, rowKey) — see [BaseFieldEncryptor.buildAad]
 /// - `enc:v1:` version prefix on every ciphertext — see [cipherPrefix]
 /// - Fail-closed: decrypt throws [FieldDecryptionException] on any anomaly
 /// - Key derived from FlutterSecureStorage (Android Keystore-backed)
@@ -87,6 +87,7 @@ class FieldEncryptor extends BaseFieldEncryptor {
   }
 
   /// Whether the encryptor has been initialized with a key.
+  @override
   bool get isInitialized => _initialized;
 
   /// Initialize the encryptor with the encryption key bytes.
@@ -98,6 +99,7 @@ class FieldEncryptor extends BaseFieldEncryptor {
   /// `true`, [decrypt] returns unprefixed inputs as-is. Migration code flips
   /// it back to `false` after the last row is re-encrypted. Default `false`
   /// so production reads always fail closed.
+  @override
   void initialize(
     List<int> keyBytes, {
     bool legacyPlaintextAllowed = false,
@@ -110,45 +112,15 @@ class FieldEncryptor extends BaseFieldEncryptor {
     _initialized = true;
   }
 
-  /// Build the AAD (Associated Authenticated Data) for a given field.
-  ///
-  /// AES-GCM authenticates this string alongside the ciphertext: a blob
-  /// encrypted for `(User, displayName, sub-A)` will fail MAC verification
-  /// if decrypted with `(User, displayName, sub-B)` or
-  /// `(User, phoneNumber, sub-A)`. Without AAD, ciphertexts are portable
-  /// between columns and rows, which is a substitution-attack surface for
-  /// any attacker with write access to the Isar file.
-  ///
-  /// `rowKey` MUST be a stable identifier (server UUID, Cognito sub) — not
-  /// the local autoincrement Isar `id`. Components must be non-empty and
-  /// must not contain ':' — both are rejected with `ArgumentError`, because
-  /// otherwise distinct trios could collide on the same AAD string and
-  /// silently defeat swap detection.
-  String _aad(String collection, String column, String rowKey) {
-    for (final (name, value) in [
-      ('collection', collection), ('column', column), ('rowKey', rowKey),
-    ]) {
-      if (value.isEmpty) {
-        throw ArgumentError.value(
-          value, name, 'AAD component must not be empty',
-        );
-      }
-      if (value.contains(':')) {
-        throw ArgumentError.value(
-          value, name, "AAD component must not contain ':'",
-        );
-      }
-    }
-    return '$collection:$column:$rowKey';
-  }
-
   /// Encrypt a plaintext string to `enc:v1:base64(nonce + ct + mac)`.
   ///
-  /// AAD is bound to the `(collection, column, rowKey)` trio — see [_aad].
-  /// A fresh 12-byte nonce is generated for every call.
+  /// AAD is bound to the `(collection, column, rowKey)` trio — see
+  /// [BaseFieldEncryptor.buildAad]. A fresh 12-byte nonce is generated
+  /// for every call.
   ///
   /// **Fail-closed:** throws [StateError] if [initialize] has not run.
   /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
+  @override
   Future<String> encrypt(
     String plaintext, {
     required String collection,
@@ -165,7 +137,9 @@ class FieldEncryptor extends BaseFieldEncryptor {
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plaintext),
       secretKey: _secretKey!,
-      aad: utf8.encode(_aad(collection, column, rowKey)),
+      aad: utf8.encode(
+        BaseFieldEncryptor.buildAad(collection, column, rowKey),
+      ),
     );
 
     // Pack nonce + ciphertext + mac into a single pre-allocated byte array.
@@ -196,6 +170,7 @@ class FieldEncryptor extends BaseFieldEncryptor {
   /// - MAC verify failed    → [FieldDecryptionException]
   ///
   /// Throws [ArgumentError] if any AAD component is empty or contains ':'.
+  @override
   Future<String> decrypt(
     String value, {
     required String collection,
@@ -209,8 +184,10 @@ class FieldEncryptor extends BaseFieldEncryptor {
       );
     }
 
-    // _aad ArgumentError must escape the failure branches below.
-    final aadBytes = utf8.encode(_aad(collection, column, rowKey));
+    // buildAad ArgumentError must escape the failure branches below.
+    final aadBytes = utf8.encode(
+      BaseFieldEncryptor.buildAad(collection, column, rowKey),
+    );
 
     if (!value.startsWith(cipherPrefix)) {
       if (_legacyPlaintextAllowed) {
@@ -253,7 +230,7 @@ class FieldEncryptor extends BaseFieldEncryptor {
       return utf8.decode(decrypted);
     } on SecretBoxAuthenticationError {
       // MAC fail = wrong key, tampered data, or AAD mismatch (col/row swap).
-      // collection/column are validated colon-free by _aad before reaching here.
+      // collection/column are validated colon-free by buildAad above.
       _report('GCM MAC verification failed for $collection:$column');
       throw const FieldDecryptionException(
         FieldDecryptionReason.macVerificationFailed,
@@ -274,6 +251,7 @@ class FieldEncryptor extends BaseFieldEncryptor {
   /// Clears the in-memory key, the initialized flag, and the legacy-plaintext
   /// flag. After calling, [initialize] must run again before encrypt/decrypt
   /// will work — they will throw [StateError] until then.
+  @override
   void reset() {
     _secretKey = null;
     _initialized = false;

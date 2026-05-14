@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -364,30 +365,36 @@ void main() {
       test('encrypt throws ArgumentError if collection contains ":"',
           () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User:Extra',
-              column: 'displayName',
-              rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User:Extra',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError if column contains ":"', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User',
-              column: 'display:Name',
-              rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'display:Name',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError if rowKey contains ":"', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User',
-              column: 'displayName',
-              rowKey: 'sub:A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: 'sub:A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
@@ -449,24 +456,36 @@ void main() {
 
       test('encrypt throws ArgumentError on empty collection', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: '', column: 'displayName', rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: '',
+            column: 'displayName',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError on empty column', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User', column: '', rowKey: 'sub-A'),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: '',
+            rowKey: 'sub-A',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });
 
       test('encrypt throws ArgumentError on empty rowKey', () async {
         expect(
-          () => encryptor.encrypt('any',
-              collection: 'User', column: 'displayName', rowKey: ''),
+          () => encryptor.encrypt(
+            'any',
+            collection: 'User',
+            column: 'displayName',
+            rowKey: '',
+          ),
           throwsA(isA<ArgumentError>()),
         );
       });

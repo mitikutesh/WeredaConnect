@@ -13,6 +13,43 @@
 /// Repository constructors take this abstract type so production
 /// wiring injects `FieldEncryptor.instance` and tests inject the fake.
 abstract class BaseFieldEncryptor {
+  /// Validate the `(collection, column, rowKey)` AAD trio and return the
+  /// canonical AAD string `'$collection:$column:$rowKey'`.
+  ///
+  /// Components must be non-empty and must not contain `':'` — both are
+  /// rejected with [ArgumentError]. Without these checks, distinct trios
+  /// could collide on the same AAD string (e.g. `('User:X', 'y', 'z')`
+  /// and `('User', 'X:y', 'z')` both produce `'User:X:y:z'`) and silently
+  /// defeat the cross-row / cross-column swap detection that GCM AAD
+  /// binding provides.
+  ///
+  /// All concrete implementations MUST call this from both [encrypt] and
+  /// [decrypt] so the substitution-attack defense holds uniformly across
+  /// production, web stub, and test fakes.
+  static String buildAad(String collection, String column, String rowKey) {
+    for (final (name, value) in [
+      ('collection', collection),
+      ('column', column),
+      ('rowKey', rowKey),
+    ]) {
+      if (value.isEmpty) {
+        throw ArgumentError.value(
+          value,
+          name,
+          'AAD component must not be empty',
+        );
+      }
+      if (value.contains(':')) {
+        throw ArgumentError.value(
+          value,
+          name,
+          "AAD component must not contain ':'",
+        );
+      }
+    }
+    return '$collection:$column:$rowKey';
+  }
+
   /// Whether [initialize] has been called and the encryptor is ready.
   bool get isInitialized;
 
@@ -22,10 +59,7 @@ abstract class BaseFieldEncryptor {
   /// MUST run with `false` (the default). See `field_encryptor.dart` for
   /// the production behavior and `mobile/test/fixtures/lint/` for the
   /// CI enforcement that S1-04 added.
-  void initialize(
-    List<int> keyBytes, {
-    bool legacyPlaintextAllowed = false,
-  });
+  void initialize(List<int> keyBytes, {bool legacyPlaintextAllowed = false});
 
   /// Encrypt `plaintext` with AAD bound to the `(collection, column, rowKey)`
   /// trio. Output format and failure semantics are implementation-defined
