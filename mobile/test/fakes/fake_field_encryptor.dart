@@ -23,6 +23,8 @@ import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 ///   from [BaseFieldEncryptor.buildAad], matching the production check
 /// - encrypt / decrypt before [initialize] → [StateError], matching
 ///   the real `FieldEncryptor` precondition
+/// - [initialize] with `keyBytes.length != 32` → [ArgumentError],
+///   matching the real `FieldEncryptor` AES-256 key-length check
 ///
 /// The shape lets tests assert with substring matches (e.g.
 /// `expect(stored, contains('fake:User:displayName:sub-A:'))`) which
@@ -50,6 +52,9 @@ class FakeFieldEncryptor extends BaseFieldEncryptor {
     List<int> keyBytes, {
     bool legacyPlaintextAllowed = false,
   }) {
+    if (keyBytes.length != 32) {
+      throw ArgumentError('Encryption key must be 32 bytes (AES-256)');
+    }
     _initialized = true;
     _legacy = legacyPlaintextAllowed;
   }

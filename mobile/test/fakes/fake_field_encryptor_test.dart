@@ -31,6 +31,24 @@ void main() {
       expect(fake.isInitialized, isTrue);
     });
 
+    test('initialize rejects key with wrong length', () {
+      // Parity with the real FieldEncryptor's AES-256 32-byte check so a
+      // test that passes malformed key material fails on both surfaces.
+      expect(
+        () => fake.initialize(List<int>.filled(16, 0)),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(fake.isInitialized, isFalse);
+    });
+
+    test('initialize rejects empty key', () {
+      expect(
+        () => fake.initialize(<int>[]),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(fake.isInitialized, isFalse);
+    });
+
     test('reset() clears initialized state and legacy flag', () {
       fake.initialize(List<int>.filled(32, 0), legacyPlaintextAllowed: true);
       expect(fake.isInitialized, isTrue);

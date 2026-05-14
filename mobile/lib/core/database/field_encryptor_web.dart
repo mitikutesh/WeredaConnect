@@ -10,6 +10,8 @@ import 'package:wereda_connect/core/database/base_field_encryptor.dart';
 class FieldEncryptor extends BaseFieldEncryptor {
   static FieldEncryptor? _instance;
 
+  bool _initialized = false;
+
   FieldEncryptor._();
 
   static FieldEncryptor get instance {
@@ -17,12 +19,19 @@ class FieldEncryptor extends BaseFieldEncryptor {
     return _instance!;
   }
 
+  /// Tracks whether [initialize] has been called, for parity with mobile.
+  /// Even though encrypt/decrypt are no-op passthroughs on web, callers
+  /// that gate on `isInitialized` (e.g. readiness checks during app
+  /// bootstrap) should see the same flag transitions on both platforms —
+  /// otherwise web tests could mask a missing `initialize()` call that
+  /// would be a `StateError` on mobile.
   @override
-  bool get isInitialized => false;
+  bool get isInitialized => _initialized;
 
   /// Signature parity with mobile. The key length is validated (matches
   /// mobile's 32-byte AES-256 check) so a wrong-length key fails on both
-  /// platforms identically. `legacyPlaintextAllowed` is accepted but
+  /// platforms identically, and `isInitialized` flips to `true` for
+  /// readiness-check parity. `legacyPlaintextAllowed` is accepted but
   /// ignored — web has no Isar / no on-disk PII, so the HS-3 migration
   /// escape hatch is irrelevant here.
   @override
@@ -33,7 +42,8 @@ class FieldEncryptor extends BaseFieldEncryptor {
     if (keyBytes.length != 32) {
       throw ArgumentError('Encryption key must be 32 bytes (AES-256)');
     }
-    // No-op on web — no Isar, no PII on disk
+    _initialized = true;
+    // encrypt/decrypt remain no-op on web — no Isar, no PII on disk.
   }
 
   /// Returns plaintext unchanged (no encryption on web).
@@ -63,7 +73,9 @@ class FieldEncryptor extends BaseFieldEncryptor {
       ciphertext;
 
   @override
-  void reset() {}
+  void reset() {
+    _initialized = false;
+  }
 
   static void resetInstance() {
     _instance = null;
