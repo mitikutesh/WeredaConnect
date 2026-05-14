@@ -54,29 +54,29 @@ void main() {
   }
 
   group('App Integration Tests', () {
+    // Use pump() with a fixed duration instead of pumpAndSettle(): the app
+    // runs continuous background work (sync worker, connectivity monitor)
+    // that never quiesces, which would otherwise hang the test indefinitely.
     testWidgets('app launches and displays home screen',
         (WidgetTester tester) async {
       await tester.pumpWidget(buildApp());
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
 
-      // Verify splash/auth screen is displayed
       expect(find.text('WeredaConnect'), findsOneWidget);
       expect(find.byIcon(Icons.agriculture), findsOneWidget);
     });
 
     testWidgets('app bar is displayed correctly', (WidgetTester tester) async {
       await tester.pumpWidget(buildApp());
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
 
-      // Verify app bar
       expect(find.text('WeredaConnect'), findsOneWidget);
     });
 
     testWidgets('agriculture icon is visible', (WidgetTester tester) async {
       await tester.pumpWidget(buildApp());
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
 
-      // Verify icon
       expect(find.byIcon(Icons.agriculture), findsOneWidget);
     });
   });
