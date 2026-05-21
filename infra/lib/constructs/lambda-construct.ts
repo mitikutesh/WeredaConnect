@@ -60,10 +60,10 @@ export class WeredaLambda extends Construct {
           user: 'root',
           local: {
             tryBundle(outputDir: string): boolean {
-              // In CI/test: skip Docker bundling, use placeholder bootstrap.
-              // GitHub Actions sets CI=true; Docker is available there but a
-              // full .NET cross-compile is slow and unnecessary for synth/tests.
-              if (process.env.CI) {
+              // Test-only escape hatch: synth/unit tests can opt into a
+              // placeholder asset, but real deploys must either use Docker
+              // bundling or fail before producing a nonfunctional Lambda.
+              if (process.env.ALLOW_PLACEHOLDER_LAMBDA_ASSET === 'true') {
                 fs.writeFileSync(
                   path.join(outputDir, 'bootstrap'),
                   '#!/bin/sh\necho "placeholder"',
@@ -73,13 +73,12 @@ export class WeredaLambda extends Construct {
               try {
                 execSync('docker info', { stdio: 'pipe' });
                 return false; // Docker is available — use Docker bundling
-              } catch {
-                // Docker unavailable locally — create placeholder bootstrap
-                fs.writeFileSync(
-                  path.join(outputDir, 'bootstrap'),
-                  '#!/bin/sh\necho "placeholder"',
+              } catch (error) {
+                throw new Error(
+                  'Docker is required to bundle .NET Lambda assets. ' +
+                    'Set ALLOW_PLACEHOLDER_LAMBDA_ASSET=true only for synth/unit tests. ' +
+                    `Original error: ${error}`,
                 );
-                return true;
               }
             },
           },

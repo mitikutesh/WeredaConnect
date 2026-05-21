@@ -76,11 +76,11 @@ describe('ApiStack', () => {
     });
   });
 
-  test('creates Cognito User Pools (mobile + admin) with phone sign-in and deletion protection', () => {
+  test('creates Cognito User Pools (mobile + admin) with phone sign-in and dev deletion protection disabled', () => {
     template.resourceCountIs('AWS::Cognito::UserPool', 2);
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UsernameAttributes: ['phone_number'],
-      DeletionProtection: 'ACTIVE',
+      DeletionProtection: 'INACTIVE',
     });
   });
 
@@ -178,6 +178,14 @@ describe('ApiStack (prod security)', () => {
         expect(accessValidity).toBeLessThanOrEqual(60); // minutes — CDK may use different units
       }
     }
+  });
+
+  test('T-SEC-08: prod Cognito User Pools have deletion protection enabled', () => {
+    template.resourceCountIs('AWS::Cognito::UserPool', 2);
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      UsernameAttributes: ['phone_number'],
+      DeletionProtection: 'ACTIVE',
+    });
   });
 });
 

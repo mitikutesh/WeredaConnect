@@ -1,0 +1,1 @@
+process.env.ALLOW_PLACEHOLDER_LAMBDA_ASSET = 'true';

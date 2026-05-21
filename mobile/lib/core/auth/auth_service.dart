@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -102,12 +104,12 @@ class AuthService {
         data['faydaVerificationToken'] = faydaVerificationToken;
       }
 
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.registerEndpoint,
         data: data,
       );
 
-      final responseData = response.data as Map<String, dynamic>;
+      final responseData = _decodeResponseMap(response.data);
 
       // Server now returns tokens directly (no OTP step)
       final tokenData = responseData['tokens'] as Map<String, dynamic>;
@@ -181,7 +183,7 @@ class AuthService {
       }
 
       // Call login API
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.loginEndpoint,
         data: {
           'phoneNumber': phoneNumber,
@@ -189,7 +191,7 @@ class AuthService {
         },
       );
 
-      final data = response.data as Map<String, dynamic>;
+      final data = _decodeResponseMap(response.data);
 
       // Server wraps tokens under "tokens" key with expiresIn (seconds)
       final tokenData = data['tokens'] as Map<String, dynamic>;
@@ -399,14 +401,14 @@ class AuthService {
       }
 
       // Call refresh API
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.refreshEndpoint,
         data: {
           'refreshToken': refreshToken,
         },
       );
 
-      final data = response.data as Map<String, dynamic>;
+      final data = _decodeResponseMap(response.data);
 
       // Server wraps tokens under "tokens" key with expiresIn (seconds)
       final tokenData = data['tokens'] as Map<String, dynamic>;
@@ -570,13 +572,32 @@ class AuthService {
         'COGNITO_CLIENT_ID, and COGNITO_REGION via --dart-define.',
       );
 
+  static Map<String, dynamic> _decodeResponseMap(dynamic raw) {
+    final decoded = _tryDecodeMap(raw);
+    if (decoded != null) return decoded;
+    return raw as Map<String, dynamic>;
+  }
+
+  static Map<String, dynamic>? _tryDecodeMap(dynamic raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        return decoded is Map<String, dynamic> ? decoded : null;
+      } on FormatException {
+        return null;
+      }
+    }
+    return null;
+  }
+
   /// Handle DioException and map to AuthResult with error codes.
   AuthResult _handleDioError(DioException e) {
     if (e.response != null) {
       final statusCode = e.response!.statusCode;
-      final data = e.response!.data;
+      final data = _tryDecodeMap(e.response!.data);
 
-      if (data is Map<String, dynamic>) {
+      if (data != null) {
         // Handle structured error response: {"error": {"code": ..., "message": ..., "retryAfterSeconds": ...}}
         if (data.containsKey('error') &&
             data['error'] is Map<String, dynamic>) {

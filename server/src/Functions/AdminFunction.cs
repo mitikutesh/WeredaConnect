@@ -106,14 +106,14 @@ public class AdminFunction
         ILambdaContext context)
     {
         var usersCount = await ScanCountAsync(_usersTable);
-        var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Farmer");
-        var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Trucker");
-        var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Buyer");
+        var farmersCount = await ScanCountWithAnyStringFilterAsync(_usersTable, "role", ["farmer", "Farmer"]);
+        var truckersCount = await ScanCountWithAnyStringFilterAsync(_usersTable, "role", ["trucker", "Trucker"]);
+        var buyersCount = await ScanCountWithAnyStringFilterAsync(_usersTable, "role", ["buyer", "Buyer"]);
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "held");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
-        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "active");
+        var activeListings = await ScanCountWithAnyStringFilterAsync(_cropsTable, "status", ["available", "active"]);
         var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
@@ -823,6 +823,55 @@ public class AdminFunction
             {
                 { ":value", new AttributeValue { S = filterValue } }
             }
+        };
+
+        var count = 0;
+        Dictionary<string, AttributeValue>? lastKey = null;
+
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.ScanAsync(request);
+            count += response.Count;
+            lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
+        } while (lastKey != null);
+
+        return count;
+    }
+
+    private async Task<int> ScanCountWithAnyStringFilterAsync(
+        string tableName,
+        string filterField,
+        IReadOnlyList<string> filterValues)
+    {
+        if (string.IsNullOrEmpty(tableName) || filterValues.Count == 0)
+        {
+            return 0;
+        }
+
+        var valueTokens = filterValues
+            .Select((_, i) => $":value{i}")
+            .ToList();
+        var expressionValues = new Dictionary<string, AttributeValue>();
+        for (var i = 0; i < filterValues.Count; i++)
+        {
+            expressionValues[valueTokens[i]] = new AttributeValue { S = filterValues[i] };
+        }
+
+        var request = new ScanRequest
+        {
+            TableName = tableName,
+            Select = Select.COUNT,
+            FilterExpression = $"#field IN ({string.Join(", ", valueTokens)})",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#field", filterField }
+            },
+            ExpressionAttributeValues = expressionValues
         };
 
         var count = 0;

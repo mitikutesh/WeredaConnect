@@ -6,6 +6,7 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': 'ts-jest'
   },
+  setupFiles: ['<rootDir>/test/jest.setup.ts'],
   collectCoverageFrom: [
     'lib/**/*.ts',
     '!lib/**/*.d.ts',
@@ -16,4 +17,3 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   testTimeout: 30000
 };
-

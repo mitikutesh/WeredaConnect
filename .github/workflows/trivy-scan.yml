@@ -1,0 +1,88 @@
+name: Trivy Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  ALLOW_PLACEHOLDER_LAMBDA_ASSET: "true"
+
+jobs:
+  trivy:
+    name: Dependency and IaC Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js for CDK synth
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.20.0'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Synthesize CDK templates
+        working-directory: infra
+        run: |
+          npm ci
+          npm run build
+          npx cdk synth --context environment=dev --quiet
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-${{ runner.os }}-
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Scan dependencies
+        run: |
+          trivy fs \
+            --scanners vuln \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --skip-dirs .git \
+            --skip-dirs cdk.out \
+            --skip-dirs infra/cdk.out \
+            --skip-dirs mobile/android/build \
+            --skip-dirs mobile/build \
+            --skip-dirs node_modules \
+            --skip-dirs infra/node_modules \
+            --skip-dirs website/node_modules \
+            --skip-dirs e2e/node_modules \
+            --skip-dirs server/bin \
+            --skip-dirs server/obj \
+            .
+
+      - name: Scan IaC and configuration
+        run: |
+          trivy config \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            infra/cdk.out

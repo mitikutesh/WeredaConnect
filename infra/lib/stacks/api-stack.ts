@@ -95,7 +95,7 @@ export class ApiStack extends cdk.Stack {
       removalPolicy: envConfig.isProd
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
-      deletionProtection: true,
+      deletionProtection: envConfig.isProd,
     });
 
     this.userPoolClient = this.userPool.addClient("MobileClient", {
@@ -161,7 +161,7 @@ export class ApiStack extends cdk.Stack {
       removalPolicy: envConfig.isProd
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
-      deletionProtection: true,
+      deletionProtection: envConfig.isProd,
     });
 
     // ─── Admin App Client (on admin pool, longer token validity) ──────

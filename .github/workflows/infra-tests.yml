@@ -12,6 +12,9 @@ on:
       - 'infra/**'
   workflow_call:  # Allow this workflow to be called from pr-validation.yml
 
+env:
+  ALLOW_PLACEHOLDER_LAMBDA_ASSET: "true"
+
 jobs:
   unit-tests:
     name: Unit Tests

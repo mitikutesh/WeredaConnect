@@ -195,10 +195,14 @@ jobs:
       - name: Lint — self-test fixtures
         run: bash scripts/check_legacy_plaintext_flag.sh --self-test
 
+  trivy-security-scan:
+    name: Trivy Security Scan
+    uses: ./.github/workflows/trivy-scan.yml
+
   # Final validation check
   pr-validation-complete:
     name: PR Validation Complete
-    needs: [detect-changes, mobile-tests, server-tests, infra-tests, e2e-tests, secret-scan, security-lints]
+    needs: [detect-changes, mobile-tests, server-tests, infra-tests, e2e-tests, secret-scan, security-lints, trivy-security-scan]
     if: always()
     runs-on: ubuntu-latest
 
@@ -211,6 +215,7 @@ jobs:
           echo "E2E Tests: ${{ needs.e2e-tests.result }}"
           echo "Secret Scan: ${{ needs.secret-scan.result }}"
           echo "Security Lints: ${{ needs.security-lints.result }}"
+          echo "Trivy Security Scan: ${{ needs.trivy-security-scan.result }}"
 
           # Path-conditional jobs (mobile-tests, server-tests, infra-tests,
           # e2e-tests) can be legitimately 'skipped' when their paths
@@ -225,7 +230,8 @@ jobs:
              [[ "${{ needs.infra-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.e2e-tests.result }}" == "failure" ]] || \
              [[ "${{ needs.secret-scan.result }}" != "success" ]] || \
-             [[ "${{ needs.security-lints.result }}" != "success" ]]; then
+             [[ "${{ needs.security-lints.result }}" != "success" ]] || \
+             [[ "${{ needs.trivy-security-scan.result }}" != "success" ]]; then
             echo "❌ One or more required jobs failed or were not successful"
             exit 1
           fi
