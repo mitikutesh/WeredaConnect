@@ -162,6 +162,7 @@ scripts/ai-orchestrator.sh --dry-run "anything"
 | `CODEX_MODEL` | _(CLI default)_ | model for Codex |
 | `AI_DRY_RUN` | `0` | `1` = placeholder artifacts, never call a model |
 | `AI_MAX_ATTEMPTS` | `2` | attempts per agent invocation (garbage/CLI-failure retry) |
+| `AI_EXEC_PERMISSION_MODE` | `bypassPermissions` | permission mode for the *implementing* Claude steps. Default is `bypassPermissions` because this repo path's trailing space (`Personal /`) trips Claude Code's built-in "suspicious Windows path" rule and blocks Edit/Write even under `acceptEdits`. Safety holds via the `AI_ORCH_GUARD` PreToolUse tripwire (commit/push/merge/deploy stay blocked). After renaming the folder to remove the trailing space, set this to `acceptEdits`. |
 | `AI_DASH_ONCE` | `0` | `1` = render one status frame and exit (tests) |
 | `AI_DASH_NO_ATTACH` | `0` | `1` = build the tmux session but don't attach (tests) |
 

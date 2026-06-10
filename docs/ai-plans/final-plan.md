@@ -1,14 +1,10 @@
-<!-- AUTO-MIRRORED from .ai/runs/20260610-115800-add-phone-validation-to-login/05-final-plan.md — do not edit here. -->
-<!-- Run: 20260610-115800-add-phone-validation-to-login  •  Mirrored: 2026-06-10T11:58:03+0300 -->
+<!-- PLACEHOLDER — overwritten by scripts/ai-orchestrator.sh on the next run. -->
 
-# [DRY RUN] claude (plan)
+# Final Plan (none yet)
 
-_Generated with AI_DRY_RUN=1 — no model was invoked._
-_Prompt template: `/Users/mitiku.geleta/Documents/Personal /WeredaConnect/.ai/orchestrator/prompts/claude-planning.md`_
+No orchestration run has produced a finalized plan yet.
 
-This placeholder lets the orchestrator + state machine + dashboard be
-exercised without spending tokens. Replace by running with AI_DRY_RUN=0.
-
-VERDICT: APPROVED
-EVALUATION_STATUS: ALL_RESOLVED
-DISPUTE_STATUS: NONE
+This file will be auto-mirrored from `.ai/runs/<run_id>/05-final-plan.md`. It is
+the plan Claude finalized after incorporating Codex's accepted findings, and is
+the contract the execution phase implements. Includes a `Changes Since Draft`
+section.

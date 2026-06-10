@@ -1,14 +1,15 @@
-<!-- AUTO-MIRRORED from .ai/runs/20260610-115800-add-phone-validation-to-login/01-draft-plan.md — do not edit here. -->
-<!-- Run: 20260610-115800-add-phone-validation-to-login  •  Mirrored: 2026-06-10T11:58:01+0300 -->
+<!-- PLACEHOLDER — overwritten by scripts/ai-orchestrator.sh on the next run. -->
 
-# [DRY RUN] claude (plan)
+# Draft Plan (none yet)
 
-_Generated with AI_DRY_RUN=1 — no model was invoked._
-_Prompt template: `/Users/mitiku.geleta/Documents/Personal /WeredaConnect/.ai/orchestrator/prompts/claude-planning.md`_
+No orchestration run has produced a draft plan yet.
 
-This placeholder lets the orchestrator + state machine + dashboard be
-exercised without spending tokens. Replace by running with AI_DRY_RUN=0.
+This file will be auto-mirrored from `.ai/runs/<run_id>/01-draft-plan.md` the
+first time you run:
 
-VERDICT: APPROVED
-EVALUATION_STATUS: ALL_RESOLVED
-DISPUTE_STATUS: NONE
+```bash
+scripts/ai-orchestrator.sh "Your development task here"
+```
+
+It will contain Claude's draft implementation plan and self-review, following
+the structure in `.ai/templates/plan.md`.
