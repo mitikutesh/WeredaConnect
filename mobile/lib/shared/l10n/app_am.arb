@@ -333,6 +333,10 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
+  "phoneNumberRequired": "ስልክ ቁጥር ያስፈልጋል",
+  "@phoneNumberRequired": {
+    "description": "Error message when the phone number field is left empty"
+  },
   "invalidPhoneFormat": "ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"

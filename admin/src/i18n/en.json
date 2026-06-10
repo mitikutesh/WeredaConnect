@@ -32,7 +32,9 @@
     "networkError": "Unable to reach the server. Please check your connection.",
     "serviceUnavailable": "Service temporarily unavailable. Please try again later.",
     "genericError": "Something went wrong. Please try again.",
-    "signingIn": "Signing in..."
+    "signingIn": "Signing in...",
+    "phoneRequired": "Phone number is required",
+    "invalidPhoneFormat": "Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX"
   },
   "dashboard": {
     "title": "Dashboard",

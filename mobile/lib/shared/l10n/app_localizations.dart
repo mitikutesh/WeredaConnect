@@ -592,6 +592,12 @@ abstract class AppLocalizations {
   /// **'Password must be at least 8 characters with a lowercase letter and a number'**
   String get passwordRequirements;
 
+  /// Error message when the phone number field is left empty
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number is required'**
+  String get phoneNumberRequired;
+
   /// Error message for invalid phone format
   ///
   /// In en, this message translates to:

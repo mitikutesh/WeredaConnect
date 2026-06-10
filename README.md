@@ -97,6 +97,102 @@ cdk deploy --context env=dev
 
 Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then read `STATE.md` → `TASK.md` for current context.
 
+## AI Collaboration Workflow
+
+WeredaConnect uses a **Claude ↔ Codex multi-agent workflow** for development.
+Two AI agents work as adversarial peers, with the human as the final authority:
+
+- **Claude** — Lead **Planner** & Lead **Executor** (drafts plans, implements code, responds to reviews).
+- **Codex** — Independent **Reviewer** & **Validator** (reviews the plan and the code, re-validates rejected findings).
+- **You (the user)** — **Final authority**: resolve disputes, approve, and ship.
+
+The whole choreography is file-based, auditable, and observable in real time via
+a tmux **control room**. Full protocol: [`.ai/protocol.md`](.ai/protocol.md) ·
+flow: [`.ai/orchestrator/workflow.md`](.ai/orchestrator/workflow.md) ·
+states: [`.ai/orchestrator/state-machine.md`](.ai/orchestrator/state-machine.md) ·
+diagram: [`docs/ai-plans/workflow-diagram.md`](docs/ai-plans/workflow-diagram.md) ·
+live artifacts: [`docs/ai-plans/`](docs/ai-plans/).
+
+### Planning flow
+
+```
+Claude drafts plan + self-review  →  Codex reviews (classified findings + verdict)
+   →  Claude accepts/rejects each  →  Codex validates rejected ones  →  Claude finalizes
+```
+
+### Execution flow
+
+```
+Claude implements the FINAL plan (working tree only)  →  orchestrator captures a git diff
+```
+
+### Review flow
+
+```
+Codex reviews the diff (classified findings + verdict)  →  Claude evaluates + fixes accepted
+   →  Codex validates rejected ones  →  READY_FOR_APPROVAL
+```
+
+Every finding is classified **Critical / Important / Optional / Invalid** with a
+description, reasoning, recommended action, and risk level.
+
+### Dispute flow
+
+If Claude rejects a Critical/Important finding and Codex upholds it, a **dispute**
+is opened: the workflow **stops**, a record is written to
+[`docs/ai-plans/disputes.md`](docs/ai-plans/disputes.md), and **you decide**.
+After recording your decision, resume the run.
+
+### Live control room
+
+```
+┌──────────────────────────────┬──────────────────────────────┐
+│ Orchestrator (state/phase)   │ Live Status (agent · events) │
+├──────────────────────────────┼──────────────────────────────┤
+│ Claude Output (full log)     │ Codex Output (full log)      │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+A tmux dashboard shows, at all times, which agent is active, what it's doing,
+which artifact it produced, and every ownership transfer (with the reason).
+Backed by a structured event stream (`.ai/runs/<run>/events.jsonl`), segregated
+logs (`status` / `transfers` / `decisions` / `disputes` / `claude` / `codex`),
+a live `.ai/state/current-state.json`, and an artifact index
+(`.ai/artifacts/index.json`).
+
+### Running it
+
+```bash
+# Full pipeline WITH the live control room (recommended)
+scripts/ai-dashboard.sh "Add phone-number validation to the login screen"
+
+# Full pipeline without the dashboard
+scripts/ai-orchestrator.sh "Add phone-number validation to the login screen"
+
+# Planning only (stop after the plan is approved — great for design review)
+scripts/ai-orchestrator.sh --plan-only "Refactor the sync-queue retry policy"
+
+# From a task file (for detailed, multi-line tasks)
+scripts/ai-orchestrator.sh --task-file specs/features/F-XX-thing.md
+
+# Resume after resolving a dispute (or to continue a stopped run)
+scripts/ai-orchestrator.sh --resume <run_id>
+
+# Observe / inspect
+scripts/ai-dashboard.sh                       # monitor the latest run
+scripts/ai-orchestrator.sh --list
+scripts/ai-orchestrator.sh --status <run_id>
+scripts/ai-orchestrator.sh --events <run_id>
+
+# Walk the pipeline without invoking any model (smoke test)
+scripts/ai-orchestrator.sh --dry-run "anything"
+```
+
+> **The orchestrator never merges, pushes, deploys, or releases.** It stops at
+> `READY_FOR_APPROVAL` and hands control back to you. Requires the `claude`
+> and `codex` CLIs (plus `git`, `jq`, and `tmux` for the dashboard); override the
+> CLIs with `CLAUDE_BIN` / `CODEX_BIN`.
+
 ## Component Documentation
 
 | Component | README | Testing | Key Constraint |
@@ -116,4 +212,3 @@ Start with `.ai/quick-start.md` for constraints, navigation, and patterns. Then 
 
 **Developer**: Mitiku Teshome | **Email**: mitikutes@gmail.com
 **Last Updated**: 2026-03-02 | **Version**: 0.2.0 (pre-alpha)
-

@@ -32,7 +32,9 @@
     "networkError": "Sarvarii argachuu hin dandeenye. Maaloo walqunnamtii keessan ilaalaa.",
     "serviceUnavailable": "Tajaajilli yeroof hin argamu. Maaloo booda irra deebi'aa.",
     "genericError": "Wanti tokko dogoggoreera. Maaloo irra deebi'aa yaalaa.",
-    "signingIn": "Seenaa jira..."
+    "signingIn": "Seenaa jira...",
+    "phoneRequired": "Lakkoofsi bilbilaa barbaachisaadha",
+    "invalidPhoneFormat": "Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami"
   },
   "dashboard": {
     "title": "Daashboordii",

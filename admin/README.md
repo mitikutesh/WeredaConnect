@@ -1,3 +1,24 @@
+# WeredaConnect Admin Dashboard
+
+## Environment Variables
+
+Create a local `.env` (never committed) with:
+
+| Variable | Source | Notes |
+|----------|--------|-------|
+| `VITE_API_BASE_URL` | API Gateway URL | dev: `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com` |
+| `VITE_COGNITO_ADMIN_USER_POOL_ID` | `AdminUserPoolId` CloudFormation output | The **admin** pool — NOT the main `UserPoolId` |
+| `VITE_COGNITO_ADMIN_CLIENT_ID` | `AdminClientId` CloudFormation output | App client on the admin pool |
+| `VITE_COGNITO_REGION` | Stack region | dev: `eu-north-1` |
+
+CI/CD (`.github/workflows/deploy-admin.yml`) supplies these from GitHub Actions
+secrets. **Before merging changes that use `VITE_COGNITO_ADMIN_USER_POOL_ID`,
+create the `COGNITO_ADMIN_USER_POOL_ID` secret** (value = the `AdminUserPoolId`
+stack output) in each deployment environment. The older `COGNITO_USER_POOL_ID`
+secret holds the main user pool ID and is no longer used by this app.
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

@@ -261,6 +261,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Password must be at least 8 characters with a lowercase letter and a number';
 
   @override
+  String get phoneNumberRequired => 'Phone number is required';
+
+  @override
   String get invalidPhoneFormat =>
       'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
 

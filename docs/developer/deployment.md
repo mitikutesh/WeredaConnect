@@ -35,14 +35,15 @@ Before any deployment workflow can run, you must configure GitHub repository sec
 ./scripts/setup-gh-secrets.sh --env dev --region eu-north-1
 ```
 
-The script configures these 12 secrets:
+The script configures these 13 secrets:
 
 | Secret | Source | Used By |
 |--------|--------|---------|
 | `AWS_DEPLOY_ROLE_ARN` | Created by script or manual | All deploy workflows |
 | `API_BASE_URL` | CDK `ApiUrl` output / `.env` | Webapp, Admin |
-| `COGNITO_USER_POOL_ID` | CDK `UserPoolId` output / `.env` | Webapp, Admin |
+| `COGNITO_USER_POOL_ID` | CDK `UserPoolId` output / `.env` | Webapp |
 | `COGNITO_CLIENT_ID` | CDK `UserPoolClientId` output / `.env` | Webapp |
+| `COGNITO_ADMIN_USER_POOL_ID` | CDK `AdminUserPoolId` output / `admin/.env` | Admin |
 | `COGNITO_ADMIN_CLIENT_ID` | CDK `AdminClientId` output / `admin/.env` | Admin |
 | `COGNITO_REGION` | AWS region (e.g. `eu-north-1`) | Webapp, Admin |
 | `WEBSITE_S3_BUCKET` | CDK `WebsiteBucketName` output | Website |
@@ -325,7 +326,7 @@ ENVIRONMENT, API_BASE_URL, COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_REGI
 
 **Admin Dashboard (Vite)** — passed via `VITE_*` env vars:
 ```
-VITE_ENVIRONMENT, VITE_API_BASE_URL, VITE_COGNITO_USER_POOL_ID, VITE_COGNITO_ADMIN_CLIENT_ID, VITE_COGNITO_REGION
+VITE_ENVIRONMENT, VITE_API_BASE_URL, VITE_COGNITO_ADMIN_USER_POOL_ID, VITE_COGNITO_ADMIN_CLIENT_ID, VITE_COGNITO_REGION
 ```
 
 **Website (Astro)** — no runtime env vars needed (static marketing site).
@@ -353,4 +354,3 @@ The deploy workflow uses Flutter 3.38.9. If you update your local Flutter SDK, a
 ---
 
 **Last Updated**: 2026-03-05
-

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/hooks/useLocale";
+import { normalizeEthiopianPhone } from "@/lib/phone";
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 
 export function LoginPage() {
@@ -8,15 +9,29 @@ export function LoginPage() {
   const { t } = useLocale();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+
+    // Validate + normalize the phone BEFORE entering the loading state —
+    // invalid input must never reach Cognito.
+    if (!phone.trim()) {
+      setPhoneError(t("auth.phoneRequired"));
+      return;
+    }
+    const normalizedPhone = normalizeEthiopianPhone(phone);
+    if (!normalizedPhone) {
+      setPhoneError(t("auth.invalidPhoneFormat"));
+      return;
+    }
+    setPhoneError("");
     setLoading(true);
 
-    const result = await login(phone, password);
+    const result = await login(normalizedPhone, password);
     if (!result.success) {
       const key = `auth.${result.error}`;
       const translated = t(key);
@@ -56,7 +71,10 @@ export function LoginPage() {
               {t("auth.loginSubtitle")}
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {/* noValidate: localized validation in handleSubmit replaces
+                browser-native constraint tooltips; required stays for
+                aria-required semantics. */}
+            <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-muted">
                   {t("auth.phone")}
@@ -67,8 +85,15 @@ export function LoginPage() {
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="09XXXXXXXX or +251..."
                   required
+                  aria-invalid={!!phoneError}
+                  aria-describedby={phoneError ? "phone-error" : undefined}
                   className="mt-1 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 />
+                {phoneError && (
+                  <p id="phone-error" className="mt-1 text-sm text-danger">
+                    {phoneError}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-text-muted">

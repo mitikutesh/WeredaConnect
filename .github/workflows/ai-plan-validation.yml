@@ -1,0 +1,148 @@
+name: AI Plan Validation
+
+# Optional automation for the Claude <-> Codex collaboration framework.
+# Validates that the orchestration scripts are healthy and that the AI
+# collaboration artifacts in a PR are coherent — in particular it BLOCKS a PR
+# that carries an UNRESOLVED dispute.
+#
+# This workflow NEVER merges, pushes, deploys, or releases. It is a read-only
+# gate that posts a report to the job summary. Shipping remains a human action.
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.ai/**'
+      - 'docs/ai-plans/**'
+      - 'scripts/ai-orchestrator.sh'
+      - 'scripts/ai-dashboard.sh'
+      - 'scripts/plan-phase.sh'
+      - 'scripts/execution-phase.sh'
+      - 'scripts/review-phase.sh'
+      - 'scripts/dispute-phase.sh'
+      - 'scripts/lib/ai-common.sh'
+      - '.github/workflows/ai-plan-validation.yml'
+
+# Read-only: this gate must never be able to merge or push.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-ai-framework:
+    name: Validate AI Collaboration Framework
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Shell syntax check (orchestrator scripts)
+        run: |
+          set -e
+          fail=0
+          for f in scripts/ai-orchestrator.sh scripts/ai-dashboard.sh \
+                   scripts/plan-phase.sh scripts/execution-phase.sh \
+                   scripts/review-phase.sh scripts/dispute-phase.sh \
+                   scripts/lib/ai-common.sh; do
+            if [ -f "$f" ]; then
+              if bash -n "$f"; then
+                echo "OK   $f"
+              else
+                echo "FAIL $f"; fail=1
+              fi
+            fi
+          done
+          [ "$fail" -eq 0 ] || { echo "::error::Shell syntax errors in orchestrator scripts"; exit 1; }
+
+      - name: Smoke-test the pipeline control flow (dry run, no models)
+        run: |
+          set -e
+          # AI_DRY_RUN walks the whole state machine without invoking Claude/Codex.
+          AI_DRY_RUN=1 scripts/ai-orchestrator.sh "CI smoke test" > /tmp/ai_smoke.log 2>&1 || {
+            echo "::error::Dry-run pipeline smoke test failed"; cat /tmp/ai_smoke.log; exit 1; }
+          if ! grep -q "READY_FOR_APPROVAL" /tmp/ai_smoke.log; then
+            echo "::error::Dry run did not reach READY_FOR_APPROVAL"; cat /tmp/ai_smoke.log; exit 1; fi
+          echo "Dry-run pipeline reached READY_FOR_APPROVAL."
+
+      - name: Validate observability outputs (events + live state + renderer)
+        run: |
+          set -e
+          # The dry run above leaves .ai/runs/latest populated.
+          test -f .ai/runs/latest/events.jsonl || { echo "::error::events.jsonl missing"; exit 1; }
+          # Every event line must be valid JSON with the required schema keys.
+          while IFS= read -r line; do
+            echo "$line" | jq -e 'has("timestamp") and has("agent") and has("event") and has("phase") and has("artifact") and has("summary")' >/dev/null \
+              || { echo "::error::malformed event: $line"; exit 1; }
+          done < .ai/runs/latest/events.jsonl
+          jq empty .ai/state/current-state.json || { echo "::error::current-state.json invalid"; exit 1; }
+          jq empty .ai/artifacts/index.json     || { echo "::error::artifacts/index.json invalid"; exit 1; }
+          # The live-status renderer must produce a single frame without error.
+          AI_DASH_ONCE=1 scripts/ai-dashboard.sh --status-view >/dev/null 2>&1 \
+            || { echo "::error::status renderer failed"; exit 1; }
+          echo "Observability outputs validated (events schema + live state + renderer)."
+
+      - name: Check for unresolved disputes
+        run: |
+          set -e
+          DISPUTES="docs/ai-plans/disputes.md"
+          if [ ! -f "$DISPUTES" ]; then
+            echo "No disputes file — nothing to check."; exit 0; fi
+
+          # A dispute block opens with "## D-...". A resolved dispute has a
+          # checked decision box "- [x]". If any dispute block has zero checked
+          # boxes, the dispute is unresolved and this PR must not merge yet.
+          if grep -qE '^## D-' "$DISPUTES"; then
+            unresolved=0
+            # Split the file on dispute headers and inspect each block.
+            awk '
+              /^## D-/ { if (block != "") check(block); block=$0"\n"; next }
+              { if (block != "") block=block $0"\n" }
+              END { if (block != "") check(block) }
+              function check(b) {
+                if (b ~ /\[x\]/ || b ~ /\[X\]/) { print "RESOLVED" }
+                else { print "UNRESOLVED" }
+              }
+            ' "$DISPUTES" > /tmp/dispute_states.txt
+            if grep -q "UNRESOLVED" /tmp/dispute_states.txt; then
+              echo "::error::Unresolved Claude<->Codex dispute(s) present in $DISPUTES. A human must record a decision before merge."
+              unresolved=1
+            fi
+            [ "$unresolved" -eq 0 ] || exit 1
+          fi
+          echo "No unresolved disputes."
+
+      - name: Validate artifact coherence
+        run: |
+          set -e
+          PD="docs/ai-plans"
+          warn() { echo "::warning::$*"; }
+          # If a non-placeholder final plan exists, a code review should follow.
+          is_real() { [ -f "$1" ] && ! grep -q "PLACEHOLDER\|none yet\|\[DRY RUN\]" "$1"; }
+          if is_real "$PD/final-plan.md" && ! is_real "$PD/codex-code-review.md"; then
+            warn "final-plan.md is populated but codex-code-review.md is not — implementation may be unreviewed."
+          fi
+          if is_real "$PD/draft-plan.md" && ! is_real "$PD/codex-plan-review.md"; then
+            warn "draft-plan.md is populated but codex-plan-review.md is not — plan may be unreviewed."
+          fi
+          echo "Artifact coherence check complete."
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## 🤝 AI Collaboration Framework — Validation"
+            echo ""
+            echo "- Orchestrator scripts: syntax-checked"
+            echo "- Pipeline control flow: dry-run smoke test"
+            echo "- Disputes: checked for unresolved decisions"
+            echo "- Artifacts: coherence checked"
+            echo ""
+            echo "> This gate is **read-only**. It never merges, pushes, or deploys."
+            echo "> Review \`docs/ai-plans/\` and the diff, then merge manually."
+          } >> "$GITHUB_STEP_SUMMARY"

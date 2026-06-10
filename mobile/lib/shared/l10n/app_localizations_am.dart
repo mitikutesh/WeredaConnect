@@ -258,6 +258,9 @@ class AppLocalizationsAm extends AppLocalizations {
       'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ከትንሽ ፊደል እና ቁጥር ጋር መሆን አለበት';
 
   @override
+  String get phoneNumberRequired => 'ስልክ ቁጥር ያስፈልጋል';
+
+  @override
   String get invalidPhoneFormat =>
       'ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ';
 

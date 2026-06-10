@@ -333,6 +333,10 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
+  "phoneNumberRequired": "Lakkoofsi bilbilaa barbaachisaadha",
+  "@phoneNumberRequired": {
+    "description": "Error message when the phone number field is left empty"
+  },
   "invalidPhoneFormat": "Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"

@@ -49,6 +49,13 @@ infra/*.js
 infra/*.d.ts
 !infra/jest.config.js
 
+# AI orchestration — runtime state, regenerated on every run (never commit).
+# Run archives stay local; docs/ai-plans/ mirrors remain tracked for review.
+.ai/runs/
+.ai/state/current-state.json
+.ai/state/orchestrator.lock/
+.ai/artifacts/index.json
+
 # Environment
 .env
 .env.*
