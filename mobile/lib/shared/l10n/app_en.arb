@@ -333,6 +333,10 @@
   "@passwordRequirements": {
     "description": "Password requirements message"
   },
+  "phoneNumberRequired": "Phone number is required",
+  "@phoneNumberRequired": {
+    "description": "Error message when the phone number field is left empty"
+  },
   "invalidPhoneFormat": "Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX",
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"

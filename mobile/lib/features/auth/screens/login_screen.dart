@@ -80,9 +80,14 @@ class _LoginScreenState extends State<LoginScreen> {
     // Normalize phone to canonical E.164 before dispatching
     final normalizedPhone =
         normalizeEthiopianPhone(_phoneController.text.trim());
+    if (normalizedPhone == null) {
+      // Unreachable when the validator passed; guard instead of asserting
+      // so a refactor can never dispatch an unnormalized phone.
+      return;
+    }
     context.read<AuthBloc>().add(
           AuthLoginRequested(
-            phoneNumber: normalizedPhone!,
+            phoneNumber: normalizedPhone,
             password: _passwordController.text,
           ),
         );
@@ -325,7 +330,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return l10n.phoneNumber;
+                    return l10n.phoneNumberRequired;
                   }
                   if (!isValidEthiopianPhone(value)) {
                     return l10n.invalidPhoneFormat;

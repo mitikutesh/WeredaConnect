@@ -132,8 +132,10 @@ void main() {
       await tester.tap(loginButton);
       await tester.pumpAndSettle();
 
-      // Should show validation error for phone
-      expect(find.text('Phone Number'), findsWidgets);
+      // Should show the required message, not the field label
+      expect(find.text('Phone number is required'), findsOneWidget);
+      // And no login attempt is dispatched
+      verifyNever(() => authBloc.add(any(that: isA<AuthLoginRequested>())));
     });
 
     testWidgets('shows error for invalid phone format', (tester) async {
@@ -339,6 +341,45 @@ void main() {
         () => authBloc.add(
           const AuthLoginRequested(
             phoneNumber: '+251911234567',
+            password: 'password1',
+          ),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('local-format phone is normalized to E.164 on login',
+        (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      // Enter phone in local 0-prefix format
+      final phoneField = find.byType(TextFormField).first;
+      await tester.tap(phoneField);
+      await tester.pumpAndSettle();
+      final phoneEditableText = find.byType(EditableText).first;
+      final phoneController =
+          tester.widget<EditableText>(phoneEditableText).controller;
+      phoneController.text = '0912345678';
+      await tester.pumpAndSettle();
+
+      // Enter valid password
+      final passwordField = find.byType(TextFormField).at(1);
+      await tester.enterText(passwordField, 'password1');
+      await tester.pumpAndSettle();
+
+      // Tap login
+      final loginButton = find.byType(ElevatedButton);
+      await tester.ensureVisible(loginButton);
+      await tester.pumpAndSettle();
+      await tester.tap(loginButton);
+      await tester.pumpAndSettle();
+
+      // BLoC must receive the normalized E.164 phone
+      verify(
+        () => authBloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251912345678',
             password: 'password1',
           ),
         ),

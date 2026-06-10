@@ -32,7 +32,9 @@
     "networkError": "አገልጋዩን ማግኘት አልተቻለም። እባክዎ ግንኙነትዎን ያረጋግጡ።",
     "serviceUnavailable": "አገልግሎቱ ለጊዜው አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
     "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
-    "signingIn": "በመግባት ላይ..."
+    "signingIn": "በመግባት ላይ...",
+    "phoneRequired": "ስልክ ቁጥር ያስፈልጋል",
+    "invalidPhoneFormat": "ልክ ያልሆነ ስልክ ቁጥር። +251XXXXXXXXX፣ 00251XXXXXXXXX ወይም 0XXXXXXXXX ይጠቀሙ"
   },
   "dashboard": {
     "title": "ዳሽቦርድ",

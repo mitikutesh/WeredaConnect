@@ -262,6 +262,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Jecha icciitiin yoo xiqqaate qubeelee 8, qubee xixiqqaa fi lakkoofsa of keessatti qabaachuu qaba';
 
   @override
+  String get phoneNumberRequired => 'Lakkoofsi bilbilaa barbaachisaadha';
+
+  @override
   String get invalidPhoneFormat =>
       'Lakkoofsi bilbilaa sirrii miti. +251XXXXXXXXX, 00251XXXXXXXXX, ykn 0XXXXXXXXX fayyadami';
 
