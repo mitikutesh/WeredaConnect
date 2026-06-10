@@ -195,7 +195,7 @@ chat state:
 | `CLAUDE.md` | Constitution — binds both agents; HARD rules are FAIL gates here too |
 | `.ai/completeness-rules.md` | The 5 rules both agents check; central to review classification |
 | `.ai/sdlc.md` | Single-agent lifecycle; this protocol is the multi-agent review layer over it |
-| `.ai/agents.md` / `.claude/agents/` | Claude Code sub-agents (mobile/server/infra/reviewer) Claude may still use *within* a phase |
+| `.ai/agents.md` / `.claude/agents/` | The execution phase **delegates** `mobile/**`→`mobile`, `server/**`→`server`, `infra/**`→`infra` and runs `reviewer` as a self-pass — *when those subagents are available in the headless session*; otherwise Claude implements directly under the same rules |
 | `.ai/ownership.md` | File ownership; plans must respect it |
 | `specs/contracts/` | Cross-module contracts; Codex checks drift against these |
 | `.github/workflows/` | CI; `ai-plan-validation.yml` checks artifact completeness on PRs (never auto-merges) |

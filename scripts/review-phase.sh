@@ -35,17 +35,21 @@ ai_status "$RUN_ID" "Review phase started"
 # --- Codex reviews the implementation diff ---------------------------------
 ai_transfer "$RUN_ID" "Claude" "Codex" ".ai/runs/$RUN_ID/07-implementation.diff" "Code review required"
 ai_state_set "$RUN_ID" "CODE_REVIEW_BY_CODEX"
+# disputes.md is included when present (on --resume after a dispute) so Codex
+# HONORS the user's recorded decision and never re-raises a waived finding.
 invoke_codex "$RUN_ID" "Review" "review implementation diff" \
   "$RUN_DIR/08-codex-code-review.md" \
   "$PROMPTS/codex-code-review.md" \
   "$RUN_DIR/05-final-plan.md" \
   "$RUN_DIR/06-execution-summary.md" \
-  "$RUN_DIR/07-implementation.diff"
+  "$RUN_DIR/07-implementation.diff" \
+  "$RUN_DIR/disputes.md"
 ai_mirror "$RUN_ID" "08-codex-code-review.md" "codex-code-review.md"
 ai_register_artifact "$RUN_ID" "codex-code-review.md" "Codex" "Review" "docs/ai-plans/codex-code-review.md"
 
-VERDICT="$(ai_marker VERDICT "$RUN_DIR/08-codex-code-review.md")"
-ai_status "$RUN_ID" "Codex code review complete: ${VERDICT:-<none>}"
+# Missing verdict degrades to CHANGES_REQUESTED (force evaluation; never auto-approve).
+VERDICT="$(ai_marker_or VERDICT "$RUN_DIR/08-codex-code-review.md" "CHANGES_REQUESTED")"
+ai_status "$RUN_ID" "Codex code review complete: $VERDICT"
 
 # --- Fast path: clean approval --------------------------------------------
 if [ "$VERDICT" = "APPROVED" ]; then
@@ -62,8 +66,11 @@ fi
 ai_transfer "$RUN_ID" "Codex" "Claude" "docs/ai-plans/codex-code-review.md" "Findings to resolve (${VERDICT:-<none>})"
 ai_state_set "$RUN_ID" "REVIEW_RESOLUTION"
 ai_status "$RUN_ID" "Claude resolving code-review findings"
+# Same permission-mode rationale as execution-phase.sh (path trailing-space
+# blocks acceptEdits; AI_ORCH_GUARD hook tripwire keeps ship-actions blocked).
+EXEC_MODE="${AI_EXEC_PERMISSION_MODE:-bypassPermissions}"
 invoke_claude "$RUN_ID" "Review" "evaluate code-review findings + fix accepted" \
-  "$RUN_DIR/09-claude-review-evaluation.md" "acceptEdits" \
+  "$RUN_DIR/09-claude-review-evaluation.md" "$EXEC_MODE" \
   "$PROMPTS/claude-review-response.md" \
   "$RUN_DIR/05-final-plan.md" \
   "$RUN_DIR/07-implementation.diff" \
@@ -71,8 +78,9 @@ invoke_claude "$RUN_ID" "Review" "evaluate code-review findings + fix accepted" 
   "$RUN_DIR/disputes.md"
 ai_register_artifact "$RUN_ID" "09-claude-review-evaluation.md" "Claude" "Review" ".ai/runs/$RUN_ID/09-claude-review-evaluation.md"
 
-EVAL_STATUS="$(ai_marker EVALUATION_STATUS "$RUN_DIR/09-claude-review-evaluation.md")"
-ai_decision "$RUN_ID" "Claude code-review evaluation: ${EVAL_STATUS:-<none>}"
+# Missing eval status degrades to REJECTIONS_PENDING (triggers Codex validation).
+EVAL_STATUS="$(ai_marker_or EVALUATION_STATUS "$RUN_DIR/09-claude-review-evaluation.md" "REJECTIONS_PENDING")"
+ai_decision "$RUN_ID" "Claude code-review evaluation: $EVAL_STATUS"
 
 # Refresh the diff so the validation pass sees the fixes Claude just made.
 if [ -f "$RUN_DIR/base-ref.txt" ]; then
@@ -88,11 +96,15 @@ if [ "$EVAL_STATUS" = "REJECTIONS_PENDING" ]; then
     "$RUN_DIR/10-codex-review-validation.md" \
     "$PROMPTS/codex-code-review.md" \
     "$RUN_DIR/08-codex-code-review.md" \
-    "$RUN_DIR/09-claude-review-evaluation.md"
+    "$RUN_DIR/09-claude-review-evaluation.md" \
+    "$RUN_DIR/disputes.md"
   ai_register_artifact "$RUN_ID" "10-codex-review-validation.md" "Codex" "Review" ".ai/runs/$RUN_ID/10-codex-review-validation.md"
 
-  DISPUTE_STATUS="$(ai_marker DISPUTE_STATUS "$RUN_DIR/10-codex-review-validation.md")"
-  ai_status "$RUN_ID" "Codex validation: dispute status ${DISPUTE_STATUS:-<none>}"
+  # POSITIVE-EVIDENCE rule: a dispute opens only on an explicit
+  # `DISPUTE_STATUS: OPEN` or named UPHELD finding ids — a missing marker
+  # must not fabricate a dispute (see ai_dispute_status).
+  DISPUTE_STATUS="$(ai_dispute_status "$RUN_DIR/10-codex-review-validation.md")"
+  ai_status "$RUN_ID" "Codex validation: dispute status $DISPUTE_STATUS"
 
   if [ "$DISPUTE_STATUS" = "OPEN" ]; then
     log_warn "Unresolved disagreement on the IMPLEMENTATION. Opening dispute."

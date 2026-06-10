@@ -1,14 +1,10 @@
-<!-- AUTO-MIRRORED from .ai/runs/20260610-115800-add-phone-validation-to-login/08-codex-code-review.md — do not edit here. -->
-<!-- Run: 20260610-115800-add-phone-validation-to-login  •  Mirrored: 2026-06-10T11:58:06+0300 -->
+<!-- PLACEHOLDER — overwritten by scripts/ai-orchestrator.sh on the next run. -->
 
-# [DRY RUN] codex (review)
+# Codex Code Review (none yet)
 
-_Generated with AI_DRY_RUN=1 — no model was invoked._
-_Prompt template: `/Users/mitiku.geleta/Documents/Personal /WeredaConnect/.ai/orchestrator/prompts/codex-code-review.md`_
+No orchestration run has produced a code review yet.
 
-This placeholder lets the orchestrator + state machine + dashboard be
-exercised without spending tokens. Replace by running with AI_DRY_RUN=0.
-
-VERDICT: APPROVED
-EVALUATION_STATUS: ALL_RESOLVED
-DISPUTE_STATUS: NONE
+This file will be auto-mirrored from `.ai/runs/<run_id>/08-codex-code-review.md`.
+It will contain Codex's independent review of the implementation diff against
+the finalized plan: classified findings and a `VERDICT`, following
+`.ai/templates/code-review.md`.

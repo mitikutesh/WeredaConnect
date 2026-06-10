@@ -81,6 +81,17 @@ done
 require_cmd git
 require_cmd jq
 
+# --- Concurrency guard: ONE pipeline run at a time ---------------------------
+# run/resume drive phases (and models) — they take the lock. Read-only modes
+# (--list/--status/--events) and --prepare/--complete don't. A second run/
+# resume refuses to start with a clear message; a stale lock auto-clears.
+case "$MODE" in
+  run|resume)
+    ai_lock_acquire "${TARGET_RUN:-pending}"
+    trap ai_lock_release EXIT
+    ;;
+esac
+
 # --- Read-only sub-commands ------------------------------------------------
 if [ "$MODE" = "list" ]; then
   log_step "AI orchestration runs"
@@ -158,6 +169,7 @@ create_run() {
   ai_register_artifact "$RUN_ID" "task.md" "User" "Intake" ".ai/runs/$RUN_ID/task.md"
   ai_status "$RUN_ID" "Task created"
   ai_emit_event "$RUN_ID" "User" "TASK_CREATED" "Intake" ".ai/runs/$RUN_ID/task.md" "$task"
+  ai_lock_note "$RUN_ID"   # record the real run id in the lock (no-op if unlocked)
 }
 
 run_phase() {
@@ -265,7 +277,21 @@ if [ "$MODE" = "resume" ]; then
   RUN_ID="$TARGET_RUN"
   [ -f "$(ai_state_file "$RUN_ID")" ] || die "No such run: $RUN_ID"
   ai_set_latest "$RUN_ID"
+  # Re-point the live view at the resumed run so the dashboard tracks it.
+  ai_cs_set "$RUN_ID" run_id "$RUN_ID"
+  ai_cs_set "$RUN_ID" task "$(jq -r '.task' "$(ai_state_file "$RUN_ID")")"
+  ai_cs_set "$RUN_ID" run_dir ".ai/runs/$RUN_ID"
+  ai_cs_set "$RUN_ID" dispute_open "false"
   log_step "Resuming run $RUN_ID"
+
+  # Recover a FAILED run: restore the last good (non-FAILED) state from history,
+  # then re-drive from there (a phase will re-run from its start).
+  if [ "$(ai_state_get "$RUN_ID")" = "FAILED" ]; then
+    prev="$(jq -r '[.history[].state] | map(select(. != "FAILED")) | last // "TASK_CREATED"' "$(ai_state_file "$RUN_ID")")"
+    log_warn "Run previously FAILED. Restoring last good state: $prev"
+    ai_status "$RUN_ID" "Resuming after FAILED; restored state $prev"
+    ai_state_set "$RUN_ID" "$prev" "false"
+  fi
 
   if [ "$(ai_state_field_get "$RUN_ID" dispute_open 2>/dev/null)" = "true" ] \
      || [ "$(ai_state_get "$RUN_ID")" = "USER_DECISION_REQUIRED" ]; then

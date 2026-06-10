@@ -1,19 +1,47 @@
-<!-- This file is mirrored from .ai/runs/<run_id>/disputes.md when a dispute is -->
-<!-- opened. Unlike the other files here, the USER edits it to record decisions. -->
+<!-- AUTO-MIRRORED from .ai/runs/20260610-164000-add-client-side-validation-to-the-crop-l/disputes.md — do not edit here. -->
+<!-- Run: 20260610-164000-add-client-side-validation-to-the-crop-l  •  Mirrored: 2026-06-10T16:56:01+0300 -->
 
-# Disputes (none open)
+# Disputes — run 20260610-164000-add-client-side-validation-to-the-crop-l
 
-No unresolved Claude ↔ Codex disputes have been recorded.
+Unresolved Claude ↔ Codex disagreements. **The user is the final authority.**
+Record the decision under each dispute, then resume with:
+`scripts/ai-orchestrator.sh --resume 20260610-164000-add-client-side-validation-to-the-crop-l`
 
-A dispute is opened automatically when **Claude rejects a Codex finding** and
-**Codex upholds it** on re-validation (a genuine, unresolved disagreement). When
-that happens:
+## D-20260610-165601 — PLAN dispute
 
-1. The workflow **stops** — state becomes `USER_DECISION_REQUIRED`.
-2. A dispute record (see `.ai/templates/dispute.md`) is appended here and to the
-   run archive `.ai/runs/<run_id>/disputes.md`.
-3. **You (the user) are the final authority.** Record your decision in the
-   dispute record.
-4. Resume with `scripts/ai-orchestrator.sh --resume <run_id>`.
+- **Opened:** 2026-06-10T16:56:01+0300
+- **Scope:** PLAN
+- **Upheld findings (Codex):** (see validation artifact)
+- **State:** USER_DECISION_REQUIRED
 
-See `.ai/protocol.md` → *Dispute Resolution* for the full process.
+### Issue
+Claude rejected one or more Codex findings; Codex upheld them on re-validation.
+
+### Claude position
+_Rejected the finding(s); see the evaluation artifact in the run dir._
+
+### Codex position (upheld)
+```
+## Assessment
+
+Claude accepted the only Codex finding and reports the plan now includes the required widget-level coverage. There are no rejected findings to validate and no open dispute.
+
+## Findings
+
+VERDICT: APPROVED```
+
+### Recommendation
+Default to the safer course: for Critical/Important findings touching role
+visibility, platform pairs, security, or the core flow, prefer Codex unless
+you can confirm Claude's rebuttal is correct.
+
+### ⚖️  User decision (REQUIRED — fill this in)
+- [ ] Side with **Claude** (proceed; finding waived)
+- [ ] Side with **Codex** (Claude must address the finding)
+- [ ] **Other / compromise:** _______________________________
+
+**Decision rationale:**
+
+**Decided by:** ____________   **On:** ____________
+
+---

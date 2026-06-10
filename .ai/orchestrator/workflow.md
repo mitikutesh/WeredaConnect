@@ -161,5 +161,15 @@ scripts/ai-orchestrator.sh --dry-run "anything"
 | `CLAUDE_MODEL` | _(CLI default)_ | model alias for Claude |
 | `CODEX_MODEL` | _(CLI default)_ | model for Codex |
 | `AI_DRY_RUN` | `0` | `1` = placeholder artifacts, never call a model |
+| `AI_MAX_ATTEMPTS` | `2` | attempts per agent invocation (garbage/CLI-failure retry) |
 | `AI_DASH_ONCE` | `0` | `1` = render one status frame and exit (tests) |
 | `AI_DASH_NO_ATTACH` | `0` | `1` = build the tmux session but don't attach (tests) |
+
+## Concurrency — one run at a time
+
+The pipeline shares `.ai/runs/latest` and `.ai/state/current-state.json`, so
+`run`/`--resume` take an atomic lock (`.ai/state/orchestrator.lock`). A second
+invocation while a run is active **refuses to start** and prints the active
+run id, its pid, and how to watch (`ai-dashboard.sh --status-view`) or stop it.
+The lock releases on exit (including dispute stops) and stale locks (dead pid)
+clear automatically. Read-only modes (`--list/--status/--events`) never lock.

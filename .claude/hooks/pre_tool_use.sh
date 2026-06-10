@@ -12,6 +12,18 @@ if [[ "$TOOL_NAME" != "Bash" && "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write
   exit 0
 fi
 
+# --- Orchestrator guard (AI_ORCH_GUARD=1 is set by scripts/lib/ai-common.sh
+# for pipeline-spawned Claude). The execution phase may run with relaxed
+# permissions (the repo path's trailing space breaks acceptEdits), so this
+# hook enforces the orchestrator's hard promise: NEVER commit/push/merge/
+# deploy/release — the user ships. Interactive sessions are unaffected. ---
+if [[ "${AI_ORCH_GUARD:-0}" == "1" && "$TOOL_NAME" == "Bash" && -n "$COMMAND" ]]; then
+  if echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])git[[:space:]]+(commit|push|merge)([[:space:]]|$)|gh[[:space:]]+pr[[:space:]]+(merge|create)|cdk[[:space:]]+deploy|scripts/deploy\.sh|npm[[:space:]]+publish'; then
+    echo "BLOCKED (orchestrator guard): commit/push/merge/deploy/release are user-only actions. Leave changes in the working tree."
+    exit 2
+  fi
+fi
+
 # --- Bash guardrails ---
 if [[ "$TOOL_NAME" == "Bash" && -n "$COMMAND" ]]; then
   # Block rm -rf on critical directories

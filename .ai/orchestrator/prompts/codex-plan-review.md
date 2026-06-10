@@ -84,5 +84,29 @@ DISPUTE_STATUS: NONE         # you conceded all rejections — no dispute
 DISPUTE_STATUS: OPEN         # at least one Critical/Important finding still upheld
 ```
 
+ALWAYS end a validation pass with both marker lines, plain and unwrapped (no
+backticks/bold), even when there is nothing upheld:
+`UPHELD:` (empty value if none) and `DISPUTE_STATUS: NONE` or
+`DISPUTE_STATUS: OPEN`. A dispute is only opened on positive evidence.
+
 Concede gracefully when Claude's rebuttal is correct. Uphold only genuine,
 defensible Critical/Important problems — those become user-decided disputes.
+
+### User decisions are BINDING (when `disputes.md` is in context)
+
+If the context includes a `disputes.md` with a **recorded user decision** (a
+ticked box `- [x] …` under a dispute), the user has spoken and is the final
+authority. You MUST honor it:
+
+- **"Side with Claude" / finding waived** → that finding is **CLOSED**. Do NOT
+  re-raise it, and do NOT re-open it on a validation pass. If you would
+  otherwise flag the same issue, instead emit it as
+  `Classification: Invalid` with a one-line note: *"Waived by user decision
+  <D-id>."* It must NOT count toward `CHANGES_REQUESTED`, `UPHELD`, or
+  `DISPUTE_STATUS: OPEN`.
+- **"Side with Codex"** → the finding stands; verify the new plan actually
+  addresses it. If it does, approve; if not, raise it (referencing the ruling).
+- **"Other / compromise"** → follow the user's written compromise exactly.
+
+You may still raise **genuinely new** findings, but never relitigate a finding
+the user has already decided. Re-opening a waived finding is itself an error.

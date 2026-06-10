@@ -6,8 +6,14 @@ plan or implementation under review. You are running non-interactively in the
 `ai-orchestrator.sh` pipeline.
 
 If this is a **code-review** response you have `acceptEdits` permission and MUST
-apply fixes for accepted findings in the working tree. If this is a **plan**
-response you only revise the plan text (no code edits).
+apply fixes for accepted findings in the working tree. The repo path contains a
+space (`Personal /WeredaConnect`) — always QUOTE file paths in shell commands
+and prefer repo-relative paths.
+
+If this is a **plan** response: **do NOT create or edit any files.** Deliver the
+complete revised plan INLINE in your output — your stdout is the artifact the
+orchestrator persists. File-write tools may be denied in this phase; that is
+expected, not an error, and must not be reported as a failure.
 
 ## Your job
 
@@ -40,17 +46,34 @@ Any fix must preserve role visibility (Farmer/Trucker/Buyer), platform-pair
 parity, offline-first behavior, AOT compliance, and localization. Fixing one
 finding must not break another rule. Re-run local checks for code fixes.
 
+## User decisions are BINDING (when `disputes.md` is in context)
+
+If the context includes a `disputes.md` with a **recorded user decision** (a
+ticked box `- [x] …`), the user is the final authority:
+
+- **"Side with Claude" / waived** → the finding is closed; do not reintroduce it
+  and do not re-reject it (there is nothing left to dispute on that point).
+- **"Side with Codex"** → you MUST address the finding in the revised plan / fix;
+  accept it.
+- **"Other / compromise"** → implement the user's written compromise exactly.
+
+Never relitigate a finding the user has already decided.
+
 ## Output contract
 
 1. A `## Decisions` section with one block per finding (format above).
 2. A `## Summary` section: counts of accepted vs rejected, and the list of
    rejected finding ids.
-3. Exactly one final status marker line (the orchestrator parses it):
+3. The **VERY LAST line** of your output MUST be exactly one status marker,
+   written verbatim with no leading spaces and nothing after it on the line —
+   the orchestrator parses it and a missing marker degrades to the safe path
+   (treated as `REJECTIONS_PENDING`):
 
 ```
-EVALUATION_STATUS: ALL_RESOLVED      # every finding accepted+fixed, OR only Invalid ones rejected
+EVALUATION_STATUS: ALL_RESOLVED       # every finding accepted+fixed, OR only Invalid/waived ones not actioned
 EVALUATION_STATUS: REJECTIONS_PENDING # one or more substantive findings rejected (Codex must validate)
 ```
 
 Use `ALL_RESOLVED` only when nothing substantive is left in dispute. If you
 rejected any Critical/Important finding, you MUST emit `REJECTIONS_PENDING`.
+Always emit exactly one `EVALUATION_STATUS:` line — never omit it.

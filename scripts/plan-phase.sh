@@ -32,7 +32,7 @@ ai_status "$RUN_ID" "Planning phase started"
 ai_state_set "$RUN_ID" "PLAN_DRAFTING"
 ai_status "$RUN_ID" "Claude started planning"
 invoke_claude "$RUN_ID" "Planning" "draft plan" \
-  "$RUN_DIR/01-draft-plan.md" "plan" \
+  "$RUN_DIR/01-draft-plan.md" "default" \
   "$PROMPTS/claude-planning.md" \
   "$RUN_DIR/task.md" \
   "$RUN_DIR/disputes.md"
@@ -44,16 +44,20 @@ ai_status "$RUN_ID" "Draft plan created (incl. self-review)"
 # --- Hand off to Codex for review ------------------------------------------
 ai_transfer "$RUN_ID" "Claude" "Codex" "docs/ai-plans/draft-plan.md" "Plan review required"
 ai_state_set "$RUN_ID" "PLAN_REVIEW_BY_CODEX"
+# disputes.md is included when present (on --resume after a dispute) so Codex
+# HONORS the user's recorded decision and never re-raises a waived finding.
 invoke_codex "$RUN_ID" "Planning" "review plan" \
   "$RUN_DIR/02-codex-plan-review.md" \
   "$PROMPTS/codex-plan-review.md" \
   "$RUN_DIR/task.md" \
-  "$RUN_DIR/01-draft-plan.md"
+  "$RUN_DIR/01-draft-plan.md" \
+  "$RUN_DIR/disputes.md"
 ai_mirror "$RUN_ID" "02-codex-plan-review.md" "codex-plan-review.md"
 ai_register_artifact "$RUN_ID" "codex-plan-review.md" "Codex" "Planning" "docs/ai-plans/codex-plan-review.md"
 
-VERDICT="$(ai_marker VERDICT "$RUN_DIR/02-codex-plan-review.md")"
-ai_status "$RUN_ID" "Codex plan review complete: ${VERDICT:-<none>}"
+# Missing verdict degrades to CHANGES_REQUESTED (force evaluation; never auto-approve).
+VERDICT="$(ai_marker_or VERDICT "$RUN_DIR/02-codex-plan-review.md" "CHANGES_REQUESTED")"
+ai_status "$RUN_ID" "Codex plan review complete: $VERDICT"
 
 # --- Fast path: clean approval --------------------------------------------
 if [ "$VERDICT" = "APPROVED" ]; then
@@ -61,7 +65,7 @@ if [ "$VERDICT" = "APPROVED" ]; then
   ai_transfer "$RUN_ID" "Codex" "Claude" "docs/ai-plans/final-plan.md" "Plan approved; finalize"
   ai_state_set "$RUN_ID" "PLAN_REVISION"
   invoke_claude "$RUN_ID" "Planning" "finalize plan (clean approval)" \
-    "$RUN_DIR/05-final-plan.md" "plan" \
+    "$RUN_DIR/05-final-plan.md" "default" \
     "$PROMPTS/claude-planning.md" \
     "$RUN_DIR/task.md" \
     "$RUN_DIR/01-draft-plan.md" \
@@ -79,15 +83,17 @@ ai_transfer "$RUN_ID" "Codex" "Claude" "docs/ai-plans/codex-plan-review.md" "Fin
 ai_state_set "$RUN_ID" "PLAN_REVISION"
 ai_status "$RUN_ID" "Claude evaluating Codex plan findings"
 invoke_claude "$RUN_ID" "Planning" "evaluate plan findings" \
-  "$RUN_DIR/03-claude-plan-evaluation.md" "plan" \
+  "$RUN_DIR/03-claude-plan-evaluation.md" "default" \
   "$PROMPTS/claude-review-response.md" \
   "$RUN_DIR/task.md" \
   "$RUN_DIR/01-draft-plan.md" \
-  "$RUN_DIR/02-codex-plan-review.md"
+  "$RUN_DIR/02-codex-plan-review.md" \
+  "$RUN_DIR/disputes.md"
 ai_register_artifact "$RUN_ID" "03-claude-plan-evaluation.md" "Claude" "Planning" ".ai/runs/$RUN_ID/03-claude-plan-evaluation.md"
 
-EVAL_STATUS="$(ai_marker EVALUATION_STATUS "$RUN_DIR/03-claude-plan-evaluation.md")"
-ai_decision "$RUN_ID" "Claude plan evaluation: ${EVAL_STATUS:-<none>}"
+# Missing eval status degrades to REJECTIONS_PENDING (triggers Codex validation).
+EVAL_STATUS="$(ai_marker_or EVALUATION_STATUS "$RUN_DIR/03-claude-plan-evaluation.md" "REJECTIONS_PENDING")"
+ai_decision "$RUN_ID" "Claude plan evaluation: $EVAL_STATUS"
 
 # --- Codex validates rejected findings (only if rejections pending) --------
 if [ "$EVAL_STATUS" = "REJECTIONS_PENDING" ]; then
@@ -97,11 +103,15 @@ if [ "$EVAL_STATUS" = "REJECTIONS_PENDING" ]; then
     "$RUN_DIR/04-codex-plan-validation.md" \
     "$PROMPTS/codex-plan-review.md" \
     "$RUN_DIR/02-codex-plan-review.md" \
-    "$RUN_DIR/03-claude-plan-evaluation.md"
+    "$RUN_DIR/03-claude-plan-evaluation.md" \
+    "$RUN_DIR/disputes.md"
   ai_register_artifact "$RUN_ID" "04-codex-plan-validation.md" "Codex" "Planning" ".ai/runs/$RUN_ID/04-codex-plan-validation.md"
 
-  DISPUTE_STATUS="$(ai_marker DISPUTE_STATUS "$RUN_DIR/04-codex-plan-validation.md")"
-  ai_status "$RUN_ID" "Codex validation: dispute status ${DISPUTE_STATUS:-<none>}"
+  # POSITIVE-EVIDENCE rule: a dispute opens only on an explicit
+  # `DISPUTE_STATUS: OPEN` or named UPHELD finding ids — a missing marker
+  # must not fabricate a dispute (see ai_dispute_status).
+  DISPUTE_STATUS="$(ai_dispute_status "$RUN_DIR/04-codex-plan-validation.md")"
+  ai_status "$RUN_ID" "Codex validation: dispute status $DISPUTE_STATUS"
 
   if [ "$DISPUTE_STATUS" = "OPEN" ]; then
     log_warn "Unresolved disagreement on the PLAN. Opening dispute."
@@ -115,7 +125,7 @@ fi
 ai_transfer "$RUN_ID" "Codex" "Claude" "docs/ai-plans/final-plan.md" "Finalize plan (findings resolved)"
 ai_state_set "$RUN_ID" "PLAN_REVISION"
 invoke_claude "$RUN_ID" "Planning" "finalize plan" \
-  "$RUN_DIR/05-final-plan.md" "plan" \
+  "$RUN_DIR/05-final-plan.md" "default" \
   "$PROMPTS/claude-planning.md" \
   "$RUN_DIR/task.md" \
   "$RUN_DIR/01-draft-plan.md" \

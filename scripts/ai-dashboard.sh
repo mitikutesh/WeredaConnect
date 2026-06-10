@@ -92,12 +92,13 @@ status_view() {
 # ---------------------------------------------------------------------------
 # tmux helpers
 # ---------------------------------------------------------------------------
-send() { tmux send-keys -t "$SESSION:control.$1" "$2" C-m; }
-
 build_dashboard() {
-  local task="${1:-}" root run_id orch
+  local task="${1:-}" root run_id orch L base p0 p1 p2 p3 inside=0 no_attach
   root="$(ai_repo_root)"
   orch="$SCRIPT_DIR/ai-orchestrator.sh"
+  L="$root/.ai/runs/latest"
+  no_attach="${AI_DASH_NO_ATTACH:-0}"
+  [ -n "${TMUX:-}" ] && inside=1
 
   command -v tmux >/dev/null 2>&1 || {
     log_warn "tmux is not installed — cannot render the dashboard."
@@ -123,49 +124,61 @@ build_dashboard() {
     log_step "Monitoring latest run: ${run_id:-latest}"
   fi
 
-  # (Re)create the session.
-  tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
-  tmux new-session -d -s "$SESSION" -n control -c "$root"
-  tmux set-option -t "$SESSION" pane-border-status top >/dev/null 2>&1 || true
-  tmux set-option -t "$SESSION" pane-border-format " #{pane_title} " >/dev/null 2>&1 || true
+  # Choose where to lay out the 4-pane grid:
+  #   • inside tmux (and attaching)  -> a NEW WINDOW in the current session, so
+  #     your shell is preserved at its own window (switch with Ctrl-b <n>).
+  #   • otherwise                    -> a dedicated `ai-control` session.
+  if [ "$inside" = "1" ] && [ "$no_attach" != "1" ]; then
+    base="$(tmux new-window -P -F '#{pane_id}' -n ai-control -c "$root")"
+  else
+    tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
+    tmux new-session -d -s "$SESSION" -n control -c "$root"
+    base="$(tmux display-message -p -t "$SESSION:control" '#{pane_id}')"
+  fi
 
-  # 2x2 grid: 0=TL 1=TR 2=BL 3=BR
-  tmux split-window -h -t "$SESSION:control"
-  tmux split-window -v -t "$SESSION:control.0"
-  tmux split-window -v -t "$SESSION:control.1"
-  tmux select-layout -t "$SESSION:control" tiled >/dev/null
+  # Window-scoped pane titles (don't disturb the user's other windows).
+  tmux set-option -w -t "$base" pane-border-status top >/dev/null 2>&1 || true
+  tmux set-option -w -t "$base" pane-border-format " #{pane_title} " >/dev/null 2>&1 || true
 
-  tmux select-pane -t "$SESSION:control.0" -T "Orchestrator"  >/dev/null 2>&1 || true
-  tmux select-pane -t "$SESSION:control.1" -T "Live Status"   >/dev/null 2>&1 || true
-  tmux select-pane -t "$SESSION:control.2" -T "Claude Output" >/dev/null 2>&1 || true
-  tmux select-pane -t "$SESSION:control.3" -T "Codex Output"  >/dev/null 2>&1 || true
+  # 2x2 grid by pane id: p0=TL p1=TR p2=BL p3=BR
+  p0="$base"
+  p1="$(tmux split-window -h -t "$p0" -c "$root" -P -F '#{pane_id}')"
+  p2="$(tmux split-window -v -t "$p0" -c "$root" -P -F '#{pane_id}')"
+  p3="$(tmux split-window -v -t "$p1" -c "$root" -P -F '#{pane_id}')"
+  tmux select-layout -t "$p0" tiled >/dev/null 2>&1 || true
 
-  local L="$root/.ai/runs/latest"
+  tmux select-pane -t "$p0" -T "Orchestrator"  >/dev/null 2>&1 || true
+  tmux select-pane -t "$p1" -T "Live Status"   >/dev/null 2>&1 || true
+  tmux select-pane -t "$p2" -T "Claude Output" >/dev/null 2>&1 || true
+  tmux select-pane -t "$p3" -T "Codex Output"  >/dev/null 2>&1 || true
 
   # Orchestrator pane
   if [ -n "$task" ]; then
-    send 0 "cd '$root' && '$orch' --resume '$run_id'; echo; echo '── orchestrator finished (state above) — this pane is interactive now ──'"
+    tmux send-keys -t "$p0" "cd '$root' && '$orch' --resume '$run_id'; echo; echo '── orchestrator finished (state above) — this pane is interactive now ──'" C-m
   else
-    send 0 "cd '$root' && echo 'Monitoring $run_id — workflow controller log (status.log):' && tail -n +1 -F '$L/status.log'"
+    tmux send-keys -t "$p0" "cd '$root' && echo 'Monitoring $run_id — controller log (status.log):' && tail -n +1 -F '$L/status.log'" C-m
   fi
-  # Live Status pane
-  send 1 "cd '$root' && '$SCRIPT_DIR/ai-dashboard.sh' --status-view"
-  # Claude / Codex full logs
-  send 2 "cd '$root' && tail -n +1 -F '$L/claude.log'"
-  send 3 "cd '$root' && tail -n +1 -F '$L/codex.log'"
+  tmux send-keys -t "$p1" "cd '$root' && '$SCRIPT_DIR/ai-dashboard.sh' --status-view" C-m
+  tmux send-keys -t "$p2" "cd '$root' && tail -n +1 -F '$L/claude.log'" C-m
+  tmux send-keys -t "$p3" "cd '$root' && tail -n +1 -F '$L/codex.log'" C-m
+  tmux select-pane -t "$p0" >/dev/null 2>&1 || true
 
-  tmux select-pane -t "$SESSION:control.0" >/dev/null 2>&1 || true
-
-  log_ok "Dashboard ready (session: $SESSION)."
-  # AI_DASH_NO_ATTACH=1 leaves the session running but does not attach
-  # (used by tests/CI to validate the layout without a TTY).
-  if [ "${AI_DASH_NO_ATTACH:-0}" = "1" ]; then
-    log_info "AI_DASH_NO_ATTACH=1 — session left detached. Attach with: tmux attach -t $SESSION"
+  log_ok "Dashboard ready."
+  # AI_DASH_NO_ATTACH=1 builds the layout but does not attach/focus (tests/CI).
+  if [ "$no_attach" = "1" ]; then
+    log_info "AI_DASH_NO_ATTACH=1 — left detached. Attach with: tmux attach -t $SESSION"
     return 0
   fi
-  if [ -n "${TMUX:-}" ]; then
-    tmux switch-client -t "$SESSION"
+
+  if [ "$inside" = "1" ]; then
+    local win
+    win="$(tmux display-message -p -t "$p0" '#{window_index}')"
+    log_ok "Control room opened as window '$win' (ai-control) in your current tmux session."
+    log_info "Your shell is still at its own window — jump back with Ctrl-b <its number>."
+    log_info "If your view didn't switch: Ctrl-b $win   (or Ctrl-b w to pick a window)."
+    tmux select-window -t "$p0" >/dev/null 2>&1 || true
   else
+    log_info "Attaching… (detach with Ctrl-b d)"
     tmux attach-session -t "$SESSION"
   fi
 }

@@ -48,6 +48,12 @@ Fill out the structure from `.ai/templates/plan.md`. Concretely include:
 
 ## Output contract
 
+- **This phase is read-only — do NOT create or edit any files.** Print the
+  complete document to stdout; the orchestrator captures stdout as the
+  artifact. File-write tools may be denied in this non-interactive phase
+  (the repo path contains a space, which can also trip path guards) — that is
+  expected, not an error. Never report a blocked write as a failure; the
+  inline document IS the deliverable.
 - Output **only** the plan Markdown (it becomes `draft-plan.md`).
 - When you are asked to **finalize** (the context will include a Codex review
   and possibly your own evaluation), produce the FINAL plan incorporating every

@@ -76,6 +76,58 @@ ai_templates_dir(){ echo "$(ai_repo_root)/.ai/templates"; }
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
 
 # ---------------------------------------------------------------------------
+# Concurrency lock — ONE pipeline run at a time.
+# Two concurrent runs fight over .ai/runs/latest + current-state.json and burn
+# tokens on duplicate work. The lock is an atomically-created DIRECTORY at
+# .ai/state/orchestrator.lock with a meta file (pid / run_id / started).
+# ---------------------------------------------------------------------------
+ai_lock_dir() { echo "$(ai_state_dir)/orchestrator.lock"; }
+
+# ai_lock_acquire <run_id-or-pending>  — dies with a clear message if an
+# ACTIVE run holds the lock; auto-clears a stale lock (owner pid dead).
+ai_lock_acquire() {
+  local run_id="$1" d meta pid owner started
+  d="$(ai_lock_dir)"; meta="$d/meta"
+  mkdir -p "$(ai_state_dir)"
+  if mkdir "$d" 2>/dev/null; then
+    printf 'pid=%s\nrun_id=%s\nstarted=%s\n' "$$" "$run_id" "$(ai_now_iso)" > "$meta"
+    AI_LOCK_HELD=1
+    return 0
+  fi
+  pid="$(sed -n 's/^pid=//p' "$meta" 2>/dev/null | head -1)"
+  owner="$(sed -n 's/^run_id=//p' "$meta" 2>/dev/null | head -1)"
+  started="$(sed -n 's/^started=//p' "$meta" 2>/dev/null | head -1)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    log_err "Another orchestration run is ACTIVE — refusing to start a second one."
+    log_info "  active run : ${owner:-unknown}"
+    log_info "  pid        : $pid   (started ${started:-?})"
+    log_info "  watch it   : scripts/ai-dashboard.sh --status-view"
+    log_info "  stop it    : kill $pid    (then re-run; stale lock auto-clears)"
+    log_info "  lock       : $d"
+    exit 1
+  fi
+  log_warn "Stale orchestrator lock (pid ${pid:-?} not running) — clearing it."
+  rm -f "$meta"; rmdir "$d" 2>/dev/null || true
+  mkdir "$d" 2>/dev/null || die "Could not acquire lock at $d (remove it manually if stale)."
+  printf 'pid=%s\nrun_id=%s\nstarted=%s\n' "$$" "$run_id" "$(ai_now_iso)" > "$meta"
+  AI_LOCK_HELD=1
+}
+
+# ai_lock_note <run_id> — update the run id in the lock meta once known.
+ai_lock_note() {
+  [ "${AI_LOCK_HELD:-0}" = "1" ] || return 0
+  printf 'pid=%s\nrun_id=%s\nstarted=%s\n' "$$" "$1" "$(ai_now_iso)" > "$(ai_lock_dir)/meta"
+}
+
+ai_lock_release() {
+  [ "${AI_LOCK_HELD:-0}" = "1" ] || return 0
+  rm -f "$(ai_lock_dir)/meta"
+  rmdir "$(ai_lock_dir)" 2>/dev/null || true
+  AI_LOCK_HELD=0
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Run identity
 # ---------------------------------------------------------------------------
 ai_new_run_id() {
@@ -342,11 +394,76 @@ ai_mark_failed() {
 # ---------------------------------------------------------------------------
 ai_marker() {
   local key="$1" file="$2"
-  [ -f "$file" ] || { echo ""; return; }
-  grep -E "^[[:space:]]*${key}:[[:space:]]*" "$file" \
+  [ -f "$file" ] || { echo ""; return 0; }
+  # Liberal in what we accept (Postel's law): real models often wrap the marker
+  # in Markdown — `VERDICT: X`, **VERDICT:** X, > VERDICT: X. We match the key
+  # after any run of leading non-alphanumerics (so "the VERDICT:" in prose does
+  # NOT match), strip the key + any decoration around the value, and take the
+  # LAST such line. `|| true` keeps a truly-absent marker NON-FATAL under
+  # `set -o pipefail` + `set -e` (yields "" / exit 0 — "unknown", not a crash).
+  { grep -E "^[^A-Za-z0-9]*${key}:" "$file" || true; } \
     | tail -n1 \
-    | sed -E "s/^[[:space:]]*${key}:[[:space:]]*//" \
-    | sed -E 's/[[:space:]]+$//'
+    | sed -E "s/^[^A-Za-z0-9]*${key}:[[:space:]]*//" \
+    | sed -E 's/^[^A-Za-z0-9]+//' \
+    | sed -E 's/[`*_[:space:]]+$//'
+  return 0
+}
+
+# ai_marker_or <key> <file> <default>
+# Like ai_marker, but a missing/empty marker degrades to <default> (and warns to
+# stderr, so a command-substitution still captures only the value). Use the SAFE
+# default at each call site — i.e. the one that keeps a human in the loop.
+ai_marker_or() {
+  local v; v="$(ai_marker "$1" "$2")"
+  if [ -z "$v" ]; then
+    { log_warn "Marker '$1' missing/empty in $(basename "$2") — defaulting to '$3' (safe path)."; } >&2
+    v="$3"
+  fi
+  printf '%s' "$v"
+}
+
+# ai_dispute_status <validation_file>
+# POSITIVE-EVIDENCE dispute detection. A missing marker must NOT fabricate a
+# dispute (observed false positive: Codex wrote `VERDICT: APPROVED` with no
+# DISPUTE_STATUS line and the old OPEN-default stopped the run). A dispute is
+# OPEN only with positive evidence: an explicit `DISPUTE_STATUS: OPEN` or
+# named `UPHELD:` finding ids.
+ai_dispute_status() {
+  local f="$1" ds up
+  ds="$(ai_marker DISPUTE_STATUS "$f")"
+  up="$(ai_marker UPHELD "$f" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+  case "$up" in ""|none|"(none)"|-|–|n/a|nil|"(empty)") up="" ;; esac
+  if [ -n "$up" ]; then
+    if [ "$ds" != "OPEN" ]; then
+      { log_warn "UPHELD findings present ($up) without 'DISPUTE_STATUS: OPEN' — treating as OPEN."; } >&2
+    fi
+    echo "OPEN"; return 0
+  fi
+  case "$ds" in
+    OPEN) echo "OPEN" ;;
+    NONE) echo "NONE" ;;
+    *)
+      { log_warn "No DISPUTE_STATUS / UPHELD markers in $(basename "$f") — no positive evidence of a dispute; treating as NONE."; } >&2
+      echo "NONE" ;;
+  esac
+}
+
+# _artifact_ok <file>
+# Reject garbage agent outputs that the CLI returned with exit 0 — observed in
+# the wild: a 15-byte file containing exactly `Execution error`, which then got
+# reviewed as if it were the plan. Invalid when: missing/empty, tiny (<40
+# bytes), or the first non-blank line is a known CLI failure signature.
+_artifact_ok() {
+  local f="$1" sz first
+  [ -s "$f" ] || return 1
+  sz="$(wc -c < "$f" | tr -d ' ')"
+  [ "$sz" -ge 40 ] || return 1
+  first="$(grep -m1 -vE '^[[:space:]]*$' "$f" 2>/dev/null || true)"
+  case "$first" in
+    "Execution error"*|"API Error"*|"Error:"*|"Request timed out"*|*"socket connection was closed"*)
+      return 1 ;;
+  esac
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -356,19 +473,22 @@ ai_marker() {
 # invoke_claude <run_id> <phase> <label> <out_file> <permission_mode> <prompt_file> [ctx...]
 invoke_claude() {
   local run_id="$1" phase="$2" label="$3" out="$4" mode="$5" prompt_file="$6"; shift 6
-  local clog prompt ctx tmp
+  local clog prompt ctx tmp ctxlist=""
   clog="$(ai_run_dir "$run_id")/claude.log"
+  mkdir -p "$(dirname "$clog")"   # self-heal if the run dir was removed mid-run
   prompt="$(cat "$prompt_file")"
   for ctx in "$@"; do
     [ -f "$ctx" ] || continue
     prompt+=$'\n\n=== CONTEXT: '"$(basename "$ctx")"$' ===\n'
     prompt+="$(cat "$ctx")"
+    ctxlist+="$(basename "$ctx") "
   done
 
   {
     echo
     echo "════════ CLAUDE · $phase · $label · $(ai_now_utc) ════════"
     echo "prompt-template: $prompt_file"
+    echo "context-files:   ${ctxlist:-(none)}"
     echo "output-artifact: $(basename "$out")"
     echo "permission-mode: $mode"
     echo "────────────────────────────────────────────────────────"
@@ -383,40 +503,62 @@ invoke_claude() {
   fi
 
   require_cmd "$CLAUDE_BIN"
-  local model_args=()
+  local model_args=() attempts="${AI_MAX_ATTEMPTS:-2}" attempt=1
   [ -n "${CLAUDE_MODEL:-}" ] && model_args=(--model "$CLAUDE_MODEL")
   tmp="${out}.partial"
-  # ${arr[@]+"${arr[@]}"} guards empty-array expansion under `set -u` on bash 3.2.
-  if "$CLAUDE_BIN" -p "$prompt" \
-        --permission-mode "$mode" \
-        --output-format text \
-        ${model_args[@]+"${model_args[@]}"} \
-        > "$tmp" 2> >(sed 's/^/[claude] /' | tee -a "$clog" >&2); then
-    cat "$tmp" >> "$clog"; mv "$tmp" "$out"
-  else
-    cat "$tmp" >> "$clog" 2>/dev/null || true; rm -f "$tmp"
-    ai_emit_event "$run_id" "Claude" "AGENT_FAILED" "$phase" "$(basename "$out")" "Claude invocation failed"
-    die "Claude invocation failed (see $clog)."
-  fi
+  # Validate-and-retry: the CLI can exit 0 yet emit garbage ("Execution error").
+  while :; do
+    echo "[attempt $attempt/$attempts]" >> "$clog"
+    # AI_ORCH_GUARD=1 arms the PreToolUse hook tripwire: pipeline-spawned
+    # Claude can never commit/push/merge/deploy even in a relaxed permission
+    # mode. ${arr[@]+…} guards empty-array expansion (set -u, bash 3.2).
+    if AI_ORCH_GUARD=1 "$CLAUDE_BIN" -p "$prompt" \
+          --permission-mode "$mode" \
+          --output-format text \
+          ${model_args[@]+"${model_args[@]}"} \
+          > "$tmp" 2> >(sed 's/^/[claude] /' | tee -a "$clog" >&2); then
+      cat "$tmp" >> "$clog"; mv "$tmp" "$out"
+      if _artifact_ok "$out"; then
+        break
+      fi
+      mv "$out" "${out}.bad${attempt}" 2>/dev/null || true
+      log_warn "Claude returned an invalid artifact (attempt $attempt/$attempts) — kept as $(basename "$out").bad${attempt}"
+      echo "[invalid artifact — saved as $(basename "$out").bad${attempt}]" >> "$clog"
+    else
+      cat "$tmp" >> "$clog" 2>/dev/null || true; rm -f "$tmp"
+      log_warn "Claude CLI invocation failed (attempt $attempt/$attempts)"
+      echo "[CLI failure on attempt $attempt]" >> "$clog"
+    fi
+    if [ "$attempt" -ge "$attempts" ]; then
+      ai_emit_event "$run_id" "Claude" "AGENT_FAILED" "$phase" "$(basename "$out")" "Claude failed after $attempts attempt(s): $label"
+      die "Claude failed after $attempts attempt(s) (see $clog)."
+    fi
+    ai_emit_event "$run_id" "Claude" "AGENT_RETRY" "$phase" "$(basename "$out")" "Retrying Claude: $label"
+    attempt=$((attempt+1))
+    sleep 3
+  done
   ai_emit_event "$run_id" "Claude" "AGENT_COMPLETED" "$phase" "$(basename "$out")" "Claude finished: $label"
 }
 
 # invoke_codex <run_id> <phase> <label> <out_file> <prompt_file> [ctx...]
 invoke_codex() {
   local run_id="$1" phase="$2" label="$3" out="$4" prompt_file="$5"; shift 5
-  local cdlog prompt ctx
+  local cdlog prompt ctx ctxlist=""
   cdlog="$(ai_run_dir "$run_id")/codex.log"
+  mkdir -p "$(dirname "$cdlog")"   # self-heal if the run dir was removed mid-run
   prompt="$(cat "$prompt_file")"
   for ctx in "$@"; do
     [ -f "$ctx" ] || continue
     prompt+=$'\n\n=== CONTEXT: '"$(basename "$ctx")"$' ===\n'
     prompt+="$(cat "$ctx")"
+    ctxlist+="$(basename "$ctx") "
   done
 
   {
     echo
     echo "════════ CODEX · $phase · $label · $(ai_now_utc) ════════"
     echo "prompt-template: $prompt_file"
+    echo "context-files:   ${ctxlist:-(none)}"
     echo "output-artifact: $(basename "$out")"
     echo "sandbox: read-only"
     echo "────────────────────────────────────────────────────────"
@@ -431,20 +573,37 @@ invoke_codex() {
   fi
 
   require_cmd "$CODEX_BIN"
-  local model_args=()
+  local model_args=() attempts="${AI_MAX_ATTEMPTS:-2}" attempt=1
   [ -n "${CODEX_MODEL:-}" ] && model_args=(--model "$CODEX_MODEL")
-  if "$CODEX_BIN" exec "$prompt" \
-        --sandbox read-only \
-        --skip-git-repo-check \
-        -C "$(ai_repo_root)" \
-        ${model_args[@]+"${model_args[@]}"} \
-        -o "$out" \
-        > >(sed 's/^/[codex] /' | tee -a "$cdlog") 2>&1; then
-    { echo "──── produced artifact ($(basename "$out")) ────"; cat "$out"; } >> "$cdlog"
-  else
-    ai_emit_event "$run_id" "Codex" "AGENT_FAILED" "$phase" "$(basename "$out")" "Codex invocation failed"
-    die "Codex invocation failed (see $cdlog)."
-  fi
+  # Validate-and-retry: the CLI can exit 0 yet emit garbage ("Execution error").
+  while :; do
+    echo "[attempt $attempt/$attempts]" >> "$cdlog"
+    if "$CODEX_BIN" exec "$prompt" \
+          --sandbox read-only \
+          --skip-git-repo-check \
+          -C "$(ai_repo_root)" \
+          ${model_args[@]+"${model_args[@]}"} \
+          -o "$out" \
+          > >(sed 's/^/[codex] /' | tee -a "$cdlog") 2>&1; then
+      if _artifact_ok "$out"; then
+        { echo "──── produced artifact ($(basename "$out")) ────"; cat "$out"; } >> "$cdlog"
+        break
+      fi
+      mv "$out" "${out}.bad${attempt}" 2>/dev/null || true
+      log_warn "Codex returned an invalid artifact (attempt $attempt/$attempts) — kept as $(basename "$out").bad${attempt}"
+      echo "[invalid artifact — saved as $(basename "$out").bad${attempt}]" >> "$cdlog"
+    else
+      log_warn "Codex CLI invocation failed (attempt $attempt/$attempts)"
+      echo "[CLI failure on attempt $attempt]" >> "$cdlog"
+    fi
+    if [ "$attempt" -ge "$attempts" ]; then
+      ai_emit_event "$run_id" "Codex" "AGENT_FAILED" "$phase" "$(basename "$out")" "Codex failed after $attempts attempt(s): $label"
+      die "Codex failed after $attempts attempt(s) (see $cdlog)."
+    fi
+    ai_emit_event "$run_id" "Codex" "AGENT_RETRY" "$phase" "$(basename "$out")" "Retrying Codex: $label"
+    attempt=$((attempt+1))
+    sleep 3
+  done
   ai_emit_event "$run_id" "Codex" "AGENT_COMPLETED" "$phase" "$(basename "$out")" "Codex finished: $label"
 }
 

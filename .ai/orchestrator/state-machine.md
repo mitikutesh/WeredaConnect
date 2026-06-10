@@ -96,6 +96,38 @@ Agents emit single-line markers parsed by `ai_marker` (last occurrence wins):
 | `DISPUTE_STATUS:` | Codex validation | `NONE` · `OPEN` |
 | `UPHELD:` | Codex validation | comma-separated finding ids (may be empty) |
 
+**Missing markers degrade safely, never crash.** `ai_marker` is non-fatal under
+`set -o pipefail` (a real model that omits the exact marker line yields `""`,
+not an aborted run). Phase scripts read markers via `ai_marker_or <key> <file>
+<default>`, where the default keeps a human in the loop:
+
+| Marker absent | Behavior | Effect |
+|---------------|----------|--------|
+| `VERDICT` | default `CHANGES_REQUESTED` | force evaluation; never auto-approve |
+| `EVALUATION_STATUS` | default `REJECTIONS_PENDING` | trigger Codex validation |
+| `DISPUTE_STATUS` | **positive-evidence rule** (`ai_dispute_status`) | a dispute opens ONLY on an explicit `DISPUTE_STATUS: OPEN` or named `UPHELD:` finding ids; a missing marker is treated as `NONE` so it cannot fabricate a dispute |
+
+A warning is logged whenever a default/inference is applied.
+
+**Garbage-output guard.** The agent CLIs can exit 0 yet emit a junk artifact
+(observed: a 15-byte file containing only `Execution error`). `invoke_claude`/
+`invoke_codex` validate every artifact (`_artifact_ok`: non-empty, ≥40 bytes,
+first line not a known CLI failure signature) and retry up to `AI_MAX_ATTEMPTS`
+(default 2); invalid attempts are kept as `<artifact>.bad<n>` for audit, and
+exhaustion marks the run `FAILED`.
+
+**Concurrency.** Exactly ONE pipeline run at a time: `run`/`--resume` take an
+atomic lock at `.ai/state/orchestrator.lock` (auto-released on exit, stale
+locks auto-clear when the owning pid is dead). A second invocation refuses to
+start and prints the active run, its pid, and how to watch or stop it.
+
+### User decisions are binding
+
+After a dispute, the user's recorded decision in `disputes.md` is fed to **both**
+agents on resume; a waived finding must not be re-raised (enforced in the Codex
+review/validation prompts). This guarantees convergence rather than a re-opened
+dispute loop.
+
 ### Transition logic per review round
 
 ```
