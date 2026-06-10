@@ -1,0 +1,67 @@
+{
+  "artifacts": [
+    {
+      "name": "task.md",
+      "path": ".ai/runs/20260610-115800-add-phone-validation-to-login/task.md",
+      "creator": "User",
+      "phase": "Intake",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:00Z",
+      "modified_at": "2026-06-10T08:58:00Z"
+    },
+    {
+      "name": "draft-plan.md",
+      "path": "docs/ai-plans/draft-plan.md",
+      "creator": "Claude",
+      "phase": "Planning",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:01Z",
+      "modified_at": "2026-06-10T08:58:01Z"
+    },
+    {
+      "name": "codex-plan-review.md",
+      "path": "docs/ai-plans/codex-plan-review.md",
+      "creator": "Codex",
+      "phase": "Planning",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:02Z",
+      "modified_at": "2026-06-10T08:58:02Z"
+    },
+    {
+      "name": "final-plan.md",
+      "path": "docs/ai-plans/final-plan.md",
+      "creator": "Claude",
+      "phase": "Planning",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:03Z",
+      "modified_at": "2026-06-10T08:58:03Z"
+    },
+    {
+      "name": "06-execution-summary.md",
+      "path": ".ai/runs/20260610-115800-add-phone-validation-to-login/06-execution-summary.md",
+      "creator": "Claude",
+      "phase": "Execution",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:04Z",
+      "modified_at": "2026-06-10T08:58:04Z"
+    },
+    {
+      "name": "07-implementation.diff",
+      "path": ".ai/runs/20260610-115800-add-phone-validation-to-login/07-implementation.diff",
+      "creator": "Claude",
+      "phase": "Execution",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:05Z",
+      "modified_at": "2026-06-10T08:58:05Z"
+    },
+    {
+      "name": "codex-code-review.md",
+      "path": "docs/ai-plans/codex-code-review.md",
+      "creator": "Codex",
+      "phase": "Review",
+      "run_id": "20260610-115800-add-phone-validation-to-login",
+      "created_at": "2026-06-10T08:58:06Z",
+      "modified_at": "2026-06-10T08:58:06Z"
+    }
+  ]
+}
