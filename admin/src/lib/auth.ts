@@ -6,11 +6,13 @@ import {
 } from "amazon-cognito-identity-js";
 
 function getUserPool(): CognitoUserPool {
-  const poolId = import.meta.env.VITE_COGNITO_USER_POOL_ID || "";
+  // AdminClient belongs to the dedicated AdminUserPool (infra api-stack.ts),
+  // not the main user pool — pair it with the admin pool ID.
+  const poolId = import.meta.env.VITE_COGNITO_ADMIN_USER_POOL_ID || "";
   const clientId = import.meta.env.VITE_COGNITO_ADMIN_CLIENT_ID || "";
   if (!poolId || !clientId) {
     throw new Error(
-      "Missing Cognito config: set VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_ADMIN_CLIENT_ID in .env",
+      "Missing Cognito config: set VITE_COGNITO_ADMIN_USER_POOL_ID and VITE_COGNITO_ADMIN_CLIENT_ID in .env",
     );
   }
   return new CognitoUserPool({ UserPoolId: poolId, ClientId: clientId });

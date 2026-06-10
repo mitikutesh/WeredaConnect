@@ -249,6 +249,7 @@ if [[ "$MANUAL" == true ]]; then
   API_BASE_URL=$(prompt_value "API_BASE_URL" "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com")
   COGNITO_USER_POOL_ID=$(prompt_value "COGNITO_USER_POOL_ID" "eu-north-1_1LL9tzoxw")
   COGNITO_CLIENT_ID=$(prompt_value "COGNITO_CLIENT_ID (mobile)" "5s1bblbi8vl6cb58q02vk9paml")
+  COGNITO_ADMIN_USER_POOL_ID=$(prompt_value "COGNITO_ADMIN_USER_POOL_ID (admin pool — AdminUserPoolId output)")
   COGNITO_ADMIN_CLIENT_ID=$(prompt_value "COGNITO_ADMIN_CLIENT_ID" "5v277d3f7kufgp5661njtnsi36")
   COGNITO_REGION=$(prompt_value "COGNITO_REGION" "$AWS_REGION")
 
@@ -271,6 +272,9 @@ else
   API_BASE_URL=$(get_stack_output "$API_STACK" "ApiUrl")
   COGNITO_USER_POOL_ID=$(get_stack_output "$API_STACK" "UserPoolId")
   COGNITO_CLIENT_ID=$(get_stack_output "$API_STACK" "UserPoolClientId")
+  # The admin SPA authenticates against the dedicated AdminUserPool,
+  # not the main user pool (see .github/workflows/deploy-admin.yml).
+  COGNITO_ADMIN_USER_POOL_ID=$(get_stack_output "$API_STACK" "AdminUserPoolId")
   COGNITO_ADMIN_CLIENT_ID=$(get_stack_output "$API_STACK" "AdminClientId")
   COGNITO_REGION="$AWS_REGION"
 
@@ -284,6 +288,9 @@ else
   fi
   if [[ -z "$COGNITO_ADMIN_CLIENT_ID" && -f "$PROJECT_ROOT/admin/.env" ]]; then
     COGNITO_ADMIN_CLIENT_ID=$(grep '^VITE_COGNITO_ADMIN_CLIENT_ID=' "$PROJECT_ROOT/admin/.env" | cut -d= -f2-)
+  fi
+  if [[ -z "$COGNITO_ADMIN_USER_POOL_ID" && -f "$PROJECT_ROOT/admin/.env" ]]; then
+    COGNITO_ADMIN_USER_POOL_ID=$(grep '^VITE_COGNITO_ADMIN_USER_POOL_ID=' "$PROJECT_ROOT/admin/.env" | cut -d= -f2-)
   fi
 
   # S3 Buckets — deterministic names from CDK
@@ -321,6 +328,7 @@ echo "  AWS_DEPLOY_ROLE_ARN         = ${DEPLOY_ROLE_ARN:-(empty)}"
 echo "  API_BASE_URL                = ${API_BASE_URL:-(empty)}"
 echo "  COGNITO_USER_POOL_ID        = ${COGNITO_USER_POOL_ID:-(empty)}"
 echo "  COGNITO_CLIENT_ID           = ${COGNITO_CLIENT_ID:-(empty)}"
+echo "  COGNITO_ADMIN_USER_POOL_ID  = ${COGNITO_ADMIN_USER_POOL_ID:-(empty)}"
 echo "  COGNITO_ADMIN_CLIENT_ID     = ${COGNITO_ADMIN_CLIENT_ID:-(empty)}"
 echo "  COGNITO_REGION              = ${COGNITO_REGION:-(empty)}"
 echo "  WEBSITE_S3_BUCKET           = ${WEBSITE_S3_BUCKET:-(empty)}"
@@ -349,6 +357,7 @@ set_secret "AWS_DEPLOY_ROLE_ARN"        "$DEPLOY_ROLE_ARN"
 set_secret "API_BASE_URL"               "$API_BASE_URL"
 set_secret "COGNITO_USER_POOL_ID"       "$COGNITO_USER_POOL_ID"
 set_secret "COGNITO_CLIENT_ID"          "$COGNITO_CLIENT_ID"
+set_secret "COGNITO_ADMIN_USER_POOL_ID" "$COGNITO_ADMIN_USER_POOL_ID"
 set_secret "COGNITO_ADMIN_CLIENT_ID"    "$COGNITO_ADMIN_CLIENT_ID"
 set_secret "COGNITO_REGION"             "$COGNITO_REGION"
 set_secret "WEBSITE_S3_BUCKET"          "$WEBSITE_S3_BUCKET"

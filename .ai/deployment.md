@@ -133,7 +133,7 @@ aws cloudfront create-invalidation --distribution-id <ID> --paths "/index.html" 
 # Admin dashboard
 cd admin
 VITE_API_BASE_URL=$API_BASE_URL \
-VITE_COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID \
+VITE_COGNITO_ADMIN_USER_POOL_ID=$COGNITO_ADMIN_USER_POOL_ID \
 VITE_COGNITO_ADMIN_CLIENT_ID=$COGNITO_ADMIN_CLIENT_ID \
 VITE_COGNITO_REGION=eu-north-1 \
 npm run build
