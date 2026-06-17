@@ -68,9 +68,10 @@ public class TripFunction
     /// Query parameters: truckerId, fromWoreda, toWoreda, status, minCapacity, maxPrice,
     /// departureDateFrom, departureDateTo, limit, nextToken
     ///
-    /// Role-based visibility:
+    /// Role-based visibility (F-36 — browse-all is Buyer/Admin only):
     /// - Trucker: can only see own trips (truckerId forced to authenticated userId)
-    /// - Farmer/Buyer/Admin/Unauthenticated: can browse all trips
+    /// - Buyer / Admin: can browse all trips
+    /// - Farmer / unknown role / unauthenticated: 403 TRIP_FORBIDDEN
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,
@@ -97,6 +98,15 @@ public class TripFunction
                     "Truckers can only view their own trip listings.");
             }
             truckerId = authenticatedUserId;
+        }
+        else if (!string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase)
+                 && !AdminAuthHelper.IsAdmin(request))
+        {
+            // F-36: only buyers and admins may browse all trip listings. Farmers,
+            // unknown roles, and unauthenticated callers are forbidden (CRITICAL
+            // role-visibility rule — only buyers see ALL listings).
+            return LambdaResponse.Error(403, "TRIP_FORBIDDEN",
+                "Only buyers and administrators can browse trip listings.");
         }
 
         // Parse limit (default 20, max 50)
@@ -217,9 +227,10 @@ public class TripFunction
     /// <summary>
     /// GET /trips/{id} - Get a single trip listing by ID.
     ///
-    /// Role-based visibility:
+    /// Role-based visibility (F-36 — Buyer/Admin only, plus owning Trucker):
     /// - Trucker: can only view own trips (403 if trip belongs to another trucker)
-    /// - Farmer/Buyer/Admin/Unauthenticated: can view any trip
+    /// - Buyer / Admin: can view any trip
+    /// - Farmer / unknown role / unauthenticated: 403 TRIP_FORBIDDEN
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripByIdAsync(
         APIGatewayProxyRequest request,
@@ -252,7 +263,7 @@ public class TripFunction
                 return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
             }
 
-            // Role-based visibility: truckers can only view their own trips
+            // Role-based visibility (F-36): trucker (own only), buyer/admin (any), else 403.
             var role = AuthHelper.GetClaim(request, "custom:role");
             if (string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase))
             {
@@ -263,6 +274,12 @@ public class TripFunction
                     return LambdaResponse.Error(403, "TRIP_FORBIDDEN",
                         "Truckers can only view their own trip listings.");
                 }
+            }
+            else if (!string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase)
+                     && !AdminAuthHelper.IsAdmin(request))
+            {
+                return LambdaResponse.Error(403, "TRIP_FORBIDDEN",
+                    "Only buyers and administrators can view trip listings.");
             }
 
             var isAuthenticated = IsAuthenticated(request);
