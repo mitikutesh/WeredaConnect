@@ -2,7 +2,7 @@
 
 **Purpose**: Complete feature inventory with prioritization scoring for all 31 features (F-01 through F-31). This file contains the full scoring details, deferred roadmap phases, and the priority ranking table. For the active roadmap and sprint status, see [ROADMAP.md](ROADMAP.md).
 
-**Last Updated**: 2026-06-17 (Section 9 — audit-remediation bugs F-32/F-33/F-34; re-verification flagged items F-35/F-36/F-37)
+**Last Updated**: 2026-06-18 (Section 9 — audit-remediation bugs F-32/F-33/F-34; re-verification flagged items F-35/F-36/F-37; F-38 driving-license KYC upload follow-up)
 
 ---
 
@@ -642,7 +642,7 @@ Features failing 3+ gates are marked DEFERRED.
 Three confirmed defects from the 2026-06-17 repository-wide adversarial audit that each require a **cross-file / cross-module** change (not a one-spot patch). All three survived adversarial verification against the live code and were re-confirmed during PO scoping. **PO priority order: F-34 (#1) → F-33 (#2) → F-32 (#3)** — F-34 is ranked above its raw score because it is the only LIVE breach of the CRITICAL role-visibility invariant (automatic-FAIL domain). Source: PO investigator workflow `wf_061429c4-fa8`.
 
 ### F-32: Registration Drops Trucker License + Buyer Type/Company Name ✅ DONE
-- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `cb1a24e`). **Scope decision resolved → Option A**: `buyerType`/`companyName` are now persisted server-side (mobile UI → BLoC → AuthService → request body → `RegisterRequest`/validator/`UserDto`/`UserRepository` → DynamoDB, echoed in the response); the trucker driving-license is kept **LOCAL-ONLY** in Isar (captured + cached on-device via `cacheCredentials`/`saveUserToIsar`, never transmitted) until an image-upload pipeline exists. Role-conditional validation added (buyerType ∈ {private,company}; companyName required iff company; both rejected for non-buyers). Contracts (`auth-api.md`, `user-entity.md`) updated. Tests: 6 validator + 2 repo round-trip (server) + 1 BLoC forwarding (mobile). Server build + **727 tests**; `flutter analyze` clean, **856 tests**, web build OK. **Follow-up (separate ticket):** Scope B — driving-license S3 upload pipeline + `drivingLicenseRef`.
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `cb1a24e`). **Scope decision resolved → Option A**: `buyerType`/`companyName` are now persisted server-side (mobile UI → BLoC → AuthService → request body → `RegisterRequest`/validator/`UserDto`/`UserRepository` → DynamoDB, echoed in the response); the trucker driving-license is kept **LOCAL-ONLY** in Isar (captured + cached on-device via `cacheCredentials`/`saveUserToIsar`, never transmitted) until an image-upload pipeline exists. Role-conditional validation added (buyerType ∈ {private,company}; companyName required iff company; both rejected for non-buyers). Contracts (`auth-api.md`, `user-entity.md`) updated. Tests: 6 validator + 2 repo round-trip (server) + 1 BLoC forwarding (mobile). Server build + **727 tests**; `flutter analyze` clean, **856 tests**, web build OK. **Follow-up:** Scope B (driving-license S3 upload + `drivingLicenseRef`) is tracked as **F-38** below.
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 3 | Company-buyer identity (type + company name) underpins invoicing/KYC for higher-value B2B purchases — enables, doesn't directly generate |
@@ -665,6 +665,34 @@ Three confirmed defects from the 2026-06-17 repository-wide adversarial audit th
   4. Tests: `RegisterFunctionTests.cs`, `UserRepositoryTests.cs`, `auth_bloc_test.dart`, NEW `registration_flow_test.dart`, NEW `auth_service_test.dart`. Verify all 3 roles + `flutter build web` + `dotnet build/test`.
 - **Responsible Agent**: @Mobile, @Server, @Reviewer (role-visibility + cross-platform are CRITICAL gates)
 - **Target Sprint**: Sprint 2 (after the scope-decision gate)
+
+### F-38: Trucker Driving-License S3 Upload (KYC) — Scope B follow-up to F-32
+*(Follow-up **feature**, not an audit defect. Spawned by the F-32 Option-A decision, which deliberately kept the driving-license local-only because no registration upload pipeline existed.)*
+
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 2 | Indirect — verified trucker identity underpins trust in who moves goods + handles escrow-backed deliveries; enabling, not directly revenue-generating |
+| Risk Reduction | 4 | Captures trucker KYC server-side (currently the license never leaves the device), a real fraud/identity control for the logistics + escrow flow |
+| User Adoption | 2 | Trucker-only onboarding step; modest UX surface |
+| Compliance | 4 | KYC for a payments/escrow marketplace; aligns with Ethiopia's 2026 digital-ID / financial-integrity direction |
+| Complexity | 3 | Has a ready template (the F-12 delivery-photo presigned-S3 pipeline); work is a near-copy plus sensitive-PII handling + DTO/contract wiring |
+| **Priority Score** | **9** | |
+
+- **PO Gates**: Fraud (YES), Offline (NO — upload needs connectivity; license is captured offline and uploaded on reconnect), Ops (NO), Revenue (NO), Policy (YES) = 2/5 PASS
+- **Layer**: 1-2 - Trust / KYC
+- **Type / Severity**: FEATURE (KYC enablement) — MEDIUM. Not a defect; F-32 already prevents data loss locally.
+- **Why Now / Why Later**: F-32 (DONE) captures the license to local Isar but never transmits it, so trucker identity can't be verified server-side. This ticket completes the trucker-verification story. It is **not urgent** — the data is safe on-device — so it slots into production hardening alongside real-auth/KYC work.
+- **Reuse (the template already exists)**: model on the F-12 delivery-photo pipeline — `DeliveryFunction.cs` `POST /deliveries/{id}/photos` issues a presigned S3 PUT URL via `IAmazonS3.GetPreSignedURL` (key `uploads/photos/{deliveryId}/...`) against the existing `uploadsBucket` (`grantReadWrite`, `UPLOADS_BUCKET` env), and `SyncFunction` validates the key format. No new bucket needed — reuse `uploadsBucket` with a `uploads/kyc/{userId}/...` prefix.
+- **Risk If Delayed**: Trucker driving-license verification remains impossible server-side; KYC/fraud posture on the logistics + escrow flow stays weaker.
+- **Dependencies**: F-32 (DONE — license captured to Isar). Reuses the existing `uploadsBucket` + presigned-URL pattern. No new infra bucket.
+- **Next Engineering Task**:
+  1. Server: add a presigned-PUT endpoint for KYC docs (e.g. `POST /uploads/driving-license` returning a presigned URL for key `uploads/kyc/{userId}/driving-license-{timestamp}.{ext}`), modeled on `DeliveryFunction.HandlePhotoUpload`. Add `DrivingLicenseRef` to `RegisterRequest`/`UserDto` (trucker-only validation in `RequestValidator`); persist + marshal in `UserRepository` (mirrors F-32 buyer fields). Register the auth/upload Lambda for `uploadsBucket` presign on the `kyc/` prefix (least-privilege). Add key-format validation (mirror `SyncFunction` photo regex).
+  2. Mobile: after capturing the license (`role_details_screen`/`photo_manager`), request a presigned URL and upload to S3 (reuse the delivery-photo upload path), then send `drivingLicenseRef` in registration (or a follow-up profile update). Keep `drivingLicensePath` locally; set `drivingLicenseRef` once uploaded.
+  3. Security/compliance: KYC images are sensitive PII — confirm `uploadsBucket` SSE + block-public-access (already set), restrict GET to admin via presigned-GET only, and add access logging/retention notes. Reviewer gate for PII handling.
+  4. Contracts: update `auth-api.md` + `user-entity.md` (`drivingLicenseRef` becomes a transmitted field; supersedes the "local-only" note).
+  5. Tests: server presigned-URL handler + validation + repo round-trip; mobile upload + ref-wiring; verify all 3 roles (only trucker uploads).
+- **Responsible Agent**: @Server, @Mobile, @Infra, @Reviewer (PII handling gate)
+- **Target Sprint**: Sprint 3 (production readiness) — pairs with real-auth/KYC hardening (S3-02); not MVP-blocking.
 
 ### F-33: Web Escrow "By Delivery" Returns the Wrong Escrow
 | Dimension | Score | Rationale |

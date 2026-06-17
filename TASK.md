@@ -112,6 +112,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S3-05 | Add Flutter web E2E tests | 4h | Pending |
 | S3-06 | OTP resend + forgot password | 8h | Pending |
 | F-37 | Fix E2E webapp auth-injection (false-green) — pairs with S3-05 (BACKLOG §9; ⚠ blocked on auth-seam decision; sequence after F-36) | ~1-1.5d | Pending |
+| F-38 | Trucker driving-license S3 upload (KYC) — Scope B follow-up to F-32; reuse delivery-photo presigned-S3 pipeline (BACKLOG §9) | ~1.5-2d | Pending |
 
 ---
 
