@@ -110,7 +110,10 @@ public class AdminFunction
         var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Trucker");
         var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Buyer");
         var escrowsCount = await ScanCountAsync(_escrowsTable);
-        var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "held");
+        // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
+        // sets this after a successful Telebirr hold); "held" is never written to the
+        // escrow record, so the old filter always counted 0.
+        var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
         var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "active");
@@ -290,6 +293,9 @@ public class AdminFunction
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
             UpdateExpression = "SET #status = :newStatus, #updatedAt = :now, #resolution = :resolution, #resolvedBy = :resolvedBy, #resolvedAt = :resolvedAt",
+            // Only resolve an escrow that is actually disputed — prevents force-
+            // transitioning held/released/refunded/already-resolved escrows.
+            ConditionExpression = "#status = :disputed",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
@@ -304,11 +310,20 @@ public class AdminFunction
                 { ":now", new AttributeValue { S = now } },
                 { ":resolution", new AttributeValue { S = body.Resolution } },
                 { ":resolvedBy", new AttributeValue { S = adminUserId } },
-                { ":resolvedAt", new AttributeValue { S = now } }
+                { ":resolvedAt", new AttributeValue { S = now } },
+                { ":disputed", new AttributeValue { S = "disputed" } }
             }
         };
 
-        await _dynamoDb.UpdateItemAsync(updateRequest);
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(updateRequest);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return LambdaResponse.Error(409, "ADMIN_010",
+                "Escrow is not in a disputed state.");
+        }
 
         var response = new ResolveDisputeResponse
         {
@@ -730,7 +745,9 @@ public class AdminFunction
 
         var total = await ScanCountAsync(_escrowsTable);
         var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "released");
-        var pending = await ScanCountWithFilterAsync(_escrowsTable, "status", "held");
+        // In-flight (funded, not yet released) escrows are stored as "escrowed",
+        // not "held" — the old filter always returned 0.
+        var pending = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputed = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var refunded = await ScanCountWithFilterAsync(_escrowsTable, "status", "refunded");
         var (totalVolume, _) = await ScanEscrowTotalsAsync();
@@ -1014,30 +1031,43 @@ public class AdminFunction
                 { "userId", new AttributeValue { S = id } }
             }).ToList();
 
-            var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest
+            var requestItems = new Dictionary<string, KeysAndAttributes>
             {
-                RequestItems = new Dictionary<string, KeysAndAttributes>
                 {
+                    _usersTable,
+                    new KeysAndAttributes
                     {
-                        _usersTable,
-                        new KeysAndAttributes
-                        {
-                            Keys = keys,
-                            ProjectionExpression = "userId, displayName"
-                        }
+                        Keys = keys,
+                        ProjectionExpression = "userId, displayName"
                     }
                 }
-            });
+            };
 
-            if (response.Responses.TryGetValue(_usersTable, out var items))
+            // BatchGetItem can return UnprocessedKeys on partial results (response-size
+            // cap or throttling) WITHOUT throwing; the low-level client does not auto-retry.
+            // Re-issue with the leftover keys (bounded) so name enrichment isn't silently dropped.
+            var attempts = 0;
+            while (requestItems.Count > 0 && attempts++ < 5)
             {
-                foreach (var item in items)
+                var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest
                 {
-                    var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
-                    var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
-                    if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
-                        result[id] = name;
+                    RequestItems = requestItems
+                });
+
+                if (response.Responses.TryGetValue(_usersTable, out var items))
+                {
+                    foreach (var item in items)
+                    {
+                        var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
+                        var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                            result[id] = name;
+                    }
                 }
+
+                requestItems = response.UnprocessedKeys is { Count: > 0 }
+                    ? response.UnprocessedKeys
+                    : new Dictionary<string, KeysAndAttributes>();
             }
         }
 

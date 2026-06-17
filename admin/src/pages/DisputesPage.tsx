@@ -20,8 +20,16 @@ export function DisputesPage() {
   function handleResolve(id: string, winner: "farmer" | "buyer") {
     setResolvingId(id);
     setErrorMsg(null);
+    // Server contract (ResolveDisputeRequest) requires `resolution` + `action`.
+    // Map the winner to the outcome (farmer wins → release funds; buyer wins → refund).
     resolveDispute.mutate(
-      { id, resolution: { winner } },
+      {
+        id,
+        body: {
+          resolution: winner === "farmer" ? "farmer_wins" : "buyer_wins",
+          action: winner === "farmer" ? "release" : "refund",
+        },
+      },
       {
         onSettled: () => setResolvingId(null),
         onError: (err: unknown) => {

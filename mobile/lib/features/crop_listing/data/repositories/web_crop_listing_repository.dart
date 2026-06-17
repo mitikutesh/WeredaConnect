@@ -28,8 +28,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     String? woreda,
     String? farmerName,
   }) async {
-    final listingId =
-        'lst_${DateTime.now().millisecondsSinceEpoch}_${farmerId.hashCode.abs()}';
+    final listingId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
 
     final payload = <String, dynamic>{
@@ -61,7 +60,8 @@ class WebCropListingRepository extends BaseCropListingRepository {
             'action': 'create',
             'entityId': listingId,
             'timestamp': now,
-            'idempotencyKey': 'web_create_$listingId',
+            'idempotencyKey':
+                '$farmerId:crop_listing:$listingId:create:${DateTime.now().toUtc().millisecondsSinceEpoch}',
             'data': payload,
           },
         ],

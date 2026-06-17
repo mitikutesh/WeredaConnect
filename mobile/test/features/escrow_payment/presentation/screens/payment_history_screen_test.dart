@@ -186,9 +186,10 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Error state shows empty-like view with retry button
-      expect(find.text('No payments yet'), findsOneWidget);
-      expect(find.byIcon(Icons.payments_outlined), findsOneWidget);
+      // Error state now shows a distinct error view (not the empty
+      // "No payments yet" state), so load failures are visible to the user.
+      expect(find.text('No payments yet'), findsNothing);
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
 
     testWidgets('dispatches LoadPaymentHistory on init',

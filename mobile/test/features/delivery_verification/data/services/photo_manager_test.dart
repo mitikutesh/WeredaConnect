@@ -379,10 +379,16 @@ void main() {
       });
 
       test('rejects absolute path to system directory', () async {
-        await photoManager.deleteLocalPhoto('/etc/passwd');
+        // Can't touch a real system file; use a sentinel outside the photos dir.
+        // An absolute path not under the photos prefix must be rejected (not deleted).
+        final outside = File('$tempPath/system_secret.txt');
+        await outside.writeAsString('secret');
 
-        // /etc/passwd should still exist (and we didn't try to delete it).
-        // The path doesn't start with the photos prefix so it's rejected.
+        await expectLater(
+          photoManager.deleteLocalPhoto(outside.path),
+          completes,
+        );
+        expect(outside.existsSync(), isTrue);
       });
 
       test('rejects empty path', () async {

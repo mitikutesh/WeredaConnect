@@ -46,6 +46,7 @@ export function Sidebar() {
         </div>
         <button
           onClick={close}
+          aria-label={t("nav.closeMenu")}
           className="md:hidden rounded-lg p-1 text-text-muted hover:bg-gray-100"
         >
           <X size={20} />

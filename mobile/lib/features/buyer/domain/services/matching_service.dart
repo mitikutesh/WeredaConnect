@@ -107,6 +107,9 @@ class MatchingService extends BaseMatchingService {
         .findAll();
 
     return candidates.where((trip) {
+      // Guard against empty needles: String.contains('') is always true,
+      // which would drop the woreda filter and match every open trip.
+      if (fromLower.isEmpty || toLower.isEmpty) return false;
       return trip.fromWoreda.toLowerCase().contains(fromLower) &&
           trip.toWoreda.toLowerCase().contains(toLower);
     }).toList();

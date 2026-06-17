@@ -384,7 +384,10 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: releaseResponse.ErrorCode);
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "failed");
+            // Delete (not mark "failed") the idempotency record: a transient Telebirr
+            // failure must be retryable. Leaving a "failed"/"processing" record makes the
+            // conditional StoreAsync on retry return false → permanent ESCROW_003 (409).
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 releaseResponse.ErrorMessage ?? "Telebirr gateway error during fund release.");
@@ -718,7 +721,10 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: refundResponse.ErrorCode);
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "failed");
+            // Delete (not mark "failed") so a transient Telebirr refund failure stays
+            // retryable; a lingering record makes StoreAsync on retry return false →
+            // permanent ESCROW_003 (409).
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<RefundEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 refundResponse.ErrorMessage ?? "Telebirr gateway error during refund.");

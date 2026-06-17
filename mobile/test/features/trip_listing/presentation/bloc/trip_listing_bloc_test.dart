@@ -315,10 +315,12 @@ void main() {
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
 
+      // trucker-001 must see ONLY its own trips. Filtering by its own
+      // destination returns its trip; trucker-002's Hawassa trip must NOT leak.
       bloc.add(
         const FilterTrips(
           truckerId: 'trucker-001',
-          toWoreda: 'Hawassa',
+          toWoreda: 'Addis Ababa',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -326,9 +328,9 @@ void main() {
       expect(states.length, 2);
       expect(states[1], isA<TripsLoaded>());
       final loaded = states[1] as TripsLoaded;
-      expect(loaded.toWoredaFilter, 'Hawassa');
+      expect(loaded.toWoredaFilter, 'Addis Ababa');
       expect(loaded.trips.length, 1);
-      expect(loaded.trips.first.toWoreda, 'Hawassa');
+      expect(loaded.trips.first.toWoreda, 'Addis Ababa');
 
       await subscription.cancel();
       await bloc.close();

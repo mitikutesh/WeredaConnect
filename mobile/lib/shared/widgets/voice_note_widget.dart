@@ -220,7 +220,13 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
 
   Future<void> _playAudio() async {
     if (widget.audioFilePath == null) return;
-    await _playerService.play(widget.audioFilePath!);
+    // Resume from the paused position when playback was paused mid-clip;
+    // otherwise start the file from the beginning.
+    if (_playbackPosition > Duration.zero) {
+      await _playerService.resume();
+    } else {
+      await _playerService.play(widget.audioFilePath!);
+    }
     if (!mounted) return;
     setState(() {
       _state = _VoiceNoteState.playing;
@@ -446,6 +452,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             onPressed: _deleteRecording,
             icon: const Icon(Icons.delete_outline),
             iconSize: 20,
+            tooltip: l10n.deleteRecording,
             color: Colors.red.shade400,
           ),
         ],
@@ -516,6 +523,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             onPressed: _deleteRecording,
             icon: const Icon(Icons.delete_outline),
             iconSize: 20,
+            tooltip: l10n.deleteRecording,
             color: Colors.red.shade400,
           ),
         ],

@@ -67,8 +67,10 @@ function handler(event) {
         responseHeadersPolicyName: `${prefix}-security-headers`,
         securityHeadersBehavior: {
           contentSecurityPolicy: {
+            // connect-src is region-scoped: dev=eu-north-1, staging/prod=me-south-1.
+            // Hardcoding eu-north-1 here would block the API + Cognito on me-south-1.
             contentSecurityPolicy:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.eu-north-1.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.eu-north-1.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'",
+              `default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.weredaconnect.com https://*.execute-api.${envConfig.region}.amazonaws.com https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com https://cognito-idp.${envConfig.region}.amazonaws.com; worker-src 'self' blob:; frame-ancestors 'none'`,
             override: true,
           },
           strictTransportSecurity: {

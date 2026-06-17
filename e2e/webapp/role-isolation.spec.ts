@@ -270,7 +270,7 @@ test.describe("Role Isolation - API Level", () => {
         operations: [
           {
             operationId: `e2e-trip-op-${Date.now()}`,
-            entityType: "trip_listing",
+            entityType: "trip",
             action: "create",
             entityId: tripId,
             timestamp: now,
@@ -316,7 +316,7 @@ test.describe("Role Isolation - API Level", () => {
         operations: [
           {
             operationId: `e2e-trip-cleanup-op-${Date.now()}`,
-            entityType: "trip_listing",
+            entityType: "trip",
             action: "delete",
             entityId: tripId,
             timestamp: new Date().toISOString(),

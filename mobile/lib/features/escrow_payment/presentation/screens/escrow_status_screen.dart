@@ -62,13 +62,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              if (widget.escrowId != null) {
-                context.read<EscrowBloc>().add(
-                      RefreshEscrow(escrowId: widget.escrowId!),
-                    );
-              }
-            },
+            onPressed: _loadEscrow,
           ),
         ],
       ),

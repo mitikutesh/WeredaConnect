@@ -110,7 +110,15 @@ class FaydaOidcService {
         },
       );
 
-      final data = response.data as Map<String, dynamic>;
+      final data = response.data;
+      if (data is! Map<String, dynamic> ||
+          data['verificationToken'] is! String) {
+        return const FaydaExchangeResult(
+          isSuccess: false,
+          errorCode: 'FAYDA_001',
+          errorMessage: 'Fayda verification failed',
+        );
+      }
 
       return FaydaExchangeResult(
         isSuccess: true,

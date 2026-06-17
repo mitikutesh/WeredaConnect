@@ -1848,8 +1848,21 @@ public partial class SyncFunction
                         {
                             if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
                             {
-                                var lat = je.GetProperty("latitude").GetDouble();
-                                var lng = je.GetProperty("longitude").GetDouble();
+                                // Guard property presence/type: GetProperty throws on a present-but-
+                                // malformed GPS object (missing keys), which the outer catch would mask
+                                // as a generic 500 and burn a sync retry. Fail with a clean validation error.
+                                if (!je.TryGetProperty("latitude", out var latEl) || latEl.ValueKind != System.Text.Json.JsonValueKind.Number
+                                    || !je.TryGetProperty("longitude", out var lngEl) || lngEl.ValueKind != System.Text.Json.JsonValueKind.Number)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_VALIDATION: {kvp.Key} requires numeric latitude and longitude."
+                                    };
+                                }
+                                var lat = latEl.GetDouble();
+                                var lng = lngEl.GetDouble();
 
                                 if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
                                     || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)
@@ -2191,8 +2204,20 @@ public partial class SyncFunction
                         && gpsPickupObj is System.Text.Json.JsonElement pickupJe
                         && pickupJe.ValueKind == System.Text.Json.JsonValueKind.Object)
                     {
-                        var pickupLat = pickupJe.GetProperty("latitude").GetDouble();
-                        var pickupLng = pickupJe.GetProperty("longitude").GetDouble();
+                        // Guard presence/type — a present-but-malformed gpsPickup would
+                        // otherwise throw KeyNotFoundException → masked as a generic 500.
+                        if (!pickupJe.TryGetProperty("latitude", out var pickupLatEl) || pickupLatEl.ValueKind != System.Text.Json.JsonValueKind.Number
+                            || !pickupJe.TryGetProperty("longitude", out var pickupLngEl) || pickupLngEl.ValueKind != System.Text.Json.JsonValueKind.Number)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: gpsPickup requires numeric latitude and longitude."
+                            };
+                        }
+                        var pickupLat = pickupLatEl.GetDouble();
+                        var pickupLng = pickupLngEl.GetDouble();
 
                         var listingId = existing.TryGetValue("listingId", out var lid) ? lid.S : null;
                         if (listingId != null)
@@ -2224,8 +2249,20 @@ public partial class SyncFunction
                         && gpsDropoffObj is System.Text.Json.JsonElement dropoffJe
                         && dropoffJe.ValueKind == System.Text.Json.JsonValueKind.Object)
                     {
-                        var dropoffLat = dropoffJe.GetProperty("latitude").GetDouble();
-                        var dropoffLng = dropoffJe.GetProperty("longitude").GetDouble();
+                        // Guard presence/type — a present-but-malformed gpsDropoff would
+                        // otherwise throw KeyNotFoundException → masked as a generic 500.
+                        if (!dropoffJe.TryGetProperty("latitude", out var dropoffLatEl) || dropoffLatEl.ValueKind != System.Text.Json.JsonValueKind.Number
+                            || !dropoffJe.TryGetProperty("longitude", out var dropoffLngEl) || dropoffLngEl.ValueKind != System.Text.Json.JsonValueKind.Number)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: gpsDropoff requires numeric latitude and longitude."
+                            };
+                        }
+                        var dropoffLat = dropoffLatEl.GetDouble();
+                        var dropoffLng = dropoffLngEl.GetDouble();
 
                         var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
                         if (tripId != null)
@@ -2361,8 +2398,21 @@ public partial class SyncFunction
                         {
                             if (kvp.Value is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.Object)
                             {
-                                var lat = je.GetProperty("latitude").GetDouble();
-                                var lng = je.GetProperty("longitude").GetDouble();
+                                // Guard property presence/type: GetProperty throws on a present-but-
+                                // malformed GPS object (missing keys), which the outer catch would mask
+                                // as a generic 500 and burn a sync retry. Fail with a clean validation error.
+                                if (!je.TryGetProperty("latitude", out var latEl) || latEl.ValueKind != System.Text.Json.JsonValueKind.Number
+                                    || !je.TryGetProperty("longitude", out var lngEl) || lngEl.ValueKind != System.Text.Json.JsonValueKind.Number)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = $"DELIVERY_VALIDATION: {kvp.Key} requires numeric latitude and longitude."
+                                    };
+                                }
+                                var lat = latEl.GetDouble();
+                                var lng = lngEl.GetDouble();
 
                                 if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90 || lat > 90
                                     || double.IsNaN(lng) || double.IsInfinity(lng) || lng < -180 || lng > 180)

@@ -173,9 +173,15 @@ class ConnectivityMonitor {
   StreamController<List<ConnectivityResult>> _createDebouncedController() {
     final controller = StreamController<List<ConnectivityResult>>.broadcast(
       onCancel: () {
-        // Clean up when last listener unsubscribes
+        // Clean up when last listener unsubscribes. Reset all state so the
+        // next listener (e.g. after a stop->start cycle) rebuilds a fresh
+        // controller with a live upstream subscription instead of reusing
+        // this dead one (the getter uses `_controller ??= ...`).
         _debounceTimer?.cancel();
+        _debounceTimer = null;
         _subscription?.cancel();
+        _subscription = null;
+        _controller = null;
       },
     );
 

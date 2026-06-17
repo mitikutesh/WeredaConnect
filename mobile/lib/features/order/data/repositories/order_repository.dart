@@ -71,12 +71,35 @@ class OrderRepository extends BaseOrderRepository {
       return getOrdersByFarmer(userId, statusFilter: statusFilter);
     } else if (role == 'buyer') {
       return getOrdersByBuyer(userId, statusFilter: statusFilter);
+    } else if (role == 'trucker') {
+      // Truckers see orders where they are the assigned transporter. Without this
+      // branch a trucker fell through to the farmer/buyer-only query and saw none of
+      // their assigned orders (the web repo already handles this — keep them in sync).
+      return _getOrdersByTrucker(userId, statusFilter: statusFilter);
     }
 
     // All roles: single query using group/or
     var query = _isar.orders.filter().group(
           (q) => q.farmerIdEqualTo(userId).or().buyerIdEqualTo(userId),
         );
+
+    if (statusFilter != null) {
+      final status = OrderStatus.values.firstWhere(
+        (s) => s.name == statusFilter,
+        orElse: () => OrderStatus.created,
+      );
+      query = query.statusEqualTo(status);
+    }
+
+    return query.sortByCreatedAtDesc().findAll();
+  }
+
+  /// Get orders where the user is the assigned trucker, optionally by status.
+  Future<List<Order>> _getOrdersByTrucker(
+    String truckerId, {
+    String? statusFilter,
+  }) async {
+    var query = _isar.orders.filter().truckerIdEqualTo(truckerId);
 
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(

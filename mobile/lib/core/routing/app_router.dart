@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -137,6 +139,14 @@ GoRouter createWebRouter(AuthBloc authBloc) {
 /// Notifies GoRouter when auth state changes.
 class _AuthRefreshNotifier extends ChangeNotifier {
   _AuthRefreshNotifier(AuthBloc authBloc) {
-    authBloc.stream.listen((_) => notifyListeners());
+    _subscription = authBloc.stream.listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription<AuthState> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
   }
 }

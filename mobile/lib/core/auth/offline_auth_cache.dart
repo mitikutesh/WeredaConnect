@@ -257,7 +257,11 @@ class OfflineAuthCache {
 
       final json = jsonDecode(tokensJson) as Map<String, dynamic>;
       return AuthTokens.fromJson(json);
-    } on Exception {
+    } on Object {
+      // Corrupt or shape-mismatched cache (valid JSON missing a required
+      // field) makes AuthTokens.fromJson throw a TypeError (an Error, not an
+      // Exception). Treat any failure as "no usable cached tokens" so callers
+      // degrade to re-login instead of crashing offline/auto-login.
       return null;
     }
   }

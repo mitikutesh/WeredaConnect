@@ -258,6 +258,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       state: _faydaState!,
     );
 
+    if (!mounted) return;
+
     if (result.isSuccess) {
       setState(() {
         _faydaVerificationToken = result.verificationToken;

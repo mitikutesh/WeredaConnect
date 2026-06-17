@@ -160,13 +160,15 @@ describe('ApiStack (prod security)', () => {
 
   test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS or TELEBIRR_MOCK', () => {
     const lambdas = template.findResources('AWS::Lambda::Function');
-    for (const [logicalId, resource] of Object.entries(lambdas)) {
+    for (const resource of Object.values(lambdas)) {
       const env = (resource as Record<string, Record<string, Record<string, Record<string, unknown>>>>)
         .Properties?.Environment?.Variables ?? {};
-      expect(env).not.toHaveProperty('DEV_FAYDA_BYPASS',
-        `Lambda ${logicalId} has DEV_FAYDA_BYPASS — forbidden in prod`);
-      expect(env).not.toHaveProperty('TELEBIRR_MOCK',
-        `Lambda ${logicalId} has TELEBIRR_MOCK — forbidden in prod`);
+      // NOTE: toHaveProperty(key, value) treats arg 2 as the EXPECTED VALUE, not a
+      // failure message — passing a message made these assertions vacuous (they only
+      // failed if the flag existed AND equaled the message text). This describe builds
+      // the PROD stack, where neither flag is set, so the single-arg form is correct.
+      expect(env).not.toHaveProperty('DEV_FAYDA_BYPASS');
+      expect(env).not.toHaveProperty('TELEBIRR_MOCK');
     }
   });
 

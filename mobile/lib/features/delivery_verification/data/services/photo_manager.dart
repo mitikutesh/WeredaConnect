@@ -127,10 +127,15 @@ class PhotoManager {
   Future<void> deleteLocalPhoto(String path) async {
     if (path.isEmpty) return;
     final appDir = await getApplicationDocumentsDirectory();
-    final photosPrefix = '${appDir.path}/photos/';
-    // Canonicalize to resolve any ../ segments before checking the prefix.
-    final canonicalPath = File(path).absolute.path;
-    if (!canonicalPath.startsWith(photosPrefix)) {
+    // Normalize both paths (collapsing any ../ segments) before checking
+    // containment, so a traversal path cannot escape the photos directory.
+    final photosPath = Directory(
+      '${appDir.path}/photos',
+    ).absolute.uri.normalizePath().toFilePath();
+    final canonicalPath = File(path).absolute.uri.normalizePath().toFilePath();
+    final sep = Platform.pathSeparator;
+    final prefix = photosPath.endsWith(sep) ? photosPath : '$photosPath$sep';
+    if (!canonicalPath.startsWith(prefix)) {
       return;
     }
     final file = File(canonicalPath);

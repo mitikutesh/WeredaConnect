@@ -1216,11 +1216,18 @@ class ProductionBypassGuard implements cdk.IAspect {
       const cfnFn = node.node.defaultChild as lambda.CfnFunction | undefined;
       if (!cfnFn) return;
 
-      const env = (cfnFn.environment as Record<string, unknown>) ?? {};
-      // environment may be a token at synth time — check resolved keys
-      if (typeof env === "object" && env !== null) {
+      // cfnFn.environment is a CfnFunction.EnvironmentProperty whose env vars
+      // live under `.variables` (and the whole thing is a Lazy token at synth
+      // time). Resolve the token, then inspect the nested `variables` map —
+      // checking `flag in env` on the outer object never matches (its only
+      // key is `variables`), which silently defeated this guard.
+      const resolved = cdk.Stack.of(node).resolve(cfnFn.environment) as
+        | { variables?: Record<string, unknown> }
+        | undefined;
+      const variables = resolved?.variables ?? {};
+      if (typeof variables === "object" && variables !== null) {
         for (const flag of ProductionBypassGuard.FORBIDDEN_ENV_VARS) {
-          if (flag in env) {
+          if (flag in variables) {
             cdk.Annotations.of(node).addError(
               `SECURITY: Lambda "${node.node.path}" has ${flag} set. ` +
               `This flag must NEVER be deployed to production.`,

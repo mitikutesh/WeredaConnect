@@ -14,7 +14,9 @@
     "transactions": "Daldala",
     "auditLog": "Galmee Odiitii",
     "systemHealth": "Fayyaa Sirna",
-    "compliance": "Hordoffii"
+    "compliance": "Hordoffii",
+    "openMenu": "Baafata bani",
+    "closeMenu": "Baafata cufi"
   },
   "auth": {
     "login": "Seeni",

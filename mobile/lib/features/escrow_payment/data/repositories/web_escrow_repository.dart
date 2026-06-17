@@ -53,6 +53,8 @@ class WebEscrowRepository extends BaseEscrowRepository {
           'escrowId': escrowId,
           'disputedBy': disputedBy,
           'reason': reason,
+          'idempotencyKey':
+              '$disputedBy:$escrowId:dispute:${DateTime.now().toUtc().millisecondsSinceEpoch}',
           if (description != null) 'description': description,
           if (evidenceRefs != null) 'evidenceRefs': evidenceRefs,
         },

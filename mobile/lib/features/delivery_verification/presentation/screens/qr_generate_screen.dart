@@ -42,20 +42,29 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
   Future<void> _generateToken() async {
     setState(() => _isGenerating = true);
 
-    final (token, nonce) =
-        await widget.qrService.generateQrToken(widget.delivery);
+    try {
+      final (token, nonce) =
+          await widget.qrService.generateQrToken(widget.delivery);
 
-    await widget.repository.persistQrNonce(
-      deliveryId: widget.delivery.deliveryId,
-      qrNonce: nonce,
-      userId: widget.userId,
-    );
+      await widget.repository.persistQrNonce(
+        deliveryId: widget.delivery.deliveryId,
+        qrNonce: nonce,
+        userId: widget.userId,
+      );
 
-    if (mounted) {
-      setState(() {
-        _token = token;
-        _isGenerating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _token = token;
+          _isGenerating = false;
+        });
+      }
+    } on Object catch (_) {
+      if (mounted) {
+        setState(() => _isGenerating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.genericError)),
+        );
+      }
     }
   }
 

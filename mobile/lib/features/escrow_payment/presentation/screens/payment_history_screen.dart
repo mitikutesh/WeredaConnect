@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/amount_display.dart';
@@ -98,26 +99,22 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.payments_outlined,
+                          const Icon(
+                            Icons.error_outline,
                             size: 56,
-                            color: AppTheme.textMuted.withAlpha(150),
+                            color: Colors.red,
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            l10n.noPayments,
+                            localizeEscrowError(
+                              l10n,
+                              state.code,
+                              state.message,
+                            ),
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                               color: AppTheme.textDark,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            l10n.trackPayments,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textMuted,
                             ),
                             textAlign: TextAlign.center,
                           ),
