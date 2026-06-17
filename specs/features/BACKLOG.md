@@ -745,7 +745,8 @@ The 2026-06-17 re-verification surfaced three items that needed a decision rathe
 - **Responsible Agent**: @Server (primary), @Reviewer (CRITICAL role-visibility sign-off), @Architect/PO (policy + contract reconciliation)
 - **Target Sprint**: **Sprint 1** (ship-ready) — alongside F-34; do not deploy to dev (S1-05) until it lands.
 
-### F-35: Admin audit log always empty — add a "recent audit entries across all escrows" capability
+### F-35: Admin audit log always empty — add a "recent audit entries across all escrows" capability ✅ DONE
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `ab9e2a0`). **Decision resolved → bounded Scan** (not the GSI option): the existing `escrowId="all"` sentinel on `GET /admin/escrows/{id}/audit` now routes to `EscrowAuditRepository.GetRecentAcrossEscrowsAsync` — a bounded table Scan (capped at 2000, logged if hit), sorted newest-first, returning the 100 most recent entries across all escrows. **Server-only, read-only**: no change to the escrow write path, no GSI/schema migration, no infra/admin changes; shows all existing history immediately. **Scale path** (when audit volume grows): a constant-partition or date-bucketed GSI + a dedicated `/admin/audit` route. `dotnet build` clean, **719 tests pass** (incl. 3 new `EscrowAuditRepositoryTests`).
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 1 | Admin reporting; no direct revenue path |
@@ -894,7 +895,7 @@ F-34 outranks higher-scored F-32 because it is the only LIVE breach of the autom
 | PO Rank | ID | Item | Score | Severity | Sprint | Blocking decision |
 |---------|----|----|-------|----------|--------|-------------------|
 | 1 | F-36 ✅ | Restrict GET /crops & /trips browse-all to Buyer (+Admin) — cross-role data leak | 11 | HIGH | Sprint 1 | ✅ DONE — Option A (restrict, 403) |
-| 2 | F-35 | Admin audit log always empty — add global audit endpoint | 9 | HIGH | Sprint 2 | GSI vs Scan; historical backfill |
+| 2 | F-35 ✅ | Admin audit log always empty — add global audit endpoint | 9 | HIGH | Sprint 2 — ✅ DONE | Resolved → bounded Scan (server-only) |
 | 3 | F-37 | E2E webapp auth-injection broken (false-green coverage) | 4 | MEDIUM | Sprint 3 | Auth-seam strategy (Option C) |
 
 F-36 leads (role-visibility CRITICAL domain overrides raw score): a Trucker can scrape all crops, a Farmer all trips, and unauthenticated callers can browse both — with passing unit tests that currently encode the leak. F-36 & F-35 are independent and parallelizable once their decisions land; F-37 depends on the auth-seam decision and is most valuable sequenced after F-36.
