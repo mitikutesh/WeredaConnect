@@ -796,7 +796,8 @@ The 2026-06-17 re-verification surfaced three items that needed a decision rathe
 - **Responsible Agent**: @Server, @Infra, @Mobile (admin React), @Reviewer
 - **Target Sprint**: **Sprint 2** (security) — pairs with structured audit logging.
 
-### F-37: E2E webapp authenticated tests cannot inject auth (false-green coverage)
+### F-37: E2E webapp authenticated tests cannot inject auth (false-green coverage) ✅ DONE
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `9f9d6bc`). **Decision resolved → Option C**: a production-gated, web-only `window.__seedAuth` seam (facade + mobile stub + `dart:js_interop` web impl) writes a real session through the app's own `OfflineAuthCache` + `current_user_phone`/`current_user_id` keys, then dispatches `AuthCheckRequested`. **Gate = compile-time DEFAULT-DENY allowlist** (`ENVIRONMENT` ∈ {dev,development,staging}) + secondary runtime `isProduction` — an allowlist, NOT `!isProduction`, because CI passes `ENVIRONMENT=prod` which `Environment.current` misclassifies as `development` (a `!isProduction` gate would have shipped the seam to prod). **Empirically verified**: dev web build contains `__seedAuth`, prod build (`ENVIRONMENT=prod`) does NOT (tree-shaken). e2e `home.spec`/`role-isolation` rewritten to `seedAuth` + assert off `/login` (+ role route), removing the warn-and-skip / url-guard / test.skip escape hatches; `seedAuth` throws if the seam is absent. Mobile gate test locks the allowlist. `flutter analyze` clean, **859 tests pass**, dev+prod web builds compile. *Note: the e2e specs require a deployed dev/staging build + live API to execute (not runnable offline).*
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 1 | Test infrastructure; no revenue path |
@@ -925,6 +926,6 @@ F-34 outranks higher-scored F-32 because it is the only LIVE breach of the autom
 |---------|----|----|-------|----------|--------|-------------------|
 | 1 | F-36 ✅ | Restrict GET /crops & /trips browse-all to Buyer (+Admin) — cross-role data leak | 11 | HIGH | Sprint 1 | ✅ DONE — Option A (restrict, 403) |
 | 2 | F-35 ✅ | Admin audit log always empty — add global audit endpoint | 9 | HIGH | Sprint 2 — ✅ DONE | Resolved → bounded Scan (server-only) |
-| 3 | F-37 | E2E webapp auth-injection broken (false-green coverage) | 4 | MEDIUM | Sprint 3 | Auth-seam strategy (Option C) |
+| 3 | F-37 ✅ | E2E webapp auth-injection broken (false-green coverage) | 4 | MEDIUM | Sprint 3 — ✅ DONE | Resolved → Option C (prod-gated seam, allowlist) |
 
 F-36 leads (role-visibility CRITICAL domain overrides raw score): a Trucker can scrape all crops, a Farmer all trips, and unauthenticated callers can browse both — with passing unit tests that currently encode the leak. F-36 & F-35 are independent and parallelizable once their decisions land; F-37 depends on the auth-seam decision and is most valuable sequenced after F-36.
