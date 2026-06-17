@@ -204,6 +204,27 @@ class AuthService {
       final user = data['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
       final fullName = user['fullName'] as String?;
+      final displayName = (user['displayName'] as String?) ?? '';
+      final woreda = user['woreda'] as String;
+
+      // F-34: resolve the authoritative role from the server response BEFORE
+      // caching. An unrecognized/missing role must fail the login loudly — not
+      // be swallowed by the best-effort cache block below, which previously let
+      // the BLoC silently default the role to farmer.
+      final roleStr = (user['role'] as String?)?.toLowerCase();
+      UserRole? role;
+      for (final r in UserRole.values) {
+        if (r.name.toLowerCase() == roleStr) {
+          role = r;
+          break;
+        }
+      }
+      if (role == null) {
+        return AuthResult.failure(
+          AuthErrorCode.internalServerError,
+          'Login failed: the server returned an unrecognized account role.',
+        );
+      }
 
       // Cache credentials for offline use (best-effort — don't block login)
       try {
@@ -211,24 +232,24 @@ class AuthService {
           phoneNumber: phoneNumber,
           password: password,
           userId: userId,
-          role: UserRole.values.firstWhere(
-            (r) =>
-                r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
-            orElse: () => throw StateError(
-              'Unknown role from server: ${user['role']}',
-            ),
-          ),
-          name: (user['displayName'] as String?) ?? '',
-          woreda: user['woreda'] as String,
+          role: role,
+          name: displayName,
+          woreda: woreda,
           tokens: tokens,
           fullName: fullName,
-          displayName: (user['displayName'] as String?) ?? '',
+          displayName: displayName,
         );
       } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
-      return AuthResult.success(tokens, userId: userId);
+      return AuthResult.success(
+        tokens,
+        userId: userId,
+        role: role,
+        userName: displayName,
+        woreda: woreda,
+      );
     } on DioException catch (e) {
       return _handleDioError(e);
     } on Exception catch (e, stackTrace) {
@@ -293,6 +314,9 @@ class AuthService {
       return AuthResult.success(
         tokens,
         userId: user.userId,
+        role: user.role,
+        userName: user.name,
+        woreda: user.woreda,
         isOfflineAuth: true,
       );
     } on RateLimitException catch (e) {

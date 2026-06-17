@@ -12,7 +12,6 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
-import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -275,20 +274,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: an authenticated session MUST carry an authoritative role from
+        // the login result; fail closed rather than silently defaulting to
+        // farmer (which mis-scoped truckers/buyers on a cache miss).
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
             isOfflineAuth: result.isOfflineAuth,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {
@@ -333,19 +344,30 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: require an authoritative role from the login result; never
+        // silently default to farmer on a cache miss.
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {
@@ -389,20 +411,31 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: require an authoritative role from the login result; never
+        // silently default to farmer on a cache miss.
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
             isOfflineAuth: true,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {

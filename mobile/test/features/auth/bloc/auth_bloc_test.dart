@@ -144,7 +144,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -167,6 +171,69 @@ void main() {
         final authenticated = states[1] as AuthAuthenticated;
         expect(authenticated.userId, equals('user-001'));
         expect(authenticated.tokens, equals(_testTokens));
+      });
+
+      test('uses role from login result even on cache miss (F-34)', () async {
+        // Login result carries an authoritative role (trucker)...
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.trucker,
+          ),
+        );
+        // ...but the local cache is empty. Must NOT silently default to farmer.
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => null);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states[1], isA<AuthAuthenticated>());
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.role, equals(UserRole.trucker));
+      });
+
+      test('fails closed with AuthError when result has no role (F-34)',
+          () async {
+        // A successful login that somehow carries no resolvable role must
+        // surface an error, not authenticate with a guessed (farmer) role.
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => null);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states[1], isA<AuthError>());
       });
 
       test('emits [AuthLoading, AuthError] on failed login', () async {
@@ -320,7 +387,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -370,7 +441,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -420,7 +495,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -544,6 +623,7 @@ void main() {
           (_) async => AuthResult.success(
             _testTokens,
             userId: 'user-001',
+            role: UserRole.farmer,
             isOfflineAuth: true,
           ),
         );

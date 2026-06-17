@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/models/user.dart';
 
 /// Result type for authentication operations.
 ///
@@ -27,6 +28,17 @@ class AuthResult {
   /// User ID from Cognito (only present on success)
   final String? userId;
 
+  /// Authoritative user role resolved from the login response / cached profile
+  /// (only present on success). The caller MUST use this rather than inferring
+  /// a role from local cache — see F-34.
+  final UserRole? role;
+
+  /// User display name (only present on success)
+  final String? userName;
+
+  /// User woreda (only present on success)
+  final String? woreda;
+
   /// Error code matching server API contract (only present on failure)
   /// See specs/contracts/auth-api.md for error code reference
   final String? errorCode;
@@ -45,6 +57,9 @@ class AuthResult {
     required this.isSuccess,
     this.tokens,
     this.userId,
+    this.role,
+    this.userName,
+    this.woreda,
     this.errorCode,
     this.errorMessage,
     this.retryAfterSeconds,
@@ -55,12 +70,18 @@ class AuthResult {
   factory AuthResult.success(
     AuthTokens tokens, {
     String? userId,
+    UserRole? role,
+    String? userName,
+    String? woreda,
     bool isOfflineAuth = false,
   }) {
     return AuthResult._(
       isSuccess: true,
       tokens: tokens,
       userId: userId,
+      role: role,
+      userName: userName,
+      woreda: woreda,
       isOfflineAuth: isOfflineAuth,
     );
   }

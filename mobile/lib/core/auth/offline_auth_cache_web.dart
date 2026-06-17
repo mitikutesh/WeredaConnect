@@ -78,14 +78,21 @@ class OfflineAuthCache {
     final raw = await _storage.read(key: _userKey(phoneNumber));
     if (raw == null || raw.isEmpty) return null;
     final m = jsonDecode(raw) as Map<String, dynamic>;
+    // F-34: treat an unrecognized role as a cache miss (return null) rather than
+    // silently defaulting to farmer, so callers never infer a wrong role.
+    UserRole? role;
+    for (final e in UserRole.values) {
+      if (e.name == m['role']) {
+        role = e;
+        break;
+      }
+    }
+    if (role == null) return null;
     return User()
       ..userId = m['userId'] as String? ?? ''
       ..phoneNumber = m['phoneNumber'] as String? ?? ''
       ..name = m['name'] as String? ?? ''
-      ..role = UserRole.values.firstWhere(
-        (e) => e.name == m['role'],
-        orElse: () => UserRole.farmer,
-      )
+      ..role = role
       ..woreda = m['woreda'] as String? ?? '';
   }
 
