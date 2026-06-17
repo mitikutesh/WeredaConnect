@@ -13,10 +13,10 @@ Single source of truth for dependency versions and technology choices.
 
 | Category | Package | Version | Notes |
 |----------|---------|---------|-------|
-| Database | `isar` / `isar_flutter_libs` | ^4.0.0 | Offline-first database |
-| Code gen | `isar_generator` / `build_runner` | ^4.0.0 / ^2.4.0 | Dev dependency |
+| Database | `isar` / `isar_flutter_libs` | ^3.1.0 | Offline-first database |
+| Code gen | `isar_generator` / `build_runner` | ^3.1.0 / ^2.4.0 | Dev dependency |
 | Networking | `dio` | ^5.4.0 | HTTP client |
-| Connectivity | `connectivity_plus` | ^5.0.0 | Network status |
+| Connectivity | `connectivity_plus` | ^7.0.0 | Network status |
 | Retry | `retry` | ^3.1.0 | Flaky network handling |
 | State | `flutter_bloc` / `equatable` | ^8.1.0 / ^2.0.5 | BLoC pattern |
 | Localization | `intl` | ^0.19.0 | en, am (Amharic), om (Afan Oromo) |
@@ -41,9 +41,9 @@ Single source of truth for dependency versions and technology choices.
 
 | Category | Package | Version | Notes |
 |----------|---------|---------|-------|
-| Lambda | `Amazon.Lambda.Core` | 2.3.0 | |
-| Lambda | `Amazon.Lambda.APIGatewayEvents` | 2.8.0 | |
-| Lambda | `Amazon.Lambda.Serialization.SystemTextJson` | 2.5.0 | |
+| Lambda | `Amazon.Lambda.Core` | 2.8.0 | |
+| Lambda | `Amazon.Lambda.APIGatewayEvents` | 2.7.3 | |
+| Lambda | `Amazon.Lambda.Serialization.SystemTextJson` | 2.4.5 | |
 | JSON | `System.Text.Json` | 10.0.0 | AOT source generators |
 | Database | `AWSSDK.DynamoDBv2` | 3.7.400 | |
 | Database | `Dapper` | 2.1.0 | |
@@ -58,7 +58,7 @@ Single source of truth for dependency versions and technology choices.
 
 ## Infrastructure Stack
 
-- **AWS CDK**: `2.170.x` (TypeScript), **Node.js**: `20.20.0 LTS`, **TypeScript**: `5.7.x`
+- **AWS CDK**: `2.242.x` (TypeScript), **Node.js**: `20.20.0 LTS`, **TypeScript**: `5.7.x`
 
 ### AWS Services
 

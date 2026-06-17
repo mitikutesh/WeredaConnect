@@ -8,7 +8,7 @@
 
 ## What
 
-A CI smoke test suite that runs **after every PR merge to `main`** and validates the complete WeredaConnect marketplace flow against the **live AWS dev environment** (`https://b8xqjg4myb.execute-api.me-south-1.amazonaws.com`). It covers both the **API layer** (exercised by the mobile app) and the **Flutter web app** at `dev-app.weredaconnect.com` via Playwright.
+A CI smoke test suite that runs **after every PR merge to `main`** and validates the complete WeredaConnect marketplace flow against the **live AWS dev environment** (`https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`). It covers both the **API layer** (exercised by the mobile app) and the **Flutter web app** at `dev-app.weredaconnect.com` via Playwright.
 
 ---
 
@@ -134,7 +134,7 @@ on:
 
 **Role isolation check**
 - Login as Trucker, call `GET /crops`
-- Assert: Trucker gets `403` or empty result (Truckers do not access crop listings)
+- Assert: Trucker gets `403` (Truckers do not browse crop listings — F-36; only Buyer/Admin)
 - Login as second Farmer (different user), call `GET /crops`
 - Assert: Second Farmer does NOT see first Farmer's crop in result
 
@@ -169,7 +169,7 @@ on:
 
 **Role isolation check**
 - Login as Farmer, call `GET /trips`
-- Assert: Farmer gets `403` or empty result (Farmers do not access trip listings)
+- Assert: Farmer gets `403` (Farmers do not browse trip listings — F-36; only Buyer/Admin)
 - Login as second Trucker, call `GET /trips`
 - Assert: Second Trucker does NOT see first Trucker's trip
 
@@ -214,7 +214,7 @@ Trucker's trip ─┘
   }]
 }
 ```
-- Assert: sync `status: "success"`, `serverData.orderId` present, `serverData.status: "pending_payment"`
+- Assert: sync `status: "success"`, `serverData.orderId` present, `serverData.status: "created"`
 
 **Get order** (`GET /orders/{orderId}`)
 - Assert: 200, `status: "pending_payment"`, `buyerId === currentUser.userId`
@@ -230,10 +230,10 @@ Trucker's trip ─┘
   "idempotencyKey": "{buyerId}:escrow:{orderId}:initiate:{ts}"
 }
 ```
-- Assert: 200, `escrowId` present, `status: "pending"`, `commission` ~= `amount × 0.05`
+- Assert: 200, `escrowId` present, `status: "escrowed"`, `commission` = `max(amount × 0.025, 5 ETB)`
 
 **Get escrow** (`GET /escrow/{escrowId}`)
-- Assert: 200, `status: "pending"`, amounts match
+- Assert: 200, `status: "escrowed"`, amounts match
 
 **Release escrow** (`POST /escrow/release`)
 ```json
@@ -244,7 +244,7 @@ Trucker's trip ─┘
   "idempotencyKey": "{userId}:escrow:{escrowId}:release:{ts}"
 }
 ```
-- Assert: 200, `status: "released"`, `farmerPayout` = `amount × 0.95`
+- Assert: 200, `status: "completed"`, `farmerPayout` = `amount − max(amount × 0.025, 5 ETB)`
 
 **Escrow history** (`GET /escrow/history`)
 - Assert: 200, history includes the released escrow

@@ -11,7 +11,7 @@
 
 ## Overview
 
-The Trip Listing API enables transport providers (truckers) to post available truck capacity (origin, destination, departure date, price) for farmers to discover and match with crop listings. This is the **second user-facing feature** in WeredaConnect's offline-first architecture, following Crop Listings (Phase R3).
+The Trip Listing API enables transport providers (truckers) to post available truck capacity (origin, destination, departure date, price) for buyers to discover and match with crop listings. This is the **second user-facing feature** in WeredaConnect's offline-first architecture, following Crop Listings (Phase R3).
 
 **Key Features**:
 - **Offline-first**: Trips created offline via POST /sync, browsed from local Isar cache
@@ -110,7 +110,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 
 ### 2. Browse Trips
 **Method**: GET /trips
-**Authentication**: Optional (public endpoint for browsing, auth required to see trucker contact)
+**Authentication**: Required — browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips; farmers, other roles, and unauthenticated callers receive 403.
 **Query Parameters**:
 
 | Parameter | Type | Required | Description | Example |

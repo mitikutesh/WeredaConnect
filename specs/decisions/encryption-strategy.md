@@ -27,7 +27,7 @@ Ethiopian context: devices are often shared among family/cooperative members, lo
 ### 2. Token Storage
 **Technology**: `flutter_secure_storage` with Android Keystore backing
 
-**Tokens stored**: Access token (JWT, 15-min), Refresh token (30-day), ID token (user profile)
+**Tokens stored**: Access token (JWT, 15-min), Refresh token (7-day), ID token (user profile)
 
 **Implementation**: See `mobile/lib/features/auth/data/`
 

@@ -774,7 +774,7 @@ UI --> Local Isar DB (immediate write)
          |
     Lambda API --> DynamoDB / S3
          |
-    [Conflict resolution: server-wins for financial data, client merges for listings]
+    [Conflict resolution: server-wins for all entities]
 ```
 
 ### 15.4 Mandatory Design Rules
@@ -863,7 +863,7 @@ All SMS in **Amharic** with key numbers in numerals.
 | Component | Technology | Reasoning |
 |---|---|---|
 | Mobile App | Flutter 3.38.x (Dart 3.10.x) | Android only for launch; smooth on $50 phones; <50MB APK |
-| Local Database | Isar 4.x | Offline-first; fast reads; Dart-native |
+| Local Database | Isar 3.1.x | Offline-first; fast reads; Dart-native |
 | State Management | BLoC (`flutter_bloc`) | Predictable state; works with offline-first pattern |
 | Backend | .NET 10 (Native AOT, C# 13) | <100ms cold start on Lambda ARM64; no reflection |
 | Database | DynamoDB | On-demand billing; free-tier friendly; multi-table design |

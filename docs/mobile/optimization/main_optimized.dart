@@ -4,6 +4,10 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() {
+  // Must initialize bindings before touching imageCache (PaintingBinding.instance)
+  // or WidgetsBinding.instance below — otherwise instance is null and this throws.
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Configure image cache for 2GB RAM devices
   // Prevents excessive memory usage from cached images
   imageCache.maximumSize = 50; // Max 50 images in memory

@@ -119,8 +119,8 @@ WeredaConnect follows a **3-tier offline-first architecture**:
 ## Technology Stack
 
 ### Mobile (Client)
-- **Framework**: Flutter 3.27.x
-- **Language**: Dart 3.6.x
+- **Framework**: Flutter 3.38.9
+- **Language**: Dart 3.10.8
 - **State Management**: BLoC pattern
 - **Local Database**: Isar (NoSQL, fast, offline-first)
 - **HTTP Client**: Dio with retry interceptors
@@ -262,4 +262,3 @@ See [Deployment Architecture](./deployment-architecture.md) for detailed deploym
 **Last Updated**: 2026-02-09  
 **Version**: 1.0.0  
 **Owner**: Architecture Team
-

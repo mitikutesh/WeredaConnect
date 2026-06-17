@@ -140,7 +140,7 @@ maestro --version
 
 ```yaml
 # mobile/.maestro/create_crop_listing.yaml
-appId: com.weredaconnect.app
+appId: et.wereda.connect
 ---
 # Launch app
 - launchApp
@@ -254,7 +254,7 @@ Use Charles Proxy, Proxyman (macOS), or mitmproxy to inspect HTTP requests betwe
 
 ```bash
 # Cold start time (target: <3000ms on 2GB device)
-adb shell am start -W com.weredaconnect.app/.MainActivity
+adb shell am start -W et.wereda.connect/.MainActivity
 
 # Memory/frame profiling
 flutter run --profile   # then open DevTools → Memory tab
@@ -325,4 +325,3 @@ jobs:
 ---
 
 **Last Updated**: 2026-02-16
-

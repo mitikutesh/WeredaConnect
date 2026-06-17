@@ -2,7 +2,7 @@
 
 **Purpose**: Complete feature inventory with prioritization scoring for all 31 features (F-01 through F-31). This file contains the full scoring details, deferred roadmap phases, and the priority ranking table. For the active roadmap and sprint status, see [ROADMAP.md](ROADMAP.md).
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-06-17 (Section 9 — audit-remediation bugs F-32/F-33/F-34; re-verification flagged items F-35/F-36/F-37)
 
 ---
 
@@ -637,6 +637,162 @@ Features failing 3+ gates are marked DEFERRED.
 
 ---
 
+## 9. Audit Remediation — 2026-06-17 Adversarial Audit (Confirmed Bugs)
+
+Three confirmed defects from the 2026-06-17 repository-wide adversarial audit that each require a **cross-file / cross-module** change (not a one-spot patch). All three survived adversarial verification against the live code and were re-confirmed during PO scoping. **PO priority order: F-34 (#1) → F-33 (#2) → F-32 (#3)** — F-34 is ranked above its raw score because it is the only LIVE breach of the CRITICAL role-visibility invariant (automatic-FAIL domain). Source: PO investigator workflow `wf_061429c4-fa8`.
+
+### F-32: Registration Drops Trucker License + Buyer Type/Company Name
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 3 | Company-buyer identity (type + company name) underpins invoicing/KYC for higher-value B2B purchases — enables, doesn't directly generate |
+| Risk Reduction | 4 | Capturing buyer/company identity + (eventually) trucker license verification strengthens fraud/trust around escrow-backed deliveries; silent data loss today is a real integrity gap |
+| User Adoption | 3 | Removes a confusing silent-data-loss experience for 2 of 3 roles; unblocks trucker-verification / company-buyer features |
+| Compliance | 4 | Buyer-type/company identity + verified licenses align with KYC and Ethiopia's 2026 digital-ID/financial-integrity direction |
+| Complexity | 3 | Multi-module (mobile UI+BLoC+service+cache+web pair, server DTO+validation+handler+repo, 2 contracts, 5 test files) but all additive/nullable; mobile schemas already carry the columns |
+| **Priority Score** | **11** | |
+
+- **PO Gates**: Fraud (YES), Offline (NO — registration already requires connectivity), Ops complexity (NO — adds fields/validation), Revenue (YES), Policy (YES) = 3/5 PASS
+- **Layer**: 1 - Foundation (onboarding integrity)
+- **Severity / Audit**: HIGH — Data Loss / Cross-Module Contract Gap. Confirmed at `mobile/lib/features/auth/screens/registration/registration_flow.dart:283-302` (`_handleRegister`).
+- **Why Now**: Truckers and company buyers fill in role-specific data (driving license, buyer type, company name) that is **silently dropped at submit** — no error shown. `_handleRegister` builds `AuthRegisterRequested` with only phone/password/name/role/woreda/faydaToken/language; the event class already declares the three extra fields, but the BLoC, auth-service, and the entire server have no destination for them.
+- **Risk If Delayed**: Trucker driving-license verification (a fraud control for who moves goods + handles escrow) is never captured server-side; company-buyer KYC identity is lost. Blocks any future trucker-verification / company-buyer feature and weakens marketplace/escrow fraud posture. Users believe profiles are complete.
+- **Dependencies**: **PO decision gate** — driving-license is a LOCAL camera file path (meaningless server-side). Choose scope (A) persist `buyerType`/`companyName` server-side now + keep license LOCAL-only in Isar (recommended, shippable), or (B) also build S3 image-upload + `drivingLicenseRef` (track separately, +2-3d). Architect must sign off the additive `auth-api.md` + `user-entity.md` contract changes before server code lands.
+- **Next Engineering Task** (scope A):
+  1. Contracts first: add role-conditional `buyerType` (enum private|company) + `companyName` to `specs/contracts/auth-api.md` register request/response and `specs/contracts/user-entity.md`; note license as local-only.
+  2. Server: add nullable `BuyerType`/`CompanyName` to `RegisterRequest` (`AuthDtos.cs`) + `UserDto.cs`; role-conditional rules in `ValidateRequest`/`RequestValidator.cs`; map onto `userDto` in `RegisterFunction.cs`; null-guarded `ToItem`/`FromItem` in `UserRepository.cs`. (No new `AppJsonContext` registration — scalar props on already-registered records.)
+  3. Mobile: forward `event.drivingLicensePath/buyerType/companyName` from `_onAuthRegisterRequested`; add optional params to `auth_service.register()` and include non-null `buyerType`/`companyName` in the HTTP body (NEVER send the device license path); persist via `cacheCredentials` in `offline_auth_cache.dart` **and** its `_web.dart` pair; in `_handleRegister` pass the three values guarded by `_selectedRole`.
+  4. Tests: `RegisterFunctionTests.cs`, `UserRepositoryTests.cs`, `auth_bloc_test.dart`, NEW `registration_flow_test.dart`, NEW `auth_service_test.dart`. Verify all 3 roles + `flutter build web` + `dotnet build/test`.
+- **Responsible Agent**: @Mobile, @Server, @Reviewer (role-visibility + cross-platform are CRITICAL gates)
+- **Target Sprint**: Sprint 2 (after the scope-decision gate)
+
+### F-33: Web Escrow "By Delivery" Returns the Wrong Escrow
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 3 | Escrow is the monetized core flow; showing the wrong payment against a delivery erodes trust in money movement but doesn't directly block a sale |
+| Risk Reduction | 4 | Removes a financial-data misrepresentation (wrong amount/status/dispute window shown for a delivery) |
+| User Adoption | 3 | Web + default app entrypoint affected; correct, cross-platform-consistent payment status supports adoption |
+| Compliance | 4 | New endpoint upholds the CRITICAL role-visibility invariant (party-or-admin reads) and aligns with the documented escrow contract |
+| Complexity | 4 | GSI + repo query already exist; near-copy of `GetByIdAsync` plus one route + a mobile repo swap, spread across modules |
+| **Priority Score** | **10** | |
+
+- **PO Gates**: Fraud (YES), Offline (YES — native Isar lookup preserved), Ops complexity (NO — adds one endpoint), Revenue (YES), Policy (NO) = 3/5 PASS
+- **Layer**: 1-2 - Core transaction / trust
+- **Severity / Audit**: HIGH — Logic. Confirmed at `mobile/lib/features/escrow_payment/data/repositories/web_escrow_repository.dart:84-98` → `server/src/Functions/EscrowFunction.cs:383-429` (`HandleHistoryAsync`).
+- **Why Now**: The web repo calls `GET /escrow/history?deliveryId=<id>&limit=1` and returns `items.first`, but the server's history handler **never reads `deliveryId`** — it returns the user's single most-recent escrow regardless of delivery. Whenever a user holds >1 escrow, the escrow status screen reliably shows an unrelated payment (wrong amount/status/dispute window). The native repo does this correctly via a local Isar `deliveryIdEqualTo` lookup; there is no server-backed equivalent. `GetByDeliveryIdAsync` + the `DeliveryIndex` GSI already exist but are never exposed via a route.
+- **Risk If Delayed**: Buyers/farmers see misleading financial state per delivery — may dispute or believe a payment is (in)complete against the wrong delivery; inconsistent vs native app.
+- **Dependencies**: None blocking, but a **hard ordering**: server `EscrowService.GetByDeliveryAsync` + `EscrowFunction` route must land, then the infra `api-stack.ts` route deployed, **before** the mobile web-repo rewrite (the endpoint must exist when the web repo calls it). Reuses existing `DeliveryIndex` GSI and `EscrowDto` (already AOT-registered).
+- **Next Engineering Task**:
+  1. Server: add `EscrowService.GetByDeliveryAsync(deliveryId, userId, role)` mirroring `GetByIdAsync` — 404 `ESCROW_016` if null, enforce party-or-admin (403 `ESCROW_022`), return `EscrowDto`.
+  2. Server: add `GET /escrow/by-delivery/{deliveryId}` branch + `HandleGetByDeliveryAsync` in `EscrowFunction.cs` (distinct two-segment path; must not be shadowed by `/escrow/{id}` — add routing test).
+  3. Infra: add the authenticated route in `infra/lib/stacks/api-stack.ts` (JWT authorizer, HttpLambdaIntegration). Deploy.
+  4. Mobile: rewrite `WebEscrowRepository.getEscrowByDelivery` to call the new endpoint, parse one `EscrowDto`, return null on 404. Keep native Isar lookup as source of truth.
+  5. Contract: add `GET /escrow/by-delivery/{deliveryId}` to `specs/contracts/escrow-protocol.md`; note `deliveryId` is NOT a supported `/escrow/history` param.
+  6. Tests: `EscrowServiceTests.cs`, `EscrowFunctionTests.cs` (routing + role), NEW `web_escrow_repository_test.dart`, `escrow_bloc_test.dart`. Verify buyer/farmer can read, trucker gets 403.
+- **Responsible Agent**: @Server, @Mobile, @Infra, @Reviewer
+- **Target Sprint**: Sprint 2
+
+### F-34: Login Defaults Role to Farmer on Cache Miss — Role-Visibility Breach ⭐ PRIORITY #1
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 2 | Indirect — a Buyer mis-scoped as Farmer can't browse all listings/transact, but it's edge-triggered (cache miss / first login) |
+| Risk Reduction | 4 | Fixes a violation of the CRITICAL role-visibility invariant (automatic-FAIL domain); removes a silent data-scope mis-assignment |
+| User Adoption | 4 | Fires exactly at fresh-device first login — hits new Truckers/Buyers at onboarding and erodes trust in the dashboard they see |
+| Compliance | 4 | Role visibility (Farmer own-crops, Trucker own-trips, Buyer all) is the project's hard compliance gate; restores correct enforcement at the auth layer |
+| Complexity | 4 | 4 mobile source files + 2 test files; no server/contract/schema change — authoritative role already ships in the login response |
+| **Priority Score** | **10** | |
+
+- **PO Gates**: Fraud (YES), Offline (YES — offline login still derives role from cache), Ops complexity (YES — replaces a silent-failure class with a deterministic error), Revenue (NO), Policy (YES) = 4/5 PASS
+- **Layer**: 1 - Foundation (identity integrity)
+- **Severity / Audit**: HIGH (elevated from MEDIUM by the role-visibility override). Confirmed at `mobile/lib/features/auth/bloc/auth_bloc.dart:288` (`_onAuthLoginRequested`); same pattern at ~345 (online) and ~402 (offline).
+- **Why Now — PRIORITY #1**: On successful login the BLoC emits `AuthAuthenticated(role: user?.role ?? UserRole.farmer)` where `user` comes from the local cache. On a fresh device (or cache miss/corruption / a swallowed Isar write failure), a Trucker or Buyer is **silently rendered as a Farmer** — wrong dashboard, wrong nav, and wrong data scope (a Buyer loses the ability to browse ALL crops/trips and is shown create-crop affordances they must not have). This is a LIVE breach of the automatic-FAIL role-visibility invariant. The server login response already carries the authoritative role (`LoginResponse.User.Role`, required, AOT-registered) and `AuthService.loginOnline` already parses it — but it is dropped between the service and the BLoC. Cheapest high-impact fix of the three; mobile-only, no dependencies.
+- **Risk If Delayed**: Every first login by a real Trucker/Buyer on a new device risks silent mis-scoping with no error signal — a recurring role-visibility violation at the exact onboarding moment.
+- **Dependencies**: None. Server already returns role; no server/infra/contract work. Can land immediately and independently.
+- **Next Engineering Task**:
+  1. Extend `AuthResult` (`mobile/lib/core/auth/models/auth_result.dart`) with nullable `UserRole role`, `String? userName`, `String? woreda`; thread through `AuthResult.success(...)`.
+  2. `AuthService.loginOnline`: convert the already-parsed `user['role']` to `UserRole` and pass into `AuthResult.success`; on **unknown** role return `AuthResult.failure` (do NOT silently default to farmer); move role parsing OUT of the swallowed cache try/catch. `loginOffline`: populate role/name/woreda from the cached user it already loads.
+  3. `AuthBloc` (`_onAuthLoginRequested` ~288, `_onAuthLoginOnlineRequested` ~345, `_onAuthLoginOfflineRequested` ~402): use `result.role`; **remove `?? UserRole.farmer`**. If `isSuccess && role == null` → emit `AuthError` (re-login required), never authenticate with a guessed role. Cache read only for userName/woreda display.
+  4. `offline_auth_cache_web.dart` `getCachedUser`: return null on unrecognized role string instead of defaulting to farmer (platform pair; keep Isar/`dart:io`-free).
+  5. Tests: `auth_bloc_test.dart` (assert role from result for all 3 roles + cache-null + null-role-fails), NEW `auth_service_test.dart`. Verify all 3 dev test users on a clean install; `flutter analyze`/`test`/`build web`.
+- **Responsible Agent**: @Mobile, @Reviewer (role-visibility CRITICAL gate)
+- **Target Sprint**: Sprint 1 (ship-ready) — block merge until fixed
+
+---
+
+#### Re-verification pass findings (2026-06-17) — flagged items requiring a PO/architect decision
+
+The 2026-06-17 re-verification surfaced three items that needed a decision rather than a mechanical fix. PO ranking: **F-36 (#1) → F-35 (#2) → F-37 (#3)** — F-36 outranks higher-scored peers because it was a LIVE breach of the CRITICAL role-visibility domain. **F-36 is now ✅ DONE** (implemented 2026-06-18 under Option A); F-35 and F-37 remain open pending their decisions. Source: PO investigator workflow `wf_dcf1339e-bf2`.
+
+### F-36: Restrict GET /crops & GET /trips browse-all to Buyer (+Admin) — close cross-role data leak ✅ DONE
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18 under Option A** (browse-all = Buyer/Admin; farmers/truckers/other roles/unauthenticated → **403**). Both list + by-id handlers in `CropFunction.cs` and `TripFunction.cs` now use a positive allowlist; the unit tests that encoded the leak were rewritten to assert 403 (server: **716 tests pass**); contract docs reconciled (`data-models.md`, `crop-listing-api.md`, `trip-listing-api.md`, `smoke-tests-aws-dev.md`). PO decision **RESOLVED → Option A, 403 for restricted roles and unauthenticated** (the public/unauthenticated-browse promise is dropped).
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 2 | Indirect — protecting farmer inventory + trucker contact/pricing from cross-role scraping preserves marketplace fairness/trust, doesn't add a revenue stream |
+| Risk Reduction | 5 | Maximum — closes a confirmed cross-role data-confidentiality leak in a CRITICAL domain, including unauthenticated full-catalog access |
+| User Adoption | 3 | Farmers/truckers gain assurance their commercial data is scoped to buyers; no UI change (no friction, no new feature) |
+| Compliance | 5 | Maximum — required to satisfy the CRITICAL CLAUDE.md role table and align code with the smoke-test spec; data-minimization per Ethiopia 2026 policy |
+| Complexity | 4 | Low effort — two handlers, four methods, allowlist swap; no new DTOs/AOT/DB/infra; bulk is test rewrites + doc reconciliation |
+| **Priority Score** | **11** | |
+
+- **PO Gates**: Fraud (YES), Offline (NO), Ops (NO), Revenue (NO), Policy (YES) = 2/5 PASS *(low gate count, but remediates a CRITICAL-domain confidentiality leak + a code-vs-spec contradiction)*
+- **Layer**: 1 - Foundation (role-visibility integrity)
+- **Severity / Audit**: HIGH (server-layer leak in a CRITICAL domain). Confirmed at `server/src/Functions/CropFunction.cs` `HandleGetCropsAsync` (86-99) + `HandleGetCropByIdAsync` (187-198); `server/src/Functions/TripFunction.cs` `HandleGetTripsAsync` (87-100) + `HandleGetTripByIdAsync` (255-266).
+- **Why Now**: The read endpoints owner-scope exactly ONE role each (`farmer`→own crops, `trucker`→own trips) and let **every other caller fall through to the unfiltered query**. So a **Trucker can enumerate every farmer's crop catalog** (qty/price/location/woreda/name), a **Farmer can enumerate every trucker's trips** (route/capacity/price/phone), and **unauthenticated callers can browse both** — directly violating the role table (only Buyer sees ALL). Passing unit tests (`HandleGetCrops_TruckerRole_CanBrowseAllCrops`, `…_Unauthenticated_…`, `HandleGetTrips_FarmerRole_CanBrowseAllTrips`) currently **encode the bug as correct**.
+- **Risk If Delayed**: Ongoing cross-tenant scraping of farmer inventory and trucker contacts/pricing; a constitution-level (automatic-FAIL) role-visibility violation remains shippable.
+- **✅ PO DECISION (resolved 2026-06-18)**: **Option A** chosen — browse-all restricted to **Buyer + Admin**; restricted roles AND unauthenticated callers get **403**; the "public/unauthenticated browse" promise is dropped (contract docs updated). Option B (keep open browse) rejected (would require rewriting the CRITICAL role table).
+- **Dependencies**: PO policy decision (blocking). Reuses `AdminAuthHelper.IsAdmin` (exists). No infra/DTO/DB change. AWS dev deploy to run the smoke-test verification.
+- **Next Engineering Task** (Option A): (1) `HandleGetCropsAsync` — positive allowlist: `farmer`→force self; `buyer`/admin→browse-all; else **403 `CROP_FORBIDDEN`**. (2) Same for `HandleGetCropByIdAsync`, `HandleGetTripsAsync` (→`TRIP_FORBIDDEN`), `HandleGetTripByIdAsync` (preserve `truckerPhone` hiding + status query branch). (3) Rewrite the bug-encoding tests in `CropFunctionTests.cs`/`TripFunctionTests.cs` to assert restricted behavior (never weaken owner-isolation asserts). (4) Update handler XML docs + reconcile `trip-listing-api.md` (14, 113), `crop-listing-api.md`, `data-models.md:77`, `smoke-tests-aws-dev.md` (137, 172). (5) `dotnet build`+`test`; AWS dev smoke pass.
+- **Responsible Agent**: @Server (primary), @Reviewer (CRITICAL role-visibility sign-off), @Architect/PO (policy + contract reconciliation)
+- **Target Sprint**: **Sprint 1** (ship-ready) — alongside F-34; do not deploy to dev (S1-05) until it lands.
+
+### F-35: Admin audit log always empty — add a "recent audit entries across all escrows" capability
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 1 | Admin reporting; no direct revenue path |
+| Risk Reduction | 4 | Restores escrow audit-trail visibility for dispute/fraud investigation; currently a blind spot |
+| User Adoption | 2 | Admin/compliance-staff only; no farmer/trucker/buyer surface |
+| Compliance | 5 | NBE/regulatory audit-trail reporting depends on this; a real compliance gap |
+| Complexity | 3 | Cross-module (infra GSI/scan + server repo/handler/DTO/context + admin hook/page) but well-scoped; audit data already written correctly |
+| **Priority Score** | **9** | |
+
+- **PO Gates**: Fraud (YES), Offline (NO), Ops (NO), Revenue (NO), Policy (YES) = 2/5 PASS
+- **Layer**: 2 - Trust / compliance
+- **Severity / Audit**: HIGH (admin-only; no role-visibility surface; data intact). Confirmed at `admin/src/pages/AuditLogPage.tsx:13` (`useEscrowAudit("all")`) → `AdminFunction.cs` `HandleEscrowAuditAsync` → `EscrowAuditRepository.GetAuditTrailAsync` (PK-equality `escrowId="all"`).
+- **Why Now**: The page calls `GET /admin/escrows/all/audit`; the server runs a partition-key Query for `escrowId="all"`, but rows use the real `escrowId` as PK — so the result is **always empty in every environment**. There is **no endpoint** that lists audit entries across escrows.
+- **Risk If Delayed**: Admins have no working escrow audit trail — dispute investigation, fraud review, and regulatory reporting are blocked.
+- **🔶 OPEN PO/ARCHITECT DECISION**: query strategy — **(a) GSI** constant partition `'ALL'` + `timestamp` sort *(recommended at current low traffic; date-bucket partition as the scale path)*, or **(b) bounded Scan** (no schema/write change, but unordered + full-table cost); and **historical backfill** of pre-existing rows lacking the GSI attribute (one-off job vs go-forward-only).
+- **Dependencies**: PO/architect decision above. If GSI: infra GSI + `EscrowService.AppendAuditAsync` write-path attribute must deploy **before** the new endpoint returns go-forward data. Pairs with Sprint 2 audit-logging work (S2-03/S2-04). `escrowAuditTable` already `grantReadData` to the admin Lambda (no IAM change).
+- **Next Engineering Task**: (1) infra — add `AuditRecentIndex` GSI in `database-stack.ts` (on `.table` directly; the construct doesn't expose GSI props). (2) server — `AppendAuditAsync` writes `auditPartition='ALL'`; new `GetRecentAcrossEscrowsAsync(limit, startKey)` in the repo (append-only, don't touch per-escrow read); new `GET /admin/audit` branch + `HandleListRecentAuditAsync` (reuse `ParseLimit`/`PaginationTokenHelper`); new `AdminAuditListResponse` registered in `AppJsonContext.cs`. (3) infra — add `/admin/audit` to `adminGetPaths`. (4) admin — `useRecentAudit()` hook → `GET /admin/audit`; switch `AuditLogPage`. (5) tests — NEW `AdminAuditTests.cs` (NSubstitute) + `AuditLogPage.test.tsx`.
+- **Responsible Agent**: @Server, @Infra, @Mobile (admin React), @Reviewer
+- **Target Sprint**: **Sprint 2** (security) — pairs with structured audit logging.
+
+### F-37: E2E webapp authenticated tests cannot inject auth (false-green coverage)
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Revenue | 1 | Test infrastructure; no revenue path |
+| Risk Reduction | 4 | Restores real authenticated-UI + UI-level role-isolation coverage on web; the CRITICAL role rule currently has no working UI guard |
+| User Adoption | 1 | No user-facing change |
+| Compliance | 2 | Indirectly supports the role-visibility CRITICAL gate + tests-follow-code; itself internal QA |
+| Complexity | 4 | 3 e2e files + a small production-gated web bootstrap seam; no server/contract/DB change |
+| **Priority Score** | **4** | |
+
+- **PO Gates**: Fraud (NO), Offline (NO), Ops (YES), Revenue (NO), Policy (NO) = 1/5 PASS
+- **Layer**: 2 - Trust (test reliability)
+- **Severity / Audit**: MEDIUM (test-only; no end-user impact). Confirmed at `e2e/webapp/home.spec.ts` (~29-37) and `e2e/webapp/role-isolation.spec.ts` (UI + Responsive describes).
+- **Why Now**: The tests inject tokens into raw `localStorage` keys, but the Flutter web app restores sessions from `current_user_phone` → `cached_tokens_<phone>` via **flutter_secure_storage** (AES-GCM, `FlutterSecureStorage.` prefix) — the namespaces never intersect. The app stays unauthenticated, the "authenticated" assertions sit behind a `!url.includes('/login')` guard inside a warn-and-skip `try/catch`, so the suite reports **green while asserting nothing** — there is currently ZERO real authenticated-UI / UI role-isolation coverage.
+- **Risk If Delayed**: A regression in web session restore, role-based routing, or the CRITICAL role-visibility rule would ship undetected through a green gate.
+- **🔶 OPEN PO DECISION**: auth-injection strategy — **(C)** a **production-gated, window-exposed test-only seam** (`window.__weredaTestSeedAuth`) writing through the real `OfflineAuthCache` + `current_user_phone` paths *(recommended)*; **(A)** drive the real CanvasKit login UI (faithful but flaky/slow — keep at most one smoke test); **(B)** replicate flutter_secure_storage's AES-GCM localStorage format (infeasible/brittle). PO must accept a **non-production-only auth bypass** (must be a no-op in production builds).
+- **Dependencies**: PO decision above. Hard prerequisite for / should land with existing **S3-05** ("Add Flutter web E2E tests"). Most valuable **after F-36** so the restored role-isolation UI coverage guards the corrected behavior. Live dev API + seeded test users + a dev/staging web build that includes the gated seam.
+- **Next Engineering Task**: (1) gated seam in `main.dart` web bootstrap (registered only when `!Environment.config.isProduction`), writing via `OfflineAuthCache` + `current_user_phone` then dispatching `AuthCheckRequested`; optional extract to `web_test_auth_seam.dart` (conditional import). (2) `seedAuth(page, role)` + `verifyAuthenticated(page)` in `e2e/helpers/auth.ts`; throw loudly if the seam is absent. (3) Rewrite `home.spec.ts` + `role-isolation.spec.ts` to use `seedAuth`, remove the warn-and-skip + `/login` escape hatch, assert non-`/login` per role. (4) mobile test locking the seam off in production. (5) `flutter build web` + webapp Playwright run.
+- **Responsible Agent**: @Mobile (web seam), @Reviewer
+- **Target Sprint**: **Sprint 3** (production) — with S3-05, after F-36.
+
+### Tech-Debt Note (NOT a bug): unconditional `dart:io` import in `photo_evidence_widget.dart`
+- **Status**: Reclassified / **DISPROVEN** as a defect. The audit verifier claimed the unconditional `import 'dart:io'` at `photo_evidence_widget.dart:1` "breaks the web build." `flutter build web` passes (exit 0) with the file in the tree, so the build-breaking claim is false — same web-tolerance that correctly refuted sibling `role_details_screen.dart`. **No fix required; not scheduled.**
+- **Why tracked**: Latent platform-coupling smell — a widget importing `dart:io` directly is fragile if the web target ever hardens (e.g. Wasm/strict-web). The current dart2js web build tolerates unused `dart:io` symbols.
+- **Optional action**: guard behind a conditional import / `kIsWeb` branch when/if the web target hardens. Severity LOW, no sprint, no PO ID assigned.
+
+---
+
 ## Deferred Roadmap Phases
 
 ### Phase R5: Production Hardening (Week 15-17)
@@ -719,3 +875,25 @@ Features failing 3+ gates are marked DEFERRED.
 | 31 | F-31 | Dynamic Image Cache Sizing | 2 | 4 | R6 |
 
 **Note**: Features are sequenced by dependency chain and build order, not strictly by score. F-13 (Telebirr, score 19) ranks highest but appears in Phase R4 because it depends on delivery verification, which depends on trip listing, which depends on crop listing, which depends on sync engine, which depends on data models and auth.
+
+### Audit Remediation Bugs (2026-06-17) — separate priority track
+
+Confirmed bugs from the 2026-06-17 adversarial audit (Section 9), tracked apart from the feature ranking. **PO rank reflects the CRITICAL role-visibility override, not raw score.**
+
+| PO Rank | ID | Bug | Score | Severity | Sprint |
+|---------|----|----|-------|----------|--------|
+| 1 | F-34 | Login defaults role to Farmer on cache miss — role-visibility breach | 10 | HIGH | Sprint 1 |
+| 2 | F-33 | Web escrow "by delivery" returns wrong escrow | 10 | HIGH | Sprint 2 |
+| 3 | F-32 | Registration drops trucker license + buyer type/company name | 11 | HIGH | Sprint 2 |
+
+F-34 outranks higher-scored F-32 because it is the only LIVE breach of the automatic-FAIL role-visibility invariant, is mobile-only, and has no dependencies. Hard ordering exists only within F-33 (server + infra deploy must precede the mobile rewrite). F-32 is gated on a PO scope decision (driving-license local-only vs S3 upload). None depend on each other or touch the Isar Hardening (HS-1..HS-7) critical path.
+
+**Re-verification pass (2026-06-17) — flagged items needing a PO/architect decision:**
+
+| PO Rank | ID | Item | Score | Severity | Sprint | Blocking decision |
+|---------|----|----|-------|----------|--------|-------------------|
+| 1 | F-36 ✅ | Restrict GET /crops & /trips browse-all to Buyer (+Admin) — cross-role data leak | 11 | HIGH | Sprint 1 | ✅ DONE — Option A (restrict, 403) |
+| 2 | F-35 | Admin audit log always empty — add global audit endpoint | 9 | HIGH | Sprint 2 | GSI vs Scan; historical backfill |
+| 3 | F-37 | E2E webapp auth-injection broken (false-green coverage) | 4 | MEDIUM | Sprint 3 | Auth-seam strategy (Option C) |
+
+F-36 leads (role-visibility CRITICAL domain overrides raw score): a Trucker can scrape all crops, a Farmer all trips, and unauthenticated callers can browse both — with passing unit tests that currently encode the leak. F-36 & F-35 are independent and parallelizable once their decisions land; F-37 depends on the auth-seam decision and is most valuable sequenced after F-36.

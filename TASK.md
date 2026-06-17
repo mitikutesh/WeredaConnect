@@ -5,6 +5,7 @@
 **Phase R4: COMPLETE** (started Feb 17, 2026)
 **Branch:** `fix-feat` (current), `telebirr-mock` merged to `main` via PR #15
 **Last PO Audit:** 2026-03-19 (validated with automated build/test/security checks)
+**Adversarial Audit (2026-06-17):** 34 + 71 confirmed defects fixed on `fix/fix-bug` (all build/test gates green). Cross-module / decision-gated items triaged to the backlog (`specs/features/BACKLOG.md` §9): **F-32/F-33/F-34** (manual-fix bugs) and **F-35/F-36/F-37** (re-verification flagged items). **F-36** (restrict /crops & /trips browse-all to Buyer+Admin — a CRITICAL-domain cross-role leak) is now **✅ fixed under Option A** (403 for non-buyers + unauthenticated; server 716 tests pass; contracts reconciled). Remaining backlog: **F-32, F-33, F-34, F-35, F-37** (F-35/F-37 await PO decisions). Re-verification pass complete (76 confirmed → 72 fixed incl. F-36, 1 false positive, 3 flagged remaining).
 **MVP Completion:** ~95%
 **Launch Target:** Sprint 1 (ship-ready) → Sprint 2 (security) → Sprint 3 (production)
 **Sprint Plan:** `specs/features/sprint-plan-2026-03-19.md`
@@ -83,6 +84,8 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S1-04 | Update stale STATE.md and TASK.md | 1h | Pending |
 | S1-05 | Deploy to dev environment | 2h | Pending |
 | S1-06 | Merge fix-feat to main | 1h | Pending |
+| F-34 | Login role-default fix — role-visibility breach (BACKLOG §9, PRIORITY #1) | ~1d | Pending |
+| F-36 | Restrict /crops & /trips browse-all to Buyer+Admin — cross-role leak (BACKLOG §9; Option A, 403) | ~0.5-1d | ✅ Done (2026-06-18) |
 
 ### Sprint 2: Security Hardening (5-7 days)
 
@@ -94,6 +97,9 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S2-04 | Audit logging — compliance (Phase 2) | 3 days | Pending |
 | S2-05 | Git history purge | 1h | Pending |
 | S2-06 | Exit SNS sandbox | 1h + wait | Pending |
+| F-33 | Web escrow by-delivery endpoint — server+infra+mobile (BACKLOG §9; order: server→infra→mobile) | ~1-1.5d | Pending |
+| F-32 | Registration role-field wiring — mobile+server+contracts (BACKLOG §9; gated on PO driving-license scope decision) | ~1.5-2.5d | Pending |
+| F-35 | Admin audit-log global endpoint — infra+server+admin (BACKLOG §9; ⚠ blocked on GSI-vs-Scan + backfill decision) | ~1-1.5d | Pending |
 
 ### Sprint 3: Production Readiness (2-3 weeks)
 
@@ -105,6 +111,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S3-04 | Implement Isar field-level encryption | **expanded — see Isar Hardening roadmap** | Pending |
 | S3-05 | Add Flutter web E2E tests | 4h | Pending |
 | S3-06 | OTP resend + forgot password | 8h | Pending |
+| F-37 | Fix E2E webapp auth-injection (false-green) — pairs with S3-05 (BACKLOG §9; ⚠ blocked on auth-seam decision; sequence after F-36) | ~1-1.5d | Pending |
 
 ---
 

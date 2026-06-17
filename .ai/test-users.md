@@ -46,15 +46,15 @@ def login(phone: str, password: str = "TestPass1dev") -> dict:
 
 # Login as farmer
 farmer = login("+251900100001")
-farmer_token = farmer["tokens"]["accessToken"]
+farmer_token = farmer["tokens"]["idToken"]
 
 # Login as trucker
 trucker = login("+251900100002")
-trucker_token = trucker["tokens"]["accessToken"]
+trucker_token = trucker["tokens"]["idToken"]
 
 # Login as buyer
 buyer = login("+251900100003")
-buyer_token = buyer["tokens"]["accessToken"]
+buyer_token = buyer["tokens"]["idToken"]
 ```
 
 ## When to Use Which User

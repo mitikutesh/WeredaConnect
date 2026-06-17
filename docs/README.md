@@ -72,7 +72,6 @@
 | **Translation review** | [Afan Oromo Review](./l10n/translation-review-needed.md) |
 | **2GB RAM optimization** | [Quick Reference](./mobile/optimization/QUICK_REFERENCE_2GB_RAM.md) |
 | **Review fixes checklist** | [Review Fixes](./review/REVIEW-FIXES.md) |
-| **Archived reports** | [Archive](./archive/) |
 
 ## Directory Structure
 
@@ -83,6 +82,7 @@ docs/
 ├── Buyer.md                 # Buyer role guide (escrow + delivery)
 ├── Trucker.md               # Trucker role guide (pickup + transit)
 ├── ad-video-script.md       # Marketing video script
+├── ai-plans/                # AI planning artifacts
 ├── architecture/            # System design & technical architecture
 ├── developer/               # Developer guides & API references
 ├── l10n/                    # Localization review notes
@@ -91,10 +91,10 @@ docs/
 ├── Research/                # Market research & feasibility
 ├── review/                  # Active code review fix lists
 ├── runbooks/                # Operational runbooks
+├── screenshots/             # UI screenshots
 ├── security/                # Security audits & hardening docs
 ├── user/                    # Troubleshooting guide
-├── ux/                      # UX designs and audit issues
-└── archive/                 # Historical reports and completed tasks
+└── ux/                      # UX designs and audit issues
 ```
 
 ---

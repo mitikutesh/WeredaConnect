@@ -190,7 +190,7 @@ mobile/lib/core/
 │   ├── sync_queue.dart / sync_queue_web.dart
 │   ├── sync_executor.dart / sync_executor_web.dart
 │   ├── sync_worker.dart            # in-process Timer (foreground)
-│   ├── conflict_resolver.dart      # last-write-wins by updatedAt
+│   ├── conflict_resolver.dart      # server-wins (accept server version)
 │   ├── idempotency_key_generator.dart
 │   └── connectivity_monitor.dart
 │
@@ -1056,7 +1056,7 @@ defense, and it must be:
 3. Sent in the `Idempotency-Key` HTTP header on every retry of that row
 4. Deduped server-side, with a TTL longer than `maxRetries * backoff`
 
-Verify the generator via `mobile/test/core/sync/idempotency_key_generator_test.dart`
+Verify the generator via `mobile/test/core/sync/sync_queue_test.dart`
 — missing tests here block any PR that touches the sync path.
 
 ---

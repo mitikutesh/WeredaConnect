@@ -5,10 +5,7 @@ For testing philosophy, principles, and strategy, see **[.ai/testing.md](../../.
 ## Quick Reference
 
 ```bash
-# Run all tests
-./scripts/run-all-tests.sh
-
-# Individual
+# Run all tests (per module — no aggregate script exists)
 cd mobile && flutter test
 cd server && dotnet test
 cd infra && npm test
@@ -25,7 +22,7 @@ genhtml coverage/lcov.info -o coverage/html && open coverage/html/index.html
 cd server && dotnet test /p:CollectCoverage=true /p:CoverageReportsFormat=html
 
 # Infrastructure
-cd infra && npm run test:coverage
+cd infra && npm test
 ```
 
 ---
@@ -35,12 +32,12 @@ cd infra && npm run test:coverage
 ### Unit Tests
 
 ```dart
-// Mobile example (Mockito)
+// Mobile example (Mocktail)
 test('should return reports from repository', () async {
-  when(mockRepository.getReports()).thenAnswer((_) async => [Report(id: '1', title: 'Test')]);
+  when(() => mockRepository.getReports()).thenAnswer((_) async => [Report(id: '1', title: 'Test')]);
   final result = await useCase();
   expect(result.length, 1);
-  verify(mockRepository.getReports()).called(1);
+  verify(() => mockRepository.getReports()).called(1);
 });
 ```
 
@@ -113,7 +110,7 @@ group('Online', () {
 
 ### Mocking
 
-- **Mobile**: Mockito with `@GenerateMocks([ReportRepository])`
+- **Mobile**: Mocktail (`class MockReportRepository extends Mock implements ReportRepository`)
 - **Backend**: NSubstitute (AOT-compatible): `Substitute.For<IReportRepository>()`
 
 ---
@@ -172,4 +169,3 @@ jobs:
 ---
 
 **Last Updated**: 2026-02-16
-

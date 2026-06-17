@@ -114,7 +114,7 @@ The Crop Listing API enables farmers to post crop availability (type, quantity, 
 
 ### 2. Browse Crop Listings
 **Method**: GET /crops
-**Authentication**: Optional (public endpoint for browsing, auth required to see farmer contact)
+**Authentication**: Required — browse-all is restricted to Buyer and Admin (F-36). Farmers see only their own crops; truckers, other roles, and unauthenticated callers receive 403.
 **Query Parameters**:
 
 | Parameter | Type | Required | Description | Example |
