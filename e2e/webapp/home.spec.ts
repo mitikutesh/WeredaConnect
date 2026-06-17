@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { TEST_USERS, apiLogin } from "../helpers/auth";
+import { seedAuth } from "../helpers/auth";
 
 /**
  * Flutter Web App - Home Screen Tests
@@ -17,39 +17,18 @@ async function waitForFlutter(page: import("@playwright/test").Page) {
 
 test.describe("Webapp Home Screen", () => {
   test("home page renders after authentication", async ({ page }) => {
-    await page.goto("/login");
-    await waitForFlutter(page);
+    // Authenticate via the production-gated test seam. seedAuth throws if the
+    // seam is absent (prod build) — no silent skip.
+    await seedAuth(page, "farmer");
 
-    try {
-      const tokens = await apiLogin(
-        TEST_USERS.farmer.phone,
-        TEST_USERS.farmer.password,
-      );
-
-      await page.evaluate((accessToken: string) => {
-        localStorage.setItem("access_token", accessToken);
-      }, tokens.accessToken);
-      await page.evaluate((refreshToken: string) => {
-        localStorage.setItem("refresh_token", refreshToken);
-      }, tokens.refreshToken);
-      await page.evaluate((idToken: string) => {
-        localStorage.setItem("id_token", idToken);
-      }, tokens.idToken);
-
-      await page.goto("/");
-      await waitForFlutter(page);
-
-      // Should not be on login page if auth worked
-      if (!page.url().includes("/login")) {
-        const flutterView = page.locator("flutter-view");
-        await expect(flutterView).toBeVisible();
-        await page.screenshot({
-          path: "test-results/webapp-home-authenticated.png",
-        });
-      }
-    } catch {
-      console.warn("API unavailable - skipping authenticated home test");
-    }
+    // Leaving /login is the only reliable auth signal on CanvasKit.
+    expect(page.url(), "auth seam must navigate off /login").not.toContain(
+      "/login",
+    );
+    await expect(page.locator("flutter-view")).toBeVisible();
+    await page.screenshot({
+      path: "test-results/webapp-home-authenticated.png",
+    });
   });
 
   test("home page has no critical JS errors", async ({ page }) => {

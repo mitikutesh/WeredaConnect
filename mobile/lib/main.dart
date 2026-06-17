@@ -13,6 +13,7 @@ import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
+import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -174,6 +175,8 @@ Future<void> _runWeb({
 }) async {
   // No Isar, no SyncWorker, no cert pinning, no lifecycle observer on web
   final authBloc = AuthBloc()..add(const AuthCheckRequested());
+  // F-37: production-gated test auth seam for e2e (no-op in prod builds).
+  registerWebTestAuthSeam(authBloc);
   final api = ApiClient();
 
   runApp(
