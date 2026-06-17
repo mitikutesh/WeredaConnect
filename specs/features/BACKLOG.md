@@ -691,7 +691,8 @@ Three confirmed defects from the 2026-06-17 repository-wide adversarial audit th
 - **Responsible Agent**: @Server, @Mobile, @Infra, @Reviewer
 - **Target Sprint**: Sprint 2
 
-### F-34: Login Defaults Role to Farmer on Cache Miss — Role-Visibility Breach ⭐ PRIORITY #1
+### F-34: Login Defaults Role to Farmer on Cache Miss — Role-Visibility Breach ✅ DONE
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `786ad23`). `AuthResult` now carries the authoritative role/name/woreda; `AuthService.loginOnline` resolves the role before the best-effort cache write and fails closed on an unrecognized role; `loginOffline` carries the cached role; all three `AuthBloc` login handlers use `result.role` and emit `AuthError` when it is null (the `?? UserRole.farmer` default is gone); web `getCachedUser` returns null on an unknown role. Mobile-only; `flutter analyze` clean, **855 tests pass** (incl. 2 new F-34 tests), web build OK.
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 2 | Indirect — a Buyer mis-scoped as Farmer can't browse all listings/transact, but it's edge-triggered (cache miss / first login) |
@@ -882,7 +883,7 @@ Confirmed bugs from the 2026-06-17 adversarial audit (Section 9), tracked apart 
 
 | PO Rank | ID | Bug | Score | Severity | Sprint |
 |---------|----|----|-------|----------|--------|
-| 1 | F-34 | Login defaults role to Farmer on cache miss — role-visibility breach | 10 | HIGH | Sprint 1 |
+| 1 | F-34 ✅ | Login defaults role to Farmer on cache miss — role-visibility breach | 10 | HIGH | Sprint 1 — ✅ DONE |
 | 2 | F-33 | Web escrow "by delivery" returns wrong escrow | 10 | HIGH | Sprint 2 |
 | 3 | F-32 | Registration drops trucker license + buyer type/company name | 11 | HIGH | Sprint 2 |
 

@@ -84,7 +84,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S1-04 | Update stale STATE.md and TASK.md | 1h | Pending |
 | S1-05 | Deploy to dev environment | 2h | Pending |
 | S1-06 | Merge fix-feat to main | 1h | Pending |
-| F-34 | Login role-default fix — role-visibility breach (BACKLOG §9, PRIORITY #1) | ~1d | Pending |
+| F-34 | Login role-default fix — role-visibility breach (BACKLOG §9, PRIORITY #1) | ~1d | ✅ Done (2026-06-18) |
 | F-36 | Restrict /crops & /trips browse-all to Buyer+Admin — cross-role leak (BACKLOG §9; Option A, 403) | ~0.5-1d | ✅ Done (2026-06-18) |
 
 ### Sprint 2: Security Hardening (5-7 days)
