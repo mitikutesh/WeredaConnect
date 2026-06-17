@@ -201,7 +201,17 @@ public class AdminFunction
         }
 
         var auditRepo = new EscrowAuditRepository(_dynamoDb, _escrowAuditTable);
-        var auditItems = await auditRepo.GetAuditTrailAsync(escrowId);
+
+        // The admin dashboard requests the global feed via the "all" sentinel
+        // (useEscrowAudit("all") → /admin/escrows/all/audit). Real escrow IDs are
+        // "escrow-{guid}", so this never collides. For "all" we scan recent
+        // entries across every escrow (newest first); otherwise we return the
+        // per-escrow trail. See EscrowAuditRepository for the scan cap + GSI
+        // scale path. F-35.
+        var auditItems =
+            string.Equals(escrowId, "all", StringComparison.OrdinalIgnoreCase)
+                ? await auditRepo.GetRecentAcrossEscrowsAsync(100)
+                : await auditRepo.GetAuditTrailAsync(escrowId);
         var entries = auditItems.Select(MapToAuditEntry).ToList();
 
         var response = new AdminEscrowAuditResponse
