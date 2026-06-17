@@ -360,6 +360,65 @@ void main() {
         final error = states[1] as AuthError;
         expect(error.errorCode, equals(AuthErrorCode.phoneAlreadyRegistered));
       });
+
+      test('forwards role-specific buyer fields to AuthService.register (F-32)',
+          () async {
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+            faydaVerificationToken: any(named: 'faydaVerificationToken'),
+            preferredLanguage: any(named: 'preferredLanguage'),
+            drivingLicensePath: any(named: 'drivingLicensePath'),
+            buyerType: any(named: 'buyerType'),
+            companyName: any(named: 'companyName'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.buyer,
+          ),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251911234567',
+            password: 'pass1234',
+            name: 'Acme Buyer',
+            role: UserRole.buyer,
+            woreda: 'Adama',
+            buyerType: 'company',
+            companyName: 'Acme PLC',
+          ),
+        );
+
+        // The BLoC must pass the buyer fields through to the service (they were
+        // previously dropped); the driving-license stays null for a buyer.
+        // Omitted named args (faydaVerificationToken, preferredLanguage,
+        // drivingLicensePath) are matched against their defaults by mocktail,
+        // so this also asserts the driving-license is NOT sent for a buyer.
+        verify(
+          () => authService.register(
+            phoneNumber: '+251911234567',
+            password: 'pass1234',
+            name: 'Acme Buyer',
+            role: UserRole.buyer,
+            woreda: 'Adama',
+            buyerType: 'company',
+            companyName: 'Acme PLC',
+          ),
+        ).called(1);
+      });
     });
 
     // -----------------------------------------------------------------------

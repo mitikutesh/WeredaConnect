@@ -214,6 +214,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         woreda: event.woreda,
         faydaVerificationToken: event.faydaVerificationToken,
         preferredLanguage: event.preferredLanguage,
+        drivingLicensePath: event.drivingLicensePath,
+        buyerType: event.buyerType,
+        companyName: event.companyName,
       );
 
       // User navigated away — discard the result

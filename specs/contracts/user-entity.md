@@ -30,6 +30,9 @@ The User entity represents a registered user of WeredaConnect. It is shared betw
 | `preferredLanguage` | string | No | Yes | Yes | Enum: `en`, `am`, `om`. Default: `am`. |
 | `isPhoneVerified` | boolean | Yes | Yes | Yes | Whether the user completed SMS OTP verification. |
 | `profilePhotoRef` | string | No | Yes | Yes | S3 key for profile photo. Null if no photo uploaded. |
+| `buyerType` | string | No | Yes | Yes | **Buyer only** (F-32). Enum: `private`, `company`. Null for farmers/truckers. |
+| `companyName` | string | No | Yes | Yes | **Buyer only** (F-32). Required when `buyerType` is `company`. Max 100 chars. |
+| `drivingLicensePath` | string | No | Yes | **Never** | **Trucker only** (F-32). Local device file path, stored in Isar only — not transmitted to the server until an image-upload pipeline exists. |
 | `createdAt` | string (ISO 8601) | Yes | No | Yes | UTC timestamp of account creation. |
 | `updatedAt` | string (ISO 8601) | Yes | Yes | Yes | UTC timestamp of last profile update. |
 | `version` | integer | Yes | Yes | Yes | Monotonically increasing version number for sync conflict detection. Starts at 1. |

@@ -27,6 +27,9 @@ class OfflineAuthCache {
     required AuthTokens tokens,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     // Persist tokens
     await _storage.write(
@@ -44,6 +47,11 @@ class OfflineAuthCache {
         'woreda': woreda,
         if (fullName != null) 'fullName': fullName,
         if (displayName != null) 'displayName': displayName,
+        // F-32: role-specific fields (platform pair with the Isar implementation).
+        if (drivingLicensePath != null)
+          'drivingLicensePath': drivingLicensePath,
+        if (buyerType != null) 'buyerType': buyerType,
+        if (companyName != null) 'companyName': companyName,
       }),
     );
   }
@@ -56,6 +64,9 @@ class OfflineAuthCache {
     required String woreda,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     await _storage.write(
       key: _userKey(phoneNumber),
@@ -67,6 +78,11 @@ class OfflineAuthCache {
         'woreda': woreda,
         if (fullName != null) 'fullName': fullName,
         if (displayName != null) 'displayName': displayName,
+        // F-32: role-specific fields (platform pair with the Isar implementation).
+        if (drivingLicensePath != null)
+          'drivingLicensePath': drivingLicensePath,
+        if (buyerType != null) 'buyerType': buyerType,
+        if (companyName != null) 'companyName': companyName,
       }),
     );
   }

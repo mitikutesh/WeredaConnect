@@ -31,6 +31,9 @@ public sealed record UserDto
     public required bool IsPhoneVerified { get; init; }
     public bool Suspended { get; init; }
     public string? ProfilePhotoRef { get; init; }
+    // Buyer-only identity fields (F-32); null for farmers/truckers.
+    public string? BuyerType { get; init; }
+    public string? CompanyName { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }
     public required int Version { get; init; }

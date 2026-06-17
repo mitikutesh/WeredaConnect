@@ -73,6 +73,9 @@ class AuthService {
     required String woreda,
     String? faydaVerificationToken,
     String preferredLanguage = 'am',
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
@@ -100,6 +103,15 @@ class AuthService {
       };
       if (faydaVerificationToken != null) {
         data['faydaVerificationToken'] = faydaVerificationToken;
+      }
+      // F-32: buyer identity fields are persisted server-side. The trucker
+      // driving-license is intentionally NOT sent — it is a local device file
+      // path kept only in Isar until an image-upload pipeline exists (scope A).
+      if (buyerType != null) {
+        data['buyerType'] = buyerType;
+      }
+      if (companyName != null) {
+        data['companyName'] = companyName;
       }
 
       final response = await _dio.post<Map<String, dynamic>>(
@@ -135,6 +147,9 @@ class AuthService {
           tokens: tokens,
           fullName: fullName,
           displayName: name,
+          drivingLicensePath: drivingLicensePath,
+          buyerType: buyerType,
+          companyName: companyName,
         );
       } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');

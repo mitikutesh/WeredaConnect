@@ -198,6 +198,8 @@ public class RegisterFunction
             FaydaVerifiedAt = faydaVerification != null ? now : null,
             PreferredLanguage = registerRequest.PreferredLanguage,
             IsPhoneVerified = true,
+            BuyerType = registerRequest.BuyerType,
+            CompanyName = registerRequest.CompanyName,
             CreatedAt = now,
             UpdatedAt = now,
             Version = 1
