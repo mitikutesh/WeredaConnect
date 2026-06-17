@@ -121,8 +121,10 @@ void main() {
     });
 
     group('onRequest - token injection', () {
-      test('injects access token into Authorization header', () async {
-        await fakeStorage.write(key: 'access_token', value: 'valid-token-123');
+      test('injects ID token into Authorization header', () async {
+        // The bearer is the ID token (carries custom:role), not the access
+        // token — the access token has no custom attributes.
+        await fakeStorage.write(key: 'id_token', value: 'valid-token-123');
 
         dioAdapter.onGet(
           '/protected',
@@ -150,7 +152,7 @@ void main() {
       });
 
       test('skips token injection when token is empty', () async {
-        await fakeStorage.write(key: 'access_token', value: '');
+        await fakeStorage.write(key: 'id_token', value: '');
 
         dioAdapter.onGet(
           '/public',
@@ -163,7 +165,7 @@ void main() {
       });
 
       test('skips token injection for /auth/refresh endpoint', () async {
-        await fakeStorage.write(key: 'access_token', value: 'some-token');
+        await fakeStorage.write(key: 'id_token', value: 'some-token');
 
         dioAdapter.onPost(
           '/auth/refresh',
@@ -182,7 +184,7 @@ void main() {
 
     group('onError - token refresh on 401', () {
       test('calls refresh callback with correct token on 401', () async {
-        await fakeStorage.write(key: 'access_token', value: 'expired-token');
+        await fakeStorage.write(key: 'id_token', value: 'expired-token');
         await fakeStorage.write(
           key: 'refresh_token',
           value: 'valid-refresh-token',
@@ -207,7 +209,7 @@ void main() {
 
       test('clears tokens and propagates error when no refresh token',
           () async {
-        await fakeStorage.write(key: 'access_token', value: 'expired-token');
+        await fakeStorage.write(key: 'id_token', value: 'expired-token');
         // Don't write refresh_token
 
         dioAdapter.onGet(
@@ -224,15 +226,15 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
-        final accessToken = await fakeStorage.read(key: 'access_token');
+        final bearerToken = await fakeStorage.read(key: 'id_token');
         final refreshToken = await fakeStorage.read(key: 'refresh_token');
-        expect(accessToken, isNull);
+        expect(bearerToken, isNull);
         expect(refreshToken, isNull);
       });
 
       test('clears tokens when refresh callback returns null', () async {
         final testStorage = FakeSecureStorage();
-        await testStorage.write(key: 'access_token', value: 'expired-token');
+        await testStorage.write(key: 'id_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'invalid-refresh');
 
         final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
@@ -259,16 +261,16 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
-        final accessToken = await testStorage.read(key: 'access_token');
+        final bearerToken = await testStorage.read(key: 'id_token');
         final refreshToken = await testStorage.read(key: 'refresh_token');
-        expect(accessToken, isNull);
+        expect(bearerToken, isNull);
         expect(refreshToken, isNull);
       });
 
       test('clears tokens when refresh callback returns empty string',
           () async {
         final testStorage = FakeSecureStorage();
-        await testStorage.write(key: 'access_token', value: 'expired-token');
+        await testStorage.write(key: 'id_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
         final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
@@ -295,15 +297,15 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
 
         // Verify tokens were cleared
-        final accessToken = await testStorage.read(key: 'access_token');
+        final bearerToken = await testStorage.read(key: 'id_token');
         final refreshToken = await testStorage.read(key: 'refresh_token');
-        expect(accessToken, isNull);
+        expect(bearerToken, isNull);
         expect(refreshToken, isNull);
       });
 
       test('preserves tokens when refresh throws (transient error)', () async {
         final testStorage = FakeSecureStorage();
-        await testStorage.write(key: 'access_token', value: 'expired-token');
+        await testStorage.write(key: 'id_token', value: 'expired-token');
         await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
         final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
@@ -333,14 +335,14 @@ void main() {
 
         // Tokens preserved — transient errors (network timeout) should not
         // clear tokens because the refresh token is likely still valid.
-        final accessToken = await testStorage.read(key: 'access_token');
+        final bearerToken = await testStorage.read(key: 'id_token');
         final refreshToken = await testStorage.read(key: 'refresh_token');
-        expect(accessToken, 'expired-token');
+        expect(bearerToken, 'expired-token');
         expect(refreshToken, 'valid-refresh');
       });
 
       test('does not attempt refresh for /auth/refresh endpoint', () async {
-        await fakeStorage.write(key: 'access_token', value: 'expired-token');
+        await fakeStorage.write(key: 'id_token', value: 'expired-token');
         await fakeStorage.write(key: 'refresh_token', value: 'some-refresh');
 
         dioAdapter.onPost(
@@ -361,7 +363,7 @@ void main() {
       });
 
       test('ignores non-401 errors', () async {
-        await fakeStorage.write(key: 'access_token', value: 'valid-token');
+        await fakeStorage.write(key: 'id_token', value: 'valid-token');
         await fakeStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
         dioAdapter.onGet(
@@ -376,16 +378,16 @@ void main() {
         );
 
         // Tokens should NOT be cleared for non-401 errors
-        final accessToken = await fakeStorage.read(key: 'access_token');
+        final bearerToken = await fakeStorage.read(key: 'id_token');
         final refreshToken = await fakeStorage.read(key: 'refresh_token');
-        expect(accessToken, 'valid-token');
+        expect(bearerToken, 'valid-token');
         expect(refreshToken, 'valid-refresh');
       });
     });
 
     group('concurrent request handling', () {
       test('invokes refresh callback on 401', () async {
-        await fakeStorage.write(key: 'access_token', value: 'expired-token');
+        await fakeStorage.write(key: 'id_token', value: 'expired-token');
         await fakeStorage.write(key: 'refresh_token', value: 'valid-refresh');
 
         dioAdapter.onGet(

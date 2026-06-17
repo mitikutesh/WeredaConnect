@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 
 /// Web-only crop listing repository.
@@ -48,7 +49,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
       if (woreda != null) 'woreda': woreda,
     };
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -66,6 +67,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
         ],
       },
     );
+    // Surface server-side rejections (e.g. CROP_UNAUTHORIZED) instead of
+    // silently reporting success for a listing that was never persisted.
+    ensureSyncSucceeded(response);
 
     final listing = CropListing()
       ..listingId = listingId
@@ -145,7 +149,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     required String farmerId,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -163,6 +167,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   List<CropListing> _parseListings(Map<String, dynamic> data) {

@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -119,7 +120,7 @@ class WebOrderRepository extends BaseOrderRepository {
       if (transportCost != null) 'transportCost': transportCost,
     };
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -137,6 +138,9 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // Surface server-side rejections instead of silently reporting success
+    // for an order that was never persisted.
+    ensureSyncSucceeded(response);
 
     final cropCost = quantity * pricePerUnit;
     final rate = commissionRate ?? 0.05;

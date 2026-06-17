@@ -89,9 +89,15 @@ Future<void> main() async {
         final data = response.data as Map<String, dynamic>;
         final tokenData = data['tokens'] as Map<String, dynamic>;
         final newAccessToken = tokenData['accessToken'] as String;
+        final newIdToken = tokenData['idToken'] as String;
         final newRefreshToken =
             tokenData['refreshToken'] as String? ?? refreshToken;
 
+        // Refresh the active token slots read by the AuthInterceptor. The
+        // ID token is the bearer (carries custom:role); the access token is
+        // kept for server-side token revocation on logout.
+        await secureStorage.write(key: 'access_token', value: newAccessToken);
+        await secureStorage.write(key: 'id_token', value: newIdToken);
         await secureStorage.write(
           key: 'refresh_token',
           value: newRefreshToken,
@@ -104,7 +110,7 @@ Future<void> main() async {
           final tokensJson = '{'
               '"accessToken":"$newAccessToken",'
               '"refreshToken":"$newRefreshToken",'
-              '"idToken":"${tokenData['idToken']}",'
+              '"idToken":"$newIdToken",'
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
           final cacheKey = kIsWeb ? 'cached_tokens_$phone' : 'tokens_$phone';
@@ -114,7 +120,8 @@ Future<void> main() async {
           );
         }
 
-        return newAccessToken;
+        // Return the ID token — it becomes the new bearer for retried requests.
+        return newIdToken;
       } on DioException catch (e) {
         final statusCode = e.response?.statusCode;
         if (statusCode != null && (statusCode == 400 || statusCode == 401)) {

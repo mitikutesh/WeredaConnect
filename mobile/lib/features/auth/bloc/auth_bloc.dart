@@ -51,6 +51,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const _activeAccessTokenKey = 'access_token';
   static const _activeRefreshTokenKey = 'refresh_token';
 
+  /// Storage key for the Cognito ID token. This is the token the
+  /// AuthInterceptor attaches as the API bearer, because `custom:role`
+  /// (required for server-side write authorization) only exists on the
+  /// ID token, not the access token.
+  static const _activeIdTokenKey = 'id_token';
+
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
@@ -87,12 +93,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// Write active tokens to well-known keys for the AuthInterceptor.
   ///
-  /// The AuthInterceptor reads these keys to inject the Authorization
-  /// header and to obtain the refresh token when a 401 is received.
+  /// The AuthInterceptor reads the ID token to inject the Authorization
+  /// header and the refresh token when a 401 is received. The access token
+  /// is still persisted for server-side token revocation on logout.
   Future<void> _saveActiveTokens(AuthTokens tokens) async {
     await _secureStorage.write(
       key: _activeAccessTokenKey,
       value: tokens.accessToken,
+    );
+    await _secureStorage.write(
+      key: _activeIdTokenKey,
+      value: tokens.idToken,
     );
     await _secureStorage.write(
       key: _activeRefreshTokenKey,
@@ -106,6 +117,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _secureStorage.delete(key: _currentUserPhoneKey);
     await _secureStorage.delete(key: currentUserIdKey);
     await _secureStorage.delete(key: _activeAccessTokenKey);
+    await _secureStorage.delete(key: _activeIdTokenKey);
     await _secureStorage.delete(key: _activeRefreshTokenKey);
   }
 

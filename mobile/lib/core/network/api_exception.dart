@@ -69,3 +69,30 @@ final class TimeoutException extends ApiException {
 final class UnknownException extends ApiException {
   const UnknownException([super.message = 'Unknown error occurred']);
 }
+
+/// A /sync batch operation was rejected by the server.
+///
+/// The /sync endpoint returns HTTP 200 with a per-operation `results` array;
+/// an individual operation can still fail (e.g. `CROP_UNAUTHORIZED`). Web
+/// repositories POST directly to /sync, so they must surface these rejections
+/// instead of silently treating the HTTP 200 as success.
+final class SyncRejectedException extends ApiException {
+  const SyncRejectedException(super.message);
+}
+
+/// Throws [SyncRejectedException] if any operation in a /sync batch response
+/// reports `status == "error"`.
+///
+/// No-op when the response shape is unexpected (e.g. an empty body) so it
+/// never masks an otherwise-successful write.
+void ensureSyncSucceeded(Map<String, dynamic> syncResponse) {
+  final results = syncResponse['results'];
+  if (results is! List) return;
+  for (final result in results) {
+    if (result is Map && result['status'] == 'error') {
+      throw SyncRejectedException(
+        (result['message'] as String?) ?? 'Sync operation was rejected.',
+      );
+    }
+  }
+}
