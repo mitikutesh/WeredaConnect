@@ -98,7 +98,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 | S2-05 | Git history purge | 1h | Pending |
 | S2-06 | Exit SNS sandbox | 1h + wait | Pending |
 | F-33 | Web escrow by-delivery endpoint — server+infra+mobile (BACKLOG §9; order: server→infra→mobile) | ~1-1.5d | Pending |
-| F-32 | Registration role-field wiring — mobile+server+contracts (BACKLOG §9; gated on PO driving-license scope decision) | ~1.5-2.5d | Pending |
+| F-32 | Registration role-field wiring — mobile+server+contracts (BACKLOG §9; Option A — buyer fields server-side, license local-only) | ~1.5-2.5d | ✅ Done (2026-06-18) |
 | F-35 | Admin audit-log global feed — server-only bounded Scan via "all" sentinel (BACKLOG §9; decision: Scan over GSI) | ~1-1.5d | ✅ Done (2026-06-18) |
 
 ### Sprint 3: Production Readiness (2-3 weeks)

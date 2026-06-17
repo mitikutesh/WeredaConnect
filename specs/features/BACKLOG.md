@@ -641,7 +641,8 @@ Features failing 3+ gates are marked DEFERRED.
 
 Three confirmed defects from the 2026-06-17 repository-wide adversarial audit that each require a **cross-file / cross-module** change (not a one-spot patch). All three survived adversarial verification against the live code and were re-confirmed during PO scoping. **PO priority order: F-34 (#1) → F-33 (#2) → F-32 (#3)** — F-34 is ranked above its raw score because it is the only LIVE breach of the CRITICAL role-visibility invariant (automatic-FAIL domain). Source: PO investigator workflow `wf_061429c4-fa8`.
 
-### F-32: Registration Drops Trucker License + Buyer Type/Company Name
+### F-32: Registration Drops Trucker License + Buyer Type/Company Name ✅ DONE
+- **Status**: ✅ **IMPLEMENTED & validated 2026-06-18** (commit `cb1a24e`). **Scope decision resolved → Option A**: `buyerType`/`companyName` are now persisted server-side (mobile UI → BLoC → AuthService → request body → `RegisterRequest`/validator/`UserDto`/`UserRepository` → DynamoDB, echoed in the response); the trucker driving-license is kept **LOCAL-ONLY** in Isar (captured + cached on-device via `cacheCredentials`/`saveUserToIsar`, never transmitted) until an image-upload pipeline exists. Role-conditional validation added (buyerType ∈ {private,company}; companyName required iff company; both rejected for non-buyers). Contracts (`auth-api.md`, `user-entity.md`) updated. Tests: 6 validator + 2 repo round-trip (server) + 1 BLoC forwarding (mobile). Server build + **727 tests**; `flutter analyze` clean, **856 tests**, web build OK. **Follow-up (separate ticket):** Scope B — driving-license S3 upload pipeline + `drivingLicenseRef`.
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 3 | Company-buyer identity (type + company name) underpins invoicing/KYC for higher-value B2B purchases — enables, doesn't directly generate |
@@ -886,7 +887,7 @@ Confirmed bugs from the 2026-06-17 adversarial audit (Section 9), tracked apart 
 |---------|----|----|-------|----------|--------|
 | 1 | F-34 ✅ | Login defaults role to Farmer on cache miss — role-visibility breach | 10 | HIGH | Sprint 1 — ✅ DONE |
 | 2 | F-33 | Web escrow "by delivery" returns wrong escrow | 10 | HIGH | Sprint 2 |
-| 3 | F-32 | Registration drops trucker license + buyer type/company name | 11 | HIGH | Sprint 2 |
+| 3 | F-32 ✅ | Registration drops trucker license + buyer type/company name | 11 | HIGH | Sprint 2 — ✅ DONE (Option A; license local-only) |
 
 F-34 outranks higher-scored F-32 because it is the only LIVE breach of the automatic-FAIL role-visibility invariant, is mobile-only, and has no dependencies. Hard ordering exists only within F-33 (server + infra deploy must precede the mobile rewrite). F-32 is gated on a PO scope decision (driving-license local-only vs S3 upload). None depend on each other or touch the Isar Hardening (HS-1..HS-7) critical path.
 
