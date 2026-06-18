@@ -694,7 +694,8 @@ Three confirmed defects from the 2026-06-17 repository-wide adversarial audit th
 - **Responsible Agent**: @Server, @Mobile, @Infra, @Reviewer (PII handling gate)
 - **Target Sprint**: Sprint 3 (production readiness) — pairs with real-auth/KYC hardening (S3-02); not MVP-blocking.
 
-### F-33: Web Escrow "By Delivery" Returns the Wrong Escrow
+### F-33: Web Escrow "By Delivery" Returns the Wrong Escrow 🟡 SERVER+INFRA DONE; MOBILE STAGED
+- **Status**: 🟡 **Server + infra + contract IMPLEMENTED & committed 2026-06-18** (commit `a6363c4`); **mobile rewrite STAGED, awaiting deploy + verify**. New `GET /escrow/by-delivery/{deliveryId}` endpoint: `EscrowService.GetByDeliveryAsync` (mirrors `GetByIdAsync` via the existing `DeliveryIndex` GSI; party-or-admin 403 `ESCROW_022`, 404 `ESCROW_016`); `EscrowFunction` routes it on the `deliveryId` path param (distinct 3-segment path, no `/escrow/{id}` collision); infra route added (route count 39→40); `escrow-protocol.md` documents it + notes `/escrow/history` does not filter by deliveryId. Server build + **733 tests**, `cdk synth` clean + **17 infra tests**. The mobile `WebEscrowRepository.getEscrowByDelivery` rewrite (call the new endpoint; mocked unit test passes — analyze/test/web-build green) is **git-staged, NOT committed**: it can only be verified end-to-end once server+infra are **deployed**. **Next step (human):** deploy server+infra to dev → commit the staged mobile change → verify on the deployed endpoint.
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
 | Revenue | 3 | Escrow is the monetized core flow; showing the wrong payment against a delivery erodes trust in money movement but doesn't directly block a sale |
@@ -915,7 +916,7 @@ Confirmed bugs from the 2026-06-17 adversarial audit (Section 9), tracked apart 
 | PO Rank | ID | Bug | Score | Severity | Sprint |
 |---------|----|----|-------|----------|--------|
 | 1 | F-34 ✅ | Login defaults role to Farmer on cache miss — role-visibility breach | 10 | HIGH | Sprint 1 — ✅ DONE |
-| 2 | F-33 | Web escrow "by delivery" returns wrong escrow | 10 | HIGH | Sprint 2 |
+| 2 | F-33 🟡 | Web escrow "by delivery" returns wrong escrow | 10 | HIGH | Sprint 2 — 🟡 server+infra DONE (`a6363c4`); mobile staged, awaiting deploy |
 | 3 | F-32 ✅ | Registration drops trucker license + buyer type/company name | 11 | HIGH | Sprint 2 — ✅ DONE (Option A; license local-only) |
 
 F-34 outranks higher-scored F-32 because it is the only LIVE breach of the automatic-FAIL role-visibility invariant, is mobile-only, and has no dependencies. Hard ordering exists only within F-33 (server + infra deploy must precede the mobile rewrite). F-32 is gated on a PO scope decision (driving-license local-only vs S3 upload). None depend on each other or touch the Isar Hardening (HS-1..HS-7) critical path.
