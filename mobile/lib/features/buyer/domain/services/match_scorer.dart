@@ -1,5 +1,7 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 
 /// Pure, platform-agnostic relevance scoring for buyer intent matching.
 ///
@@ -55,6 +57,11 @@ class MatchScorer {
   /// Geo score returned when either location is unknown, or for crops in a
   /// different woreda (transport handles the distance, so don't over-penalise).
   static const double geoNeutral = 0.3;
+
+  /// Distance (km) at which the haversine geo score decays to 0.5
+  /// (`score = 1 / (1 + km / geoHalfScoreKm)`). Tuned for Ethiopian
+  /// rural→market distances; tune empirically.
+  static const double geoHalfScoreKm = 50.0;
 
   /// Accepted-substitute map (lowercase English crop names, matching the
   /// schema's stored form). A buyer asking for the key may also accept the
@@ -118,11 +125,38 @@ class MatchScorer {
     return (listing.quantity / intent.quantityNeeded).clamp(0.0, 1.0);
   }
 
-  /// Woreda-string proximity proxy. Full haversine distance is deferred until
-  /// intents carry buyer coordinates / a woreda-centroid lookup exists (crops
-  /// already carry lat/lng, but an intent currently only names a delivery
-  /// woreda). Same woreda → minimal transport → highest score.
+  /// Geographic relevance of [listing] to the buyer's delivery destination.
+  ///
+  /// Prefers true great-circle distance: when the crop has a real GPS fix and
+  /// the delivery woreda resolves to a known centroid, score by haversine
+  /// distance with a smooth decay (`1 / (1 + km / geoHalfScoreKm)`). Otherwise
+  /// falls back to a woreda-string proximity proxy — so coverage gaps (crops
+  /// without GPS, woredas absent from the centroid table, Ethiopic-script
+  /// names) degrade gracefully rather than failing.
   double geoScore(BuyerIntent intent, CropListing listing) {
+    final destCoord = WoredaCentroids.lookup(intent.deliveryWoreda);
+    final cropCoord = listing.location;
+    if (destCoord != null && _hasRealFix(cropCoord)) {
+      final km = GpsDistanceService.haversineDistance(
+            cropCoord.latitude,
+            cropCoord.longitude,
+            destCoord.latitude,
+            destCoord.longitude,
+          ) /
+          1000.0;
+      return 1.0 / (1.0 + km / geoHalfScoreKm);
+    }
+    return _woredaProxyScore(intent, listing);
+  }
+
+  /// Whether [coord] is a usable GPS fix. `(0, 0)` is the "no GPS captured"
+  /// sentinel written by crop creation when location permission is denied.
+  bool _hasRealFix(LatLng coord) {
+    if (coord.latitude == 0 && coord.longitude == 0) return false;
+    return coord.latitude.abs() <= 90 && coord.longitude.abs() <= 180;
+  }
+
+  double _woredaProxyScore(BuyerIntent intent, CropListing listing) {
     final crop = listing.locationName.trim().toLowerCase();
     final dest = intent.deliveryWoreda.trim().toLowerCase();
     if (crop.isEmpty || dest.isEmpty) return geoNeutral;

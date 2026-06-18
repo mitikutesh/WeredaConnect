@@ -33,6 +33,8 @@ void main() {
     double quantity = 10,
     double pricePerKg = 100,
     String locationName = 'Adama',
+    double lat = 0,
+    double lon = 0,
     DateTime? createdAt,
   }) {
     return CropListing()
@@ -41,6 +43,9 @@ void main() {
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerKg = pricePerKg
+      ..location = (LatLng()
+        ..latitude = lat
+        ..longitude = lon)
       ..locationName = locationName
       ..description = ''
       ..status = ListingStatus.active
@@ -137,6 +142,35 @@ void main() {
       );
       expect(fresh, 1.0);
       expect(old, MatchScorer.freshFloor);
+    });
+  });
+
+  group('geoScore haversine', () {
+    test('uses true distance when crop has GPS and delivery centroid is known',
+        () {
+      // Crop sitting on Adama's centroid, delivering to Adama → ~0 km.
+      final near = scorer.geoScore(intent(), listing(lat: 8.54, lon: 39.27));
+      // Crop on Mekelle's centroid, delivering to Adama → ~550 km.
+      final far = scorer.geoScore(intent(), listing(lat: 13.49, lon: 39.47));
+      expect(near, greaterThan(0.9));
+      expect(far, lessThan(near));
+      // Far enough that it scores below the woreda-proxy neutral.
+      expect(far, lessThan(MatchScorer.geoNeutral));
+    });
+
+    test('falls back to the woreda proxy when the crop has no GPS fix', () {
+      // lat/lon default to (0,0) → the "no GPS" sentinel → proxy path.
+      final s = scorer.geoScore(intent(), listing());
+      expect(s, 1.0); // same woreda name (Adama == Adama)
+    });
+
+    test('falls back to the proxy when the delivery woreda is unknown', () {
+      final s = scorer.geoScore(
+        intent(deliveryWoreda: 'Gimbo'),
+        listing(lat: 8.54, lon: 39.27),
+      );
+      // 'Gimbo' is not in the centroid table; crop name 'Adama' != 'Gimbo'.
+      expect(s, MatchScorer.geoNeutral);
     });
   });
 
