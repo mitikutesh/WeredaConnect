@@ -18,6 +18,7 @@ import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -163,6 +164,8 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: languageProvider),
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: dataUsageTracker),
+        // No Isar on web: nothing to pull into a local cache. Read as null.
+        Provider<MarketplaceSync?>.value(value: null),
       ],
       child: MultiBlocProvider(
         providers: [

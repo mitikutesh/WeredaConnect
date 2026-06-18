@@ -10,6 +10,8 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
+import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/sync/sync_worker.dart';
@@ -101,6 +103,15 @@ Future<void> runMobile({
   );
   syncWorker.start();
 
+  // Download side of sync: pulls the shared marketplace (all active crops +
+  // open trips) into Isar so a Buyer's browse and "Find matches" have data.
+  // The upload-only SyncWorker never fetches other users' data. Null on web.
+  final marketplaceSync = IsarMarketplaceSync(
+    api: ApiClient(),
+    isar: IsarService.instance.db,
+    getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
+  );
+
   // Configure image cache for 2GB RAM devices
   imageCache.maximumSize = 50;
   imageCache.maximumSizeBytes = 50 * 1024 * 1024;
@@ -134,6 +145,7 @@ Future<void> runMobile({
         syncQueue: syncQueue,
         syncExecutor: syncExecutor,
         syncWorker: syncWorker,
+        marketplaceSync: marketplaceSync,
       ),
     ),
   );
@@ -165,6 +177,10 @@ class WeredaConnectApp extends StatelessWidget {
   final SyncExecutor syncExecutor;
   final SyncWorker syncWorker;
 
+  /// Download side of sync. Optional so widget/smoke tests can build the app
+  /// without triggering network pulls; `runMobile` always supplies it.
+  final MarketplaceSync? marketplaceSync;
+
   const WeredaConnectApp({
     required this.authBloc,
     required this.connectivityMonitor,
@@ -173,6 +189,7 @@ class WeredaConnectApp extends StatelessWidget {
     required this.syncQueue,
     required this.syncExecutor,
     required this.syncWorker,
+    this.marketplaceSync,
     super.key,
   });
 
@@ -204,6 +221,9 @@ class WeredaConnectApp extends StatelessWidget {
           create: (_) => syncWorker,
           dispose: (_, worker) => worker.dispose(),
         ),
+        // Exposed so non-BLoC screens (e.g. crop detail's suggested trips)
+        // can refresh the marketplace cache before reading it. Null on web.
+        Provider<MarketplaceSync?>.value(value: marketplaceSync),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -219,6 +239,7 @@ class WeredaConnectApp extends StatelessWidget {
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
               ),
+              marketplaceSync: marketplaceSync,
             ),
           ),
           BlocProvider<TripListingBloc>(
@@ -227,6 +248,7 @@ class WeredaConnectApp extends StatelessWidget {
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
               ),
+              marketplaceSync: marketplaceSync,
             ),
           ),
           BlocProvider<DeliveryBloc>(
@@ -253,6 +275,7 @@ class WeredaConnectApp extends StatelessWidget {
               matchingService: MatchingService(
                 isar: IsarService.instance.db,
               ),
+              marketplaceSync: marketplaceSync,
             ),
           ),
           BlocProvider<ConflictBloc>(

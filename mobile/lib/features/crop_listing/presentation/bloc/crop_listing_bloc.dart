@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
@@ -11,8 +13,16 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   final BaseCropListingRepository _repository;
 
-  CropListingBloc({required BaseCropListingRepository repository})
-      : _repository = repository,
+  /// Mobile-only: pulls all active crops into Isar before the Buyer browses
+  /// the marketplace ([LoadActiveListings]). Null on web (API-backed reads).
+  /// Owner-scoped events (a Farmer's own listings) never trigger a pull.
+  final MarketplaceSync? _marketplaceSync;
+
+  CropListingBloc({
+    required BaseCropListingRepository repository,
+    MarketplaceSync? marketplaceSync,
+  })  : _repository = repository,
+        _marketplaceSync = marketplaceSync,
         super(const CropListingInitial()) {
     on<LoadCropListings>(_onLoadCropListings);
     on<LoadActiveListings>(_onLoadActiveListings);
@@ -42,6 +52,9 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     emit(const CropListingLoading());
 
     try {
+      // Buyer marketplace browse: refresh from the server first so the local
+      // (offline-first) read below returns every farmer's active listings.
+      await _refreshMarketplace();
       final listings = await _repository.getActiveListings(
         cropTypeFilter: event.cropTypeFilter,
         weredaFilter: event.weredaFilter,
@@ -101,6 +114,20 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
       emit(CropListingError(message: e.toString()));
+    }
+  }
+
+  /// Pull all active crops into local storage so the Buyer's marketplace
+  /// browse is not empty. Offline/transient failures are swallowed so the
+  /// cached data still renders (offline-first). No-op on web (null sync).
+  Future<void> _refreshMarketplace() async {
+    final sync = _marketplaceSync;
+    if (sync == null) return;
+    try {
+      await sync.pullCrops();
+    } on Object catch (e) {
+      debugPrint('[CropListingBloc] crop pull failed, '
+          'showing cached listings: $e');
     }
   }
 

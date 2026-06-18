@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -12,12 +14,20 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
   final BaseTripListingRepository _repository;
 
+  /// Mobile-only: pulls all open trips into Isar before the Buyer browses the
+  /// marketplace ([LoadOpenTrips]). Null on web (API-backed reads). A
+  /// Trucker's own-scoped events never trigger a pull.
+  final MarketplaceSync? _marketplaceSync;
+
   /// Exposed for screens that need to query trips directly
   /// (e.g., CreateDeliveryScreen loading trucker's open trips).
   BaseTripListingRepository get repository => _repository;
 
-  TripListingBloc({required BaseTripListingRepository repository})
-      : _repository = repository,
+  TripListingBloc({
+    required BaseTripListingRepository repository,
+    MarketplaceSync? marketplaceSync,
+  })  : _repository = repository,
+        _marketplaceSync = marketplaceSync,
         super(const TripListingInitial()) {
     on<LoadTrips>(_onLoadTrips);
     on<LoadOpenTrips>(_onLoadOpenTrips);
@@ -49,6 +59,9 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     emit(const TripListingLoading());
 
     try {
+      // Buyer marketplace browse: refresh from the server first so the local
+      // (offline-first) read below returns every trucker's open trips.
+      await _refreshMarketplace();
       final trips = await _repository.getOpenTrips(
         fromWoreda: event.fromWoreda,
         toWoreda: event.toWoreda,
@@ -62,6 +75,20 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
     } on Object catch (e) {
       emit(TripListingError(message: e.toString()));
+    }
+  }
+
+  /// Pull all open trips into local storage so the Buyer's marketplace browse
+  /// is not empty. Offline/transient failures are swallowed so cached data
+  /// still renders (offline-first). No-op on web (null sync).
+  Future<void> _refreshMarketplace() async {
+    final sync = _marketplaceSync;
+    if (sync == null) return;
+    try {
+      await sync.pullTrips();
+    } on Object catch (e) {
+      debugPrint('[TripListingBloc] trip pull failed, '
+          'showing cached trips: $e');
     }
   }
 

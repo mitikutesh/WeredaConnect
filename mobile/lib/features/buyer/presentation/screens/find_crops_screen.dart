@@ -64,6 +64,21 @@ class _FindCropsScreenState extends State<FindCropsScreen>
     }
   }
 
+  /// Pull-to-refresh: re-pull the marketplace and recompute match counts for
+  /// every active intent, then refresh the list. Returns when the BLoC has
+  /// settled so the RefreshIndicator spinner stops at the right time.
+  Future<void> _refreshMatches() async {
+    final userId = _getUserId();
+    if (userId == null) return;
+    final bloc = context.read<BuyerIntentBloc>();
+    // Subscribe before dispatching so we can't miss the terminal state.
+    final settled = bloc.stream.firstWhere(
+      (s) => s is ActiveIntentsLoaded || s is BuyerIntentError,
+    );
+    bloc.add(RefreshAllMatches(buyerId: userId));
+    await settled;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -134,6 +149,7 @@ class _FindCropsScreenState extends State<FindCropsScreen>
                 // My Requests tab
                 _MyRequestsTab(
                   onRefresh: _loadIntents,
+                  onRefreshMatches: _refreshMatches,
                 ),
               ],
             ),
@@ -150,7 +166,14 @@ class _FindCropsScreenState extends State<FindCropsScreen>
 class _MyRequestsTab extends StatelessWidget {
   final VoidCallback onRefresh;
 
-  const _MyRequestsTab({required this.onRefresh});
+  /// Pull-to-refresh handler that re-pulls the marketplace and recomputes
+  /// match counts (dispatches RefreshAllMatches). Returns when settled.
+  final Future<void> Function() onRefreshMatches;
+
+  const _MyRequestsTab({
+    required this.onRefresh,
+    required this.onRefreshMatches,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -215,31 +238,35 @@ class _MyRequestsTab extends StatelessWidget {
           return Column(
             children: [
               Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  itemCount: state.intents.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final intent = state.intents[index];
-                    return IntentCard(
-                      intent: intent,
-                      onTap: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => BlocProvider.value(
-                              value: context.read<BuyerIntentBloc>(),
-                              child: MatchResultsScreen(intent: intent),
+                child: RefreshIndicator(
+                  onRefresh: onRefreshMatches,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: state.intents.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final intent = state.intents[index];
+                      return IntentCard(
+                        intent: intent,
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => BlocProvider.value(
+                                value: context.read<BuyerIntentBloc>(),
+                                child: MatchResultsScreen(intent: intent),
+                              ),
                             ),
-                          ),
-                        );
-                        onRefresh();
-                      },
-                    );
-                  },
+                          );
+                          onRefresh();
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
               // New Request button at the bottom

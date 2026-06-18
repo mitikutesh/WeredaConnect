@@ -98,9 +98,10 @@ class WebMatchingService extends BaseMatchingService {
       // BLoC can emit an error state instead of silently masking the failure
       // as 'no matches' (which would also overwrite the cached match count).
       rethrow;
-    } on Exception {
-      return [];
     }
+    // Any other failure (e.g. a malformed response that breaks parsing) is
+    // intentionally NOT caught here: it propagates to the BLoC as an error
+    // rather than being hidden as an empty result set.
   }
 
   @override
@@ -120,29 +121,28 @@ class WebMatchingService extends BaseMatchingService {
   }
 
   /// Fetch all open trips from the API, following pagination.
+  ///
+  /// Errors are not swallowed: they propagate so the caller can report a real
+  /// failure instead of treating it as "no trips available".
   Future<List<Trip>> _fetchOpenTrips() async {
-    try {
-      final allTrips = <Trip>[];
-      String? nextToken;
-      do {
-        final params = <String, dynamic>{'status': 'open', 'limit': '50'};
-        if (nextToken != null) params['nextToken'] = nextToken;
-        final data = await _api.get<Map<String, dynamic>>(
-          '/trips',
-          queryParameters: params,
-        );
-        final items = data['trips'] as List<dynamic>? ??
-            data['items'] as List<dynamic>? ??
-            [];
-        allTrips.addAll(
-          items.map((item) => _parseTrip(item as Map<String, dynamic>)),
-        );
-        nextToken = data['nextToken'] as String?;
-      } while (nextToken != null);
-      return allTrips;
-    } on Exception {
-      return [];
-    }
+    final allTrips = <Trip>[];
+    String? nextToken;
+    do {
+      final params = <String, dynamic>{'status': 'open', 'limit': '50'};
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: params,
+      );
+      final items = data['trips'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          [];
+      allTrips.addAll(
+        items.map((item) => _parseTrip(item as Map<String, dynamic>)),
+      );
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null);
+    return allTrips;
   }
 
   /// Find trips for a specific listing → buyer delivery route.

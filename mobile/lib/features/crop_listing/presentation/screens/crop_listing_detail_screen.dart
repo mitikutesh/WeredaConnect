@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
@@ -58,6 +60,21 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 
   Future<void> _loadSuggestedTrips() async {
     setState(() => _tripsLoading = true);
+
+    // Mobile: refresh open trips from the server into Isar so the local read
+    // below sees every trucker's trips even when this screen is opened
+    // without a sibling event having pulled first. Null on web, where the web
+    // matching stub fetches from the API directly. Offline failures fall back
+    // to whatever is cached (offline-first).
+    final marketplaceSync = _readMarketplaceSync();
+    if (marketplaceSync != null) {
+      try {
+        await marketplaceSync.pullTrips();
+      } on Object catch (e) {
+        debugPrint('[CropListingDetail] trip pull failed, using cached: $e');
+      }
+    }
+
     try {
       // On web, MatchingService is the web stub (accepts dynamic isar).
       // On mobile, IsarService.instance.db returns the real Isar instance.
@@ -73,13 +90,28 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           _tripsLoading = false;
         });
       }
-    } on Exception {
+    } on Object catch (e) {
+      // Suggested trips are secondary info, so degrade to an empty list rather
+      // than failing the whole screen — but log it instead of swallowing
+      // silently, so a real matching bug is not mistaken for "no trips".
+      debugPrint('[CropListingDetail] suggested-trips matching failed: $e');
       if (mounted) {
         setState(() {
           _suggestedTrips = [];
           _tripsLoading = false;
         });
       }
+    }
+  }
+
+  /// Reads the (mobile-only) marketplace sync if it is provided. Returns null
+  /// when absent (web, or a test that pumps this screen without providers) so
+  /// the screen still works against cached data.
+  MarketplaceSync? _readMarketplaceSync() {
+    try {
+      return context.read<MarketplaceSync?>();
+    } on ProviderNotFoundException {
+      return null;
     }
   }
 
