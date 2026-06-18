@@ -6,12 +6,17 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
+import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 
 /// Web matching service — queries API instead of local Isar database.
 ///
 /// On mobile, matching uses Isar queries against cached local data.
 /// On web, we fetch crop listings and trips from the API and filter
 /// client-side to match the buyer's intent criteria.
+///
+/// Relevance scoring uses the SAME [MatchScorer] as mobile so ranking,
+/// substitute handling, and near-miss tolerance are identical on both
+/// platforms.
 ///
 /// Ethiopian context:
 /// - Works over network (no offline support on web)
@@ -22,6 +27,9 @@ class WebMatchingService extends BaseMatchingService {
 
   static const double commissionRate = 0.05;
 
+  /// Shared, platform-agnostic relevance scorer (identical math on mobile).
+  static const MatchScorer _scorer = MatchScorer();
+
   WebMatchingService({required ApiClient api}) : _api = api;
 
   @override
@@ -29,32 +37,37 @@ class WebMatchingService extends BaseMatchingService {
     BuyerIntent intent,
   ) async {
     try {
-      // Fetch all matching crops, following pagination
+      final now = DateTime.now().toUtc();
+
+      // Fetch candidate crops for the exact type + accepted substitutes,
+      // following pagination per type. Near-miss tolerance and relevance are
+      // applied via the shared MatchScorer (identical to mobile).
       final matchingListings = <CropListing>[];
-      String? nextToken;
-      do {
-        final params = <String, dynamic>{
-          'cropType': intent.cropType,
-          'status': 'available',
-          'limit': '50',
-        };
-        if (nextToken != null) params['nextToken'] = nextToken;
-        final data = await _api.get<Map<String, dynamic>>(
-          '/crops',
-          queryParameters: params,
-        );
-        final items = data['crops'] as List<dynamic>? ??
-            data['items'] as List<dynamic>? ??
-            [];
-        for (final item in items) {
-          final map = item as Map<String, dynamic>;
-          final listing = _parseListing(map);
-          if (listing.pricePerKg > intent.maxPricePerKg) continue;
-          if (listing.quantity < intent.quantityNeeded) continue;
-          matchingListings.add(listing);
-        }
-        nextToken = data['nextToken'] as String?;
-      } while (nextToken != null);
+      for (final cropType in _scorer.candidateCropTypes(intent.cropType)) {
+        String? nextToken;
+        do {
+          final params = <String, dynamic>{
+            'cropType': cropType,
+            'status': 'available',
+            'limit': '50',
+          };
+          if (nextToken != null) params['nextToken'] = nextToken;
+          final data = await _api.get<Map<String, dynamic>>(
+            '/crops',
+            queryParameters: params,
+          );
+          final items = data['crops'] as List<dynamic>? ??
+              data['items'] as List<dynamic>? ??
+              [];
+          for (final item in items) {
+            final listing = _parseListing(item as Map<String, dynamic>);
+            if (_scorer.isCandidate(intent, listing)) {
+              matchingListings.add(listing);
+            }
+          }
+          nextToken = data['nextToken'] as String?;
+        } while (nextToken != null);
+      }
 
       // Fetch open trips once for all matches
       final allTrips = await _fetchOpenTrips();
@@ -84,14 +97,20 @@ class WebMatchingService extends BaseMatchingService {
             listing: listing,
             suggestedTrips: trips,
             estimatedTotalMin: estimatedTotal,
+            matchScore: _scorer.scoreListing(intent, listing, now),
+            isSubstitute: _scorer.isSubstitute(intent, listing),
           ),
         );
       }
 
-      // Sort by price ascending (cheapest first), matching mobile behavior
-      matches.sort(
-        (a, b) => a.listing.pricePerKg.compareTo(b.listing.pricePerKg),
-      );
+      // Rank by relevance (highest score first); tie-break by cheaper total,
+      // matching mobile behavior.
+      matches.sort((a, b) {
+        final byScore = b.matchScore.compareTo(a.matchScore);
+        return byScore != 0
+            ? byScore
+            : a.estimatedTotalMin.compareTo(b.estimatedTotalMin);
+      });
       return matches;
     } on ApiException {
       // Surface transient network/auth/server failures to the caller so the
