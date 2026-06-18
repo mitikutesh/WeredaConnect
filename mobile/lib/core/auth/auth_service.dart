@@ -12,6 +12,24 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 
+/// Resolve the authoritative [UserRole] from a server-provided role string.
+///
+/// F-34: matches case-insensitively against [UserRole.values] and returns
+/// `null` for an unrecognized or missing role, so the caller fails the login
+/// loudly rather than silently defaulting to farmer. Extracted from
+/// [AuthService.loginOnline] so this fail-closed logic stays unit-testable
+/// without the `--dart-define`-gated online login path.
+@visibleForTesting
+UserRole? resolveServerRole(String? rawRole) {
+  final roleStr = rawRole?.toLowerCase();
+  for (final r in UserRole.values) {
+    if (r.name.toLowerCase() == roleStr) {
+      return r;
+    }
+  }
+  return null;
+}
+
 /// Main authentication service for WeredaConnect.
 ///
 /// This service handles:
@@ -226,14 +244,7 @@ class AuthService {
       // caching. An unrecognized/missing role must fail the login loudly — not
       // be swallowed by the best-effort cache block below, which previously let
       // the BLoC silently default the role to farmer.
-      final roleStr = (user['role'] as String?)?.toLowerCase();
-      UserRole? role;
-      for (final r in UserRole.values) {
-        if (r.name.toLowerCase() == roleStr) {
-          role = r;
-          break;
-        }
-      }
+      final role = resolveServerRole(user['role'] as String?);
       if (role == null) {
         return AuthResult.failure(
           AuthErrorCode.internalServerError,
