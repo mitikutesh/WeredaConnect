@@ -93,6 +93,20 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     }
   }
 
+  /// Pull all open trips into local storage so the Buyer's marketplace browse
+  /// is not empty. Offline/transient failures are swallowed so cached data
+  /// still renders (offline-first). No-op on web (null sync).
+  Future<void> _refreshMarketplace() async {
+    final sync = _marketplaceSync;
+    if (sync == null) return;
+    try {
+      await sync.pullTrips();
+    } on Object catch (e) {
+      debugPrint('[TripListingBloc] trip pull failed, '
+          'showing cached trips: $e');
+    }
+  }
+
   Future<void> _onCreateTrip(
     CreateTrip event,
     Emitter<TripListingState> emit,
