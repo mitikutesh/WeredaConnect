@@ -572,11 +572,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get sameOriginDestination => 'መነሻ እና መድረሻ አንድ ሊሆኑ አይችሉም';
 
   @override
-  String etbCurrency(String amount) {
-    return '$amount ብር';
-  }
-
-  @override
   String get findTransport => 'ትራንስፖርት ፈልግ';
 
   @override
@@ -1925,6 +1920,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderTimeline => 'የትዕዛዝ ሂደት';
+
+  @override
+  String etbCurrency(String amount) {
+    return '$amount ብር';
+  }
 
   @override
   String quantityKg(String amount) {
