@@ -82,16 +82,15 @@ class WebEscrowRepository extends BaseEscrowRepository {
 
   @override
   Future<Payment?> getEscrowByDelivery(String deliveryId) async {
+    // F-33: resolve the escrow for THIS delivery via the dedicated endpoint
+    // (server enforces party-or-admin). /escrow/history does NOT filter by
+    // deliveryId, so the old history-based lookup returned an arbitrary escrow.
+    // A 404 (no escrow for the delivery) surfaces as null.
     try {
       final data = await _api.get<Map<String, dynamic>>(
-        '/escrow/history',
-        queryParameters: {'deliveryId': deliveryId, 'limit': '1'},
+        '/escrow/by-delivery/$deliveryId',
       );
-      final items = data['escrows'] as List<dynamic>? ??
-          data['items'] as List<dynamic>? ??
-          [];
-      if (items.isEmpty) return null;
-      return _parsePaymentMap(items.first as Map<String, dynamic>);
+      return _parsePayment(data);
     } on Exception {
       return null;
     }
