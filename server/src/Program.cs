@@ -72,6 +72,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new DeviceTokenFunction().FunctionHandler, serializer),
 
+            // DynamoDB Streams consumer: raw Stream in, no response (AOT — parses
+            // the event with JsonDocument rather than the typed DynamoDBEvent).
+            var h when h.Contains("CropMatchStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task>)new CropMatchStreamFunction().ProcessStreamAsync),
+
             var h when h.Contains("DeliveryFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new DeliveryFunction().FunctionHandler, serializer),
