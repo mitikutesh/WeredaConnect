@@ -44,6 +44,7 @@ void main() {
 
   const phone = '+251911234567';
   String userKey(String p) => 'cached_user_$p';
+  String tokensKey(String p) => 'cached_tokens_$p';
 
   Map<String, dynamic> cachedUser(String role) => {
         'userId': 'user-001',
@@ -75,4 +76,56 @@ void main() {
 
     expect(user, isNull);
   });
+
+  test('returns the buyer when the cached role is buyer', () async {
+    // 3-role completeness: a recognized buyer role must round-trip, since F-34's
+    // risk is mis-scoping a buyer/trucker as a farmer.
+    store[userKey(phone)] = jsonEncode(cachedUser('buyer'));
+
+    final user = await OfflineAuthCache().getCachedUser(phone);
+
+    expect(user, isNotNull);
+    expect(user!.role, UserRole.buyer);
+  });
+
+  // M1: a corrupt/legacy localStorage blob must fail-closed to a cache miss
+  // (return null), never throw. `jsonDecode(...) as Map` and
+  // AuthTokens.fromJson throw a TypeError (an Error, not an Exception) on a
+  // shape-mismatched blob; the caller (auth_bloc / loginOffline) only catches
+  // `on Exception`, so an escaping TypeError hangs the web app on splash.
+
+  test('getCachedUser returns null on a non-map JSON blob (M1)', () async {
+    store[userKey(phone)] = jsonEncode(<dynamic>[1, 2, 3]);
+
+    final user = await OfflineAuthCache().getCachedUser(phone);
+
+    expect(user, isNull);
+  });
+
+  test('getCachedUser returns null on a non-JSON blob (M1)', () async {
+    store[userKey(phone)] = 'not-json-at-all';
+
+    final user = await OfflineAuthCache().getCachedUser(phone);
+
+    expect(user, isNull);
+  });
+
+  test('getCachedTokens returns null on a non-map JSON blob (M1)', () async {
+    store[tokensKey(phone)] = jsonEncode(<dynamic>['corrupt']);
+
+    final tokens = await OfflineAuthCache().getCachedTokens(phone);
+
+    expect(tokens, isNull);
+  });
+
+  test(
+    'getCachedTokens returns null when required token fields are missing (M1)',
+    () async {
+      store[tokensKey(phone)] = jsonEncode(<String, dynamic>{'foo': 'bar'});
+
+      final tokens = await OfflineAuthCache().getCachedTokens(phone);
+
+      expect(tokens, isNull);
+    },
+  );
 }
