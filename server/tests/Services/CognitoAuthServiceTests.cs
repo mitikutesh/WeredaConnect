@@ -210,6 +210,22 @@ public class CognitoAuthServiceTests
         Assert.Equal(401, result.Error.HttpStatus);
     }
 
+    [Fact]
+    public async Task LoginAsync_NullAuthenticationResult_ReturnsAuth014()
+    {
+        // C-2: Cognito returns a challenge (e.g. NEW_PASSWORD_REQUIRED / MFA)
+        // with a null AuthenticationResult. Must fail closed (401) rather than
+        // NRE on result.AccessToken → 500.
+        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new InitiateAuthResponse { AuthenticationResult = null });
+
+        var result = await _service.LoginAsync("+251912345678", "password1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AUTH_014", result.Error!.Code);
+        Assert.Equal(401, result.Error.HttpStatus);
+    }
+
     // --- RefreshAsync ---
 
     [Fact]
@@ -240,6 +256,21 @@ public class CognitoAuthServiceTests
             .ThrowsAsync(new NotAuthorizedException("expired"));
 
         var result = await _service.RefreshAsync("expired-token");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AUTH_018", result.Error!.Code);
+        Assert.Equal(401, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_NullAuthenticationResult_ReturnsAuth018()
+    {
+        // C-2: a null AuthenticationResult on refresh (challenge/unexpected)
+        // must fail closed (401) instead of NRE → 500.
+        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new InitiateAuthResponse { AuthenticationResult = null });
+
+        var result = await _service.RefreshAsync("some-refresh-token");
 
         Assert.False(result.IsSuccess);
         Assert.Equal("AUTH_018", result.Error!.Code);
