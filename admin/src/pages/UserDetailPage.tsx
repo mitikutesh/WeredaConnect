@@ -11,6 +11,7 @@ export function UserDetailPage() {
   const { t } = useLocale();
   const { data, isLoading } = useUserDetail(id || "");
   const userAction = useUserAction();
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const resp = data as Record<string, unknown> | undefined;
   const user = (resp?.user as Record<string, unknown>) || {};
@@ -18,8 +19,6 @@ export function UserDetailPage() {
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
   }
-
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   function handleAction(action: string) {
     if (!id) return;

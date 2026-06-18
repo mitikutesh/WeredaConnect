@@ -30,7 +30,18 @@ public class CropFunctionTests
         _context = new TestLambdaContext();
     }
 
+    // F-36: browse-all is restricted to Buyer/Admin, so the default browse caller
+    // in these tests is an authenticated buyer (the legitimate marketplace browser).
     private static APIGatewayProxyRequest MakeGetRequest(
+        string path = "/crops",
+        Dictionary<string, string>? queryParams = null,
+        Dictionary<string, string>? pathParams = null)
+    {
+        return MakeAuthenticatedGetRequest("buyer-default", "buyer", path, queryParams, pathParams);
+    }
+
+    // Unauthenticated request (no authorizer context) — used for F-36 negative tests.
+    private static APIGatewayProxyRequest MakeUnauthenticatedGetRequest(
         string path = "/crops",
         Dictionary<string, string>? queryParams = null,
         Dictionary<string, string>? pathParams = null)
@@ -690,25 +701,18 @@ public class CropFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetCrops_TruckerRole_CanBrowseAllCrops()
+    public async Task HandleGetCrops_TruckerRole_Forbidden()
     {
-        _mockCropRepo.QueryCropsAsync(
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<int>(),
-            Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
-
+        // F-36: truckers may NOT browse crops (only Buyer/Admin see all listings).
         var request = MakeAuthenticatedGetRequest("trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("CROP_FORBIDDEN", response.Body);
 
-        // Verify no farmerId filter was forced (truckers browse all crops)
-        await _mockCropRepo.Received(1).QueryCropsAsync(
-            null,
+        // The repository must never be queried for a forbidden role.
+        await _mockCropRepo.DidNotReceive().QueryCropsAsync(
+            Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -717,21 +721,14 @@ public class CropFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetCrops_Unauthenticated_CanBrowseAllCrops()
+    public async Task HandleGetCrops_Unauthenticated_Forbidden()
     {
-        _mockCropRepo.QueryCropsAsync(
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<int>(),
-            Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { CreateCropItem() }, null));
-
-        var request = MakeGetRequest();
+        // F-36: unauthenticated callers may NOT browse all crops.
+        var request = MakeUnauthenticatedGetRequest();
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("CROP_FORBIDDEN", response.Body);
     }
 
     [Fact]
@@ -779,5 +776,22 @@ public class CropFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HandleGetCropById_TruckerRole_Forbidden()
+    {
+        // F-36: truckers may NOT view crop listings (only Buyer/Admin + owning Farmer).
+        var crop = CreateCropItem("crop-001");
+        crop["farmerId"] = "some-farmer";
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(crop);
+
+        var pathParams = new Dictionary<string, string> { { "id", "crop-001" } };
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker",
+            "/crops/crop-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("CROP_FORBIDDEN", response.Body);
     }
 }

@@ -315,10 +315,15 @@ void main() {
       final states = <TripListingState>[];
       final subscription = bloc.stream.listen(states.add);
 
+      // NOTE: trucker-002's trip here goes to Hawassa, so the destination
+      // filter excludes it either way — this case alone does NOT prove
+      // trucker-scoping. The "scopes to the requesting trucker" tests below
+      // (where trucker-002 shares the destination / there is no route filter)
+      // are the discriminating proof for the Trucker visibility rule.
       bloc.add(
         const FilterTrips(
           truckerId: 'trucker-001',
-          toWoreda: 'Hawassa',
+          toWoreda: 'Addis Ababa',
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -326,13 +331,115 @@ void main() {
       expect(states.length, 2);
       expect(states[1], isA<TripsLoaded>());
       final loaded = states[1] as TripsLoaded;
-      expect(loaded.toWoredaFilter, 'Hawassa');
+      expect(loaded.toWoredaFilter, 'Addis Ababa');
       expect(loaded.trips.length, 1);
-      expect(loaded.trips.first.toWoreda, 'Hawassa');
+      expect(loaded.trips.first.toWoreda, 'Addis Ababa');
 
       await subscription.cancel();
       await bloc.close();
     });
+
+    // --- Role visibility: Trucker MUST NOT see other truckers' trips ---
+
+    test(
+      'FilterTrips scopes to the requesting trucker even when another trucker '
+      'shares the destination',
+      () async {
+        final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+        // Both truckers have a trip to the SAME destination trucker-001 filters
+        // on. The old unscoped getOpenTrips would return BOTH; the scoped
+        // getTripsByTrucker must return only trucker-001's. This test FAILS
+        // under the pre-fix code, which is what makes it a real proof.
+        await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: departure,
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await repository.createTrip(
+          truckerId: 'trucker-002',
+          truckerName: 'Test Trucker 2',
+          truckerPhone: '+251911000001',
+          fromWoreda: 'Adama',
+          toWoreda: 'Addis Ababa',
+          departureDate: departure,
+          capacity: 100.0,
+          pricePerQuintal: 80.0,
+        );
+
+        final bloc = TripListingBloc(repository: repository);
+        final states = <TripListingState>[];
+        final subscription = bloc.stream.listen(states.add);
+
+        bloc.add(
+          const FilterTrips(truckerId: 'trucker-001', toWoreda: 'Addis Ababa'),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(states.last, isA<TripsLoaded>());
+        final loaded = states.last as TripsLoaded;
+        expect(loaded.trips, isNotEmpty);
+        expect(
+          loaded.trips.every((t) => t.truckerId == 'trucker-001'),
+          isTrue,
+          reason: "trucker-002's trip to the same destination must not leak",
+        );
+        expect(loaded.trips.any((t) => t.truckerId == 'trucker-002'), isFalse);
+
+        await subscription.cancel();
+        await bloc.close();
+      },
+    );
+
+    test(
+      'FilterTrips with no route filter returns only the requesting '
+      "trucker's trips",
+      () async {
+        final departure = DateTime.now().add(const Duration(days: 2)).toUtc();
+
+        await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: departure,
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await repository.createTrip(
+          truckerId: 'trucker-002',
+          truckerName: 'Test Trucker 2',
+          truckerPhone: '+251911000001',
+          fromWoreda: 'Adama',
+          toWoreda: 'Hawassa',
+          departureDate: departure,
+          capacity: 100.0,
+          pricePerQuintal: 80.0,
+        );
+
+        final bloc = TripListingBloc(repository: repository);
+        final states = <TripListingState>[];
+        final subscription = bloc.stream.listen(states.add);
+
+        bloc.add(const FilterTrips(truckerId: 'trucker-001'));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(states.last, isA<TripsLoaded>());
+        final loaded = states.last as TripsLoaded;
+        expect(loaded.trips.length, 1);
+        expect(loaded.trips.every((t) => t.truckerId == 'trucker-001'), isTrue);
+        expect(loaded.trips.any((t) => t.truckerId == 'trucker-002'), isFalse);
+
+        await subscription.cancel();
+        await bloc.close();
+      },
+    );
 
     // --- Edge Case: CancelTrip then LoadTrips Shows Cancelled ---
 

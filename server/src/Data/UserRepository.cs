@@ -229,6 +229,16 @@ public sealed class UserRepository : IUserRepository
             item["profilePhotoRef"] = new AttributeValue { S = user.ProfilePhotoRef };
         }
 
+        if (user.BuyerType != null)
+        {
+            item["buyerType"] = new AttributeValue { S = user.BuyerType };
+        }
+
+        if (user.CompanyName != null)
+        {
+            item["companyName"] = new AttributeValue { S = user.CompanyName };
+        }
+
         return item;
     }
 
@@ -252,6 +262,8 @@ public sealed class UserRepository : IUserRepository
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             Suspended = item.TryGetValue("suspended", out var susp) && susp.BOOL,
             ProfilePhotoRef = item.TryGetValue("profilePhotoRef", out var photo) && photo.S != null ? photo.S : null,
+            BuyerType = item.TryGetValue("buyerType", out var bt) && bt.S != null ? bt.S : null,
+            CompanyName = item.TryGetValue("companyName", out var cn) && cn.S != null ? cn.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,
             Version = item.TryGetValue("version", out var ver) && ver.N != null ? int.Parse(ver.N) : 1

@@ -173,4 +173,35 @@ public class UserRepositoryTests
         Assert.Equal(user.UpdatedAt, restored.UpdatedAt);
         Assert.Equal(user.Version, restored.Version);
     }
+
+    [Fact]
+    public void ToItem_FromItem_RoundTripsBuyerFields()
+    {
+        var user = CreateTestUser() with
+        {
+            Role = "buyer",
+            BuyerType = "company",
+            CompanyName = "Abebe Trading PLC"
+        };
+
+        var item = UserRepository.ToItem(user);
+        var restored = UserRepository.FromItem(item);
+
+        Assert.Equal("company", restored.BuyerType);
+        Assert.Equal("Abebe Trading PLC", restored.CompanyName);
+    }
+
+    [Fact]
+    public void ToItem_OmitsBuyerFieldsWhenNull()
+    {
+        var user = CreateTestUser(); // farmer — no buyer fields
+
+        var item = UserRepository.ToItem(user);
+        var restored = UserRepository.FromItem(item);
+
+        Assert.False(item.ContainsKey("buyerType"));
+        Assert.False(item.ContainsKey("companyName"));
+        Assert.Null(restored.BuyerType);
+        Assert.Null(restored.CompanyName);
+    }
 }

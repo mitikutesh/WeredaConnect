@@ -74,7 +74,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 4. **Embedded LatLng**: GPS coordinates are stored directly (not a separate collection) for simplicity. Reduces query complexity.
 
-5. **No buyer ID in listing**: Crop listings are broadcast to all truckers/buyers. Buyer is assigned during delivery/payment phase.
+5. **No buyer ID in listing**: Crop listings are visible to buyers (and admins); farmers see only their own. Truckers do not browse crops (F-36). Buyer is assigned during delivery/payment phase.
 
 ---
 
@@ -216,7 +216,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 |-------|------|----------|-------------|-----------------------|
 | `id` | Id | Yes | Isar auto-increment ID | N/A |
 | `operationId` | String | Yes | Server-assigned UUID | Unique operation identifier |
-| `idempotencyKey` | String | Yes | Idempotency key | Format: `{entityType}:{entityId}:{action}:{timestamp}` |
+| `idempotencyKey` | String | Yes | Idempotency key | Format: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` |
 | `entityType` | String | Yes | Entity type | Values: user, crop_listing, trip, delivery, payment |
 | `entityId` | String | Yes | ID of entity being synced | References primary entity ID |
 | `action` | String | Yes | CRUD action | Values: create, update, delete |
@@ -233,13 +233,13 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 **Design Decisions**:
 
-1. **Idempotency key prevents duplicates**: If sync fails midway and retries, server uses idempotency key to detect duplicate operations. Format: `crop_listing:123:update:1234567890`.
+1. **Idempotency key prevents duplicates**: If sync fails midway and retries, server uses idempotency key to detect duplicate operations. Format: `usr123:crop_listing:123:update:1234567890`.
 
 2. **JSON string storage**: Isar doesn't support complex nested objects efficiently. Storing JSON as string is simpler and allows flexible schema evolution.
 
 3. **Retry with exponential backoff**: Delay formula: `2^retryCount` seconds. Prevents hammering server during outages. After 3 failures, requires manual intervention.
 
-4. **status=synced operations are deleted**: Once synced, operation is removed from queue to save space. Only pending/syncing/failed operations persist.
+4. **status=synced operations are purged after 30 days**: Synced operations are retained (not deleted immediately) and purged in bulk once older than the 30-day threshold (`SyncQueue.purgeSyncedOperations`) to prevent database bloat while keeping a recent audit trail.
 
 5. **No TTL on failed operations**: Failed operations stay in queue indefinitely until user manually resolves (e.g., conflict resolution UI). Prevents silent data loss.
 

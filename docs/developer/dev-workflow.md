@@ -90,7 +90,7 @@ npm run lint                       # infrastructure
 ### Formatting
 
 ```bash
-flutter format .  # mobile
+dart format .     # mobile
 dotnet format     # backend
 npm run format    # infrastructure
 ```

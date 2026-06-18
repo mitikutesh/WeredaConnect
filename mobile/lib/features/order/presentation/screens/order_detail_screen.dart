@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -354,6 +355,17 @@ class _OrderDetailBody extends StatelessWidget {
     Order order,
     AppLocalizations l10n,
   ) async {
+    // Isar is unavailable on web (IsarService.instance.db is null), so this
+    // offline-first delivery-creation flow cannot resolve the listing locally
+    // there — degrade gracefully instead of dereferencing a null db.
+    if (kIsWeb) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.listingNotFound)),
+        );
+      }
+      return;
+    }
     final isar = IsarService.instance.db;
     final listing = await isar.cropListings
         .filter()

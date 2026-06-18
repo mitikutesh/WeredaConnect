@@ -4,13 +4,19 @@ library;
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// Interceptor that automatically injects access tokens and refreshes on 401
+/// Interceptor that automatically injects the ID token and refreshes on 401
 ///
 /// This interceptor:
-/// - Adds Authorization header to all requests (if token exists)
+/// - Adds Authorization header to all requests (if a token exists)
 /// - Catches 401 responses and attempts token refresh
 /// - Retries failed request with new token
 /// - Handles concurrent refresh attempts (prevents multiple refresh calls)
+///
+/// The bearer token is the Cognito **ID token**, not the access token:
+/// custom attributes such as `custom:role` (used for server-side write
+/// authorization) are only present on the ID token, never on the access
+/// token. Sending the access token causes the server to see a null role and
+/// reject every create operation with `*_UNAUTHORIZED`.
 ///
 /// Ethiopian context:
 /// - Tokens are stored in secure storage (encrypted on device)
@@ -21,15 +27,16 @@ class AuthInterceptor extends QueuedInterceptor {
     required this.storage,
     required this.refreshTokenCallback,
     required Dio dio,
-    this.tokenKey = 'access_token',
+    this.tokenKey = 'id_token',
     this.refreshTokenKey = 'refresh_token',
   }) : _retryDio = _createRetryDio(dio);
 
   /// Secure storage for reading/writing tokens
   final FlutterSecureStorage storage;
 
-  /// Callback to refresh tokens (returns new access token)
-  /// Should call POST /auth/refresh with refresh token
+  /// Callback to refresh tokens (returns the new ID token to use as bearer).
+  /// Should call POST /auth/refresh with the refresh token and persist the
+  /// resulting tokens.
   final Future<String?> Function(String refreshToken) refreshTokenCallback;
 
   /// Dio instance for retrying requests, shares the parent's base config
@@ -37,7 +44,7 @@ class AuthInterceptor extends QueuedInterceptor {
   /// to avoid QueuedInterceptor deadlock.
   final Dio _retryDio;
 
-  /// Storage key for access token
+  /// Storage key for the bearer token (Cognito ID token).
   final String tokenKey;
 
   /// Storage key for refresh token
@@ -77,10 +84,10 @@ class AuthInterceptor extends QueuedInterceptor {
       return handler.next(options);
     }
 
-    // Inject access token if available
-    final accessToken = await storage.read(key: tokenKey);
-    if (accessToken != null && accessToken.isNotEmpty) {
-      options.headers['Authorization'] = 'Bearer $accessToken';
+    // Inject the ID token if available (carries custom:role for the server).
+    final bearerToken = await storage.read(key: tokenKey);
+    if (bearerToken != null && bearerToken.isNotEmpty) {
+      options.headers['Authorization'] = 'Bearer $bearerToken';
     }
 
     handler.next(options);
@@ -125,25 +132,25 @@ class AuthInterceptor extends QueuedInterceptor {
         return handler.next(err);
       }
 
-      // Call refresh endpoint
-      final newAccessToken = await refreshTokenCallback(refreshToken);
+      // Call refresh endpoint (returns the new ID token to use as bearer)
+      final newBearerToken = await refreshTokenCallback(refreshToken);
 
-      if (newAccessToken == null || newAccessToken.isEmpty) {
+      if (newBearerToken == null || newBearerToken.isEmpty) {
         // Refresh failed - clear tokens and force re-authentication
         await _clearTokens();
         _rejectPendingRequests(err);
         return handler.next(err);
       }
 
-      // Save new access token
-      await storage.write(key: tokenKey, value: newAccessToken);
+      // Save new bearer (ID) token
+      await storage.write(key: tokenKey, value: newBearerToken);
 
       // Retry original request with new token
-      final retryResponse = await _retry(err.requestOptions, newAccessToken);
+      final retryResponse = await _retry(err.requestOptions, newBearerToken);
       handler.resolve(retryResponse);
 
       // Retry all pending requests
-      await _retryPendingRequests(newAccessToken);
+      await _retryPendingRequests(newBearerToken);
     } on Object {
       // Transient error (timeout, network) — keep refresh token intact.
       // The callback only returns null for server rejections (400/401),
@@ -164,13 +171,13 @@ class AuthInterceptor extends QueuedInterceptor {
   /// avoiding QueuedInterceptor deadlock.
   Future<Response<dynamic>> _retry(
     RequestOptions requestOptions,
-    String newAccessToken,
+    String newBearerToken,
   ) async {
     final options = Options(
       method: requestOptions.method,
       headers: {
         ...requestOptions.headers,
-        'Authorization': 'Bearer $newAccessToken',
+        'Authorization': 'Bearer $newBearerToken',
       },
       sendTimeout: requestOptions.sendTimeout,
       receiveTimeout: requestOptions.receiveTimeout,
@@ -185,12 +192,12 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Retry all pending requests with new token
-  Future<void> _retryPendingRequests(String newAccessToken) async {
+  Future<void> _retryPendingRequests(String newBearerToken) async {
     for (final pendingRequest in _pendingRequests) {
       try {
         final response = await _retry(
           pendingRequest.requestOptions,
-          newAccessToken,
+          newBearerToken,
         );
         pendingRequest.handler.resolve(response);
       } on Object catch (e) {

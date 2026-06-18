@@ -131,6 +131,7 @@ void main() {
         ..location = (LatLng()
           ..latitude = 9.0
           ..longitude = 38.0)
+        ..locationName = 'Adama'
         ..description = 'Original'
         ..audioNoteRef = null
         ..status = ListingStatus.active
@@ -264,6 +265,7 @@ void main() {
         ..location = (LatLng()
           ..latitude = 9.0
           ..longitude = 38.0)
+        ..locationName = 'Adama'
         ..description = 'Cycle 0'
         ..audioNoteRef = null
         ..status = ListingStatus.active

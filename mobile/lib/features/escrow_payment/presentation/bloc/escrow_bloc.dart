@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart'
     as repo;
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
@@ -66,6 +67,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       if (payment != null) {
         emit(EscrowDetailLoaded(payment: payment));
       } else {
+        // null == the escrow does not exist (a genuine 404). Real request
+        // failures arrive as ApiException below.
         emit(
           const EscrowError(
             code: 'ESCROW_016',
@@ -73,6 +76,10 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           ),
         );
       }
+    } on ApiException catch (e) {
+      // A request failure (auth/forbidden/server/rate-limit/network) must
+      // surface as a distinct, retryable error — never as "payment not found".
+      emit(_mapReadException(e));
     } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
@@ -88,6 +95,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
       if (payment != null) {
         emit(EscrowDetailLoaded(payment: payment));
       } else {
+        // null == the server confirmed there is no escrow for this delivery
+        // (a genuine 404). Real request failures arrive as ApiException below.
         emit(
           const EscrowError(
             code: 'ESCROW_016_DELIVERY',
@@ -95,9 +104,57 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
           ),
         );
       }
+    } on ApiException catch (e) {
+      // A request failure (auth/forbidden/server/rate-limit/network) must
+      // surface as a distinct, retryable error — never as "payment not found".
+      emit(_mapReadException(e));
     } on Object catch (e) {
       emit(EscrowError(code: 'ESCROW_CLIENT', message: e.toString()));
     }
+  }
+
+  /// Map an [ApiException] raised by an escrow read into a distinct,
+  /// localizable [EscrowError] state.
+  ///
+  /// A genuine "no escrow" result is a 404, which the repository converts to a
+  /// null return value (never an exception). Everything reaching here is a real
+  /// failure, so it must NOT be reported as "payment not found". Codes mirror
+  /// [EscrowRepository] error mapping and are all understood by
+  /// localizeEscrowError, so the UI shows a localized, actionable message.
+  EscrowError _mapReadException(ApiException e) {
+    return switch (e) {
+      AuthException(:final statusCode) when statusCode == 403 =>
+        const EscrowError(
+          code: 'ESCROW_022',
+          message: 'You are not authorized to view this payment.',
+        ),
+      AuthException() => const EscrowError(
+          code: 'ESCROW_005',
+          message: 'Please log in to continue.',
+        ),
+      NetworkException() || TimeoutException() => const EscrowError(
+          code: 'ESCROW_OFFLINE',
+          message: 'Internet connection required for this action.',
+        ),
+      RateLimitException() => const EscrowError(
+          code: 'ESCROW_011',
+          message: 'Too many requests. Please wait and try again.',
+        ),
+      ServerException(:final statusCode) when statusCode == 502 =>
+        const EscrowError(
+          code: 'ESCROW_013',
+          message: 'Telebirr service error. Please try again.',
+        ),
+      ServerException(:final statusCode) when statusCode == 503 =>
+        const EscrowError(
+          code: 'ESCROW_014',
+          message: 'Telebirr is currently unavailable. Please try later.',
+        ),
+      _ => const EscrowError(
+          code: 'ESCROW_012',
+          message: 'Something went wrong. Please try again.',
+        ),
+    };
   }
 
   Future<void> _onLoadPaymentHistory(

@@ -27,6 +27,9 @@ class OfflineAuthCache {
     required AuthTokens tokens,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     // Persist tokens
     await _storage.write(
@@ -44,6 +47,11 @@ class OfflineAuthCache {
         'woreda': woreda,
         if (fullName != null) 'fullName': fullName,
         if (displayName != null) 'displayName': displayName,
+        // F-32: role-specific fields (platform pair with the Isar implementation).
+        if (drivingLicensePath != null)
+          'drivingLicensePath': drivingLicensePath,
+        if (buyerType != null) 'buyerType': buyerType,
+        if (companyName != null) 'companyName': companyName,
       }),
     );
   }
@@ -56,6 +64,9 @@ class OfflineAuthCache {
     required String woreda,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     await _storage.write(
       key: _userKey(phoneNumber),
@@ -67,6 +78,11 @@ class OfflineAuthCache {
         'woreda': woreda,
         if (fullName != null) 'fullName': fullName,
         if (displayName != null) 'displayName': displayName,
+        // F-32: role-specific fields (platform pair with the Isar implementation).
+        if (drivingLicensePath != null)
+          'drivingLicensePath': drivingLicensePath,
+        if (buyerType != null) 'buyerType': buyerType,
+        if (companyName != null) 'companyName': companyName,
       }),
     );
   }
@@ -77,23 +93,50 @@ class OfflineAuthCache {
   Future<User?> getCachedUser(String phoneNumber) async {
     final raw = await _storage.read(key: _userKey(phoneNumber));
     if (raw == null || raw.isEmpty) return null;
-    final m = jsonDecode(raw) as Map<String, dynamic>;
-    return User()
-      ..userId = m['userId'] as String? ?? ''
-      ..phoneNumber = m['phoneNumber'] as String? ?? ''
-      ..name = m['name'] as String? ?? ''
-      ..role = UserRole.values.firstWhere(
-        (e) => e.name == m['role'],
-        orElse: () => UserRole.farmer,
-      )
-      ..woreda = m['woreda'] as String? ?? '';
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      // F-34: treat an unrecognized role as a cache miss (return null) rather
+      // than silently defaulting to farmer, so callers never infer a wrong role.
+      UserRole? role;
+      for (final e in UserRole.values) {
+        if (e.name == m['role']) {
+          role = e;
+          break;
+        }
+      }
+      if (role == null) return null;
+      return User()
+        ..userId = m['userId'] as String? ?? ''
+        ..phoneNumber = m['phoneNumber'] as String? ?? ''
+        ..name = m['name'] as String? ?? ''
+        ..role = role
+        ..woreda = m['woreda'] as String? ?? '';
+    } on Object {
+      // Corrupt or shape-mismatched cache (valid JSON that isn't the expected
+      // shape) makes the `as Map`/field casts throw a TypeError (an Error, not
+      // an Exception). Treat any failure as a cache miss so callers degrade to
+      // re-login instead of crashing auto-login. Mirrors the mobile cache; do
+      // NOT narrow to `on Exception` — that would let the TypeError escape the
+      // caller's `on Exception` and hang the web app on the splash screen.
+      return null;
+    }
   }
 
   Future<AuthTokens?> getCachedTokens(String phoneNumber) async {
     final raw = await _storage.read(key: _tokensKey(phoneNumber));
     if (raw == null || raw.isEmpty) return null;
-    final m = jsonDecode(raw) as Map<String, dynamic>;
-    return AuthTokens.fromJson(m);
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      return AuthTokens.fromJson(m);
+    } on Object {
+      // Corrupt or shape-mismatched cache (valid JSON missing a required field)
+      // makes AuthTokens.fromJson throw a TypeError (an Error, not an
+      // Exception). Treat any failure as "no usable cached tokens" so callers
+      // degrade to re-login instead of crashing offline/auto-login. Mirrors the
+      // mobile cache; do NOT narrow to `on Exception` — that would let the
+      // TypeError escape the caller's `on Exception` and hang the web app.
+      return null;
+    }
   }
 
   Future<void> updateTokens(String phoneNumber, AuthTokens tokens) async {

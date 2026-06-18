@@ -1017,6 +1017,21 @@ export class ApiStack extends cdk.Stack {
       ),
     });
 
+    // F-33: fetch the escrow for a delivery. Distinct 3-segment path so it does
+    // not collide with /escrow/{id}; server enforces party-or-admin (ESCROW_022).
+    httpApi.addRoutes({
+      path: "/escrow/by-delivery/{deliveryId}",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "EscrowByDeliveryInt",
+        escrowFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
     // ─── Admin Lambda Function ────────────────────────────────────────
 
     const adminFn = new WeredaLambda(this, "AdminFunction", {
@@ -1216,11 +1231,18 @@ class ProductionBypassGuard implements cdk.IAspect {
       const cfnFn = node.node.defaultChild as lambda.CfnFunction | undefined;
       if (!cfnFn) return;
 
-      const env = (cfnFn.environment as Record<string, unknown>) ?? {};
-      // environment may be a token at synth time — check resolved keys
-      if (typeof env === "object" && env !== null) {
+      // cfnFn.environment is a CfnFunction.EnvironmentProperty whose env vars
+      // live under `.variables` (and the whole thing is a Lazy token at synth
+      // time). Resolve the token, then inspect the nested `variables` map —
+      // checking `flag in env` on the outer object never matches (its only
+      // key is `variables`), which silently defeated this guard.
+      const resolved = cdk.Stack.of(node).resolve(cfnFn.environment) as
+        | { variables?: Record<string, unknown> }
+        | undefined;
+      const variables = resolved?.variables ?? {};
+      if (typeof variables === "object" && variables !== null) {
         for (const flag of ProductionBypassGuard.FORBIDDEN_ENV_VARS) {
-          if (flag in env) {
+          if (flag in variables) {
             cdk.Annotations.of(node).addError(
               `SECURITY: Lambda "${node.node.path}" has ${flag} set. ` +
               `This flag must NEVER be deployed to production.`,

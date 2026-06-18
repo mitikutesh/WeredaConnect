@@ -55,7 +55,7 @@ abstract final class DeliveryConstants {
   /// QR error correction level.
   /// M = 15% error tolerance (good balance of size vs readability).
   /// Maps to QrErrorCorrectLevel.M in qr_flutter.
-  static const int qrErrorCorrectionLevel = 1;
+  static const int qrErrorCorrectionLevel = 0;
 
   /// UUID v4 validation pattern (lowercase hex).
   static final RegExp uuidRegex = RegExp(

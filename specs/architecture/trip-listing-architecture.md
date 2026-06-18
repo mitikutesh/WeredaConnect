@@ -159,7 +159,7 @@ enum TripStatus { open, matched, inTransit, delivered, cancelled }
 
 | Screen | Purpose |
 |--------|---------|
-| TripListScreen | Browse trips with filters |
+| BrowseTripsScreen | Browse trips with filters |
 | CreateTripScreen | Form: route, capacity, departure, price |
 | TripDetailScreen | Single trip view with status |
 | TripCard | List item widget |
@@ -226,7 +226,7 @@ mobile/lib/features/trip_listing/
     │   ├── trip_listing_event.dart
     │   └── trip_listing_state.dart
     ├── screens/
-    │   ├── trip_list_screen.dart
+    │   ├── browse_trips_screen.dart
     │   ├── create_trip_screen.dart
     │   └── trip_detail_screen.dart
     └── widgets/

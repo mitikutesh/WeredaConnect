@@ -18,6 +18,7 @@ import 'package:wereda_connect/core/network/auth_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
+import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -94,9 +95,15 @@ Future<void> main() async {
             : raw as Map<String, dynamic>;
         final tokenData = data['tokens'] as Map<String, dynamic>;
         final newAccessToken = tokenData['accessToken'] as String;
+        final newIdToken = tokenData['idToken'] as String;
         final newRefreshToken =
             tokenData['refreshToken'] as String? ?? refreshToken;
 
+        // Refresh the active token slots read by the AuthInterceptor. The
+        // ID token is the bearer (carries custom:role); the access token is
+        // kept for server-side token revocation on logout.
+        await secureStorage.write(key: 'access_token', value: newAccessToken);
+        await secureStorage.write(key: 'id_token', value: newIdToken);
         await secureStorage.write(
           key: 'refresh_token',
           value: newRefreshToken,
@@ -109,7 +116,7 @@ Future<void> main() async {
           final tokensJson = '{'
               '"accessToken":"$newAccessToken",'
               '"refreshToken":"$newRefreshToken",'
-              '"idToken":"${tokenData['idToken']}",'
+              '"idToken":"$newIdToken",'
               '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
               '}';
           await secureStorage.write(
@@ -118,7 +125,8 @@ Future<void> main() async {
           );
         }
 
-        return newAccessToken;
+        // Return the ID token — it becomes the new bearer for retried requests.
+        return newIdToken;
       } on DioException catch (e) {
         final statusCode = e.response?.statusCode;
         if (statusCode != null && (statusCode == 400 || statusCode == 401)) {
@@ -145,6 +153,8 @@ Future<void> main() async {
   };
 
   final authBloc = AuthBloc()..add(const AuthCheckRequested());
+  // F-37: production-gated test auth seam for e2e (no-op in prod builds).
+  registerWebTestAuthSeam(authBloc);
   final api = ApiClient();
 
   runApp(

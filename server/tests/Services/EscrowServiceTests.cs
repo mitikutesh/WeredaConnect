@@ -448,6 +448,77 @@ public class EscrowServiceTests
         Assert.Equal(502, result.Error.HttpStatus);
     }
 
+    [Fact]
+    public async Task ReleaseAsync_TelebirrFailure_DeletesIdempotencyKeyNotMarkFailed()
+    {
+        // C-1: a transient Telebirr failure must DELETE the idempotency record,
+        // not mark it "failed". A lingering record makes the retry's conditional
+        // StoreAsync return false → permanent ESCROW_003 (409).
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorMessage = "Release failed." });
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(request.IdempotencyKey);
+        await _mockIdempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), "failed");
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_RetryAfterTransientFailure_IsNotBlocked()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        // Model the conditional idempotency store: it only succeeds when no
+        // record is currently present. DeleteAsync clears it; had the code left
+        // a "failed" record instead, the retry's StoreAsync would return false.
+        var recordPresent = false;
+        _mockIdempotencyRepo
+            .StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(_ =>
+            {
+                if (recordPresent) return false; // conditional write would fail
+                recordPresent = true;
+                return true;
+            });
+        _mockIdempotencyRepo.When(r => r.DeleteAsync(Arg.Any<string>()))
+            .Do(_ => recordPresent = false);
+
+        // Telebirr fails on the first attempt, then succeeds on the retry.
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(
+                new ReleaseFundsResponse { Success = false, ErrorMessage = "Transient" },
+                new ReleaseFundsResponse { Success = true, TelebirrRef = "MOCK-RELEASE-REF" });
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        };
+
+        var first = await _service.ReleaseAsync(request, "system");
+        Assert.False(first.IsSuccess);
+        Assert.Equal("ESCROW_013", first.Error!.Code);
+
+        // Same idempotency key — must NOT be permanently blocked with ESCROW_003.
+        var second = await _service.ReleaseAsync(request, "system");
+        Assert.True(second.IsSuccess);
+    }
+
     // ──────────────────────────────────────────────
     // DisputeAsync
     // ──────────────────────────────────────────────
@@ -723,6 +794,32 @@ public class EscrowServiceTests
         Assert.Equal(502, result.Error.HttpStatus);
     }
 
+    [Fact]
+    public async Task RefundAsync_TelebirrFailure_DeletesIdempotencyKeyNotMarkFailed()
+    {
+        // C-1: same retryability guarantee as release — a transient refund
+        // failure deletes the idempotency record so the retry isn't 409'd.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorMessage = "Refund failed." });
+
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            IdempotencyKey = "system:escrow-001:refund:1708257600000"
+        };
+
+        var result = await _service.RefundAsync(request, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_013", result.Error!.Code);
+        await _mockIdempotencyRepo.Received(1).DeleteAsync(request.IdempotencyKey);
+        await _mockIdempotencyRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), "failed");
+    }
+
     // ──────────────────────────────────────────────
     // GetByIdAsync
     // ──────────────────────────────────────────────
@@ -773,6 +870,62 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
 
         var result = await _service.GetByIdAsync("escrow-001", "random-user");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_022", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // GetByDeliveryAsync (F-33)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetByDeliveryAsync_AsBuyer_ReturnsEscrowDto()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        var result = await _service.GetByDeliveryAsync("delivery-001", BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrow-001", result.Value!.EscrowId);
+        Assert.Equal(BuyerId, result.Value.BuyerId);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_AsFarmer_ReturnsEscrowDto()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        var result = await _service.GetByDeliveryAsync("delivery-001", FarmerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrow-001", result.Value!.EscrowId);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_NotFound_ReturnsEscrow016()
+    {
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-999")
+            .Returns((Dictionary<string, object>?)null);
+
+        var result = await _service.GetByDeliveryAsync("delivery-999", BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_016", result.Error!.Code);
+        Assert.Equal(404, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_NonParty_ReturnsEscrow022()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        // A trucker (or any non-party) must not read a delivery's escrow.
+        var result = await _service.GetByDeliveryAsync("delivery-001", "trucker-xyz");
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_022", result.Error!.Code);

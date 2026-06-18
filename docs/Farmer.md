@@ -24,7 +24,7 @@ The farmer quickly orients themselves and navigates to the task they need to per
 **Common Sales Talking Points:**
 - The "Offline Ready" badge immediately communicates reliability in low-connectivity environments.
 - Two-tap access to core workflows reduces the learning curve for first-time users.
-- Bottom navigation provides persistent access to all six sections (Home, My Listings, Browse Trips, Deliveries, Payments, Profile).
+- Bottom navigation provides persistent access to four sections (Home, Orders, Deliveries, Payments) plus a central button to list a crop.
 - Clean, uncluttered design is optimized for users with limited smartphone experience.
 
 ---
@@ -260,16 +260,15 @@ The farmer can manage their account settings, review their activity, and configu
 
 ## Navigation Overview
 
-WeredaConnect uses a persistent bottom navigation bar with six sections:
+WeredaConnect uses a persistent bottom navigation bar with four sections and a central action button:
 
 | Tab | Purpose |
 |-----|---------|
-| **Home** | Dashboard with quick actions |
-| **My Listings** | Manage crop listings |
-| **Browse Trips** | Find available transport |
+| **Home** | Dashboard with quick actions and your crop listings |
+| **Orders** | Orders buyers have placed for your crops |
 | **Deliveries** | Track shipments and verify handoffs |
 | **Payments** | View escrow payment history |
-| **Profile** | Account settings and preferences |
+| **(+) Sell Crops** | Center floating button — create a new crop listing |
 
 ---
 

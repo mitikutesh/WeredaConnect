@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -119,7 +120,7 @@ class WebOrderRepository extends BaseOrderRepository {
       if (transportCost != null) 'transportCost': transportCost,
     };
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -137,6 +138,9 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // Surface server-side rejections instead of silently reporting success
+    // for an order that was never persisted.
+    ensureSyncSucceeded(response);
 
     final cropCost = quantity * pricePerUnit;
     final rate = commissionRate ?? 0.05;
@@ -169,7 +173,7 @@ class WebOrderRepository extends BaseOrderRepository {
   @override
   Future<void> submitPayment(String orderId, String cbeTransactionId) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -191,6 +195,9 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // Surface server-side rejections instead of silently reporting success
+    // for a payment that was never recorded.
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -200,7 +207,7 @@ class WebOrderRepository extends BaseOrderRepository {
     String? reason,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -221,12 +228,16 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // Surface server-side rejections (e.g. ORDER_UNAUTHORIZED, invalid
+    // status transition) instead of reporting a cancellation that never
+    // happened on the server.
+    ensureSyncSucceeded(response);
   }
 
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -244,6 +255,9 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // /sync returns HTTP 200 with a per-operation result — surface server-side
+    // rejections instead of reporting an accept that never happened.
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -253,7 +267,7 @@ class WebOrderRepository extends BaseOrderRepository {
     String? reason,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -274,6 +288,8 @@ class WebOrderRepository extends BaseOrderRepository {
         ],
       },
     );
+    // Surface server-side rejections instead of reporting a reject that never happened.
+    ensureSyncSucceeded(response);
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {

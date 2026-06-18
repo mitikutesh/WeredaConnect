@@ -53,7 +53,7 @@ gh pr create --title "feat(mobile): biometric gate [S5-01]"
 ### Summary
 
 Adds `BiometricGate.authenticate()` called from `IsarService.initialize()`
-before key load. Uses `local_auth: ^2.1.0` already in `pubspec.yaml`.
+before key load. Adds `local_auth: ^2.1.0` to `pubspec.yaml` (run `flutter pub add local_auth`).
 
 ```dart
 class BiometricGate {

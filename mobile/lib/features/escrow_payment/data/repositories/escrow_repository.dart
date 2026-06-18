@@ -295,6 +295,21 @@ class EscrowRepository extends BaseEscrowRepository {
               .findFirst();
           if (existing != null) {
             payment.id = existing.id;
+            // Summary DTO carries no buyer/farmer IDs or detail-only fields.
+            // Preserve previously cached values so offline getHistory (which
+            // matches on farmerId/buyerId == userId) keeps the record and we
+            // don't drop telebirr/dispute/expiry data on refresh.
+            payment.buyerId = existing.buyerId;
+            payment.farmerId = existing.farmerId;
+            payment.commissionRate = existing.commissionRate;
+            payment.telebirrRef = existing.telebirrRef;
+            payment.expiresAt = existing.expiresAt;
+            payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
+            payment.releasedAt = existing.releasedAt;
+            payment.refundedAt = existing.refundedAt;
+            payment.disputeReason = existing.disputeReason;
+            payment.disputeDescription = existing.disputeDescription;
+            payment.version = existing.version;
           }
           await _isar.payments.put(payment);
         }

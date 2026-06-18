@@ -356,7 +356,7 @@ POST /escrow/refund
 
 ---
 
-## GitHub Secrets (12)
+## GitHub Secrets (13)
 
 Set via `./scripts/setup-gh-secrets.sh --env <env>`:
 
@@ -367,6 +367,7 @@ Set via `./scripts/setup-gh-secrets.sh --env <env>`:
 | `COGNITO_USER_POOL_ID` | CDK ApiStack `UserPoolId` output |
 | `COGNITO_CLIENT_ID` | CDK ApiStack `UserPoolClientId` output |
 | `COGNITO_ADMIN_CLIENT_ID` | CDK ApiStack `AdminClientId` output |
+| `COGNITO_ADMIN_USER_POOL_ID` | CDK ApiStack `AdminUserPoolId` output |
 | `COGNITO_REGION` | `eu-north-1` (dev) / `me-south-1` (staging/prod) |
 | `WEBSITE_S3_BUCKET` | CDK WebStack output |
 | `WEBAPP_S3_BUCKET` | CDK WebStack output |

@@ -144,7 +144,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -167,6 +171,104 @@ void main() {
         final authenticated = states[1] as AuthAuthenticated;
         expect(authenticated.userId, equals('user-001'));
         expect(authenticated.tokens, equals(_testTokens));
+      });
+
+      test('uses role from login result even on cache miss (F-34)', () async {
+        // Login result carries an authoritative role (trucker)...
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.trucker,
+          ),
+        );
+        // ...but the local cache is empty. Must NOT silently default to farmer.
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => null);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states[1], isA<AuthAuthenticated>());
+        final authenticated = states[1] as AuthAuthenticated;
+        expect(authenticated.role, equals(UserRole.trucker));
+      });
+
+      test('fails closed with AuthError when result has no role (F-34)',
+          () async {
+        // A successful login that somehow carries no resolvable role must
+        // surface an error, not authenticate with a guessed (farmer) role.
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => null);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states[1], isA<AuthError>());
+        final error = states[1] as AuthError;
+        expect(error.errorCode, AuthErrorCode.internalServerError);
+        // The core F-34 guarantee: never authenticate with a guessed role.
+        expect(states.whereType<AuthAuthenticated>(), isEmpty);
+      });
+
+      test(
+          'does not fall back to a cached role when the result role is null '
+          '(F-34)', () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        // A stale cached farmer profile must NOT be used to fill the missing
+        // role — the login must still fail closed.
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser); // role == farmer
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states.whereType<AuthAuthenticated>(), isEmpty);
+        expect(states.last, isA<AuthError>());
       });
 
       test('emits [AuthLoading, AuthError] on failed login', () async {
@@ -293,6 +395,65 @@ void main() {
         final error = states[1] as AuthError;
         expect(error.errorCode, equals(AuthErrorCode.phoneAlreadyRegistered));
       });
+
+      test('forwards role-specific buyer fields to AuthService.register (F-32)',
+          () async {
+        when(
+          () => authService.register(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+            name: any(named: 'name'),
+            role: any(named: 'role'),
+            woreda: any(named: 'woreda'),
+            faydaVerificationToken: any(named: 'faydaVerificationToken'),
+            preferredLanguage: any(named: 'preferredLanguage'),
+            drivingLicensePath: any(named: 'drivingLicensePath'),
+            buyerType: any(named: 'buyerType'),
+            companyName: any(named: 'companyName'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.buyer,
+          ),
+        );
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser);
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        await collectStates(
+          bloc,
+          const AuthRegisterRequested(
+            phoneNumber: '+251911234567',
+            password: 'pass1234',
+            name: 'Acme Buyer',
+            role: UserRole.buyer,
+            woreda: 'Adama',
+            buyerType: 'company',
+            companyName: 'Acme PLC',
+          ),
+        );
+
+        // The BLoC must pass the buyer fields through to the service (they were
+        // previously dropped); the driving-license stays null for a buyer.
+        // Omitted named args (faydaVerificationToken, preferredLanguage,
+        // drivingLicensePath) are matched against their defaults by mocktail,
+        // so this also asserts the driving-license is NOT sent for a buyer.
+        verify(
+          () => authService.register(
+            phoneNumber: '+251911234567',
+            password: 'pass1234',
+            name: 'Acme Buyer',
+            role: UserRole.buyer,
+            woreda: 'Adama',
+            buyerType: 'company',
+            companyName: 'Acme PLC',
+          ),
+        ).called(1);
+      });
     });
 
     // -----------------------------------------------------------------------
@@ -320,7 +481,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -370,7 +535,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -420,7 +589,11 @@ void main() {
             password: any(named: 'password'),
           ),
         ).thenAnswer(
-          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+          (_) async => AuthResult.success(
+            _testTokens,
+            userId: 'user-001',
+            role: UserRole.farmer,
+          ),
         );
         when(() => offlineCache.getCachedUser(any()))
             .thenAnswer((_) async => _testUser);
@@ -544,6 +717,7 @@ void main() {
           (_) async => AuthResult.success(
             _testTokens,
             userId: 'user-001',
+            role: UserRole.farmer,
             isOfflineAuth: true,
           ),
         );

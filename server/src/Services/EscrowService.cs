@@ -384,7 +384,10 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: releaseResponse.ErrorCode);
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "failed");
+            // Delete (not mark "failed") the idempotency record: a transient Telebirr
+            // failure must be retryable. Leaving a "failed"/"processing" record makes the
+            // conditional StoreAsync on retry return false → permanent ESCROW_003 (409).
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 releaseResponse.ErrorMessage ?? "Telebirr gateway error during fund release.");
@@ -718,7 +721,10 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: refundResponse.ErrorCode);
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "failed");
+            // Delete (not mark "failed") so a transient Telebirr refund failure stays
+            // retryable; a lingering record makes StoreAsync on retry return false →
+            // permanent ESCROW_003 (409).
+            await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<RefundEscrowResponse>.Failure(
                 502, "ESCROW_013",
                 refundResponse.ErrorMessage ?? "Telebirr gateway error during refund.");
@@ -761,6 +767,36 @@ public sealed class EscrowService
     {
         // 1. Get escrow → ESCROW_016
         var escrowItem = await _escrowRepo.GetByIdAsync(escrowId);
+        if (escrowItem == null)
+        {
+            return EscrowResult<EscrowDto>.Failure(404, "ESCROW_016", "Escrow not found.");
+        }
+
+        // 2. Validate user is buyer, farmer, or admin → ESCROW_022
+        var buyerId = GetString(escrowItem, "buyerId");
+        var farmerId = GetString(escrowItem, "farmerId");
+        if (!string.Equals(authenticatedUserId, buyerId, StringComparison.Ordinal)
+            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal)
+            && !await IsSystemOrAdminAsync(authenticatedUserId, role))
+        {
+            return EscrowResult<EscrowDto>.Failure(
+                403, "ESCROW_022", "You are not a party to this escrow.");
+        }
+
+        // 3. Map to EscrowDto
+        return EscrowResult<EscrowDto>.Success(MapToEscrowDto(escrowItem));
+    }
+
+    /// <summary>
+    /// Get the escrow associated with a delivery (1 escrow per delivery, via the
+    /// DeliveryIndex GSI). Enforces the same party-or-admin visibility as
+    /// <see cref="GetByIdAsync"/>. F-33.
+    /// </summary>
+    public async Task<EscrowResult<EscrowDto>> GetByDeliveryAsync(
+        string deliveryId, string authenticatedUserId, string? role = null)
+    {
+        // 1. Get escrow by deliveryId → ESCROW_016
+        var escrowItem = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
         if (escrowItem == null)
         {
             return EscrowResult<EscrowDto>.Failure(404, "ESCROW_016", "Escrow not found.");

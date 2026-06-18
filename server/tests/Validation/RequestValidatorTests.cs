@@ -260,6 +260,111 @@ public class RequestValidatorTests
         Assert.True(result.Errors.Count >= 4); // phone, password, role, woreda
     }
 
+    // --- F-32: buyer-only identity fields ---
+
+    [Fact]
+    public void ValidateRegisterRequest_CompanyBuyer_WithCompanyName_ReturnsSuccess()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "buyer",
+            Woreda = "Adama",
+            BuyerType = "company",
+            CompanyName = "Abebe Trading PLC"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_PrivateBuyer_NoCompanyName_ReturnsSuccess()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "buyer",
+            Woreda = "Adama",
+            BuyerType = "private"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_CompanyBuyer_MissingCompanyName_ReturnsFailure()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "buyer",
+            Woreda = "Adama",
+            BuyerType = "company"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Field == "companyName");
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_PrivateBuyer_WithCompanyName_ReturnsFailure()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "buyer",
+            Woreda = "Adama",
+            BuyerType = "private",
+            CompanyName = "Should Not Be Here"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Field == "companyName");
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_NonBuyer_WithBuyerFields_ReturnsFailure()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "farmer",
+            Woreda = "Adama",
+            BuyerType = "company",
+            CompanyName = "Nope PLC"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Field == "buyerType");
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_InvalidBuyerType_ReturnsFailure()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "buyer",
+            Woreda = "Adama",
+            BuyerType = "enterprise"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Field == "buyerType");
+    }
+
     // --- Login Request ---
 
     [Fact]

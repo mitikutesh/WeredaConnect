@@ -37,11 +37,11 @@ Steps:
 
    **Maestro E2E** (if user specifies `e2e` or `maestro`):
    ```bash
-   maestro test .maestro/
+   cd mobile && maestro test .maestro/
    ```
    Or a specific flow:
    ```bash
-   maestro test .maestro/<flow_name>.yaml
+   cd mobile && maestro test .maestro/<flow_name>.yaml
    ```
 
    **Playwright E2E** (if user specifies `e2e`, `playwright`, or `all`):

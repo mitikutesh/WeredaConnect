@@ -1192,12 +1192,6 @@ abstract class AppLocalizations {
   /// **'Origin and destination cannot be the same'**
   String get sameOriginDestination;
 
-  /// Ethiopian Birr currency format
-  ///
-  /// In en, this message translates to:
-  /// **'{amount} ETB'**
-  String etbCurrency(String amount);
-
   /// Quick action card title for finding transport/trucking services
   ///
   /// In en, this message translates to:
@@ -3753,6 +3747,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Order Timeline'**
   String get orderTimeline;
+
+  /// Ethiopian Birr currency format
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} ETB'**
+  String etbCurrency(String amount);
 
   /// Quantity in kilograms format
   ///

@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "uuid-v4",
-      "entityType": "report | listing | profile",
+      "entityType": "crop_listing | trip | delivery | order",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,

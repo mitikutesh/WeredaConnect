@@ -429,7 +429,31 @@ When a dispute exists:
 
 ---
 
-### 6. GET /escrow/history
+### 6. GET /escrow/by-delivery/{deliveryId}
+
+Get the escrow associated with a specific delivery (escrow is 1:1 with a delivery, resolved via the `DeliveryIndex` GSI). Only the buyer, farmer, or an admin party to the escrow may read it. **F-33.**
+
+#### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `deliveryId` | string (UUID) | Yes | Delivery ID |
+
+#### Success Response
+
+`200 OK` — identical `EscrowDto` body as `GET /escrow/{id}` (see above).
+
+#### Error Responses
+
+| Status | Error Code | Description |
+|--------|-----------|-------------|
+| `401` | `ESCROW_005` | Invalid or expired JWT token |
+| `403` | `ESCROW_022` | User is not a party to this escrow (buyer, farmer, or admin) |
+| `404` | `ESCROW_016` | No escrow exists for the given delivery |
+
+---
+
+### 7. GET /escrow/history
 
 Get the authenticated user's payment history.
 
@@ -443,6 +467,8 @@ Get the authenticated user's payment history.
 | `toDate` | string | No | End date (ISO 8601) | `toDate=2026-02-28T23:59:59Z` |
 | `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
 | `nextToken` | string | No | Pagination token | `nextToken=base64...` |
+
+> **Note**: `deliveryId` is **not** a supported filter here. To fetch the escrow for a specific delivery, use `GET /escrow/by-delivery/{deliveryId}`.
 
 #### Success Response
 

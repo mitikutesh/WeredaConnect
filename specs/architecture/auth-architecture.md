@@ -42,7 +42,7 @@ Implemented (R1-R3)
 │                    AWS Cognito User Pool                       │
 │  Phone sign-in | SMS OTP | Custom attributes (role, woreda)  │
 │  Password: 8+ chars, upper + lower + digits                   │
-│  Token lifetimes: Access 15m | Refresh 30d                    │
+│  Token lifetimes: Access 15m | Refresh 7d                     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -140,7 +140,7 @@ User enters phone + password → connectivity check → OFFLINE
 | Token | TTL | Storage | Purpose |
 |-------|-----|---------|---------|
 | Access Token (JWT) | 15 min | Flutter Secure Storage | API authorization |
-| Refresh Token | 30 days | Flutter Secure Storage | Renew access tokens |
+| Refresh Token | 7 days | Flutter Secure Storage | Renew access tokens |
 | ID Token (JWT) | 15 min | Flutter Secure Storage | User profile claims |
 | Offline Session | 7 days max | Isar (encrypted) | Cache invalidation |
 

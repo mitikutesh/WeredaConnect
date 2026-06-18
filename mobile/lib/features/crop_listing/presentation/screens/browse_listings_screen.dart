@@ -473,6 +473,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                     builder: (_) => const CreateCropListingScreen(),
                   ),
                 );
+                if (!mounted) return;
                 _loadListings();
               },
               backgroundColor: AppTheme.accentGold,

@@ -589,11 +589,6 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ka\'umsaa fi ga\'umsaan tokko ta\'uu hin danda\'u';
 
   @override
-  String etbCurrency(String amount) {
-    return 'Birrii $amount';
-  }
-
-  @override
   String get findTransport => 'Geejjiba Barbaadi';
 
   @override
@@ -1984,6 +1979,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderTimeline => 'Sarara Yeroo Ajajaa';
+
+  @override
+  String etbCurrency(String amount) {
+    return 'Birrii $amount';
+  }
 
   @override
   String quantityKg(String amount) {

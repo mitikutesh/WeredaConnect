@@ -12,7 +12,7 @@
 
 ### Bearer Token
 
-All API requests (except `/auth/login` and `/auth/register`) require authentication via JWT bearer token.
+All API requests (except `/auth/login`, `/auth/register`, `/auth/refresh`, `/auth/forgot-password`, and `/auth/reset-password`) require authentication via JWT bearer token.
 
 ```http
 Authorization: Bearer <token>
@@ -37,17 +37,26 @@ Content-Type: application/json
 **Response** (200 OK):
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "d4f8a2c1-9b3e-4f7a-b5c6-1234abcd5678",
-  "expiresIn": 3600,
+  "tokens": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "idToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "d4f8a2c1-9b3e-4f7a-b5c6-1234abcd5678",
+    "expiresIn": 3600,
+    "tokenType": "Bearer"
+  },
   "user": {
-    "id": "usr-a1b2c3d4",
-    "name": "Abebe Kebede",
+    "userId": "usr-a1b2c3d4",
     "phoneNumber": "+251912345678",
-    "role": "farmer"
+    "displayName": "Abebe Kebede",
+    "role": "farmer",
+    "woreda": "Adama",
+    "isPhoneVerified": true,
+    "preferredLanguage": "am"
   }
 }
 ```
+
+> Note: API requests must send the **ID token** (`tokens.idToken`) as the `Authorization: Bearer` value — the access token has no `aud` claim and is rejected by the authorizer.
 
 ### Register
 
@@ -74,7 +83,7 @@ Content-Type: application/json
 
 **Field Rules:**
 - `faydaId` -- Ethiopia's national digital ID; used for identity verification
-- `role` -- one of `farmer`, `transporter`, `buyer`
+- `role` -- one of `farmer`, `trucker`, `buyer`
 - `preferredLanguage` -- one of `am` (Amharic), `om` (Afan Oromo), `en` (English)
 
 **Response** (201 Created): Same structure as Login response, with full user profile including `faydaId`, `location`, `preferredLanguage`, and `createdAt`.

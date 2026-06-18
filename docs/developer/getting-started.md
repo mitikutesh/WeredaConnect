@@ -62,7 +62,7 @@ export PATH="$PATH:`pwd`/flutter/bin"
 flutter doctor
 ```
 
-**Required Version**: Flutter 3.27.x, Dart 3.6.x
+**Required Version**: Flutter 3.38.9, Dart 3.10.8
 
 #### 2. Install Dependencies
 
@@ -327,7 +327,7 @@ flutter pub run build_runner build
 flutter analyze
 
 # Format code
-flutter format .
+dart format .
 
 # Build APK
 flutter build apk --release
@@ -428,7 +428,6 @@ export AWS_DEFAULT_REGION=us-east-1
 1. **Read the architecture docs**: [System Architecture](../architecture/system-architecture.md)
 2. **Review coding standards**: [Standards](../../.ai/standards.md)
 3. **Understand the workflow**: [Development Workflow](./dev-workflow.md)
-4. **Start contributing**: [Contributing Guide](./contributing.md)
 5. **Run your first test**: [Testing Guidelines](./testing-guidelines.md)
 6. **Test end-to-end locally**: [E2E Local Testing Guide](./e2e-local-testing.md)
 
@@ -446,4 +445,3 @@ export AWS_DEFAULT_REGION=us-east-1
 **Last Updated**: 2026-02-09  
 **Version**: 1.0.0  
 **Maintainer**: Development Team
-

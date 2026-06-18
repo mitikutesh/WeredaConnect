@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Web-only trip listing repository.
@@ -43,7 +44,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
       if (vehicleDescription != null) 'vehicleDescription': vehicleDescription,
     };
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -61,6 +62,9 @@ class WebTripListingRepository extends BaseTripListingRepository {
         ],
       },
     );
+    // Surface server-side rejections (e.g. TRIP_UNAUTHORIZED) instead of
+    // silently reporting success for a trip that was never persisted.
+    ensureSyncSucceeded(response);
 
     final trip = Trip()
       ..tripId = tripId

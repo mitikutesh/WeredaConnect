@@ -44,8 +44,8 @@ export function useDisputes(params?: string) {
 export function useResolveDispute() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, resolution }: { id: string; resolution: object }) =>
-      api.post(`/admin/disputes/${id}/resolve`, resolution),
+    mutationFn: ({ id, body }: { id: string; body: object }) =>
+      api.post(`/admin/disputes/${id}/resolve`, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "disputes"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });

@@ -36,10 +36,16 @@ class LanguageProvider extends ChangeNotifier {
       // Restore saved language
       _locale = Locale(savedLanguage);
     } else {
-      // No saved preference - use device locale if supported
+      // No saved preference - use device locale if supported.
+      // platformDispatcher.locale usually carries a country/script subtag
+      // (e.g. am_ET, en_US), so match on languageCode only and adopt the
+      // bare supported locale to keep persistence/equality consistent.
       final deviceLocale = WidgetsBinding.instance.platformDispatcher.locale;
-      if (supportedLocales.contains(deviceLocale)) {
-        _locale = deviceLocale;
+      final match = supportedLocales
+          .where((l) => l.languageCode == deviceLocale.languageCode)
+          .firstOrNull;
+      if (match != null) {
+        _locale = match;
       }
       // Otherwise keep default (English)
     }

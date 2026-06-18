@@ -187,7 +187,7 @@ class TripListingRepository extends BaseTripListingRepository {
       'truckerPhone': normalizedPhone,
       'fromWoreda': fromWoreda,
       'toWoreda': toWoreda,
-      'departureDate': departureDate.toIso8601String(),
+      'departureDate': departureDate.toUtc().toIso8601String(),
       'capacity': capacity,
       'pricePerQuintal': pricePerQuintal,
       'status': trip.status.name,

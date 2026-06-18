@@ -14,7 +14,9 @@
     "transactions": "ግብይቶች",
     "auditLog": "የኦዲት ምዝግብ",
     "systemHealth": "የስርዓት ጤና",
-    "compliance": "ተገዢነት"
+    "compliance": "ተገዢነት",
+    "openMenu": "ምናሌ ክፈት",
+    "closeMenu": "ምናሌ ዝጋ"
   },
   "auth": {
     "login": "ግባ",

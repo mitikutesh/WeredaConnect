@@ -37,11 +37,16 @@ you can confirm Claude's rebuttal is correct.
 
 ### ⚖️  User decision (REQUIRED — fill this in)
 - [ ] Side with **Claude** (proceed; finding waived)
-- [ ] Side with **Codex** (Claude must address the finding)
+- [x] Side with **Codex** (Claude must address the finding)
 - [ ] **Other / compromise:** _______________________________
 
-**Decision rationale:**
+**Decision rationale:** Codex's re-validation returned `VERDICT: APPROVED` with no
+rejected findings and "no open dispute" — Claude had already accepted the single
+Codex finding (widget-level coverage for crop-listing client-side validation).
+Siding with Codex per the recommendation; the dispute is effectively already
+resolved and this stale artifact only needs the decision recorded. (Source run
+dir `.ai/runs/20260610-164000-...` no longer exists, so recorded in this mirror.)
 
-**Decided by:** ____________   **On:** ____________
+**Decided by:** Mitiku Teshome   **On:** 2026-06-18
 
 ---

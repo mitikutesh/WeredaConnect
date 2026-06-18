@@ -85,6 +85,9 @@ class OfflineAuthCache {
     required AuthTokens tokens,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     // Store user profile in Isar first — required for profile screen.
     await saveUserToIsar(
@@ -95,6 +98,9 @@ class OfflineAuthCache {
       woreda: woreda,
       fullName: fullName,
       displayName: displayName,
+      drivingLicensePath: drivingLicensePath,
+      buyerType: buyerType,
+      companyName: companyName,
     );
 
     // Cache password hash and tokens in secure storage for offline auth.
@@ -133,6 +139,9 @@ class OfflineAuthCache {
     required String woreda,
     String? fullName,
     String? displayName,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     final isar = IsarService.instance.db;
     await isar.writeTxn(() async {
@@ -148,6 +157,13 @@ class OfflineAuthCache {
         ..displayName = displayName
         ..role = role
         ..woreda = woreda
+        // F-32: role-specific fields. Preserve existing values when not supplied
+        // (e.g. re-login passes null) so they aren't clobbered. Driving-license
+        // is local-only; buyer type/company also persist server-side.
+        ..drivingLicensePath =
+            drivingLicensePath ?? existing?.drivingLicensePath
+        ..buyerType = buyerType ?? existing?.buyerType
+        ..companyName = companyName ?? existing?.companyName
         ..createdAt = existing?.createdAt ?? DateTime.now().toUtc()
         ..updatedAt = DateTime.now().toUtc()
         ..version = (existing?.version ?? 0) + 1;
@@ -257,7 +273,11 @@ class OfflineAuthCache {
 
       final json = jsonDecode(tokensJson) as Map<String, dynamic>;
       return AuthTokens.fromJson(json);
-    } on Exception {
+    } on Object {
+      // Corrupt or shape-mismatched cache (valid JSON missing a required
+      // field) makes AuthTokens.fromJson throw a TypeError (an Error, not an
+      // Exception). Treat any failure as "no usable cached tokens" so callers
+      // degrade to re-login instead of crashing offline/auto-login.
       return null;
     }
   }

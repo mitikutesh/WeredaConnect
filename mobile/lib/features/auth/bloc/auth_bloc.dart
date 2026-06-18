@@ -12,7 +12,6 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
-import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -51,6 +50,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const _activeAccessTokenKey = 'access_token';
   static const _activeRefreshTokenKey = 'refresh_token';
 
+  /// Storage key for the Cognito ID token. This is the token the
+  /// AuthInterceptor attaches as the API bearer, because `custom:role`
+  /// (required for server-side write authorization) only exists on the
+  /// ID token, not the access token.
+  static const _activeIdTokenKey = 'id_token';
+
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
@@ -87,12 +92,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// Write active tokens to well-known keys for the AuthInterceptor.
   ///
-  /// The AuthInterceptor reads these keys to inject the Authorization
-  /// header and to obtain the refresh token when a 401 is received.
+  /// The AuthInterceptor reads the ID token to inject the Authorization
+  /// header and the refresh token when a 401 is received. The access token
+  /// is still persisted for server-side token revocation on logout.
   Future<void> _saveActiveTokens(AuthTokens tokens) async {
     await _secureStorage.write(
       key: _activeAccessTokenKey,
       value: tokens.accessToken,
+    );
+    await _secureStorage.write(
+      key: _activeIdTokenKey,
+      value: tokens.idToken,
     );
     await _secureStorage.write(
       key: _activeRefreshTokenKey,
@@ -106,6 +116,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _secureStorage.delete(key: _currentUserPhoneKey);
     await _secureStorage.delete(key: currentUserIdKey);
     await _secureStorage.delete(key: _activeAccessTokenKey);
+    await _secureStorage.delete(key: _activeIdTokenKey);
     await _secureStorage.delete(key: _activeRefreshTokenKey);
   }
 
@@ -203,6 +214,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         woreda: event.woreda,
         faydaVerificationToken: event.faydaVerificationToken,
         preferredLanguage: event.preferredLanguage,
+        drivingLicensePath: event.drivingLicensePath,
+        buyerType: event.buyerType,
+        companyName: event.companyName,
       );
 
       // User navigated away — discard the result
@@ -263,20 +277,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: an authenticated session MUST carry an authoritative role from
+        // the login result; fail closed rather than silently defaulting to
+        // farmer (which mis-scoped truckers/buyers on a cache miss).
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
             isOfflineAuth: result.isOfflineAuth,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {
@@ -321,19 +347,30 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: require an authoritative role from the login result; never
+        // silently default to farmer on a cache miss.
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {
@@ -377,20 +414,31 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (_cancelled) return;
 
       if (result.isSuccess) {
+        // F-34: require an authoritative role from the login result; never
+        // silently default to farmer on a cache miss.
+        if (result.role == null) {
+          emit(
+            const AuthError(
+              errorCode: AuthErrorCode.internalServerError,
+              errorMessage:
+                  'Could not determine your account role. Please log in again.',
+            ),
+          );
+          return;
+        }
+
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
-
-        final user = await _offlineCache.getCachedUser(event.phoneNumber);
 
         emit(
           AuthAuthenticated(
             userId: result.userId!,
             tokens: result.tokens!,
             isOfflineAuth: true,
-            role: user?.role ?? UserRole.farmer,
-            userName: user?.name ?? '',
+            role: result.role!,
+            userName: result.userName ?? '',
             phoneNumber: event.phoneNumber,
-            woreda: user?.woreda,
+            woreda: result.woreda,
           ),
         );
       } else {

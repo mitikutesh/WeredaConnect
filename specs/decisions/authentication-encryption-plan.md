@@ -24,7 +24,7 @@ This plan addresses 12 critical security vulnerabilities identified in the secur
 
 ### Key Decisions
 1. **Auth Strategy**: AWS Cognito with offline token caching (hybrid approach)
-2. **Token Lifetime**: 15-min access tokens, 30-day refresh tokens (offline-friendly)
+2. **Token Lifetime**: 15-min access tokens, 7-day refresh tokens (offline-friendly)
 3. **Mobile Encryption**: Isar database encryption with device-bound keys
 4. **Certificate Pinning**: Dio HTTP client with AWS certificate pinning
 5. **Server Validation**: Custom JWT validator (AOT-compatible, no reflection)
@@ -77,7 +77,7 @@ User -> Mobile App -> AWS Cognito -> DynamoDB
   4. Create password
   5. Receive tokens:
      - Access token (JWT, 15 min)
-     - Refresh token (30 days)
+     - Refresh token (7 days)
      - ID token (user profile)
   6. Store encrypted in Keychain/Keystore
   7. Cache user profile in Isar (encrypted)
@@ -138,7 +138,7 @@ Token refresh runs as a background job when connectivity is detected. If the acc
 
 **Token Lifetimes** (Optimized for Ethiopian Context):
 - **Access Token**: 15 minutes (short-lived for security)
-- **Refresh Token**: 30 days (long-lived for offline scenarios)
+- **Refresh Token**: 7 days (long-lived for offline scenarios)
 - **Offline Session**: 7 days max (force re-auth for security)
 
 ---

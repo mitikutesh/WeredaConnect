@@ -15,6 +15,14 @@ public sealed record RegisterRequest
     public string? FaydaVerificationToken { get; init; }
     public string? DisplayName { get; init; }
     public string PreferredLanguage { get; init; } = "am";
+
+    // Buyer-only identity fields (F-32). buyerType is "private" or "company";
+    // companyName is required when buyerType is "company". Both must be absent
+    // for non-buyer roles. The trucker driving-license is intentionally NOT part
+    // of this contract — it stays local-only on the device until an image-upload
+    // pipeline exists (F-32 scope A).
+    public string? BuyerType { get; init; }
+    public string? CompanyName { get; init; }
 }
 
 /// <summary>

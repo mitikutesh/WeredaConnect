@@ -12,9 +12,11 @@ import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart'
     hide EscrowError;
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -22,6 +24,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 class MockApiClient extends Mock implements ApiClient {}
 
 class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
+
+class MockBaseEscrowRepository extends Mock implements BaseEscrowRepository {}
 
 /// Insert a test payment directly into Isar.
 Future<Payment> _insertTestPayment(
@@ -572,6 +576,179 @@ void main() {
         await subscription.cancel();
         await bloc.close();
       });
+    });
+  });
+
+  // LoadEscrowByDelivery distinguishes a genuine "no escrow" (null result)
+  // from a real request failure (ApiException). The latter must surface as a
+  // distinct, retryable error — never as "payment not found". Uses a mock
+  // repository so we can drive each ApiException path (the native repository
+  // reads local Isar and never throws these).
+  group('EscrowBloc.LoadEscrowByDelivery error mapping', () {
+    late MockBaseEscrowRepository repository;
+
+    setUp(() {
+      repository = MockBaseEscrowRepository();
+    });
+
+    Payment buildPayment() => Payment()
+      ..paymentId = 'esc-001'
+      ..deliveryId = 'del-001'
+      ..farmerId = 'farmer-001'
+      ..buyerId = 'buyer-001'
+      ..amount = 15000.0
+      ..commission = 375.0
+      ..commissionRate = 0.025
+      ..farmerPayout = 14625.0
+      ..status = PaymentStatus.escrowed
+      ..createdAt = DateTime.now().toUtc()
+      ..updatedAt = DateTime.now().toUtc()
+      ..version = 1;
+
+    Future<List<EscrowState>> run(EscrowBloc bloc) async {
+      final states = <EscrowState>[];
+      final subscription = bloc.stream.listen(states.add);
+      bloc.add(const LoadEscrowByDelivery(deliveryId: 'del-001'));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await subscription.cancel();
+      await bloc.close();
+      return states;
+    }
+
+    test('emits [Loading, EscrowDetailLoaded] when an escrow exists', () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenAnswer((_) async => buildPayment());
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect(states.length, 2);
+      expect(states[0], isA<EscrowLoading>());
+      expect(states[1], isA<EscrowDetailLoaded>());
+    });
+
+    test('emits ESCROW_016_DELIVERY when there is genuinely no escrow (null)',
+        () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenAnswer((_) async => null);
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect(states.length, 2);
+      expect(states[1], isA<EscrowError>());
+      expect((states[1] as EscrowError).code, 'ESCROW_016_DELIVERY');
+    });
+
+    test('maps a 403 to ESCROW_022 (not "payment not found")', () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenThrow(const AuthException('Forbidden', 403));
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect(states[1], isA<EscrowError>());
+      final error = states[1] as EscrowError;
+      expect(error.code, 'ESCROW_022');
+      expect(error.code, isNot('ESCROW_016_DELIVERY'));
+    });
+
+    test('maps a 401 to ESCROW_005', () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenThrow(const AuthException('Unauthorized'));
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect((states[1] as EscrowError).code, 'ESCROW_005');
+    });
+
+    test('maps a 5xx to ESCROW_012', () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenThrow(const ServerException('Server error', 500));
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect((states[1] as EscrowError).code, 'ESCROW_012');
+    });
+
+    test('maps a network failure to ESCROW_OFFLINE', () async {
+      when(() => repository.getEscrowByDelivery(any()))
+          .thenThrow(const NetworkException());
+
+      final states = await run(EscrowBloc(repository: repository));
+
+      expect((states[1] as EscrowError).code, 'ESCROW_OFFLINE');
+    });
+  });
+
+  // LoadEscrowDetail (by id) applies the same distinction as by-delivery, and
+  // RefreshEscrow must stay silent on a transient failure rather than blowing
+  // away the displayed escrow with an error screen.
+  group('EscrowBloc.LoadEscrowDetail / RefreshEscrow error mapping', () {
+    late MockBaseEscrowRepository repository;
+
+    setUp(() {
+      repository = MockBaseEscrowRepository();
+    });
+
+    Future<List<EscrowState>> run(EscrowBloc bloc, EscrowEvent event) async {
+      final states = <EscrowState>[];
+      final subscription = bloc.stream.listen(states.add);
+      bloc.add(event);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await subscription.cancel();
+      await bloc.close();
+      return states;
+    }
+
+    test('LoadEscrowDetail emits ESCROW_016 when the escrow is absent (null)',
+        () async {
+      when(() => repository.getEscrow(any())).thenAnswer((_) async => null);
+
+      final states = await run(
+        EscrowBloc(repository: repository),
+        const LoadEscrowDetail(escrowId: 'esc-001'),
+      );
+
+      expect((states[1] as EscrowError).code, 'ESCROW_016');
+    });
+
+    test('LoadEscrowDetail maps a 403 to ESCROW_022 (not "payment not found")',
+        () async {
+      when(() => repository.getEscrow(any()))
+          .thenThrow(const AuthException('Forbidden', 403));
+
+      final states = await run(
+        EscrowBloc(repository: repository),
+        const LoadEscrowDetail(escrowId: 'esc-403'),
+      );
+
+      final error = states[1] as EscrowError;
+      expect(error.code, 'ESCROW_022');
+      expect(error.code, isNot('ESCROW_016'));
+    });
+
+    test('LoadEscrowDetail maps a network failure to ESCROW_OFFLINE', () async {
+      when(() => repository.getEscrow(any()))
+          .thenThrow(const NetworkException());
+
+      final states = await run(
+        EscrowBloc(repository: repository),
+        const LoadEscrowDetail(escrowId: 'esc-net'),
+      );
+
+      expect((states[1] as EscrowError).code, 'ESCROW_OFFLINE');
+    });
+
+    test('RefreshEscrow stays silent (no state) when refresh returns null',
+        () async {
+      when(() => repository.refreshEscrow(any())).thenAnswer((_) async => null);
+
+      final states = await run(
+        EscrowBloc(repository: repository),
+        const RefreshEscrow(escrowId: 'esc-001'),
+      );
+
+      // A null refresh (transient failure / no update) emits nothing, leaving
+      // the currently displayed escrow intact.
+      expect(states, isEmpty);
     });
   });
 }

@@ -24,7 +24,18 @@ public class TripFunctionTests
         _context = new TestLambdaContext();
     }
 
+    // F-36: browse-all is restricted to Buyer/Admin, so the default browse caller
+    // in these tests is an authenticated buyer (the legitimate marketplace browser).
     private static APIGatewayProxyRequest MakeGetRequest(
+        string path = "/trips",
+        Dictionary<string, string>? queryParams = null,
+        Dictionary<string, string>? pathParams = null)
+    {
+        return MakeAuthenticatedGetRequest("buyer-default", "buyer", path, queryParams, pathParams);
+    }
+
+    // Unauthenticated request (no authorizer context) — used for F-36 negative tests.
+    private static APIGatewayProxyRequest MakeUnauthenticatedGetRequest(
         string path = "/trips",
         Dictionary<string, string>? queryParams = null,
         Dictionary<string, string>? pathParams = null)
@@ -794,20 +805,18 @@ public class TripFunctionTests
     // --- Phone Number Visibility Tests (Contract: truckerPhone hidden for unauthenticated) ---
 
     [Fact]
-    public async Task HandleGetTripById_Unauthenticated_HidesPhoneNumber()
+    public async Task HandleGetTripById_Unauthenticated_Forbidden()
     {
+        // F-36: unauthenticated callers may NOT view trips (only Buyer/Admin + owning Trucker).
         var trip = CreateTripItem("trip-001");
         _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
 
-        // No Authorization header or authorizer context
         var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
-        var request = MakeGetRequest("/trips/trip-001", pathParams: pathParams);
+        var request = MakeUnauthenticatedGetRequest("/trips/trip-001", pathParams: pathParams);
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("trip-001", response.Body);
-        // Phone should NOT be present for unauthenticated users
-        Assert.DoesNotContain("+251912345678", response.Body);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
     }
 
     [Fact]
@@ -960,12 +969,8 @@ public class TripFunctionTests
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((new List<Dictionary<string, object>>(), null));
 
-        var request = new APIGatewayProxyRequest
-        {
-            HttpMethod = "GET",
-            Path = "/trips",
-            QueryStringParameters = null
-        };
+        // F-36: browse requires an authorized buyer; null query params still apply defaults.
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
 
         var response = await _function.FunctionHandler(request, _context);
 
@@ -975,22 +980,9 @@ public class TripFunctionTests
     // --- IsAuthenticated Bypass Tests (F-11 Finding 4) ---
 
     [Fact]
-    public async Task HandleGetTrips_FakeAuthorizationHeader_HidesPhoneNumber()
+    public async Task HandleGetTrips_FakeAuthorizationHeader_Forbidden()
     {
-        var trips = new List<Dictionary<string, object>>
-        {
-            CreateTripItem("trip-001")
-        };
-
-        _mockTripRepo.QueryTripsAsync(
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<int>(),
-            Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((trips, null));
-
-        // Send a request with a fake Authorization header but NO authorizer context
+        // F-36: a fake/garbage bearer token is not a buyer/admin → forbidden (was: phone hidden).
         var request = new APIGatewayProxyRequest
         {
             HttpMethod = "GET",
@@ -1003,19 +995,25 @@ public class TripFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("trip-001", response.Body);
-        // Phone should NOT be visible — fake header must not grant access
-        Assert.DoesNotContain("+251912345678", response.Body);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
+
+        // A fake header must never reach the repository.
+        await _mockTripRepo.DidNotReceive().QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
     }
 
     [Fact]
-    public async Task HandleGetTripById_FakeAuthorizationHeader_HidesPhoneNumber()
+    public async Task HandleGetTripById_FakeAuthorizationHeader_Forbidden()
     {
         var trip = CreateTripItem("trip-001");
         _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
 
-        // Send with fake Authorization header but no authorizer context
+        // Fake Authorization header but no authorizer context → not buyer/admin → 403.
         var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
         var request = new APIGatewayProxyRequest
         {
@@ -1030,14 +1028,12 @@ public class TripFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("trip-001", response.Body);
-        // Phone should NOT be visible — fake header must not grant access
-        Assert.DoesNotContain("+251912345678", response.Body);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
     }
 
     [Fact]
-    public async Task HandleGetTrips_ValidAuthorizerClaims_ShowsPhoneNumber()
+    public async Task HandleGetTrips_ValidBuyerClaims_ShowsPhoneNumber()
     {
         var trips = new List<Dictionary<string, object>>
         {
@@ -1052,24 +1048,13 @@ public class TripFunctionTests
             Arg.Any<Dictionary<string, AttributeValue>?>())
             .Returns((trips, null));
 
-        // Authenticated request with valid authorizer context
-        var request = new APIGatewayProxyRequest
-        {
-            HttpMethod = "GET",
-            Path = "/trips",
-            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
-            {
-                Authorizer = new APIGatewayCustomAuthorizerContext
-                {
-                    { "userId", "user-001" }
-                }
-            }
-        };
+        // F-36: an authenticated buyer may browse all trips and sees trucker phone.
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
 
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        // Phone should be visible for authenticated users
+        // Phone should be visible for authenticated buyers
         Assert.Contains("251912345678", response.Body);
     }
 
@@ -1144,37 +1129,32 @@ public class TripFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetTrips_FarmerRole_CanBrowseAllTrips()
+    public async Task HandleGetTrips_FarmerRole_Forbidden()
     {
-        _mockTripRepo.QueryTripsAsync(
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<int>(),
-            Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
-
+        // F-36: farmers may NOT browse trips (only Buyer/Admin see all listings).
         var request = MakeAuthenticatedGetRequest("farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-    }
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
 
-    [Fact]
-    public async Task HandleGetTrips_Unauthenticated_CanBrowseAllTrips()
-    {
-        _mockTripRepo.QueryTripsAsync(
+        await _mockTripRepo.DidNotReceive().QueryTripsAsync(
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<int>(),
-            Arg.Any<Dictionary<string, AttributeValue>?>())
-            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
 
-        var request = MakeGetRequest();
+    [Fact]
+    public async Task HandleGetTrips_Unauthenticated_Forbidden()
+    {
+        // F-36: unauthenticated callers may NOT browse all trips.
+        var request = MakeUnauthenticatedGetRequest();
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
     }
 
     [Fact]
@@ -1225,8 +1205,9 @@ public class TripFunctionTests
     }
 
     [Fact]
-    public async Task HandleGetTripById_FarmerRole_CanViewAnyTrip()
+    public async Task HandleGetTripById_FarmerRole_Forbidden()
     {
+        // F-36: farmers may NOT view trips (only Buyer/Admin + owning Trucker).
         var trip = CreateTripItem("trip-001");
         trip["truckerId"] = "some-trucker";
         _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
@@ -1236,7 +1217,8 @@ public class TripFunctionTests
             "/trips/trip-001", pathParams: pathParams);
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
     }
 
     // --- Constructor Tests ---

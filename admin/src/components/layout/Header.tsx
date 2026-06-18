@@ -14,6 +14,7 @@ export function Header() {
       <div className="flex items-center gap-3">
         <button
           onClick={open}
+          aria-label={t("nav.openMenu")}
           className="md:hidden rounded-lg p-2 text-text-muted hover:bg-gray-100"
         >
           <Menu size={20} />
@@ -27,6 +28,7 @@ export function Header() {
         <span className="hidden sm:inline text-sm text-text-muted">{user?.phone}</span>
         <button
           onClick={logout}
+          aria-label={t("auth.logout")}
           className="flex items-center gap-1 rounded-lg px-2 py-2 md:px-3 text-sm text-text-muted hover:bg-gray-100"
         >
           <LogOut size={16} />

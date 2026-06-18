@@ -586,11 +586,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Origin and destination cannot be the same';
 
   @override
-  String etbCurrency(String amount) {
-    return '$amount ETB';
-  }
-
-  @override
   String get findTransport => 'Find Transport';
 
   @override
@@ -1970,6 +1965,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get orderTimeline => 'Order Timeline';
+
+  @override
+  String etbCurrency(String amount) {
+    return '$amount ETB';
+  }
 
   @override
   String quantityKg(String amount) {

@@ -12,6 +12,24 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 
+/// Resolve the authoritative [UserRole] from a server-provided role string.
+///
+/// F-34: matches case-insensitively against [UserRole.values] and returns
+/// `null` for an unrecognized or missing role, so the caller fails the login
+/// loudly rather than silently defaulting to farmer. Extracted from
+/// [AuthService.loginOnline] so this fail-closed logic stays unit-testable
+/// without the `--dart-define`-gated online login path.
+@visibleForTesting
+UserRole? resolveServerRole(String? rawRole) {
+  final roleStr = rawRole?.toLowerCase();
+  for (final r in UserRole.values) {
+    if (r.name.toLowerCase() == roleStr) {
+      return r;
+    }
+  }
+  return null;
+}
+
 /// Main authentication service for WeredaConnect.
 ///
 /// This service handles:
@@ -73,6 +91,9 @@ class AuthService {
     required String woreda,
     String? faydaVerificationToken,
     String preferredLanguage = 'am',
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
   }) async {
     if (!Environment.isApiConfigured) {
       return _notConfiguredResult();
@@ -100,6 +121,15 @@ class AuthService {
       };
       if (faydaVerificationToken != null) {
         data['faydaVerificationToken'] = faydaVerificationToken;
+      }
+      // F-32: buyer identity fields are persisted server-side. The trucker
+      // driving-license is intentionally NOT sent — it is a local device file
+      // path kept only in Isar until an image-upload pipeline exists (scope A).
+      if (buyerType != null) {
+        data['buyerType'] = buyerType;
+      }
+      if (companyName != null) {
+        data['companyName'] = companyName;
       }
 
       final response = await _dio.post<Map<String, dynamic>>(
@@ -135,6 +165,9 @@ class AuthService {
           tokens: tokens,
           fullName: fullName,
           displayName: name,
+          drivingLicensePath: drivingLicensePath,
+          buyerType: buyerType,
+          companyName: companyName,
         );
       } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
@@ -204,6 +237,20 @@ class AuthService {
       final user = data['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
       final fullName = user['fullName'] as String?;
+      final displayName = (user['displayName'] as String?) ?? '';
+      final woreda = user['woreda'] as String;
+
+      // F-34: resolve the authoritative role from the server response BEFORE
+      // caching. An unrecognized/missing role must fail the login loudly — not
+      // be swallowed by the best-effort cache block below, which previously let
+      // the BLoC silently default the role to farmer.
+      final role = resolveServerRole(user['role'] as String?);
+      if (role == null) {
+        return AuthResult.failure(
+          AuthErrorCode.internalServerError,
+          'Login failed: the server returned an unrecognized account role.',
+        );
+      }
 
       // Cache credentials for offline use (best-effort — don't block login)
       try {
@@ -211,24 +258,24 @@ class AuthService {
           phoneNumber: phoneNumber,
           password: password,
           userId: userId,
-          role: UserRole.values.firstWhere(
-            (r) =>
-                r.name.toLowerCase() == (user['role'] as String).toLowerCase(),
-            orElse: () => throw StateError(
-              'Unknown role from server: ${user['role']}',
-            ),
-          ),
-          name: (user['displayName'] as String?) ?? '',
-          woreda: user['woreda'] as String,
+          role: role,
+          name: displayName,
+          woreda: woreda,
           tokens: tokens,
           fullName: fullName,
-          displayName: (user['displayName'] as String?) ?? '',
+          displayName: displayName,
         );
       } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
-      return AuthResult.success(tokens, userId: userId);
+      return AuthResult.success(
+        tokens,
+        userId: userId,
+        role: role,
+        userName: displayName,
+        woreda: woreda,
+      );
     } on DioException catch (e) {
       return _handleDioError(e);
     } on Exception catch (e, stackTrace) {
@@ -293,6 +340,9 @@ class AuthService {
       return AuthResult.success(
         tokens,
         userId: user.userId,
+        role: user.role,
+        userName: user.name,
+        woreda: user.woreda,
         isOfflineAuth: true,
       );
     } on RateLimitException catch (e) {

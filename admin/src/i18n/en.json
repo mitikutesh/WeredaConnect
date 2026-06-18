@@ -14,7 +14,9 @@
     "transactions": "Transactions",
     "auditLog": "Audit Log",
     "systemHealth": "System Health",
-    "compliance": "Compliance"
+    "compliance": "Compliance",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu"
   },
   "auth": {
     "login": "Login",

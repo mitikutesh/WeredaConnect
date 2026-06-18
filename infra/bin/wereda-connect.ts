@@ -6,6 +6,7 @@ import { ApiStack } from "../lib/stacks/api-stack";
 import { WebStack } from "../lib/stacks/web-stack";
 import { CertificateStack } from "../lib/stacks/certificate-stack";
 import { GithubActionsStack } from "../lib/stacks/github-actions-stack";
+import { MonitoringStack } from "../lib/stacks/monitoring-stack";
 import { environments } from "../lib/config/environments";
 
 const app = new cdk.App();
@@ -53,6 +54,18 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);
+
+// 2b. Monitoring stack (depends on API) — CloudWatch dashboard, metric filters, alarms
+const monitoringStack = new MonitoringStack(app, `${stackPrefix}-Monitoring`, {
+  env: envProps,
+  stackName: `wereda-connect-${envConfig.name}-monitoring`,
+  description: `WeredaConnect ${envConfig.name} - CloudWatch dashboard, metric filters, and alarms`,
+  tags: envConfig.tags,
+  envConfig,
+  apiUrl: apiStack.httpApiUrl,
+  apiId: apiStack.httpApiId,
+});
+monitoringStack.addDependency(apiStack);
 
 // 3a. Certificate stack (us-east-1 — hard AWS requirement for CloudFront)
 const certStack = new CertificateStack(app, `${stackPrefix}-Certificate`, {

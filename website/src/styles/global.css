@@ -61,8 +61,13 @@ body {
   to { opacity: 1; transform: translateX(0); }
 }
 
-.animate-on-scroll {
-  opacity: 0;
+/* Only pre-hide elements when scripting is available to add `.is-visible`.
+   Without JS (or if the IntersectionObserver never fires) the content must
+   stay visible — otherwise the page renders permanently blank. */
+@media (scripting: enabled) {
+  .animate-on-scroll {
+    opacity: 0;
+  }
 }
 
 .animate-on-scroll.is-visible {

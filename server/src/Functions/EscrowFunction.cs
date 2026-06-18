@@ -18,6 +18,7 @@ namespace WeredaConnect.Server.Functions;
 /// - POST /escrow/refund    → System/admin refunds buyer
 /// - GET  /escrow/history   → Authenticated user's payment history
 /// - GET  /escrow/{id}      → Get single escrow by ID
+/// - GET  /escrow/by-delivery/{deliveryId} → Get the escrow for a delivery
 ///
 /// Error codes: ESCROW_001 through ESCROW_023 (see escrow-protocol.md)
 /// </summary>
@@ -97,6 +98,11 @@ public class EscrowFunction
             ("POST", "dispute") => await HandleDisputeAsync(request, context),
             ("POST", "refund") => await HandleRefundAsync(request, context),
             ("GET", "history") => await HandleHistoryAsync(request, context),
+            // /escrow/by-delivery/{deliveryId} — routed on the path param, since
+            // ExtractAction returns the last segment (the deliveryId value), not
+            // "by-delivery". Distinct from /escrow/{id} (path param "id"). F-33.
+            ("GET", _) when request.PathParameters?.ContainsKey("deliveryId") == true
+                => await HandleGetByDeliveryAsync(request, context),
             ("GET", _) when request.PathParameters?.ContainsKey("id") == true
                 => await HandleGetByIdAsync(request, context),
             _ => LambdaResponse.Error(405, "ESCROW_VALIDATION", "Method not allowed.")
@@ -461,6 +467,46 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error getting escrow {escrowId}: [{ex.GetType().Name}]");
+            return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
+        }
+    }
+
+    /// <summary>
+    /// GET /escrow/by-delivery/{deliveryId} — Get the escrow for a delivery.
+    /// Only accessible by the buyer, farmer, or an admin party to the escrow. F-33.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleGetByDeliveryAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!IsAuthenticated(request))
+        {
+            return LambdaResponse.Error(401, "ESCROW_005", "Authentication required.");
+        }
+
+        if (!request.PathParameters.TryGetValue("deliveryId", out var deliveryId)
+            || string.IsNullOrEmpty(deliveryId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_001", "Missing delivery ID in path.");
+        }
+
+        var userId = GetAuthenticatedUserId(request);
+        if (string.IsNullOrEmpty(userId))
+        {
+            return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
+        }
+
+        try
+        {
+            var role = GetAuthenticatedUserRole(request);
+            var result = await _escrowService.GetByDeliveryAsync(deliveryId, userId, role);
+            return MapResult(result,
+                value => LambdaResponse.Ok(value, AppJsonContext.Default.EscrowDto));
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"Error getting escrow for delivery {deliveryId}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }

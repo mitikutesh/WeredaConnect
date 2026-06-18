@@ -395,4 +395,63 @@ void main() {
       });
     });
   });
+
+  group('ensureSyncSucceeded', () {
+    test('throws SyncRejectedException with the server message on error', () {
+      final response = {
+        'syncBatchId': 'batch-1',
+        'results': [
+          {
+            'operationId': 'op-1',
+            'status': 'error',
+            'message': 'CROP_UNAUTHORIZED: Only farmers can create listings.',
+          },
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response),
+        throwsA(
+          isA<SyncRejectedException>().having(
+            (e) => e.message,
+            'message',
+            contains('CROP_UNAUTHORIZED'),
+          ),
+        ),
+      );
+    });
+
+    test('does not throw when every operation succeeds', () {
+      final response = {
+        'syncBatchId': 'batch-1',
+        'results': [
+          {'operationId': 'op-1', 'status': 'success', 'serverVersion': 1},
+        ],
+      };
+
+      expect(() => ensureSyncSucceeded(response), returnsNormally);
+    });
+
+    test('throws if any operation in a batch failed', () {
+      final response = {
+        'results': [
+          {'operationId': 'op-1', 'status': 'success'},
+          {'operationId': 'op-2', 'status': 'error', 'message': 'BOOM'},
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response),
+        throwsA(isA<SyncRejectedException>()),
+      );
+    });
+
+    test('is a no-op when results are missing or malformed', () {
+      expect(() => ensureSyncSucceeded(<String, dynamic>{}), returnsNormally);
+      expect(
+        () => ensureSyncSucceeded({'results': 'not-a-list'}),
+        returnsNormally,
+      );
+    });
+  });
 }

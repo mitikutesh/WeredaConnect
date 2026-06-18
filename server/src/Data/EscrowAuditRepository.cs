@@ -77,4 +77,60 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
 
         return allItems;
     }
+
+    /// <summary>
+    /// Upper bound on items read by the cross-escrow recent-audit Scan. Bounds
+    /// the cost at MVP scale; if the table grows past this, migrate the
+    /// admin audit feed to a GSI (constant-partition or date-bucketed PK with a
+    /// timestamp sort key) + a dedicated query so reads stay cheap and ordered.
+    /// </summary>
+    private const int MaxScanItems = 2000;
+
+    /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> GetRecentAcrossEscrowsAsync(int limit)
+    {
+        // MVP-scale implementation: the audit table has no GSI for a global
+        // feed, so Scan the table, then sort newest-first in memory. Bounded by
+        // MaxScanItems to cap cost; see the const above for the scale path.
+        var items = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? lastKey = null;
+        var capped = false;
+
+        do
+        {
+            var request = new ScanRequest { TableName = _tableName };
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.ScanAsync(request);
+            items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            lastKey = response.LastEvaluatedKey is { Count: > 0 }
+                ? response.LastEvaluatedKey
+                : null;
+
+            if (items.Count >= MaxScanItems)
+            {
+                capped = true;
+                break;
+            }
+        } while (lastKey != null);
+
+        // timestamp is an ISO-8601 string, so ordinal string compare == chronological.
+        items.Sort((a, b) => string.CompareOrdinal(GetTimestamp(b), GetTimestamp(a)));
+
+        if (capped)
+        {
+            // Surface the cap rather than silently truncating older history.
+            Console.WriteLine(
+                $"[EscrowAuditRepository] Recent-audit Scan hit the {MaxScanItems}-item cap; " +
+                "older entries may be omitted. Migrate the global audit feed to a GSI.");
+        }
+
+        return limit < items.Count ? items.GetRange(0, limit) : items;
+    }
+
+    private static string GetTimestamp(Dictionary<string, object> item) =>
+        item.TryGetValue("timestamp", out var v) ? v?.ToString() ?? string.Empty : string.Empty;
 }

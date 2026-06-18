@@ -53,6 +53,10 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. |
 | `preferredLanguage` | string | No | Enum: `en`, `am`, `om`. Default: `am` |
 | `faydaVerificationToken` | string | Yes | Short-lived JWT from `POST /auth/fayda-verify` (30-minute validity) |
+| `buyerType` | string | No | **Buyer only.** Enum: `private`, `company`. Must be absent for non-buyer roles. |
+| `companyName` | string | No | **Buyer only.** Required when `buyerType` is `company`; rejected otherwise. Maximum 100 characters. |
+
+> **Note (F-32)**: `buyerType`/`companyName` apply only to `buyer` registrations and are echoed back in the response `user` object. The trucker driving-license is intentionally **not** part of this contract — it is captured and kept **local-only on the device** (Isar) until a server-side image-upload pipeline exists.
 
 #### Success Response
 

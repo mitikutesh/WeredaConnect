@@ -348,8 +348,8 @@ This guide helps you resolve common problems with WeredaConnect.
 
 ## Related Documentation
 
-- **[User Guide](./user-guide.md)** - How to use WeredaConnect
-- **[Features](./features.md)** - Complete feature list
+- **User Guide** - How to use WeredaConnect [Coming Soon]
+- **Features** - Complete feature list [Coming Soon]
 
 ---
 

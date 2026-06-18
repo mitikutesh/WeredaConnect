@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { TEST_USERS, apiLogin, API_URL } from "../helpers/auth";
+import { TEST_USERS, apiLogin, API_URL, seedAuth } from "../helpers/auth";
 
 /**
  * Flutter Web App - Role-Based Visibility / Isolation Tests
@@ -270,7 +270,7 @@ test.describe("Role Isolation - API Level", () => {
         operations: [
           {
             operationId: `e2e-trip-op-${Date.now()}`,
-            entityType: "trip_listing",
+            entityType: "trip",
             action: "create",
             entityId: tripId,
             timestamp: now,
@@ -316,7 +316,7 @@ test.describe("Role Isolation - API Level", () => {
         operations: [
           {
             operationId: `e2e-trip-cleanup-op-${Date.now()}`,
-            entityType: "trip_listing",
+            entityType: "trip",
             action: "delete",
             entityId: tripId,
             timestamp: new Date().toISOString(),
@@ -352,31 +352,14 @@ test.describe("Role Isolation - UI Navigation per Role", () => {
   test("farmer - /my-crops route loads (role-specific tab)", async ({
     page,
   }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.farmer.phone,
-      TEST_USERS.farmer.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
+    await seedAuth(page, "farmer");
 
-    await page.goto("/login");
-    await waitForFlutter(page);
-
-    // Inject farmer tokens into localStorage
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
-
-    // Navigate to farmer's role-specific route
     await page.goto("/my-crops");
     await waitForFlutter(page);
 
-    const flutterView = page.locator("flutter-view");
-    await expect(flutterView).toBeVisible();
-
-    // Should not be redirected to /login (farmer is authenticated)
-    // The URL should contain /my-crops or /login if token injection didn't work
+    // Authenticated farmer must reach its role route, not bounce to /login.
+    expect(page.url()).not.toContain("/login");
+    expect(page.url()).toContain("/my-crops");
     await page.screenshot({
       path: "test-results/webapp-role-farmer-my-crops.png",
     });
@@ -385,27 +368,13 @@ test.describe("Role Isolation - UI Navigation per Role", () => {
   test("trucker - /trips route loads (role-specific tab)", async ({
     page,
   }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.trucker.phone,
-      TEST_USERS.trucker.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
-
-    await page.goto("/login");
-    await waitForFlutter(page);
-
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
+    await seedAuth(page, "trucker");
 
     await page.goto("/trips");
     await waitForFlutter(page);
 
-    const flutterView = page.locator("flutter-view");
-    await expect(flutterView).toBeVisible();
-
+    expect(page.url()).not.toContain("/login");
+    expect(page.url()).toContain("/trips");
     await page.screenshot({
       path: "test-results/webapp-role-trucker-trips.png",
     });
@@ -414,27 +383,13 @@ test.describe("Role Isolation - UI Navigation per Role", () => {
   test("buyer - /find-crops route loads (role-specific tab)", async ({
     page,
   }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.buyer.phone,
-      TEST_USERS.buyer.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
-
-    await page.goto("/login");
-    await waitForFlutter(page);
-
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
+    await seedAuth(page, "buyer");
 
     await page.goto("/find-crops");
     await waitForFlutter(page);
 
-    const flutterView = page.locator("flutter-view");
-    await expect(flutterView).toBeVisible();
-
+    expect(page.url()).not.toContain("/login");
+    expect(page.url()).toContain("/find-crops");
     await page.screenshot({
       path: "test-results/webapp-role-buyer-find-crops.png",
     });
@@ -443,41 +398,17 @@ test.describe("Role Isolation - UI Navigation per Role", () => {
   test("all three roles - home page renders with role-specific UI", async ({
     page,
   }) => {
-    const roles = [
-      { user: TEST_USERS.farmer, name: "farmer" },
-      { user: TEST_USERS.trucker, name: "trucker" },
-      { user: TEST_USERS.buyer, name: "buyer" },
-    ];
+    for (const role of ["farmer", "trucker", "buyer"] as const) {
+      await seedAuth(page, role);
 
-    for (const role of roles) {
-      const tokens = await tryApiLogin(role.user.phone, role.user.password);
-      if (!tokens) {
-        console.warn(`API unavailable for ${role.name} - skipping`);
-        continue;
-      }
+      // Each role must end authenticated (off /login) — no silent skip.
+      expect(
+        page.url(),
+        `${role} must be authenticated (off /login)`,
+      ).not.toContain("/login");
 
-      // Clear previous auth state
-      await page.goto("/login");
-      await waitForFlutter(page);
-      await page.evaluate(() => localStorage.clear());
-
-      // Inject new role tokens
-      await page.evaluate((t) => {
-        localStorage.setItem("access_token", t.accessToken);
-        localStorage.setItem("refresh_token", t.refreshToken);
-        localStorage.setItem("id_token", t.idToken);
-      }, tokens);
-
-      // Navigate to home
-      await page.goto("/");
-      await waitForFlutter(page);
-
-      const flutterView = page.locator("flutter-view");
-      await expect(flutterView).toBeVisible();
-
-      // Take screenshot for visual comparison between roles
       await page.screenshot({
-        path: `test-results/webapp-role-${role.name}-home.png`,
+        path: `test-results/webapp-role-${role}-home.png`,
       });
     }
   });
@@ -491,25 +422,11 @@ test.describe("Role Isolation - Responsive", () => {
   test("mobile viewport (390px) shows bottom nav (no sidebar)", async ({
     page,
   }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.farmer.phone,
-      TEST_USERS.farmer.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
-
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/login");
+    await seedAuth(page, "farmer");
     await waitForFlutter(page);
 
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
-
-    await page.goto("/");
-    await waitForFlutter(page);
-
+    expect(page.url()).not.toContain("/login");
     // At mobile viewport, AdaptiveShell renders BottomNavigationBar (not sidebar)
     await page.screenshot({
       path: "test-results/webapp-role-farmer-mobile.png",
@@ -517,25 +434,11 @@ test.describe("Role Isolation - Responsive", () => {
   });
 
   test("desktop viewport (1440px) shows sidebar nav", async ({ page }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.farmer.phone,
-      TEST_USERS.farmer.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
-
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/login");
+    await seedAuth(page, "farmer");
     await waitForFlutter(page);
 
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
-
-    await page.goto("/");
-    await waitForFlutter(page);
-
+    expect(page.url()).not.toContain("/login");
     // At desktop viewport, AdaptiveShell renders full sidebar with labels
     await page.screenshot({
       path: "test-results/webapp-role-farmer-desktop-sidebar.png",
@@ -543,25 +446,11 @@ test.describe("Role Isolation - Responsive", () => {
   });
 
   test("tablet viewport (800px) shows rail nav", async ({ page }) => {
-    const tokens = await tryApiLogin(
-      TEST_USERS.farmer.phone,
-      TEST_USERS.farmer.password,
-    );
-    test.skip(!tokens, "API unavailable - skipping");
-
     await page.setViewportSize({ width: 800, height: 1200 });
-    await page.goto("/login");
+    await seedAuth(page, "farmer");
     await waitForFlutter(page);
 
-    await page.evaluate((t) => {
-      localStorage.setItem("access_token", t.accessToken);
-      localStorage.setItem("refresh_token", t.refreshToken);
-      localStorage.setItem("id_token", t.idToken);
-    }, tokens!);
-
-    await page.goto("/");
-    await waitForFlutter(page);
-
+    expect(page.url()).not.toContain("/login");
     // At tablet viewport, AdaptiveShell renders collapsed NavigationRail
     await page.screenshot({
       path: "test-results/webapp-role-farmer-tablet-rail.png",

@@ -159,7 +159,9 @@ class InitiatePaymentScreen extends StatelessWidget {
                         ),
                         const Divider(height: 24),
                         _BreakdownRow(
-                          label: l10n.escrowCommission('2.5'),
+                          label: l10n.escrowCommission(
+                            (commission / amount * 100).toStringAsFixed(1),
+                          ),
                           value: l10n.escrowEtbAmount(
                             _formatter.format(commission),
                           ),

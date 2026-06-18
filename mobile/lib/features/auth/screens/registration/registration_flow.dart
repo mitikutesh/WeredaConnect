@@ -258,6 +258,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       state: _faydaState!,
     );
 
+    if (!mounted) return;
+
     if (result.isSuccess) {
       setState(() {
         _faydaVerificationToken = result.verificationToken;
@@ -295,6 +297,16 @@ class _RegistrationFlowState extends State<RegistrationFlow>
             woreda: _woreda,
             faydaVerificationToken: _faydaVerificationToken,
             preferredLanguage: languageCode,
+            // F-32: role-specific fields, previously collected but dropped.
+            // Trucker driving-license is local-only (kept on device, not sent);
+            // buyer type/company name are persisted server-side.
+            drivingLicensePath:
+                _selectedRole == UserRole.trucker ? _drivingLicensePath : null,
+            buyerType: _selectedRole == UserRole.buyer ? _buyerType : null,
+            companyName:
+                _selectedRole == UserRole.buyer && _buyerType == 'company'
+                    ? _companyName
+                    : null,
           ),
         );
   }

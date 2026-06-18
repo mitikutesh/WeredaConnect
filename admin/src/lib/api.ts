@@ -1,4 +1,4 @@
-import { getAccessToken, logout } from "./auth";
+import { getIdToken, logout } from "./auth";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -40,7 +40,11 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getAccessToken();
+  // Admin routes are guarded by an HttpUserPoolAuthorizer scoped to the admin
+  // client, which enforces aud == adminClientId. Cognito access tokens carry
+  // no `aud` claim, so they 401 at API Gateway — send the ID token (carries
+  // aud + cognito:groups). See memory: api-auth-uses-id-token.
+  const token = getIdToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

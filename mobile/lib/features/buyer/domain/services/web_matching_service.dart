@@ -2,6 +2,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
@@ -92,6 +93,11 @@ class WebMatchingService extends BaseMatchingService {
         (a, b) => a.listing.pricePerKg.compareTo(b.listing.pricePerKg),
       );
       return matches;
+    } on ApiException {
+      // Surface transient network/auth/server failures to the caller so the
+      // BLoC can emit an error state instead of silently masking the failure
+      // as 'no matches' (which would also overwrite the cached match count).
+      rethrow;
     } on Exception {
       return [];
     }

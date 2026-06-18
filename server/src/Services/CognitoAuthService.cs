@@ -305,6 +305,15 @@ public sealed class CognitoAuthService : ICognitoAuthService
             var response = await _cognito.InitiateAuthAsync(request);
             var result = response.AuthenticationResult;
 
+            // AuthenticationResult is null when Cognito returns a challenge
+            // (e.g. NEW_PASSWORD_REQUIRED / MFA) instead of tokens. This flow does
+            // not drive challenges, so fail closed rather than NRE on result.AccessToken.
+            if (result == null)
+            {
+                return AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_014",
+                    "Invalid phone number or password.");
+            }
+
             return AuthResult<CognitoAuthTokens>.Success(new CognitoAuthTokens
             {
                 AccessToken = result.AccessToken,
@@ -367,6 +376,14 @@ public sealed class CognitoAuthService : ICognitoAuthService
         {
             var response = await _cognito.InitiateAuthAsync(request);
             var result = response.AuthenticationResult;
+
+            // Guard against a null AuthenticationResult (challenge/unexpected) before
+            // dereferencing — otherwise this NREs to a 500 instead of a clean 401.
+            if (result == null)
+            {
+                return AuthResult<CognitoAuthTokens>.Failure(401, "AUTH_018",
+                    "Refresh token is invalid or expired.", "refreshToken");
+            }
 
             return AuthResult<CognitoAuthTokens>.Success(new CognitoAuthTokens
             {

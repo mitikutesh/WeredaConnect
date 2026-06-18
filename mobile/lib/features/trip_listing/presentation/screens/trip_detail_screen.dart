@@ -123,6 +123,14 @@ class TripDetailScreen extends StatelessWidget {
                       // Contextual action buttons based on trip status
                       BlocBuilder<TripListingBloc, TripListingState>(
                         builder: (context, state) {
+                          // Owner-only actions: hide Start/Mark Delivered/Cancel
+                          // for non-owners (e.g. Buyers browsing all open trips).
+                          final authState = context.read<AuthBloc>().state;
+                          final isOwner = authState is AuthAuthenticated &&
+                              authState.userId == trip.truckerId;
+                          if (!isOwner) {
+                            return const SizedBox.shrink();
+                          }
                           final isLoading = state is TripListingLoading;
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,

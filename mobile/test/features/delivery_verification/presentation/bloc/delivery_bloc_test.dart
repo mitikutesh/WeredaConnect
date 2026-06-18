@@ -119,8 +119,10 @@ void main() {
       );
 
       final bloc = DeliveryBloc(repository: repository);
-      final states = <DeliveryState>[];
-      final subscription = bloc.stream.listen(states.add);
+      final expectation = expectLater(
+        bloc.stream,
+        emitsInOrder([isA<DeliveryLoading>(), isA<PickupConfirmed>()]),
+      );
 
       bloc.add(
         ConfirmPickup(
@@ -129,13 +131,8 @@ void main() {
           scannedQrNonce: 'test-nonce-abc',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(states.length, 2);
-      expect(states[0], isA<DeliveryLoading>());
-      expect(states[1], isA<PickupConfirmed>());
-
-      await subscription.cancel();
+      await expectation;
       await bloc.close();
     });
 
@@ -169,8 +166,10 @@ void main() {
       });
 
       final bloc = DeliveryBloc(repository: repository);
-      final states = <DeliveryState>[];
-      final subscription = bloc.stream.listen(states.add);
+      final expectation = expectLater(
+        bloc.stream,
+        emitsInOrder([isA<DeliveryLoading>(), isA<DeliveryConfirmed>()]),
+      );
 
       bloc.add(
         ConfirmDelivery(
@@ -179,13 +178,8 @@ void main() {
           scannedQrNonce: 'test-nonce-xyz',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      expect(states.length, 2);
-      expect(states[0], isA<DeliveryLoading>());
-      expect(states[1], isA<DeliveryConfirmed>());
-
-      await subscription.cancel();
+      await expectation;
       await bloc.close();
     });
 

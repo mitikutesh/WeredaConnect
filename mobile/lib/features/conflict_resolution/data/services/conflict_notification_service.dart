@@ -20,6 +20,15 @@ class ConflictNotificationService {
   final List<ConflictEvent> _pendingEvents = [];
   bool _hasSubscriber = false;
 
+  ConflictNotificationService() {
+    // Reset the subscriber flag when the last listener cancels (e.g. the
+    // ConflictBloc is closed on provider rebuild or re-login). Without this,
+    // events fired by SyncExecutor while no bloc is listening would be added
+    // to the broadcast stream and silently dropped instead of buffered for
+    // replay to the next subscriber.
+    _controller.onCancel = () => _hasSubscriber = false;
+  }
+
   /// Stream that ConflictBloc subscribes to.
   ///
   /// On first access, replays any buffered events that arrived before

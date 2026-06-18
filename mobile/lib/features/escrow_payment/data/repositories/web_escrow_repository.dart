@@ -1,6 +1,7 @@
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 
@@ -53,6 +54,8 @@ class WebEscrowRepository extends BaseEscrowRepository {
           'escrowId': escrowId,
           'disputedBy': disputedBy,
           'reason': reason,
+          'idempotencyKey':
+              '$disputedBy:$escrowId:dispute:${DateTime.now().toUtc().millisecondsSinceEpoch}',
           if (description != null) 'description': description,
           if (evidenceRefs != null) 'evidenceRefs': evidenceRefs,
         },
@@ -70,27 +73,34 @@ class WebEscrowRepository extends BaseEscrowRepository {
 
   @override
   Future<Payment?> getEscrow(String escrowId) async {
+    // ONLY a genuine 404 (no such escrow) maps to null. Auth/server/rate-limit/
+    // network failures propagate as ApiException so the BLoC surfaces a
+    // distinct, retryable error rather than a misleading "payment not found".
     try {
       final data = await _api.get<Map<String, dynamic>>('/escrow/$escrowId');
       return _parsePayment(data);
-    } on Exception {
+    } on NotFoundException {
       return null;
     }
   }
 
   @override
   Future<Payment?> getEscrowByDelivery(String deliveryId) async {
+    // F-33: resolve the escrow for THIS delivery via the dedicated endpoint
+    // (server enforces party-or-admin). /escrow/history does NOT filter by
+    // deliveryId, so the old history-based lookup returned an arbitrary escrow.
+    //
+    // ONLY a genuine 404 (no escrow exists for this delivery) maps to null.
+    // Auth (401/403), server (5xx), rate-limit, and network/timeout failures
+    // propagate as ApiException so the BLoC can surface a distinct, retryable
+    // error instead of misreporting "payment not found" — essential in an
+    // offline-first app where "no escrow yet" must differ from "request failed".
     try {
       final data = await _api.get<Map<String, dynamic>>(
-        '/escrow/history',
-        queryParameters: {'deliveryId': deliveryId, 'limit': '1'},
+        '/escrow/by-delivery/$deliveryId',
       );
-      final items = data['escrows'] as List<dynamic>? ??
-          data['items'] as List<dynamic>? ??
-          [];
-      if (items.isEmpty) return null;
-      return _parsePaymentMap(items.first as Map<String, dynamic>);
-    } on Exception {
+      return _parsePayment(data);
+    } on NotFoundException {
       return null;
     }
   }
@@ -110,7 +120,16 @@ class WebEscrowRepository extends BaseEscrowRepository {
 
   @override
   Future<Payment?> refreshEscrow(String escrowId) async {
-    return getEscrow(escrowId);
+    // Silent background refresh: web has no local cache, so on a transient
+    // failure return null (the BLoC no-ops on null and keeps the currently
+    // displayed escrow) instead of surfacing an error over good data. This
+    // mirrors EscrowRepository.refreshEscrow, which falls back to cache.
+    // A genuine load error is surfaced via getEscrow on the initial load path.
+    try {
+      return await getEscrow(escrowId);
+    } on ApiException {
+      return null;
+    }
   }
 
   @override

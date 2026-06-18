@@ -321,6 +321,68 @@ public static partial class RequestValidator
             });
         }
 
+        // F-32: buyer-only identity fields. buyerType ∈ {private, company};
+        // companyName required iff buyerType == company; both must be absent for
+        // non-buyer roles.
+        var isBuyer = string.Equals(request.Role, "buyer", StringComparison.OrdinalIgnoreCase);
+        var isCompany = string.Equals(request.BuyerType, "company", StringComparison.OrdinalIgnoreCase);
+        var isPrivate = string.Equals(request.BuyerType, "private", StringComparison.OrdinalIgnoreCase);
+
+        if (!isBuyer)
+        {
+            if (request.BuyerType != null || request.CompanyName != null)
+            {
+                errors.Add(new ValidationError
+                {
+                    Field = "buyerType",
+                    Code = "AUTH_007",
+                    Message = "buyerType and companyName are only valid for buyer registrations."
+                });
+            }
+        }
+        else
+        {
+            if (request.BuyerType != null && !isPrivate && !isCompany)
+            {
+                errors.Add(new ValidationError
+                {
+                    Field = "buyerType",
+                    Code = "AUTH_007",
+                    Message = "buyerType must be 'private' or 'company'."
+                });
+            }
+
+            if (isCompany && string.IsNullOrWhiteSpace(request.CompanyName))
+            {
+                errors.Add(new ValidationError
+                {
+                    Field = "companyName",
+                    Code = "AUTH_007",
+                    Message = "companyName is required when buyerType is 'company'."
+                });
+            }
+
+            if (!isCompany && !string.IsNullOrWhiteSpace(request.CompanyName))
+            {
+                errors.Add(new ValidationError
+                {
+                    Field = "companyName",
+                    Code = "AUTH_007",
+                    Message = "companyName is only valid when buyerType is 'company'."
+                });
+            }
+
+            if (request.CompanyName is { Length: > 100 })
+            {
+                errors.Add(new ValidationError
+                {
+                    Field = "companyName",
+                    Code = "AUTH_007",
+                    Message = "companyName must not exceed 100 characters."
+                });
+            }
+        }
+
         return errors.Count > 0
             ? ValidationResult.Failure(errors)
             : ValidationResult.Success();

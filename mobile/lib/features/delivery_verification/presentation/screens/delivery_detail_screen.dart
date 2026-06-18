@@ -821,7 +821,10 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
           _loading = false;
         });
       }
-    } on Exception {
+    } on Object catch (_) {
+      // On web IsarService.instance.db is null, so the dynamic query throws
+      // NoSuchMethodError (an Error, not an Exception). Catch broadly so the
+      // spinner clears and the button is simply hidden (no listing found).
       if (mounted) setState(() => _loading = false);
     }
   }

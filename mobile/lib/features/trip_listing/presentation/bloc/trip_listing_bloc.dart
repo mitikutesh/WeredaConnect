@@ -162,12 +162,17 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     emit(const TripListingLoading());
 
     try {
-      final trips = (event.fromWoreda != null || event.toWoreda != null)
-          ? await _repository.getOpenTrips(
-              fromWoreda: event.fromWoreda,
-              toWoreda: event.toWoreda,
-            )
-          : await _repository.getTripsByTrucker(event.truckerId);
+      // Always scope to the requesting trucker's own trips — a Trucker
+      // MUST NOT see other truckers' trips. Apply the route filter in
+      // memory rather than calling getOpenTrips (which is unscoped and
+      // returns every trucker's open trips).
+      var trips = await _repository.getTripsByTrucker(event.truckerId);
+      if (event.fromWoreda != null) {
+        trips = trips.where((t) => t.fromWoreda == event.fromWoreda).toList();
+      }
+      if (event.toWoreda != null) {
+        trips = trips.where((t) => t.toWoreda == event.toWoreda).toList();
+      }
       emit(
         TripsLoaded(
           trips: trips,

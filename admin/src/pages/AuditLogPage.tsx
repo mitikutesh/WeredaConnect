@@ -22,17 +22,31 @@ export function AuditLogPage() {
       )
     : entries;
 
+  // Column keys must match EscrowAuditEntryDto (escrowId, action, fromState,
+  // toState, actor, timestamp). There is no "target"/"details" field — the
+  // target is the escrowId and the detail is the state transition.
   const columns = [
     { key: "action", header: t("audit.action") },
     { key: "actor", header: t("audit.actor") },
-    { key: "target", header: t("audit.target") },
+    {
+      key: "escrowId",
+      header: t("audit.target"),
+      render: (row: Record<string, unknown>) => String(row.escrowId || ""),
+    },
     {
       key: "timestamp",
       header: t("audit.timestamp"),
       render: (row: Record<string, unknown>) =>
         row.timestamp ? formatDateTime(String(row.timestamp)) : "",
     },
-    { key: "details", header: t("audit.details") },
+    {
+      key: "details",
+      header: t("audit.details"),
+      render: (row: Record<string, unknown>) =>
+        row.fromState || row.toState
+          ? `${String(row.fromState || "")} → ${String(row.toState || "")}`
+          : "",
+    },
   ];
 
   return (
