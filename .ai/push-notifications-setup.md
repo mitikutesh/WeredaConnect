@@ -147,37 +147,105 @@ aws dynamodb describe-table --region eu-north-1 \
 
 ---
 
-## 4. Mobile build configuration
+## 4. Mobile build configuration (activation steps)
 
-Most of this is already coded (see §5); these are the project-level bits the build needs:
+> **What's already committed**: buyer intents now sync to the server
+> (`BuyerIntentRepository` enqueues `buyer_intent` ops). The FCM **client** below is *not*
+> committed — adding the `google-services` Gradle plugin would fail the Android build until
+> `google-services.json` exists (only you can provide it). These are the activation steps.
 
-1. **`google-services.json`** in place (see §1.4).
-2. **Gradle Google Services plugin** — `mobile/android/build.gradle` (project) has the
-   classpath and `mobile/android/app/build.gradle` applies `com.google.gms.google-services`.
-   (Wired by the push feature commit; verify after pulling.)
-3. **`firebase_messaging`** dependency in `mobile/pubspec.yaml` (added by the feature commit).
+1. **`google-services.json`** → `mobile/android/app/google-services.json` (from §1.4).
+2. **Gradle Google Services plugin**:
+   - `mobile/android/settings.gradle` (or project `build.gradle`): add the plugin
+     `id "com.google.gms.google-services" version "4.4.2" apply false`.
+   - `mobile/android/app/build.gradle`: `apply plugin: "com.google.gms.google-services"`.
+3. **Dependencies** in `mobile/pubspec.yaml`, then `flutter pub get`:
+   ```yaml
+   firebase_core: ^3.6.0
+   firebase_messaging: ^15.1.3
+   ```
 4. **minSdk** ≥ 21 (already satisfied; target is Android 8 / API 26).
-5. **Notification runtime permission** (Android 13+/API 33): the app requests
-   `POST_NOTIFICATIONS` at runtime on first launch of the buyer flow.
+5. **Android 13+ permission**: `POST_NOTIFICATIONS` is requested at runtime by the service
+   below (FlutterFire handles the manifest entry).
 
-Build:
+Build once the above are in place:
 ```bash
 cd mobile
 flutter pub get
-flutter build apk --debug    # or run on a device: flutter run
+flutter build apk --debug    # or: flutter run  (use a real device; emulators need Play services)
 ```
 
 ---
 
-## 5. How the app behaves (already implemented)
+## 5. Mobile FCM client (drop-in code)
 
-- On buyer login, the app requests notification permission, retrieves its FCM token, and
-  calls `POST /device-tokens { token, platform: "android" }`. The server registers an SNS
-  endpoint and stores `userId → endpointArn`.
-- Buyer intents are now **synced to the server** (entityType `buyer_intent` via `POST /sync`),
-  so the backend can match new crops against them.
-- Tapping a received notification opens the buyer's match results for that intent.
-- Token refresh re-registers automatically.
+Add `lib/core/notifications/push_notification_service.dart`:
+
+```dart
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
+
+/// Registers the device's FCM token with the backend (POST /device-tokens) so
+/// the server can deliver buyer match alerts. Best-effort and fully optional:
+/// if Firebase isn't configured (no google-services.json) it silently no-ops,
+/// preserving offline-first behavior.
+class PushNotificationService {
+  PushNotificationService({required ApiClient api}) : _api = api;
+  final ApiClient _api;
+
+  Future<void> init() async {
+    try {
+      await Firebase.initializeApp();
+      final messaging = FirebaseMessaging.instance;
+
+      // Android 13+ runtime permission.
+      await messaging.requestPermission();
+
+      final token = await messaging.getToken();
+      if (token != null) await _register(token);
+
+      // Re-register on rotation.
+      messaging.onTokenRefresh.listen(_register);
+    } catch (_) {
+      // Firebase not configured / unavailable — push disabled, app continues.
+    }
+  }
+
+  Future<void> _register(String token) async {
+    try {
+      await _api.post<Map<String, dynamic>>(
+        '/device-tokens',
+        data: {'token': token, 'platform': 'android'},
+      );
+    } catch (_) {
+      // Non-fatal: the in-app "N new matches" badge still works.
+    }
+  }
+}
+```
+
+Wire it after login (e.g. in `run_mobile.dart`, once the user is a buyer):
+```dart
+await PushNotificationService(api: ApiClient()).init();
+```
+
+Tap-to-open routing — register a background handler in `main()` and handle taps:
+```dart
+@pragma('vm:entry-point')
+Future<void> _firebaseBgHandler(RemoteMessage message) async {}
+
+// in main(): FirebaseMessaging.onBackgroundMessage(_firebaseBgHandler);
+// FirebaseMessaging.onMessageOpenedApp.listen((m) {
+//   final intentId = m.data['intentId'];
+//   // navigate to MatchResultsScreen for intentId
+// });
+```
+
+**Behavior once activated**: on buyer login the app requests permission, gets its FCM
+token, and `POST /device-tokens`. Buyer intents already sync (`buyer_intent`), so the
+backend matches new crops and pushes `{intentId, cropId}`; tapping opens that intent's
+match results.
 
 ---
 
