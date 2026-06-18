@@ -234,6 +234,41 @@ void main() {
         );
 
         expect(states[1], isA<AuthError>());
+        final error = states[1] as AuthError;
+        expect(error.errorCode, AuthErrorCode.internalServerError);
+        // The core F-34 guarantee: never authenticate with a guessed role.
+        expect(states.whereType<AuthAuthenticated>(), isEmpty);
+      });
+
+      test(
+          'does not fall back to a cached role when the result role is null '
+          '(F-34)', () async {
+        when(
+          () => authService.login(
+            phoneNumber: any(named: 'phoneNumber'),
+            password: any(named: 'password'),
+          ),
+        ).thenAnswer(
+          (_) async => AuthResult.success(_testTokens, userId: 'user-001'),
+        );
+        // A stale cached farmer profile must NOT be used to fill the missing
+        // role — the login must still fail closed.
+        when(() => offlineCache.getCachedUser(any()))
+            .thenAnswer((_) async => _testUser); // role == farmer
+
+        final bloc = buildBloc();
+        addTearDown(bloc.close);
+
+        final states = await collectStates(
+          bloc,
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'test1234',
+          ),
+        );
+
+        expect(states.whereType<AuthAuthenticated>(), isEmpty);
+        expect(states.last, isA<AuthError>());
       });
 
       test('emits [AuthLoading, AuthError] on failed login', () async {
