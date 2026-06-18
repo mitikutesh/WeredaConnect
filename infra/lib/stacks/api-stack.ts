@@ -1017,6 +1017,21 @@ export class ApiStack extends cdk.Stack {
       ),
     });
 
+    // F-33: fetch the escrow for a delivery. Distinct 3-segment path so it does
+    // not collide with /escrow/{id}; server enforces party-or-admin (ESCROW_022).
+    httpApi.addRoutes({
+      path: "/escrow/by-delivery/{deliveryId}",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "EscrowByDeliveryInt",
+        escrowFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
     // ─── Admin Lambda Function ────────────────────────────────────────
 
     const adminFn = new WeredaLambda(this, "AdminFunction", {

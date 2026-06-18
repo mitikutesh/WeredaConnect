@@ -780,6 +780,62 @@ public class EscrowServiceTests
     }
 
     // ──────────────────────────────────────────────
+    // GetByDeliveryAsync (F-33)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetByDeliveryAsync_AsBuyer_ReturnsEscrowDto()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        var result = await _service.GetByDeliveryAsync("delivery-001", BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrow-001", result.Value!.EscrowId);
+        Assert.Equal(BuyerId, result.Value.BuyerId);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_AsFarmer_ReturnsEscrowDto()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        var result = await _service.GetByDeliveryAsync("delivery-001", FarmerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrow-001", result.Value!.EscrowId);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_NotFound_ReturnsEscrow016()
+    {
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-999")
+            .Returns((Dictionary<string, object>?)null);
+
+        var result = await _service.GetByDeliveryAsync("delivery-999", BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_016", result.Error!.Code);
+        Assert.Equal(404, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task GetByDeliveryAsync_NonParty_ReturnsEscrow022()
+    {
+        var escrowItem = MakeEscrowItem();
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        // A trucker (or any non-party) must not read a delivery's escrow.
+        var result = await _service.GetByDeliveryAsync("delivery-001", "trucker-xyz");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_022", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
     // GetHistoryAsync
     // ──────────────────────────────────────────────
 

@@ -97,14 +97,15 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 24 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
+    // 25 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
     //                 /sync, /crops, /crops/{id}, /trips, /trips/{id},
     //                 /orders, /orders/{id},
     //                 /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
     //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history,
+    //                 /escrow/by-delivery/{deliveryId} (F-33),
     //                 /auth/forgot-password, /auth/reset-password
     // 15 admin routes: 12 GET + 3 POST
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 39);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 40);
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {

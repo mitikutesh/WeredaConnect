@@ -788,6 +788,36 @@ public sealed class EscrowService
     }
 
     /// <summary>
+    /// Get the escrow associated with a delivery (1 escrow per delivery, via the
+    /// DeliveryIndex GSI). Enforces the same party-or-admin visibility as
+    /// <see cref="GetByIdAsync"/>. F-33.
+    /// </summary>
+    public async Task<EscrowResult<EscrowDto>> GetByDeliveryAsync(
+        string deliveryId, string authenticatedUserId, string? role = null)
+    {
+        // 1. Get escrow by deliveryId → ESCROW_016
+        var escrowItem = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+        if (escrowItem == null)
+        {
+            return EscrowResult<EscrowDto>.Failure(404, "ESCROW_016", "Escrow not found.");
+        }
+
+        // 2. Validate user is buyer, farmer, or admin → ESCROW_022
+        var buyerId = GetString(escrowItem, "buyerId");
+        var farmerId = GetString(escrowItem, "farmerId");
+        if (!string.Equals(authenticatedUserId, buyerId, StringComparison.Ordinal)
+            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal)
+            && !await IsSystemOrAdminAsync(authenticatedUserId, role))
+        {
+            return EscrowResult<EscrowDto>.Failure(
+                403, "ESCROW_022", "You are not a party to this escrow.");
+        }
+
+        // 3. Map to EscrowDto
+        return EscrowResult<EscrowDto>.Success(MapToEscrowDto(escrowItem));
+    }
+
+    /// <summary>
     /// Get the authenticated user's payment history with optional filters and pagination.
     /// </summary>
     public async Task<EscrowResult<GetEscrowHistoryResponse>> GetHistoryAsync(

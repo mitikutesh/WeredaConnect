@@ -153,6 +153,54 @@ public class EscrowFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_GetByDelivery_Routes()
+    {
+        var escrowItem = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-001" },
+            { "deliveryId", "del-001" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 5000m },
+            { "commission", 125m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", 4875m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "buyerFaydaVerified", false },
+            { "farmerFaydaVerified", false },
+            { "createdAt", "2026-02-17T10:00:00Z" },
+            { "updatedAt", "2026-02-17T10:00:00Z" },
+            { "expiresAt", "2026-02-24T10:00:00Z" },
+            { "version", 1 }
+        };
+        _mockEscrowRepo.GetByDeliveryIdAsync("del-001").Returns(escrowItem);
+
+        var request = MakeGetRequest("/escrow/by-delivery/del-001", BuyerId,
+            pathParams: new Dictionary<string, string> { { "deliveryId", "del-001" } });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        // Routed to the by-delivery handler via the deliveryId path param, not GetById.
+        Assert.Equal(200, response.StatusCode);
+        await _mockEscrowRepo.Received(1).GetByDeliveryIdAsync("del-001");
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_GetByDelivery_Unauthenticated_Returns401()
+    {
+        var request = MakeGetRequest(
+            "/escrow/by-delivery/del-001",
+            userId: null,
+            pathParams: new Dictionary<string, string> { { "deliveryId", "del-001" } });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(401, response.StatusCode);
+    }
+
+    [Fact]
     public async Task FunctionHandler_MethodNotAllowed_Returns405()
     {
         var request = new APIGatewayProxyRequest
