@@ -41,6 +41,7 @@ public partial class SyncFunction
     private readonly IRateLimitService? _rateLimitService;
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
+    private readonly IIntentRepository? _intentRepo;
 
     // SSM commission rate cache (15-min TTL)
     private static double _cachedCommissionRate;
@@ -53,6 +54,17 @@ public partial class SyncFunction
         "farmerId", "farmerName", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
         "status", "woreda", "listingId", "audioNoteRef", "createdAt"
+    };
+
+    private static readonly HashSet<string> AllowedIntentFields = new()
+    {
+        "intentId", "buyerId", "cropType", "quantityNeeded", "maxPricePerKg",
+        "deliveryWoreda", "deliveryLatitude", "deliveryLongitude", "status", "createdAt"
+    };
+
+    private static readonly HashSet<string> AllowedIntentStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "active", "fulfilled", "expired"
     };
 
     private static readonly HashSet<string> AllowedTripFields = new()
@@ -194,6 +206,13 @@ public partial class SyncFunction
             cropsTable,
             new RateLimitRepository(_dynamoDb, rateLimitTable));
         _userRepo = new UserRepository(_dynamoDb, usersTable);
+
+        // Intents are optional: the buyer_intent sync handler is only reachable once
+        // the intents table is provisioned (push-alerts feature). Absent env → null.
+        var intentsTable = Environment.GetEnvironmentVariable("INTENTS_TABLE");
+        _intentRepo = intentsTable != null
+            ? new IntentRepository(_dynamoDb, intentsTable)
+            : null;
     }
 
     /// <summary>
@@ -204,7 +223,8 @@ public partial class SyncFunction
         IRateLimitService? rateLimitService = null,
         IFraudDetectionService? fraudService = null,
         IUserRepository? userRepo = null,
-        IOrderRepository? orderRepo = null)
+        IOrderRepository? orderRepo = null,
+        IIntentRepository? intentRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -215,6 +235,7 @@ public partial class SyncFunction
         _rateLimitService = rateLimitService;
         _fraudService = fraudService;
         _userRepo = userRepo;
+        _intentRepo = intentRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -370,6 +391,7 @@ public partial class SyncFunction
             var result = operation.EntityType switch
             {
                 "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "buyer_intent" => await ProcessBuyerIntentAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "trip" => await ProcessTripAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
@@ -478,6 +500,201 @@ public partial class SyncFunction
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// Validate buyer-intent field values. Mirrors the crop validator's style.
+    /// </summary>
+    private static List<string> ValidateIntentFields(Dictionary<string, object> data, bool isCreate)
+    {
+        var errors = new List<string>();
+
+        if (isCreate)
+        {
+            var cropType = data.GetValueOrDefault("cropType")?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(cropType))
+            {
+                errors.Add("cropType is required.");
+            }
+            else if (!AllowedCropTypes.Contains(cropType))
+            {
+                errors.Add("Invalid cropType.");
+            }
+        }
+
+        if (data.TryGetValue("quantityNeeded", out var qObj)
+            && (!double.TryParse(qObj?.ToString(), out var q) || q <= 0))
+        {
+            errors.Add("quantityNeeded must be a positive number.");
+        }
+
+        if (data.TryGetValue("maxPricePerKg", out var pObj)
+            && (!double.TryParse(pObj?.ToString(), out var p) || p <= 0))
+        {
+            errors.Add("maxPricePerKg must be a positive number.");
+        }
+
+        if (data.TryGetValue("status", out var sObj))
+        {
+            var status = sObj?.ToString() ?? "";
+            if (!AllowedIntentStatuses.Contains(status))
+            {
+                errors.Add("Invalid status.");
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// Process a buyer_intent sync operation (create, update, delete).
+    ///
+    /// Buyer intents are owned by the authenticated buyer; only role "buyer" may
+    /// create/modify them, and the data's buyerId must match the caller. New crops
+    /// are matched against these intents for push alerts (see
+    /// specs/architecture/push-notifications-architecture.md).
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessBuyerIntentAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        string? authenticatedRole,
+        ILambdaContext context)
+    {
+        if (_intentRepo == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "INTENT_UNAVAILABLE: Intent sync is not enabled on this environment."
+            };
+        }
+
+        if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "INTENT_UNAUTHORIZED: Only buyers can create purchase intents."
+            };
+        }
+
+        switch (operation.Action)
+        {
+            case "create":
+            case "update":
+                {
+                    if (operation.Data == null || operation.Data.Count == 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "Operation requires data payload."
+                        };
+                    }
+
+                    // buyerId in the payload must match the authenticated user.
+                    if (!operation.Data.TryGetValue("buyerId", out var buyerIdObj)
+                        || buyerIdObj?.ToString() != authenticatedUserId)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "INTENT_UNAUTHORIZED: buyerId must match authenticated user."
+                        };
+                    }
+
+                    var unknownFields = operation.Data.Keys
+                        .Where(k => !AllowedIntentFields.Contains(k) && k != "version")
+                        .ToList();
+                    if (unknownFields.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"INTENT_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
+
+                    var validationErrors = ValidateIntentFields(operation.Data, operation.Action == "create");
+                    if (validationErrors.Count > 0)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"INTENT_VALIDATION: {string.Join(" ", validationErrors)}"
+                        };
+                    }
+
+                    if (operation.Action == "create")
+                    {
+                        operation.Data["status"] = "active";
+                        var createResult = await _intentRepo.CreateAsync(
+                            operation.EntityId, authenticatedUserId!, operation.Data);
+                        return createResult.IsSuccess
+                            ? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "success",
+                                ServerVersion = 1,
+                                ServerData = createResult.Value
+                            }
+                            : new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "conflict",
+                                Message = createResult.Error?.Message ?? "Intent already exists."
+                            };
+                    }
+
+                    var clientVersion = 0;
+                    if (operation.Data.TryGetValue("version", out var vObj))
+                    {
+                        _ = int.TryParse(vObj?.ToString(), out clientVersion);
+                    }
+
+                    var updateResult = await _intentRepo.UpdateAsync(
+                        operation.EntityId, authenticatedUserId!, operation.Data, clientVersion);
+                    return updateResult.IsSuccess
+                        ? new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = clientVersion + 1,
+                            ServerData = updateResult.Value
+                        }
+                        : new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "conflict",
+                            Message = updateResult.Error?.Message ?? "Intent conflict."
+                        };
+                }
+
+            case "delete":
+                {
+                    await _intentRepo.DeleteAsync(operation.EntityId, authenticatedUserId!);
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "success",
+                        Message = "Intent deleted."
+                    };
+                }
+
+            default:
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = $"Unsupported action: '{operation.Action}'."
+                };
+        }
     }
 
     /// <summary>
