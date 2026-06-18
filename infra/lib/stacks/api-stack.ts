@@ -1338,13 +1338,14 @@ export class ApiStack extends cdk.Stack {
 
 /**
  * T-SEC-01/02: CDK Aspect that scans every Lambda in the stack and errors
- * if DEV_FAYDA_BYPASS or TELEBIRR_MOCK are set in a production deployment.
+ * if DEV_FAYDA_BYPASS, TELEBIRR_MOCK, or DEV_OTP_BYPASS are set in a production deployment.
  * Attach via `cdk.Aspects.of(stack).add(new ProductionBypassGuard())`.
  */
 class ProductionBypassGuard implements cdk.IAspect {
   private static readonly FORBIDDEN_ENV_VARS = [
     "DEV_FAYDA_BYPASS",
     "TELEBIRR_MOCK",
+    "DEV_OTP_BYPASS",
   ];
 
   visit(node: Construct): void {
