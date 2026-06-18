@@ -42,8 +42,7 @@ Components this feature adds (all created by CDK except the Google/Firebase part
 | DynamoDB Stream | on `wereda-connect-{env}-crops` (NEW_IMAGE) | CDK (DatabaseStack) |
 | Lambda | `wereda-connect-{env}-device-tokens` (`POST /device-tokens`) | CDK (ApiStack) |
 | Lambda | `wereda-connect-{env}-crop-match-stream` (stream consumer) | CDK (ApiStack) |
-| SNS Platform Application | `wereda-connect-{env}-fcm` | CDK (ApiStack) |
-| Secrets Manager secret | `wereda-connect/{env}/fcm-service-account` | **you** (holds Google creds) |
+| SNS Platform Application | `wereda-connect-{env}-fcm` (platform `GCM`) | **you** (CLI/console — CloudFormation has no resource for it; CDK references its deterministic ARN) |
 | Firebase project + Android app | (your choice of name) | **you** (Google) |
 | `google-services.json` | `mobile/android/app/google-services.json` | **you** (download from Firebase) |
 
@@ -81,27 +80,42 @@ AWS SNS authenticates to FCM v1 using a Google **service-account private key (JS
 
 1. Firebase Console → ⚙ **Project settings** → **Service accounts** tab.
 2. Ensure **Firebase Admin SDK** is selected, click **Generate new private key** → **Generate key**.
-3. A JSON file downloads (contains `project_id`, `private_key`, `client_email`, …). **Treat it as a secret** — do not commit it.
+3. A JSON file downloads (contains `project_id`, `private_key`, `client_email`, …). **Treat it as a secret** — do not commit it. Rename it to `service-account.json`.
 
-Store it in AWS Secrets Manager so CDK can wire it into the SNS Platform Application:
+### 2a. Create the SNS Platform Application (CLI)
+
+CloudFormation has **no resource type** for SNS platform applications, so create it
+once with the CLI. **The name must be exactly `wereda-connect-dev-fcm`** (platform `GCM`)
+— the CDK references this deterministic ARN.
 
 ```bash
-# From the directory containing the downloaded key (rename it to service-account.json)
-aws secretsmanager create-secret \
+aws sns create-platform-application \
   --region eu-north-1 \
-  --name "wereda-connect/dev/fcm-service-account" \
-  --description "FCM v1 service account JSON for SNS Platform Application (dev)" \
-  --secret-string file://service-account.json
+  --name wereda-connect-dev-fcm \
+  --platform GCM \
+  --attributes PlatformCredential="$(cat service-account.json)"
 ```
 
-> Rotating later: `aws secretsmanager put-secret-value --secret-id wereda-connect/dev/fcm-service-account --secret-string file://service-account.json` then redeploy the ApiStack.
+This prints the `PlatformApplicationArn` — it will be
+`arn:aws:sns:eu-north-1:<account-id>:app/GCM/wereda-connect-dev-fcm`, which is what the
+Lambdas use (no need to copy it anywhere).
+
+> FCM v1 note: SNS still identifies FCM by the `GCM` platform name; the credential is the
+> v1 **service-account JSON** (not the deprecated legacy server key). If your AWS CLI/region
+> rejects `PlatformCredential` for v1, follow the current AWS doc "Adding FCM credentials to
+> Amazon SNS" — the platform name and ARN format are unchanged.
+>
+> Rotating later: `aws sns set-platform-application-attributes --platform-application-arn <arn> --attributes PlatformCredential="$(cat service-account.json)"`. No redeploy needed.
+>
+> Optional: also keep the JSON in Secrets Manager (`aws secretsmanager create-secret --name wereda-connect-dev/fcm-service-account --secret-string file://service-account.json`) for safekeeping/rotation.
 
 ---
 
 ## 3. Deploy the infrastructure (AWS side)
 
-The CDK reads the secret above and creates the SNS Platform Application, the two new
-tables, the crops stream, and the two Lambdas.
+With the SNS Platform Application created (§2a), the CDK creates the two new tables, the
+crops stream, the two Lambdas (referencing the platform application's deterministic ARN),
+and the `POST /device-tokens` route.
 
 ```bash
 cd infra
@@ -114,7 +128,7 @@ npx cdk deploy --all --context environment=dev --require-approval broadening
 
 What to expect:
 - `WeredaConnect-dev-DB` updates: new `intents` and `device-tokens` tables; crops table gains a stream (`StreamViewType: NEW_IMAGE`).
-- `WeredaConnect-dev-API` updates: `wereda-connect-dev-fcm` SNS Platform Application, `wereda-connect-dev-device-tokens` Lambda + `POST /device-tokens` route, `wereda-connect-dev-crop-match-stream` Lambda with a DynamoDB event-source mapping (filtered to `eventName = INSERT`).
+- `WeredaConnect-dev-API` updates: `wereda-connect-dev-device-tokens` Lambda + `POST /device-tokens` route, `wereda-connect-dev-crop-match-stream` Lambda with a DynamoDB event-source mapping (filtered to `eventName = INSERT`), and IAM referencing the SNS platform application's deterministic ARN. (The platform application itself was created in §2a, not by CDK.)
 
 Verify:
 ```bash
@@ -127,8 +141,9 @@ aws dynamodb describe-table --region eu-north-1 \
   --query 'Table.StreamSpecification'
 ```
 
-> If `cdk deploy` fails with "secret not found", complete §2 first — the ApiStack
-> references `wereda-connect/dev/fcm-service-account`.
+> `cdk deploy` does not depend on the FCM credential or the platform application
+> existing — IAM references the deterministic ARN. But pushes only work at runtime once
+> the platform application from §2a exists, so create it before testing (§6).
 
 ---
 
@@ -210,7 +225,7 @@ aws sns publish --region eu-north-1 \
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `cdk deploy` "secret not found" | §2 not done | Create the Secrets Manager secret, redeploy |
+| Token registers but every push fails | Platform application missing/misnamed | Ensure §2a created `wereda-connect-dev-fcm` (platform `GCM`) in the deploy region |
 | No endpoint row after login | Permission denied / token not retrieved | Check device granted notifications; check `POST /device-tokens` logs |
 | Stream Lambda never invoked | Stream not enabled / mapping missing | `describe-table … StreamSpecification`; redeploy ApiStack |
 | Lambda runs but no push | Bad/expired token, or FCM creds wrong | Check SNS endpoint `Enabled` attr; re-upload service-account JSON; re-register token |
@@ -223,7 +238,7 @@ aws sns publish --region eu-north-1 \
 
 - [ ] Firebase project created; Android app `et.wereda.connect` added
 - [ ] `google-services.json` → `mobile/android/app/`
-- [ ] Service-account JSON generated and stored in Secrets Manager (`wereda-connect/dev/fcm-service-account`)
+- [ ] Service-account JSON generated; SNS Platform Application `wereda-connect-dev-fcm` (platform `GCM`) created (§2a)
 - [ ] `cd infra && npx cdk deploy --all --context environment=dev`
 - [ ] SNS Platform Application + stream + Lambdas verified
 - [ ] `cd mobile && flutter pub get && flutter run` on a real device

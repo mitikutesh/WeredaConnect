@@ -26,6 +26,8 @@ export class DatabaseStack extends cdk.Stack {
   public readonly escrowIdempotencyTable: dynamodb.Table;
   public readonly ordersTable: dynamodb.Table;
   public readonly fraudSignalsTable: dynamodb.Table;
+  public readonly intentsTable: dynamodb.Table;
+  public readonly deviceTokensTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -93,12 +95,13 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
-    // Crops table
+    // Crops table — NEW_IMAGE stream feeds the match-on-insert push-alert Lambda.
     const crops = new WeredaDynamoTable(this, "CropsTable", {
       tableName: `${prefix}-crops`,
       partitionKey: { name: "cropId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
     });
     this.cropsTable = crops.table;
 
@@ -403,6 +406,32 @@ export class DatabaseStack extends cdk.Stack {
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+
+    // ─── Buyer Intents Table (push-alerts; synced from mobile) ─────
+    const intents = new WeredaDynamoTable(this, "IntentsTable", {
+      tableName: `${prefix}-intents`,
+      partitionKey: { name: "buyerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "intentId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.intentsTable = intents.table;
+
+    // GSI: look up active intents by wanted crop type (match-on-insert).
+    this.intentsTable.addGlobalSecondaryIndex({
+      indexName: "CropTypeStatusIndex",
+      partitionKey: { name: "cropType", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "intentId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // ─── Device Tokens Table (userId → SNS endpoint ARNs) ──────────
+    const deviceTokens = new WeredaDynamoTable(this, "DeviceTokensTable", {
+      tableName: `${prefix}-device-tokens`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "endpointArn", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.deviceTokensTable = deviceTokens.table;
 
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
