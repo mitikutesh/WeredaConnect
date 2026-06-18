@@ -24,6 +24,7 @@ Single source of truth for dependency versions and technology choices.
 | Images | `cached_network_image` | ^3.3.0 | Image caching |
 | Loading | `shimmer` | ^3.0.0 | Loading states |
 | File paths | `path_provider` | ^2.1.0 | File system access |
+| Push | `firebase_messaging` | ^15.x | FCM device token + push receipt (Android). Requires `google-services.json` — see `.ai/push-notifications-setup.md` |
 
 ### Build Targets
 - `compileSdkVersion 34`, `minSdkVersion 26`, `targetSdkVersion 34`
@@ -70,6 +71,11 @@ Single source of truth for dependency versions and technology choices.
 | CloudFront | CDN | Static assets |
 | API Gateway | HTTP API | Cheaper than REST API |
 | CloudWatch | Logs, metrics, alarms | Monitoring |
+| DynamoDB Streams | NEW_IMAGE on crops | Triggers match-on-insert push alerts |
+| SNS Mobile Push | Platform Application (FCM) | Buyer match push alerts. Wraps FCM; credential in Secrets Manager. See `.ai/push-notifications-setup.md` |
+
+> **External dependency**: Android push requires a Google **Firebase/FCM** project (free).
+> AWS SNS relays to FCM; the backend stays on AWS. This is the only non-AWS dependency.
 
 ---
 

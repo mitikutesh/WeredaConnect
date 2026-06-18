@@ -191,6 +191,16 @@ WeredaConnect follows a **3-tier offline-first architecture**:
 - **Static Assets**: App resources
 - **Lifecycle Policies**: Auto-delete old files
 
+#### 4. Buyer Matching & Push Alerts
+- **`GET /match`**: server-side relevance ranking of crops against a buyer's criteria
+  (shared `MatchScoring` weights with the mobile on-device scorer).
+- **Match-on-insert push**: a DynamoDB Stream on the crops table triggers
+  `CropMatchStreamFunction`, which scores each newly listed crop against active buyer
+  intents (`intents` table) and publishes a push to matching buyers via **SNS → FCM**.
+  Device tokens are registered through `POST /device-tokens` (one SNS endpoint per device).
+  Design: `specs/architecture/push-notifications-architecture.md`; setup:
+  `.ai/push-notifications-setup.md`.
+
 ---
 
 ## Data Flow Patterns
@@ -201,6 +211,7 @@ See [Data Flow](./data-flow.md) for detailed data flow diagrams.
 1. **Read**: Local DB → (if not found + online) → Remote API → Cache locally
 2. **Write**: Local DB → Sync queue → (when online) → Remote API → Update local
 3. **Sync**: Background job → Process queue → Resolve conflicts → Update local
+4. **Alert**: New crop → DynamoDB Stream → match vs intents → SNS → FCM → buyer push
 
 ---
 
@@ -255,6 +266,7 @@ See [Deployment Architecture](./deployment-architecture.md) for detailed deploym
 - **[Component Relationships](./component-relationships.md)** - How components interact
 - **[Data Flow](./data-flow.md)** - Detailed data flow patterns
 - **[Deployment Architecture](./deployment-architecture.md)** - AWS infrastructure
+- **[Push Notifications Architecture](../../specs/architecture/push-notifications-architecture.md)** - Buyer match alerts (FCM via SNS)
 - **[Local Reality](../local_reality/README.md)** - Ethiopian context
 
 ---

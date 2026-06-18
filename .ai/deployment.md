@@ -170,6 +170,19 @@ flutter build appbundle --release
 
 Stack source: `infra/lib/stacks/`
 
+### Push notifications (FCM) — Step 5 additions
+
+The buyer match-alert feature adds these resources (full setup + one-time Firebase
+steps in **`.ai/push-notifications-setup.md`**):
+
+| Stack | Adds |
+|-------|------|
+| **DatabaseStack** | `+2` tables (`intents`, `device-tokens`); DynamoDB Stream (`NEW_IMAGE`) on the crops table |
+| **ApiStack** | `+2` Lambdas (`device-tokens` → `POST /device-tokens`; `crop-match-stream` stream consumer); SNS **Platform Application** (`{prefix}-fcm`); reads Secrets Manager secret `wereda-connect/{env}/fcm-service-account` |
+
+**One-time prerequisite before deploy**: create the Firebase project + store the FCM v1
+service-account JSON in Secrets Manager (see runbook §1–§2). Then `cdk deploy --all`.
+
 ---
 
 ## DynamoDB Tables (12)
