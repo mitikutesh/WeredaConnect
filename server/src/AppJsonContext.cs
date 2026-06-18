@@ -50,6 +50,8 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(MatchDto))]
 [JsonSerializable(typeof(List<MatchDto>))]
 [JsonSerializable(typeof(GetMatchesResponse))]
+[JsonSerializable(typeof(RegisterDeviceTokenRequest))]
+[JsonSerializable(typeof(RegisterDeviceTokenResponse))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(DeliveryDto))]
 [JsonSerializable(typeof(List<DeliveryDto>))]

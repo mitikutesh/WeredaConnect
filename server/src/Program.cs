@@ -68,6 +68,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new MatchFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("DeviceTokenFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new DeviceTokenFunction().FunctionHandler, serializer),
+
             var h when h.Contains("DeliveryFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new DeliveryFunction().FunctionHandler, serializer),
