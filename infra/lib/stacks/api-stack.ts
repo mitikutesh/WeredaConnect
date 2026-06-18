@@ -379,6 +379,22 @@ export class ApiStack extends cdk.Stack {
     props.tripsTable.grantReadData(tripFn.function);
     paginationSecret.grantRead(tripFn.function);
 
+    // ─── Match Function ───────────────────────────────────────────────
+
+    const matchFn = new WeredaLambda(this, "MatchFunction", {
+      functionName: `${prefix}-match`,
+      description: "GET /match — buyer intent matching (ranked crop listings)",
+      handlerName: "MatchFunction",
+      environment: {
+        CROPS_TABLE: props.cropsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    // Match function reads crops to score them against the buyer's criteria
+    props.cropsTable.grantReadData(matchFn.function);
+
     // ─── R4 SSM Parameters ────────────────────────────────────────────
 
     const commissionRateParam = new ssm.StringParameter(
@@ -836,6 +852,19 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "CropsGetInt",
         cropFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/match",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "MatchInt",
+        matchFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

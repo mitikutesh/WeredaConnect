@@ -64,6 +64,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new TripFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("MatchFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new MatchFunction().FunctionHandler, serializer),
+
             var h when h.Contains("DeliveryFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new DeliveryFunction().FunctionHandler, serializer),
