@@ -271,6 +271,7 @@ class WeredaConnectApp extends StatelessWidget {
             create: (_) => BuyerIntentBloc(
               repository: BuyerIntentRepository(
                 isar: IsarService.instance.db,
+                syncQueue: syncQueue,
               ),
               matchingService: MatchingService(
                 isar: IsarService.instance.db,

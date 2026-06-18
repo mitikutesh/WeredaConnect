@@ -2,10 +2,15 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
+import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/new_matches.dart';
+
+class MockSyncQueue extends Mock implements SyncQueue {}
 
 /// Verifies the count-delta "new matches" snapshot semantics end-to-end
 /// against a real Isar instance.
@@ -83,6 +88,41 @@ void main() {
       await repo.updateMatchCount(intent.intentId, 2, DateTime.now().toUtc());
       final fresh = await repo.getIntentById(intent.intentId);
       expect(newMatchCount(fresh!), 0);
+    });
+
+    test('createIntent enqueues a buyer_intent create op when a queue is set',
+        () async {
+      final mockQueue = MockSyncQueue();
+      when(
+        () => mockQueue.enqueue(
+          userId: any(named: 'userId'),
+          entityType: any(named: 'entityType'),
+          entityId: any(named: 'entityId'),
+          action: any(named: 'action'),
+          data: any(named: 'data'),
+          operationId: any(named: 'operationId'),
+        ),
+      ).thenAnswer((_) async => SyncOperation());
+
+      final syncingRepo = BuyerIntentRepository(isar: isar, syncQueue: mockQueue);
+      await syncingRepo.createIntent(
+        buyerId: 'b1',
+        cropType: 'wheat',
+        quantityNeeded: 5,
+        maxPricePerKg: 100,
+        deliveryWoreda: 'Adama',
+      );
+
+      verify(
+        () => mockQueue.enqueue(
+          userId: 'b1',
+          entityType: 'buyer_intent',
+          entityId: any(named: 'entityId'),
+          action: 'create',
+          data: any(named: 'data'),
+          operationId: any(named: 'operationId'),
+        ),
+      ).called(1);
     });
   });
 }
