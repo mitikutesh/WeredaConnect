@@ -1,0 +1,34 @@
+namespace WeredaConnect.Server.Models;
+
+/// <summary>
+/// A scored crop match returned by GET /match. Mirrors the buyer-facing
+/// fields of <see cref="CropDto"/> plus the relevance score and a flag for
+/// substitute-crop matches.
+/// </summary>
+public sealed record MatchDto
+{
+    public required string CropId { get; init; }
+    public required string FarmerId { get; init; }
+    public string? FarmerName { get; init; }
+    public required string CropType { get; init; }
+    public required string Woreda { get; init; }
+    public required int QuantityKg { get; init; }
+    public required decimal PricePerKg { get; init; }
+    public required string Status { get; init; }
+    public required string CreatedAt { get; init; }
+    public double? Latitude { get; init; }
+    public double? Longitude { get; init; }
+
+    /// <summary>Relevance score in [0, 1]; results are ranked by this descending.</summary>
+    public required double Score { get; init; }
+
+    /// <summary>True when this crop matched via a substitute type, not the exact ask.</summary>
+    public required bool IsSubstitute { get; init; }
+}
+
+/// <summary>Response body for GET /match.</summary>
+public sealed record GetMatchesResponse
+{
+    public required List<MatchDto> Matches { get; init; }
+    public required int Count { get; init; }
+}
