@@ -1977,6 +1977,17 @@ class AppLocalizationsAm extends AppLocalizations {
   String get noMatchesYet => 'ገና ምንም ተመሳሳይ የለም';
 
   @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count አዲስ',
+      one: '1 አዲስ',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get suggestedTransport => 'የተጠቆመ ትራንስፖርት';
 
   @override

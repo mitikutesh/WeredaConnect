@@ -84,6 +84,10 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
   }
 
   /// Mark an intent's match results as viewed (clears "new matches" badge).
+  ///
+  /// Snapshots the current [BuyerIntent.matchCount] into
+  /// [BuyerIntent.lastSeenMatchCount] so the badge reflects only matches that
+  /// appear *after* this view.
   @override
   Future<void> updateLastViewed(String intentId) async {
     final intent =
@@ -93,6 +97,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
 
     await _isar.writeTxn(() async {
       intent.lastViewedAt = DateTime.now().toUtc();
+      intent.lastSeenMatchCount = intent.matchCount;
       intent.updatedAt = intent.lastViewedAt!;
       await _isar.buyerIntents.put(intent);
     });

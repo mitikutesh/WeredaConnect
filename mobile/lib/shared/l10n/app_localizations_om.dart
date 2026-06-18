@@ -2037,6 +2037,17 @@ class AppLocalizationsOm extends AppLocalizations {
   String get noMatchesYet => 'Hanga ammaatti walsimatu hin jiru';
 
   @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count haaraa',
+      one: '1 haaraa',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get suggestedTransport => 'Geejjiba Yaadame';
 
   @override

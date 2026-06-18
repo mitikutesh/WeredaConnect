@@ -2213,6 +2213,8 @@
   "matchesFound": "{count, plural, =0{Walsimatu hin argamne} =1{1 walsimatu argame} other{{count} walsimatu argame}}",
   "@matchesFound": { "placeholders": { "count": { "type": "int" } } },
   "noMatchesYet": "Hanga ammaatti walsimatu hin jiru",
+  "newMatchesCount": "{count, plural, =1{1 haaraa} other{{count} haaraa}}",
+  "@newMatchesCount": { "placeholders": { "count": { "type": "int" } } },
   "suggestedTransport": "Geejjiba Yaadame",
   "selectThisTrip": "Imala Kana Fili",
   "estimatedTotal": "Tilmaama Waliigalaa",

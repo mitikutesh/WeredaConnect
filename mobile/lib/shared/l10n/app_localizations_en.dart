@@ -2023,6 +2023,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noMatchesYet => 'No matches yet';
 
   @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count new',
+      one: '1 new',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get suggestedTransport => 'Suggested Transport';
 
   @override

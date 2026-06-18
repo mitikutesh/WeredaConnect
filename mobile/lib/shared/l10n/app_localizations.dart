@@ -3832,6 +3832,12 @@ abstract class AppLocalizations {
   /// **'No matches yet'**
   String get noMatchesYet;
 
+  /// Badge showing how many new (not-yet-viewed) matches a buyer intent has
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 new} other{{count} new}}'**
+  String newMatchesCount(int count);
+
   /// Section title for transport suggestions
   ///
   /// In en, this message translates to:

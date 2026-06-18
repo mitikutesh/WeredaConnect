@@ -2188,6 +2188,7 @@
     }
   },
   "noMatchesYet": "ገና ምንም ተመሳሳይ የለም",
+  "newMatchesCount": "{count, plural, =1{1 አዲስ} other{{count} አዲስ}}",
   "suggestedTransport": "የተጠቆመ ትራንስፖርት",
   "selectThisTrip": "ይህን ጉዞ ይምረጡ",
   "estimatedTotal": "የተገመተ ጠቅላላ",

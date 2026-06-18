@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/features/buyer/domain/new_matches.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -19,17 +20,12 @@ class IntentCard extends StatelessWidget {
     super.key,
   });
 
-  bool get _hasNewMatches {
-    if (intent.matchCount == 0) return false;
-    if (intent.lastViewedAt == null) return intent.matchCount > 0;
-    if (intent.lastMatchedAt == null) return false;
-    return intent.lastMatchedAt!.isAfter(intent.lastViewedAt!);
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cropType = CropType.fromKey(intent.cropType);
+    final newCount = newMatchCount(intent);
+    final hasNew = newCount > 0;
 
     return Material(
       color: Colors.transparent,
@@ -89,15 +85,16 @@ class IntentCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // Match count + badge
+              // Match count + new-matches badge
               Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (intent.matchCount > 0)
+                  if (intent.matchCount > 0) ...[
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_hasNewMatches)
+                        if (hasNew)
                           Container(
                             width: 8,
                             height: 8,
@@ -112,14 +109,26 @@ class IntentCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: _hasNewMatches
+                            color: hasNew
                                 ? AppTheme.statusSuccess
                                 : AppTheme.textMuted,
                           ),
                         ),
                       ],
-                    )
-                  else
+                    ),
+                    if (hasNew)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          l10n.newMatchesCount(newCount),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.statusSuccess,
+                          ),
+                        ),
+                      ),
+                  ] else
                     Text(
                       l10n.noMatchesYet,
                       style: const TextStyle(

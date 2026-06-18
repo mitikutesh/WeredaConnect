@@ -14,6 +14,7 @@ class BuyerIntent {
   int matchCount = 0;
   DateTime? lastMatchedAt;
   DateTime? lastViewedAt;
+  int lastSeenMatchCount = 0;
   late int version;
 }
 
