@@ -739,8 +739,7 @@ void main() {
 
     test('RefreshEscrow stays silent (no state) when refresh returns null',
         () async {
-      when(() => repository.refreshEscrow(any()))
-          .thenAnswer((_) async => null);
+      when(() => repository.refreshEscrow(any())).thenAnswer((_) async => null);
 
       final states = await run(
         EscrowBloc(repository: repository),
