@@ -101,6 +101,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noInternetConnection => 'No internet connection';
 
   @override
+  String get errorSessionExpired =>
+      'Your session expired. Please sign in again.';
+
+  @override
+  String get errorConflict =>
+      'This was updated elsewhere. Refresh and try again.';
+
+  @override
+  String get showingCachedResults =>
+      'Showing saved results — couldn\'t refresh.';
+
+  @override
   String get dataWillSyncWhenOnline =>
       'Your data will sync when you\'re back online';
 
@@ -2021,6 +2033,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noMatchesYet => 'No matches yet';
+
+  @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count new',
+      one: '1 new',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get suggestedTransport => 'Suggested Transport';

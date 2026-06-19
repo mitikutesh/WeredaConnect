@@ -54,8 +54,14 @@ class BuyerIntent {
   DateTime? lastMatchedAt;
 
   /// When the buyer last viewed match results
-  /// Used for "new matches" badge (matchCount increased since lastViewedAt)
   DateTime? lastViewedAt;
+
+  /// Match count at the moment the buyer last viewed results (high-water mark).
+  /// Snapshotted by `updateLastViewed`. The "new matches" alert is the
+  /// positive delta `matchCount - lastSeenMatchCount`, so it fires only when
+  /// genuinely new matches appear — never on a plain re-sync, and clamps to
+  /// zero when the count drops.
+  int lastSeenMatchCount = 0;
 
   /// Version number for optimistic concurrency control
   late int version;

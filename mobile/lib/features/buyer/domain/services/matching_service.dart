@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
+import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 
 /// On-device matching service for buyer intents.
 ///
@@ -21,34 +22,45 @@ class MatchingService extends BaseMatchingService {
 
   static const double commissionRate = 0.05;
 
+  /// Shared, platform-agnostic relevance scorer (identical math on web).
+  static const MatchScorer _scorer = MatchScorer();
+
   MatchingService({required Isar isar}) : _isar = isar;
 
   /// Match crop listings against a buyer intent.
   ///
-  /// Finds active listings where:
-  /// - cropType matches intent
-  /// - pricePerKg <= maxPricePerKg
-  /// - quantity >= quantityNeeded
+  /// Candidate generation queries active listings for the exact crop type
+  /// *and* its accepted substitutes; price/quantity near-miss tolerance and
+  /// relevance scoring are then applied in memory via [MatchScorer] (Isar
+  /// can't express the tolerance bands cleanly). For each candidate, finds
+  /// available trips and computes the estimated total.
   ///
-  /// For each match, finds available trips and computes estimated total.
-  /// Results sorted by price ASC (cheapest first).
+  /// Results are ranked by relevance score DESC (best match first), with
+  /// cheaper landed cost breaking ties.
   @override
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
   ) async {
-    // Query matching crop listings
+    final now = DateTime.now().toUtc();
+    final types = _scorer.candidateCropTypes(intent.cropType);
+
+    // Query active listings for the exact + substitute crop types. The
+    // grouped `anyOf` expands to: status==active AND (type==t1 OR type==t2 …).
     final listings = await _isar.cropListings
         .filter()
         .statusEqualTo(ListingStatus.active)
-        .cropTypeEqualTo(intent.cropType)
-        .pricePerKgLessThan(intent.maxPricePerKg + 0.01) // inclusive <=
-        .quantityGreaterThan(intent.quantityNeeded - 0.01) // inclusive >=
-        .sortByPricePerKg()
+        .anyOf<String, QAfterFilterCondition>(
+          types,
+          (q, t) => q.cropTypeEqualTo(t),
+        )
         .findAll();
 
     final results = <CropMatchResult>[];
 
     for (final listing in listings) {
+      // Drop listings outside the near-miss tolerance bands.
+      if (!_scorer.isCandidate(intent, listing)) continue;
+
       // Find trips for this listing → buyer's delivery destination
       final trips = await findTripsForListing(
         listing,
@@ -69,9 +81,19 @@ class MatchingService extends BaseMatchingService {
           listing: listing,
           suggestedTrips: trips,
           estimatedTotalMin: estimatedTotal,
+          matchScore: _scorer.scoreListing(intent, listing, now),
+          isSubstitute: _scorer.isSubstitute(intent, listing),
         ),
       );
     }
+
+    // Rank by relevance (highest score first); tie-break by cheaper total.
+    results.sort((a, b) {
+      final byScore = b.matchScore.compareTo(a.matchScore);
+      return byScore != 0
+          ? byScore
+          : a.estimatedTotalMin.compareTo(b.estimatedTotalMin);
+    });
 
     return results;
   }
@@ -137,24 +159,37 @@ class MatchingService extends BaseMatchingService {
   ///
   /// Called after sync completes to update cached matchCount values.
   /// If matchCount increased since lastViewedAt, the badge will show.
+  ///
+  /// Counts candidates using the SAME predicate as [matchListingsForIntent]
+  /// (exact + substitute types within the near-miss bands) so the badge count
+  /// can never drift from what the buyer actually sees. Trip lookups are
+  /// skipped here — only the crop candidate count matters for the badge.
   @override
   Future<void> refreshMatchCounts(
     String buyerId,
     BaseBuyerIntentRepository repository,
   ) async {
     final intents = await repository.getActiveIntents(buyerId);
-    final now = DateTime.now().toUtc();
 
     for (final intent in intents) {
-      final matches = await _isar.cropListings
+      final types = _scorer.candidateCropTypes(intent.cropType);
+      final listings = await _isar.cropListings
           .filter()
           .statusEqualTo(ListingStatus.active)
-          .cropTypeEqualTo(intent.cropType)
-          .pricePerKgLessThan(intent.maxPricePerKg + 0.01)
-          .quantityGreaterThan(intent.quantityNeeded - 0.01)
-          .count();
+          .anyOf<String, QAfterFilterCondition>(
+          types,
+          (q, t) => q.cropTypeEqualTo(t),
+        )
+          .findAll();
 
-      await repository.updateMatchCount(intent.intentId, matches, now);
+      final count =
+          listings.where((l) => _scorer.isCandidate(intent, l)).length;
+
+      await repository.updateMatchCount(
+        intent.intentId,
+        count,
+        DateTime.now().toUtc(),
+      );
     }
   }
 }

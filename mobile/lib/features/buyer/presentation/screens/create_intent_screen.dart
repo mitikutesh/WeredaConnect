@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_eve
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -96,7 +97,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
             );
           } else if (state is BuyerIntentError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
+              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
           }
         },

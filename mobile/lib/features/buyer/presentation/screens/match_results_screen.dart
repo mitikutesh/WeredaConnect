@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -71,10 +72,14 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
                   return _MatchResultsBody(
                     intent: state.intent,
                     matches: state.matches,
+                    isStale: state.isStale,
                   );
                 }
                 if (state is BuyerIntentError) {
-                  return Center(child: Text(state.message));
+                  return Center(
+                    child: Text(localizeErrorCode(
+                        state.code, AppLocalizations.of(context)!,),),
+                  );
                 }
                 return const Center(child: CircularProgressIndicator());
               },
@@ -87,9 +92,14 @@ class _MatchResultsBody extends StatelessWidget {
   final BuyerIntent intent;
   final List<CropMatchResult> matches;
 
+  /// True when the marketplace refresh failed and these matches were computed
+  /// against cached data — the body shows a "showing saved results" banner (C1).
+  final bool isStale;
+
   const _MatchResultsBody({
     required this.intent,
     required this.matches,
+    this.isStale = false,
   });
 
   String _timeSinceSync() {
@@ -113,6 +123,27 @@ class _MatchResultsBody extends StatelessWidget {
     return SafeArea(
       child: Column(
         children: [
+          if (isStale)
+            Container(
+              width: double.infinity,
+              color: Colors.amber.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off, size: 16, color: AppTheme.textDark),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l10n.showingCachedResults,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // Header summary
           Container(
             width: double.infinity,

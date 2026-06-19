@@ -55,23 +55,28 @@ class LoadMatchResults extends BuyerIntentEvent {
 }
 
 /// Mark an intent as fulfilled after the buyer places an order.
+///
+/// [buyerId] lets the BLoC reload the active-intent list after the mutation so
+/// it can emit a terminal loaded state (and the fulfilled intent drops out).
 class FulfillIntent extends BuyerIntentEvent {
   final String intentId;
+  final String buyerId;
 
-  const FulfillIntent({required this.intentId});
+  const FulfillIntent({required this.intentId, required this.buyerId});
 
   @override
-  List<Object?> get props => [intentId];
+  List<Object?> get props => [intentId, buyerId];
 }
 
-/// Delete an intent.
+/// Delete an intent. [buyerId] lets the BLoC reload and emit a terminal state.
 class DeleteIntent extends BuyerIntentEvent {
   final String intentId;
+  final String buyerId;
 
-  const DeleteIntent({required this.intentId});
+  const DeleteIntent({required this.intentId, required this.buyerId});
 
   @override
-  List<Object?> get props => [intentId];
+  List<Object?> get props => [intentId, buyerId];
 }
 
 /// Refresh match counts for all active intents (called after sync).

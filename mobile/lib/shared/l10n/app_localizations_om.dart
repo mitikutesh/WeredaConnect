@@ -102,6 +102,18 @@ class AppLocalizationsOm extends AppLocalizations {
   String get noInternetConnection => 'Walitti Dhufeenya Interneetii Hin Jiru';
 
   @override
+  String get errorSessionExpired =>
+      'Yeroon seensa keessanii xumurameera. Maaloo irra deebi\'aa seenaa.';
+
+  @override
+  String get errorConflict =>
+      'Kun bakka biraatti jijjiirameera. Maaloo haaromsaa irra deebi\'aa yaalaa.';
+
+  @override
+  String get showingCachedResults =>
+      'Bu\'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.';
+
+  @override
   String get dataWillSyncWhenOnline =>
       'Yeroo online taatan deetaan keessan walsimsifama';
 
@@ -2035,6 +2047,17 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get noMatchesYet => 'Hanga ammaatti walsimatu hin jiru';
+
+  @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count haaraa',
+      one: '1 haaraa',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get suggestedTransport => 'Geejjiba Yaadame';

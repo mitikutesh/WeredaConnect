@@ -13,6 +13,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { WeredaLambda } from "../constructs/lambda-construct";
 import { EnvironmentConfig } from "../config/environments";
@@ -31,6 +32,8 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly escrowIdempotencyTable: dynamodb.Table;
   readonly ordersTable: dynamodb.Table;
   readonly fraudSignalsTable: dynamodb.Table;
+  readonly intentsTable: dynamodb.Table;
+  readonly deviceTokensTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -312,12 +315,14 @@ export class ApiStack extends cdk.Stack {
         ORDERS_TABLE: props.ordersTable.tableName,
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
+        INTENTS_TABLE: props.intentsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
     });
     // Sync needs read-write on entity tables and sync metadata
     props.syncMetadataTable.grantReadWriteData(syncFn.function);
+    props.intentsTable.grantReadWriteData(syncFn.function);
     props.cropsTable.grantReadWriteData(syncFn.function);
     props.usersTable.grantReadData(syncFn.function);
     props.tripsTable.grantReadWriteData(syncFn.function);
@@ -378,6 +383,96 @@ export class ApiStack extends cdk.Stack {
     // Trip function needs read-only access to trips table
     props.tripsTable.grantReadData(tripFn.function);
     paginationSecret.grantRead(tripFn.function);
+
+    // ─── Match Function ───────────────────────────────────────────────
+
+    const matchFn = new WeredaLambda(this, "MatchFunction", {
+      functionName: `${prefix}-match`,
+      description: "GET /match — buyer intent matching (ranked crop listings)",
+      handlerName: "MatchFunction",
+      environment: {
+        CROPS_TABLE: props.cropsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    // Match function reads crops to score them against the buyer's criteria
+    props.cropsTable.grantReadData(matchFn.function);
+
+    // ─── Push Alerts: SNS Platform Application (FCM) ───────────────────
+    // FCM is the only delivery path to Android; SNS wraps it. CloudFormation
+    // has NO resource type for SNS platform applications, so it is created
+    // out-of-band (CLI/console) with the FCM v1 service-account credential, and
+    // named `${prefix}-fcm` — see .ai/push-notifications-setup.md. Its ARN is
+    // therefore deterministic and referenced here.
+    const fcmPlatformAppArn =
+      `arn:aws:sns:${this.region}:${this.account}:app/GCM/${prefix}-fcm`;
+    const fcmEndpointArnPattern =
+      `arn:aws:sns:${this.region}:${this.account}:endpoint/GCM/${prefix}-fcm/*`;
+
+    // ─── Device Token Function (POST /device-tokens) ───────────────────
+    const deviceTokenFn = new WeredaLambda(this, "DeviceTokenFunction", {
+      functionName: `${prefix}-device-tokens`,
+      description: "POST /device-tokens — register an FCM device token",
+      handlerName: "DeviceTokenFunction",
+      environment: {
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+        PLATFORM_APP_ARN: fcmPlatformAppArn,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    props.deviceTokensTable.grantReadWriteData(deviceTokenFn.function);
+    deviceTokenFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:CreatePlatformEndpoint"],
+        resources: [fcmPlatformAppArn],
+      }),
+    );
+
+    // ─── Crop Match Stream Function (match-on-insert push alerts) ──────
+    const matchStreamFn = new WeredaLambda(this, "CropMatchStreamFunction", {
+      functionName: `${prefix}-crop-match-stream`,
+      description: "Crops DynamoDB Stream → match active intents → push alert",
+      handlerName: "CropMatchStreamFunction",
+      environment: {
+        INTENTS_TABLE: props.intentsTable.tableName,
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      reservedConcurrentExecutions: 5,
+    });
+    props.intentsTable.grantReadData(matchStreamFn.function);
+    props.deviceTokensTable.grantReadData(matchStreamFn.function);
+    matchStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [fcmEndpointArnPattern],
+      }),
+    );
+    // Consume the crops NEW_IMAGE stream, only for INSERT events (new listings).
+    // Price/quantity matching is done in the handler (stream filters can't match
+    // numeric ranges).
+    matchStreamFn.function.addEventSource(
+      new lambdaEventSources.DynamoEventSource(props.cropsTable, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 10,
+        retryAttempts: 3,
+        // Partial batch responses: the handler returns the sequence numbers of
+        // records that failed (e.g. a transient DynamoDB throttle) so Lambda
+        // retries only those instead of checkpointing the whole batch and
+        // silently dropping a buyer's push alert.
+        reportBatchItemFailures: true,
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: lambda.FilterRule.isEqual("INSERT"),
+          }),
+        ],
+      }),
+    );
 
     // ─── R4 SSM Parameters ────────────────────────────────────────────
 
@@ -836,6 +931,32 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "CropsGetInt",
         cropFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/match",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "MatchInt",
+        matchFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/device-tokens",
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "DeviceTokensInt",
+        deviceTokenFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

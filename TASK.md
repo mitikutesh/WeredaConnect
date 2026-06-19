@@ -11,6 +11,14 @@
 **Sprint Plan:** `specs/features/sprint-plan-2026-03-19.md`
 **Isar Hardening Roadmap (2026-05-13):** `specs/features/isar-hardening/README.md` — 7-sprint program closing all 17 Isar gaps surfaced in the May security review. Supersedes the 4h estimate for `S3-04` below.
 
+**Buyer Intent Matching (2026-06-19, branch `buyer-intenet`):** 5-step series.
+Steps 1–4 committed (mobile weighted scorer → count-delta alerts → haversine geo →
+server `GET /match` + contract → web path uses `/match`). **Step 5 = push alerts (FCM via
+SNS)** in progress: docs done (`.ai/push-notifications-setup.md`,
+`specs/architecture/push-notifications-architecture.md`), code pending (intent sync to
+server, `POST /device-tokens`, crops Stream → match-on-insert Lambda, mobile
+`firebase_messaging`). Requires a Firebase project + FCM secret before deploy.
+
 ---
 
 ## PO Audit Summary (2026-03-19)

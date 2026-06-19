@@ -170,6 +170,21 @@ flutter build appbundle --release
 
 Stack source: `infra/lib/stacks/`
 
+### Push notifications (FCM) — Step 5 additions
+
+The buyer match-alert feature adds these resources (full setup + one-time Firebase
+steps in **`.ai/push-notifications-setup.md`**):
+
+| Stack | Adds |
+|-------|------|
+| **DatabaseStack** | `+2` tables (`intents`, `device-tokens`); DynamoDB Stream (`NEW_IMAGE`) on the crops table |
+| **ApiStack** | `+2` Lambdas (`device-tokens` → `POST /device-tokens`; `crop-match-stream` stream consumer + crops-stream event-source mapping); IAM referencing the SNS platform application's deterministic ARN |
+
+**One-time prerequisite before deploy** (CloudFormation has no resource for SNS platform
+applications): create the Firebase project, then create the SNS Platform Application
+`wereda-connect-{env}-fcm` (platform `GCM`) with the FCM v1 service-account credential via
+the CLI (runbook §1–§2a). Then `cdk deploy --all`.
+
 ---
 
 ## DynamoDB Tables (12)

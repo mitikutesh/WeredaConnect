@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 
 /// Base class for trip listing states.
@@ -66,12 +67,18 @@ class TripDelivered extends TripListingState {
   List<Object?> get props => [trip];
 }
 
-/// Error state when an operation fails.
+/// Error state when an operation fails. [code] drives the localized, user-facing
+/// message; [message] is the raw detail, kept for logging — do NOT show it
+/// directly to users.
 class TripListingError extends TripListingState {
   final String message;
+  final AppErrorCode code;
 
-  const TripListingError({required this.message});
+  const TripListingError({
+    required this.message,
+    this.code = AppErrorCode.unknown,
+  });
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, code];
 }

@@ -67,7 +67,9 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
   Future<void> updateLastViewed(String intentId) async {
     final intent = _intents[intentId];
     if (intent != null) {
-      intent.lastViewedAt = DateTime.now().toUtc();
+      intent
+        ..lastViewedAt = DateTime.now().toUtc()
+        ..lastSeenMatchCount = intent.matchCount;
     }
   }
 

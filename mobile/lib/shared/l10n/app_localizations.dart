@@ -280,6 +280,24 @@ abstract class AppLocalizations {
   /// **'No internet connection'**
   String get noInternetConnection;
 
+  /// Shown when an authentication/session error occurs
+  ///
+  /// In en, this message translates to:
+  /// **'Your session expired. Please sign in again.'**
+  String get errorSessionExpired;
+
+  /// Shown on a sync/version conflict (HTTP 409)
+  ///
+  /// In en, this message translates to:
+  /// **'This was updated elsewhere. Refresh and try again.'**
+  String get errorConflict;
+
+  /// Banner when a marketplace refresh failed and cached data is shown
+  ///
+  /// In en, this message translates to:
+  /// **'Showing saved results — couldn\'t refresh.'**
+  String get showingCachedResults;
+
   /// Reassurance message for offline operations
   ///
   /// In en, this message translates to:
@@ -3831,6 +3849,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No matches yet'**
   String get noMatchesYet;
+
+  /// Badge showing how many new (not-yet-viewed) matches a buyer intent has
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 new} other{{count} new}}'**
+  String newMatchesCount(int count);
 
   /// Section title for transport suggestions
   ///

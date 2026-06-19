@@ -7,6 +7,8 @@ export interface DynamoDbTableProps {
   readonly partitionKey: dynamodb.Attribute;
   readonly sortKey?: dynamodb.Attribute;
   readonly isProd: boolean;
+  /** Optional DynamoDB stream view type (e.g. NEW_IMAGE for change consumers). */
+  readonly stream?: dynamodb.StreamViewType;
 }
 
 /**
@@ -28,6 +30,7 @@ export class WeredaDynamoTable extends Construct {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: props.isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      stream: props.stream,
     });
   }
 }

@@ -7,6 +7,19 @@
 **Status:** R4 COMPLETE. **HS-1 (encryption foundation) COMPLETE** — AAD, prefix + fail-closed, key-integrity HMAC, legacy-flag CI guardrail all live in main. HS-2 (repository wiring) is the next sprint. May security review's 7-sprint roadmap continues — see `specs/features/isar-hardening/`.
 **Latest Commit:** 016652a - Merge pull request #22 from mitikutesh/hs1/s1-04-legacy-plaintext-guardrail
 
+### Active work — Buyer Intent Matching (2026-06-19, branch `buyer-intenet`)
+
+A buyer intent-matching series is in progress on `buyer-intenet` (not yet merged):
+- **Steps 1–4 done & committed**: weighted multi-signal `MatchScorer` (mobile), count-delta
+  "new matches" alerts, on-device haversine geo-scoring, server `GET /match` endpoint
+  (+ infra route + `match-api.md` contract), and the web online path now using `/match`.
+- **Step 5 in progress**: buyer match **push alerts** (FCM via AWS SNS). Design and setup
+  docs are written (`.ai/push-notifications-setup.md`,
+  `specs/architecture/push-notifications-architecture.md`); server/infra/mobile code
+  (intent sync to server, device-token registration, crops Stream → match-on-insert Lambda,
+  `firebase_messaging`) is the remaining work. **Not deployed** — requires a Firebase project
+  + FCM service-account secret first (see runbook).
+
 ---
 
 ## Resumption Context

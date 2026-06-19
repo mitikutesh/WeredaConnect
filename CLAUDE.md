@@ -78,6 +78,7 @@ Read this table BEFORE starting work. Load only what you need — don't read eve
 | **Localization** | `mobile/lib/shared/l10n/app_en.arb` (check existing keys first) |
 | **API contract change** | `specs/contracts/README.md`, then the specific contract |
 | **Deployment** | `.ai/deployment.md`, `.ai/deployment-checklist.md` |
+| **Push notifications / FCM** | `.ai/push-notifications-setup.md` (setup runbook), `specs/architecture/push-notifications-architecture.md` |
 | **Security audit** | Run `/harden`, read `TASK.md` TIER 3.5 |
 | **Resume / new session** | `STATE.md` → `TASK.md` → `.ai/quick-start.md` |
 | **Full codebase orientation** | `.ai/quick-start.md` (navigation hub for everything) |
@@ -264,6 +265,8 @@ Update `STATE.md` → run `scripts/checkpoint.sh` → commit WIP.
 | Workflows & branch naming | `.ai/workflows.md` |
 | AOT compliance (server) | `server/AOT_COMPLIANCE.md` |
 | API contracts | `specs/contracts/` |
+| Push notifications setup | `.ai/push-notifications-setup.md` |
+| Push notifications design | `specs/architecture/push-notifications-architecture.md` |
 | Session state | `STATE.md` |
 | Task list & roadmap | `TASK.md` |
 

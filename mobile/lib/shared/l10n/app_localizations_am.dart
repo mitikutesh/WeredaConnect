@@ -101,6 +101,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get noInternetConnection => 'የበይነመረብ ግንኙነት የለም';
 
   @override
+  String get errorSessionExpired => 'ክፍለ ጊዜዎ አብቅቷል። እባክዎ እንደገና ይግቡ።';
+
+  @override
+  String get errorConflict => 'ይህ በሌላ ቦታ ተቀይሯል። እባክዎ አድሰው እንደገና ይሞክሩ።';
+
+  @override
+  String get showingCachedResults => 'የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።';
+
+  @override
   String get dataWillSyncWhenOnline => 'መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል';
 
   @override
@@ -1975,6 +1984,17 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get noMatchesYet => 'ገና ምንም ተመሳሳይ የለም';
+
+  @override
+  String newMatchesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count አዲስ',
+      one: '1 አዲስ',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get suggestedTransport => 'የተጠቆመ ትራንስፖርት';

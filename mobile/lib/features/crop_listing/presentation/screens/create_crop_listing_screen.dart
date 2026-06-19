@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
@@ -149,7 +150,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(state.message),
+                content: Text(localizeErrorCode(state.code, l10n)),
                 backgroundColor: Colors.red,
               ),
             );

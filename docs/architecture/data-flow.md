@@ -57,7 +57,7 @@ Future<Report> getReport(String id) async {
   if (local != null) {
     return local; // Fast! No network call
   }
-  
+
   // Not found locally, need to fetch
   // (see Scenario 2)
 }
@@ -95,18 +95,18 @@ Future<Report> getReport(String id) async {
   // Try local first
   final local = await _localDataSource.getReport(id);
   if (local != null) return local;
-  
+
   // Check connectivity
   if (!await _connectivity.isOnline) {
     throw OfflineException('Report not available offline');
   }
-  
+
   // Fetch from remote
   final remote = await _remoteDataSource.getReport(id);
-  
+
   // Cache for offline use
   await _localDataSource.saveReport(remote);
-  
+
   return remote;
 }
 ```
@@ -138,11 +138,11 @@ User Action                Local DB              Remote API
 Future<Report> getReport(String id) async {
   final local = await _localDataSource.getReport(id);
   if (local != null) return local;
-  
+
   if (!await _connectivity.isOnline) {
     throw OfflineException('Report not available offline');
   }
-  
+
   // ... fetch from remote
 }
 ```
@@ -179,7 +179,7 @@ Future<void> createReport(Report report) async {
   // Save locally first
   report.synced = false;
   await _localDataSource.saveReport(report);
-  
+
   // Add to sync queue
   await _syncQueue.add(SyncOperation(
     type: SyncType.create,
@@ -188,7 +188,7 @@ Future<void> createReport(Report report) async {
     data: report.toJson(),
     idempotencyKey: report.idempotencyKey,
   ));
-  
+
   // User sees report immediately (offline-first!)
 }
 ```
@@ -231,9 +231,9 @@ Sync Engine          Sync Queue          Remote API          Local DB
 ```dart
 Future<void> syncPendingOperations() async {
   if (!await _connectivity.isOnline) return;
-  
+
   final pendingOps = await _syncQueue.getPending();
-  
+
   for (final op in pendingOps) {
     try {
       // Send to server
@@ -245,13 +245,13 @@ Future<void> syncPendingOperations() async {
         'version': op.version,
         'idempotencyKey': op.idempotencyKey,
       });
-      
+
       // Update local DB
       await _localDataSource.updateSyncStatus(op.entityId, synced: true);
-      
+
       // Remove from queue
       await _syncQueue.remove(op.id);
-      
+
     } catch (e) {
       // Keep in queue, retry later
       await _syncQueue.incrementRetryCount(op.id);
@@ -259,6 +259,39 @@ Future<void> syncPendingOperations() async {
   }
 }
 ```
+
+---
+
+## Push Alerts
+
+### Scenario 7: Match-on-insert Push Alert
+
+When a farmer's new crop listing reaches the server, matching buyers are notified
+(closed-app push) without any polling.
+
+```
+Farmer lists crop ──POST /sync──► crops table PutItem
+                                        │
+                                        ▼  DynamoDB Stream (NEW_IMAGE, eventName=INSERT)
+                                 CropMatchStreamFunction
+                                        │  1. skip if status != "available"
+                                        │  2. query intents (GSI CropTypeStatusIndex)
+                                        │     for the crop's type + types it substitutes
+                                        │  3. MatchScoring.score(intent, crop) ≥ threshold?
+                                        │  4. look up buyer endpointArns (device-tokens)
+                                        ▼
+                                 SNS Publish(endpointArn) ──► FCM ──► 📱 buyer push
+```
+
+**Notes**
+- The buyer's intents must be synced to the server first (`buyer_intent` entityType via
+  `/sync`); device tokens registered via `POST /device-tokens` (one SNS endpoint per device).
+- Stream event-source filtering is coarse (`eventName=INSERT` only) — numeric price/quantity
+  matching is done in the Lambda using the shared `MatchScoring` (DynamoDB stream filters
+  can't match numeric ranges).
+- Offline-first preserved: push is additive; the on-device "N new matches" badge still works
+  with no token/connectivity.
+- Detail: `specs/architecture/push-notifications-architecture.md`.
 
 ---
 
@@ -304,7 +337,7 @@ public async Task<SyncResult> SyncReport(SyncRequest request)
 {
     // Get server version
     var serverReport = await _repository.GetAsync(request.EntityId);
-    
+
     // Check for conflict
     if (request.Version < serverReport.Version)
     {
@@ -315,13 +348,13 @@ public async Task<SyncResult> SyncReport(SyncRequest request)
             Message = "Client version behind server"
         };
     }
-    
+
     // No conflict, apply changes
     serverReport.ApplyChanges(request.Data);
     serverReport.Version++;
-    
+
     await _repository.UpdateAsync(serverReport);
-    
+
     return new SyncResult
     {
         Status = SyncStatus.Success,
@@ -333,24 +366,24 @@ public async Task<SyncResult> SyncReport(SyncRequest request)
 **Code Example (Mobile - Conflict Handling)**:
 ```dart
 Future<void> handleSyncConflict(
-  SyncOperation op, 
+  SyncOperation op,
   ConflictResponse conflict
 ) async {
   // Server wins, client merges
   final serverData = conflict.serverData;
   final clientData = op.data;
-  
+
   // Merge strategy: keep server data, add client-only fields
   final merged = {
     ...serverData,
     // Add any client-specific fields that don't conflict
   };
-  
+
   // Update local DB with server version
   await _localDataSource.update(op.entityId, merged);
-  
+
   // Retry sync with merged data
-  await _syncQueue.update(op.id, 
+  await _syncQueue.update(op.id,
     data: merged,
     version: conflict.serverVersion,
   );
@@ -363,6 +396,7 @@ Future<void> handleSyncConflict(
 
 - **[System Architecture](./system-architecture.md)** - Architecture overview
 - **[Component Relationships](./component-relationships.md)** - Component interactions
+- **[Push Notifications Architecture](../../specs/architecture/push-notifications-architecture.md)** - Match-on-insert alert flow
 - **[Testing Guidelines](../developer/testing-guidelines.md)** - How to test data flows
 
 ---
@@ -370,4 +404,3 @@ Future<void> handleSyncConflict(
 **Last Updated**: 2026-02-09  
 **Version**: 1.0.0  
 **Owner**: Architecture Team
-
