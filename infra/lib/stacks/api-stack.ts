@@ -461,6 +461,11 @@ export class ApiStack extends cdk.Stack {
         startingPosition: lambda.StartingPosition.LATEST,
         batchSize: 10,
         retryAttempts: 3,
+        // Partial batch responses: the handler returns the sequence numbers of
+        // records that failed (e.g. a transient DynamoDB throttle) so Lambda
+        // retries only those instead of checkpointing the whole batch and
+        // silently dropping a buyer's push alert.
+        reportBatchItemFailures: true,
         filters: [
           lambda.FilterCriteria.filter({
             eventName: lambda.FilterRule.isEqual("INSERT"),

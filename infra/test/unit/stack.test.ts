@@ -65,6 +65,8 @@ describe('ApiStack', () => {
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -140,6 +142,8 @@ describe('ApiStack (prod security)', () => {
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
