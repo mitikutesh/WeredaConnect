@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
@@ -42,15 +43,29 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     Emitter<BuyerIntentState> emit,
   ) async {
     emit(const BuyerIntentLoading());
+
+    // Step 1: persist the intent. Only a genuine failure to SAVE the intent is
+    // a hard error worth blocking the buyer with.
+    final BuyerIntent intent;
     try {
-      final intent = await _repository.createIntent(
+      intent = await _repository.createIntent(
         buyerId: event.buyerId,
         cropType: event.cropType,
         quantityNeeded: event.quantityNeeded,
         maxPricePerKg: event.maxPricePerKg,
         deliveryWoreda: event.deliveryWoreda,
       );
+    } on Object catch (e) {
+      emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
+      return;
+    }
 
+    // Step 2: refresh + match. The intent is already saved, so a network
+    // failure here must NOT be surfaced as an error — that would tell the buyer
+    // the intent failed when it didn't (and it would then "reappear" later,
+    // confusingly). Instead we land them on the results screen with cached/empty
+    // matches flagged stale, which the UI shows with a "cached results" banner.
+    try {
       // Refresh the local marketplace from the server so matching sees other
       // users' crops/trips, then run matching against the cached data.
       final refreshed = await _refreshMarketplace();
@@ -69,13 +84,23 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         await _repository.updateLastViewed(intent.intentId);
       }
 
-      emit(BuyerIntentCreated(
-        intent: intent,
-        matches: matches,
-        isStale: !refreshed,
-      ),);
+      emit(
+        BuyerIntentCreated(
+          intent: intent,
+          matches: matches,
+          isStale: !refreshed,
+        ),
+      );
     } on Object catch (e) {
-      emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
+      debugPrint('[BuyerIntentBloc] intent saved but matching failed, '
+          'showing empty/stale results: $e');
+      emit(
+        BuyerIntentCreated(
+          intent: intent,
+          matches: const [],
+          isStale: true,
+        ),
+      );
     }
   }
 
@@ -100,10 +125,12 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     try {
       final intent = await _repository.getIntentById(event.intentId);
       if (intent == null) {
-        emit(const BuyerIntentError(
-          message: 'Intent not found',
-          code: AppErrorCode.notFound,
-        ),);
+        emit(
+          const BuyerIntentError(
+            message: 'Intent not found',
+            code: AppErrorCode.notFound,
+          ),
+        );
         return;
       }
 
@@ -122,11 +149,13 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         await _repository.updateLastViewed(intent.intentId);
       }
 
-      emit(MatchResultsLoaded(
-        intent: intent,
-        matches: matches,
-        isStale: !refreshed,
-      ),);
+      emit(
+        MatchResultsLoaded(
+          intent: intent,
+          matches: matches,
+          isStale: !refreshed,
+        ),
+      );
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
     }

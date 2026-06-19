@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 
 /// Base class for order states.
@@ -31,14 +32,17 @@ class OrdersLoaded extends OrderState {
   List<Object?> get props => [orders, statusFilter];
 }
 
-/// Error state when an operation fails.
+/// Error state when an operation fails. [code] drives the localized,
+/// user-facing message (via `localizeErrorCode`); [message] is the raw detail
+/// kept for logging — do NOT show it directly to users.
 class OrderError extends OrderState {
   final String message;
+  final AppErrorCode code;
 
-  const OrderError({required this.message});
+  const OrderError({required this.message, this.code = AppErrorCode.unknown});
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, code];
 }
 
 /// State after an order has been accepted.

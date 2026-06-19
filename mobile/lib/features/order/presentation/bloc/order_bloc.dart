@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -37,7 +38,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(OrdersLoaded(orders: orders));
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -54,7 +55,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -67,7 +68,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       await _repository.acceptOrder(event.orderId, event.farmerId);
       emit(const OrderAccepted());
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -84,7 +85,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(const OrderRejected());
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -111,7 +112,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(OrderCreated(order: order));
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -124,7 +125,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       await _repository.submitPayment(event.orderId, event.cbeTransactionId);
       emit(const PaymentSubmitted());
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -141,7 +142,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(const OrderCancelled());
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -155,10 +156,15 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       if (order != null) {
         emit(SingleOrderLoaded(order: order));
       } else {
-        emit(const OrderError(message: 'Order not found'));
+        emit(
+          const OrderError(
+            message: 'Order not found',
+            code: AppErrorCode.notFound,
+          ),
+        );
       }
     } on Object catch (e) {
-      emit(OrderError(message: e.toString()));
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 }

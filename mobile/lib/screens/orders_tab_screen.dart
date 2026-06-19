@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -167,26 +168,18 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.receipt_long_outlined,
+                    const Icon(
+                      Icons.error_outline,
                       size: 56,
-                      color: AppTheme.textMuted.withAlpha(150),
+                      color: AppTheme.statusError,
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      l10n.noOrders,
+                      localizeErrorCode(state.code, l10n),
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.textDark,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.ordersWillAppear,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -194,7 +187,8 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                     SizedBox(
                       width: 200,
                       child: FilledButton(
-                        onPressed: _loadOrders,
+                        // Retry preserves the currently selected status filter.
+                        onPressed: () => _applyFilter(_selectedStatus),
                         child: Text(l10n.retry),
                       ),
                     ),
