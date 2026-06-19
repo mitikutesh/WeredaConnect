@@ -151,4 +151,63 @@ public class MatchScoringTests
         var sub = MatchScoring.ScoreListing(Criteria(), Crop(cropType: "barley"));
         Assert.True(exact > sub);
     }
+
+    // ── Parity guards (MUST match mobile match_scorer_test.dart) ─────────────
+    // The two scorers are independent implementations whose agreement is the
+    // contract's hard invariant. These golden vectors and the weight-sum check
+    // are duplicated verbatim on the Dart side; if a weight/band changes on one
+    // platform, the identical assertion fails on the other.
+
+    [Fact]
+    public void Weights_SumToOne()
+    {
+        Assert.Equal(1.0, MatchScoring.WType + MatchScoring.WPrice + MatchScoring.WGeo
+                          + MatchScoring.WQuantity + MatchScoring.WFreshness, 10);
+    }
+
+    [Fact]
+    public void ScoreListing_GoldenVector_SubstitutePartialDisjoint()
+    {
+        // type=substitute(0.6), price=within(1.0), qty=5/10(0.5),
+        // geo=disjoint-proxy(0.3), freshness=fresh(1.0).
+        // 0.35*0.6 + 0.20*1.0 + 0.20*0.3 + 0.15*0.5 + 0.10*1.0 = 0.645
+        var score = MatchScoring.ScoreListing(
+            Criteria(),
+            Crop(cropType: "barley", price: 100, qty: 5, loc: "Mekelle"));
+        Assert.Equal(0.645, score, 6);
+    }
+
+    [Fact]
+    public void ScoreListing_GoldenVector_PriceNearMissBand()
+    {
+        // type=exact(1.0), price=+10% over → 1-(0.10/0.15)=0.333333,
+        // qty=1.0, geo=same-woreda(1.0), freshness=fresh(1.0).
+        // 0.35 + 0.20*0.333333 + 0.20 + 0.15 + 0.10 = 0.866667
+        var score = MatchScoring.ScoreListing(Criteria(), Crop(price: 110));
+        Assert.Equal(0.866667, score, 6);
+    }
+
+    [Fact]
+    public void GeoScore_Haversine_AdamaToMekelle_PinsRadiusAndUnits()
+    {
+        // Adama (8.54, 39.27) → Mekelle (13.49, 39.47) ≈ 550 km.
+        // score = 1/(1 + km/50) ≈ 1/(1+11) ≈ 0.083. Pins WGS-84 radius + km units
+        // so a radius/units regression (vs the mobile haversine) is caught.
+        var score = MatchScoring.GeoScore(
+            Criteria(lat: 8.54, lon: 39.27),
+            Crop(lat: 13.49, lon: 39.47));
+        Assert.True(score is > 0.06 and < 0.10,
+            $"Adama→Mekelle geo score {score} outside expected ~0.083 band");
+    }
+
+    [Fact]
+    public void Substitutes_LegumesAreReachable()
+    {
+        // Regression: the substitute map previously used non-existent crop types
+        // ("lentil"/"fababean") so legume substitution never matched real data.
+        Assert.Contains("lentils", MatchScoring.CandidateCropTypes("chickpea"));
+        Assert.Contains("chickpea", MatchScoring.CandidateCropTypes("lentils"));
+        Assert.True(MatchScoring.IsSubstitute("chickpea", "lentils"));
+        Assert.True(MatchScoring.IsCandidate(Criteria(cropType: "chickpea"), Crop(cropType: "lentils")));
+    }
 }

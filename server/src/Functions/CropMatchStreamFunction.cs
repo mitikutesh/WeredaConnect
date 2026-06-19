@@ -4,6 +4,7 @@ using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -53,13 +54,35 @@ public class CropMatchStreamFunction
         _sns = sns ?? throw new ArgumentNullException(nameof(sns));
     }
 
-    public async Task ProcessStreamAsync(Stream input, ILambdaContext context)
+    /// <summary>
+    /// Lambda entry point. Delegates to <see cref="ProcessBatchAsync"/> and
+    /// serializes the partial-batch-response so the runtime retries only failed
+    /// records (raw Stream out — wired this way in Program.cs to keep the
+    /// AOT-friendly JsonDocument parse on the input side).
+    /// </summary>
+    public async Task<Stream> ProcessStreamAsync(Stream input, ILambdaContext context)
     {
+        var response = await ProcessBatchAsync(input, context);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(
+            response, AppJsonContext.Default.StreamBatchResponse);
+        return new MemoryStream(bytes);
+    }
+
+    /// <summary>
+    /// Core batch processing. Each record is handled independently; a record
+    /// that throws is reported in <see cref="StreamBatchResponse.BatchItemFailures"/>
+    /// by its DynamoDB sequence number so Lambda retries from it (at-least-once
+    /// alerting) instead of silently dropping it. Exposed for unit tests.
+    /// </summary>
+    public async Task<StreamBatchResponse> ProcessBatchAsync(Stream input, ILambdaContext context)
+    {
+        var failures = new List<StreamBatchItemFailure>();
+
         using var doc = await JsonDocument.ParseAsync(input);
         if (!doc.RootElement.TryGetProperty("Records", out var records)
             || records.ValueKind != JsonValueKind.Array)
         {
-            return;
+            return new StreamBatchResponse();
         }
 
         // Cache endpoint lookups so multiple matching intents for one buyer
@@ -68,6 +91,7 @@ public class CropMatchStreamFunction
 
         foreach (var record in records.EnumerateArray())
         {
+            var sequenceNumber = GetSequenceNumber(record);
             try
             {
                 if (GetString(record, "eventName") != "INSERT")
@@ -85,10 +109,27 @@ public class CropMatchStreamFunction
             }
             catch (Exception ex)
             {
-                // Never let one bad record block the shard; log and continue.
+                // Report this record's sequence number so Lambda redelivers the
+                // batch from the earliest reported failure to its end (DynamoDB
+                // stream semantics) instead of checkpointing past it — so a
+                // transient fault (e.g. a DynamoDB throttle on the intent query)
+                // no longer permanently drops a buyer's alert. This is
+                // at-least-once: records after the earliest failure can be
+                // reprocessed on redelivery, so a duplicate push is possible
+                // (acceptable for best-effort alerts; the per-invocation
+                // seenIntents/endpoint cache only dedups within one delivery).
                 context.Logger.LogError($"Stream record error: [{ex.GetType().Name}]");
+                if (sequenceNumber.Length > 0)
+                {
+                    failures.Add(new StreamBatchItemFailure { ItemIdentifier = sequenceNumber });
+                }
+                // A record with no SequenceNumber can't be targeted for retry, so
+                // it's intentionally dropped (logged above) rather than reporting an
+                // empty identifier, which the runtime would reject.
             }
         }
+
+        return new StreamBatchResponse { BatchItemFailures = failures };
     }
 
     private async Task ProcessNewCropAsync(
@@ -115,6 +156,10 @@ public class CropMatchStreamFunction
             LocationName = AttrS(image, "locationName") ?? AttrS(image, "woreda"),
             Latitude = AttrN(image, "latitude"),
             Longitude = AttrN(image, "longitude"),
+            // A stream INSERT is a brand-new crop, so freshness is max by
+            // definition; using "now" keeps the alert score from being penalised
+            // for parse/clock skew (it differs from GET /match, which scores the
+            // crop's real createdAt).
             CreatedAt = DateTime.UtcNow,
         };
         var cropId = AttrS(image, "cropId") ?? "";
@@ -197,12 +242,41 @@ public class CropMatchStreamFunction
                     MessageStructure = "json",
                 });
             }
+            catch (EndpointDisabledException)
+            {
+                // The device unregistered/uninstalled — prune the dead endpoint so
+                // future crops don't keep re-attempting (and re-logging) it.
+                await PruneEndpointAsync(buyerId, endpointArn, context);
+            }
+            catch (NotFoundException)
+            {
+                // Endpoint no longer exists in SNS — prune the stale row.
+                await PruneEndpointAsync(buyerId, endpointArn, context);
+            }
             catch (Exception ex)
             {
-                // A stale/disabled endpoint must not stop other buyers' alerts.
+                // A transient/other failure must not stop other buyers' alerts.
                 context.Logger.LogError(
                     $"Publish failed for an endpoint of buyer {buyerId}: [{ex.GetType().Name}]");
             }
+        }
+    }
+
+    /// <summary>
+    /// Delete a dead SNS endpoint registration so it self-heals. Best-effort: a
+    /// failure to prune is logged and swallowed (it must not abort the alert fan-out).
+    /// </summary>
+    private async Task PruneEndpointAsync(string buyerId, string endpointArn, ILambdaContext context)
+    {
+        try
+        {
+            await _deviceTokenRepo.DeleteAsync(buyerId, endpointArn);
+            context.Logger.LogInformation($"Pruned disabled push endpoint for buyer {buyerId}.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"Failed to prune endpoint for buyer {buyerId}: [{ex.GetType().Name}]");
         }
     }
 
@@ -228,6 +302,14 @@ public class CropMatchStreamFunction
     private static string GetString(JsonElement element, string key)
         => element.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() ?? ""
+            : "";
+
+    /// <summary>The record's DynamoDB sequence number — the partial-batch failure id.</summary>
+    private static string GetSequenceNumber(JsonElement record)
+        => record.TryGetProperty("dynamodb", out var d)
+           && d.TryGetProperty("SequenceNumber", out var s)
+           && s.ValueKind == JsonValueKind.String
+            ? s.GetString() ?? ""
             : "";
 
     private static string? AttrS(JsonElement image, string key)

@@ -52,4 +52,18 @@ public class DeviceTokenRepository : IDeviceTokenRepository
             .Select(i => i["endpointArn"].S)
             .ToList();
     }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(string userId, string endpointArn)
+    {
+        await _dynamoDb.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "userId", new AttributeValue { S = userId } },
+                { "endpointArn", new AttributeValue { S = endpointArn } },
+            },
+        });
+    }
 }

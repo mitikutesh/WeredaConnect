@@ -52,6 +52,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetMatchesResponse))]
 [JsonSerializable(typeof(RegisterDeviceTokenRequest))]
 [JsonSerializable(typeof(RegisterDeviceTokenResponse))]
+// DynamoDB stream partial-batch-response (CropMatchStreamFunction)
+[JsonSerializable(typeof(StreamBatchResponse))]
+[JsonSerializable(typeof(StreamBatchItemFailure))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(DeliveryDto))]

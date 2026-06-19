@@ -75,8 +75,8 @@ public static class MatchScoring
             ["barley"] = new[] { "wheat" },
             ["maize"] = new[] { "sorghum" },
             ["sorghum"] = new[] { "maize" },
-            ["chickpea"] = new[] { "lentil", "fababean" },
-            ["lentil"] = new[] { "chickpea" },
+            ["chickpea"] = new[] { "lentils" },
+            ["lentils"] = new[] { "chickpea" },
         };
 
     /// <summary>Crop types to query: the exact type plus accepted substitutes.</summary>

@@ -11,4 +11,11 @@ public interface IDeviceTokenRepository
 
     /// <summary>All SNS endpoint ARNs registered for a user (for fan-out publish).</summary>
     Task<List<string>> GetEndpointArnsByUserAsync(string userId);
+
+    /// <summary>
+    /// Remove a device registration. Called when SNS reports an endpoint as
+    /// disabled/not-found during publish, so dead endpoints self-heal instead of
+    /// being retried (and re-logged) on every future matching crop.
+    /// </summary>
+    Task DeleteAsync(string userId, string endpointArn);
 }

@@ -33,7 +33,8 @@ public class CropMatchStreamFunctionTests
         string status = "available",
         double pricePerKg = 100,
         double quantity = 10,
-        string woreda = "Adama")
+        string woreda = "Adama",
+        string sequenceNumber = "seq-1")
     {
         var json = $$"""
         {
@@ -41,6 +42,7 @@ public class CropMatchStreamFunctionTests
             {
               "eventName": "{{eventName}}",
               "dynamodb": {
+                "SequenceNumber": "{{sequenceNumber}}",
                 "NewImage": {
                   "cropId": { "S": "crop-1" },
                   "cropType": { "S": "{{cropType}}" },
@@ -138,5 +140,77 @@ public class CropMatchStreamFunctionTests
         await _fn.ProcessStreamAsync(StreamEvent(status: "sold"), _ctx);
 
         await _intents.DidNotReceive().QueryActiveByCropTypeAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task TwoIntentsSameBuyer_PublishPerIntent_QueryEndpointsOnce()
+    {
+        // Endpoint-cache + dedupe: two distinct matching intents for one buyer
+        // each get a push, but device tokens are queried only once.
+        _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
+        {
+            Intent(intentId: "i1"),
+            Intent(intentId: "i2"),
+        });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+
+        await _fn.ProcessStreamAsync(StreamEvent(), _ctx);
+
+        await _sns.Received(2).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+        await _devices.Received(1).GetEndpointArnsByUserAsync("b1");
+    }
+
+    [Fact]
+    public async Task NewBarleyCrop_AlertsWheatIntent_ViaSubstituteFanOut()
+    {
+        // A new barley crop is an accepted substitute for a wheat intent — the
+        // symmetric substitute map must fan the alert out to the wheat buyer.
+        _intents.QueryActiveByCropTypeAsync("wheat")
+            .Returns(new List<Dictionary<string, object>> { Intent(cropType: "wheat") });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+
+        await _fn.ProcessStreamAsync(StreamEvent(cropType: "barley"), _ctx);
+
+        await _sns.Received(1).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordThatThrows_IsReportedAsBatchItemFailure()
+    {
+        // A transient fault on a record must be reported (by sequence number) so
+        // Lambda retries it, rather than silently dropping the alert.
+        _intents.QueryActiveByCropTypeAsync(Arg.Any<string>())
+            .Returns<List<Dictionary<string, object>>>(_ => throw new Exception("dynamo throttle"));
+
+        var response = await _fn.ProcessBatchAsync(StreamEvent(sequenceNumber: "seq-42"), _ctx);
+
+        Assert.Single(response.BatchItemFailures);
+        Assert.Equal("seq-42", response.BatchItemFailures[0].ItemIdentifier);
+    }
+
+    [Fact]
+    public async Task SuccessfulBatch_ReportsNoFailures()
+    {
+        _intents.QueryActiveByCropTypeAsync("wheat")
+            .Returns(new List<Dictionary<string, object>> { Intent() });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+
+        var response = await _fn.ProcessBatchAsync(StreamEvent(), _ctx);
+
+        Assert.Empty(response.BatchItemFailures);
+    }
+
+    [Fact]
+    public async Task DisabledEndpoint_IsPruned()
+    {
+        _intents.QueryActiveByCropTypeAsync("wheat")
+            .Returns(new List<Dictionary<string, object>> { Intent() });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:dead" });
+        _sns.PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PublishResponse>(_ => throw new EndpointDisabledException("disabled"));
+
+        await _fn.ProcessStreamAsync(StreamEvent(), _ctx);
+
+        await _devices.Received(1).DeleteAsync("b1", "arn:dead");
     }
 }

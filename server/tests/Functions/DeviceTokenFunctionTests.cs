@@ -86,4 +86,41 @@ public class DeviceTokenFunctionTests
 
         await _repo.Received(1).PutAsync("buyer-1", EndpointArn, "android", "fcm-token-xyz");
     }
+
+    [Fact]
+    public async Task MalformedJsonBody_Returns400()
+    {
+        var req = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Body = "{ not valid json",
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "buyer-1" } },
+            },
+        };
+
+        var response = await _fn.FunctionHandler(req, _ctx);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DEVICE_TOKEN_VALIDATION", response.Body);
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task SnsFailure_Returns500()
+    {
+        _sns.CreatePlatformEndpointAsync(
+                Arg.Any<CreatePlatformEndpointRequest>(), Arg.Any<CancellationToken>())
+            .Returns<CreatePlatformEndpointResponse>(_ => throw new Exception("sns unavailable"));
+
+        var response = await _fn.FunctionHandler(
+            Req("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("DEVICE_TOKEN_SERVER_ERROR", response.Body);
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
 }

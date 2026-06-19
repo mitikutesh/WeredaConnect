@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using Xunit;
@@ -205,5 +206,94 @@ public class MatchFunctionTests
 
         Assert.Equal(403, response.StatusCode);
         Assert.Contains("MATCH_FORBIDDEN", response.Body);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("101")]
+    [InlineData("abc")]
+    public async Task Match_InvalidLimit_Returns400(string limit)
+    {
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+            { "limit", limit },
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("MATCH_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task Match_NonNumericPrice_Returns400()
+    {
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+            { "maxPricePerKg", "cheap" },
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("MATCH_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task Match_AsAdmin_IsAllowed()
+    {
+        StubType("wheat", CropItem("crop-1"));
+        StubType("barley");
+
+        var request = MakeRequest(role: "admin", queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Match_NoBudget_StillReturnsOverBudgetCrop()
+    {
+        // The server scorer treats an absent budget as unconstrained (unlike the
+        // mobile scorer, which always has a budget). A budget-less query must not
+        // drop an expensive crop.
+        StubType("wheat", CropItem("pricey", pricePerKg: 9999));
+        StubType("barley");
+
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" }, // no maxPricePerKg
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        var matches = ParseMatches(response.Body);
+        Assert.Equal(1, matches.GetArrayLength());
+        Assert.Equal("pricey", matches[0].GetProperty("cropId").GetString());
+    }
+
+    [Fact]
+    public async Task Match_RepoThrows_Returns500()
+    {
+        _mockCropRepo.QueryCropsAsync(
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .ThrowsAsync(new Exception("dynamo down"));
+
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("MATCH_SERVER_ERROR", response.Body);
     }
 }

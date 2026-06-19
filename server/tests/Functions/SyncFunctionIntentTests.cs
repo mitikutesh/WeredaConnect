@@ -146,4 +146,74 @@ public class SyncFunctionIntentTests
         Assert.Contains("success", response.Body);
         await _intents.Received(1).DeleteAsync("intent-1", "buyer-1");
     }
+
+    private static SyncOperationRequest UpdateOp(int version) => IntentOp(
+        action: "update",
+        data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" },
+            { "buyerId", "buyer-1" },
+            { "cropType", "wheat" },
+            { "quantityNeeded", 10 },
+            { "maxPricePerKg", 120 },
+            { "deliveryWoreda", "Adama" },
+            { "version", version },
+        });
+
+    [Fact]
+    public async Task BuyerUpdatesIntent_Succeeds_WithIncrementedServerVersion()
+    {
+        _intents.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(
+                new Dictionary<string, object> { { "intentId", "intent-1" }, { "version", "3" } }));
+
+        var response = await _fn.FunctionHandler(Req(UpdateOp(2), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        // Server expects the client's current version as the optimistic check.
+        await _intents.Received(1).UpdateAsync("intent-1", "buyer-1",
+            Arg.Any<Dictionary<string, object>>(), 2);
+    }
+
+    [Fact]
+    public async Task IntentUpdateVersionConflict_ReportsConflict()
+    {
+        _intents.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(
+                409, "SYNC_CONFLICT", "Intent version conflict.", "version"));
+
+        var response = await _fn.FunctionHandler(Req(UpdateOp(5), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(200, response.StatusCode); // batch is 200; per-op status is conflict
+        Assert.Contains("conflict", response.Body);
+    }
+
+    [Fact]
+    public async Task IntentCreateConflict_ReportsConflict()
+    {
+        _intents.CreateAsync(Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(
+                409, "SYNC_CONFLICT", "Intent already exists.", "intentId"));
+
+        var response = await _fn.FunctionHandler(Req(IntentOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("conflict", response.Body);
+    }
+
+    [Fact]
+    public async Task DuplicateOperation_ShortCircuits_WithoutCreating()
+    {
+        _meta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(true);
+
+        var response = await _fn.FunctionHandler(Req(IntentOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("duplicate", response.Body);
+        await _intents.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
 }

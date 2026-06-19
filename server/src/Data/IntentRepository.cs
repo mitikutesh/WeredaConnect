@@ -18,6 +18,15 @@ public class IntentRepository : IIntentRepository
 
     private const string CropTypeStatusIndex = "CropTypeStatusIndex";
 
+    /// <summary>
+    /// Safety cap on pages walked by <see cref="QueryActiveByCropTypeAsync"/>.
+    /// A filtered GSI query paginates by scanned items (1 MB/page), so a crop
+    /// type with many active intents spans multiple pages — without walking them
+    /// all, buyers past the first page would never be alerted. 50 pages is far
+    /// above any realistic active-intent count for one crop type.
+    /// </summary>
+    private const int MaxQueryPages = 50;
+
     public IntentRepository(IAmazonDynamoDB dynamoDb, string tableName)
     {
         _dynamoDb = dynamoDb;
@@ -178,20 +187,34 @@ public class IntentRepository : IIntentRepository
     /// <inheritdoc />
     public async Task<List<Dictionary<string, object>>> QueryActiveByCropTypeAsync(string cropType)
     {
-        var response = await _dynamoDb.QueryAsync(new QueryRequest
-        {
-            TableName = _tableName,
-            IndexName = CropTypeStatusIndex,
-            KeyConditionExpression = "cropType = :ct",
-            FilterExpression = "#status = :active",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":ct", new AttributeValue { S = cropType } },
-                { ":active", new AttributeValue { S = "active" } },
-            },
-        });
+        var results = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null;
+        var pages = 0;
 
-        return response.Items.Select(DynamoDbHelper.FromItem).ToList();
+        do
+        {
+            var response = await _dynamoDb.QueryAsync(new QueryRequest
+            {
+                TableName = _tableName,
+                IndexName = CropTypeStatusIndex,
+                KeyConditionExpression = "cropType = :ct",
+                FilterExpression = "#status = :active",
+                ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":ct", new AttributeValue { S = cropType } },
+                    { ":active", new AttributeValue { S = "active" } },
+                },
+                ExclusiveStartKey = exclusiveStartKey,
+            });
+
+            results.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            exclusiveStartKey = response.LastEvaluatedKey is { Count: > 0 }
+                ? response.LastEvaluatedKey
+                : null;
+        }
+        while (exclusiveStartKey != null && ++pages < MaxQueryPages);
+
+        return results;
     }
 }

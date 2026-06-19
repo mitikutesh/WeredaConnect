@@ -12,6 +12,13 @@ public sealed record MatchDto
     public string? FarmerName { get; init; }
     public required string CropType { get; init; }
     public required string Woreda { get; init; }
+
+    /// <summary>
+    /// Crop quantity. NOTE: despite the name this carries QUINTALS, not
+    /// kilograms — it mirrors the historical "quantityKg" key misnomer
+    /// documented in mobile IsarMarketplaceSync. No kg/quintal conversion
+    /// happens anywhere in the stack; do NOT "correct" it by ×100.
+    /// </summary>
     public required int QuantityKg { get; init; }
     public required decimal PricePerKg { get; init; }
     public required string Status { get; init; }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -39,8 +40,16 @@ public class MatchFunction
 {
     private readonly ICropRepository _cropRepo;
 
-    /// <summary>Max candidates fetched per crop type before scoring/ranking.</summary>
+    /// <summary>Candidates fetched per page from each crop type before scoring.</summary>
     private const int CandidateLimitPerType = 100;
+
+    /// <summary>
+    /// Safety cap on pages walked per crop type. Without paginating, only the
+    /// first page of candidates is ever scored, silently hiding cheaper/closer
+    /// matches once a crop type is popular. 10 pages (~1000 candidates/type) is
+    /// ample for ranking; truncation beyond it is logged, not silent.
+    /// </summary>
+    private const int MaxCandidatePages = 10;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public MatchFunction()
@@ -133,33 +142,54 @@ public class MatchFunction
 
             foreach (var type in MatchScoring.CandidateCropTypes(cropType))
             {
-                var (items, _) = await _cropRepo.QueryCropsAsync(
-                    cropType: type, limit: CandidateLimitPerType);
+                // Walk all candidate pages for this type (bounded) so a popular
+                // crop type doesn't silently hide better matches on page 2+.
+                Dictionary<string, AttributeValue>? startKey = null;
+                var pages = 0;
 
-                foreach (var item in items)
+                do
                 {
-                    var cropId = GetString(item, "cropId");
-                    if (cropId.Length == 0 || !seen.Add(cropId))
+                    var (items, lastKey) = await _cropRepo.QueryCropsAsync(
+                        cropType: type, limit: CandidateLimitPerType, exclusiveStartKey: startKey);
+
+                    foreach (var item in items)
                     {
-                        continue;
+                        var cropId = GetString(item, "cropId");
+                        if (cropId.Length == 0 || !seen.Add(cropId))
+                        {
+                            continue;
+                        }
+
+                        // Only active/available listings are matchable.
+                        if (!string.Equals(GetString(item, "status"), "available",
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var candidate = ToCandidate(item, criteria.NowUtc);
+                        if (!MatchScoring.IsCandidate(criteria, candidate))
+                        {
+                            continue;
+                        }
+
+                        var score = MatchScoring.ScoreListing(criteria, candidate);
+                        scored.Add(ToMatchDto(item, candidate, score,
+                            MatchScoring.IsSubstitute(cropType, candidate.CropType)));
                     }
 
-                    // Only active/available listings are matchable.
-                    if (!string.Equals(GetString(item, "status"), "available",
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
+                    startKey = lastKey;
+                }
+                while (startKey != null && ++pages < MaxCandidatePages);
 
-                    var candidate = ToCandidate(item, criteria.NowUtc);
-                    if (!MatchScoring.IsCandidate(criteria, candidate))
-                    {
-                        continue;
-                    }
-
-                    var score = MatchScoring.ScoreListing(criteria, candidate);
-                    scored.Add(ToMatchDto(item, candidate, score,
-                        MatchScoring.IsSubstitute(cropType, candidate.CropType)));
+                if (startKey != null)
+                {
+                    // Strip control chars from the caller-influenced crop type
+                    // before logging, to prevent CloudWatch log forging (CRLF).
+                    var safeType = new string(type.Where(c => !char.IsControl(c)).ToArray());
+                    context.Logger.LogWarning(
+                        $"Match candidate truncation for cropType={safeType}: more candidates "
+                        + $"exist beyond {MaxCandidatePages} pages of {CandidateLimitPerType}.");
                 }
             }
 
