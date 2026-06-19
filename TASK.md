@@ -154,6 +154,10 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 ## Security Posture: 6.5/10
 
+### Audit 2026-06-20 (security-team agents)
+
+Full automated security-team run against `buyer-intenet` branch. Verdict: **GA NO-GO** — 2 Critical + 8 High findings block production launch. Full report: `docs/security/security-assessment-2026-06-20.md`.
+
 ### Fixed (from pentest 2026-03-05)
 - [x] Password policy (min 12, uppercase + symbols)
 - [x] Cognito deletion protection
@@ -169,16 +173,26 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 - [x] Localhost CORS stripped for production
 - [x] Admin token validity reduced to 15 min
 
+### Unfixed (CRITICAL)
+- [ ] **ROL-01/ROL-02**: Role isolation not deployed — server enforces buyer-only browse but the fix is only on `buyer-intenet`; no server deploy pipeline means the gap is live in the currently-deployed Lambda. Blocks GA. — Sprint 2 / DEPLOY-01 prerequisite
+- [ ] **CHAIN-01**: `change_role` admin endpoint allowed privilege escalation to any role (incl. admin) → escrow release. **Allowlist fix applied 2026-06-20 (AdminFunction.cs, ADMIN_011); pending deploy.** Follow-up: admin MFA on staging + per-action audit logging. — Sprint 2
+
 ### Unfixed (HIGH priority)
-- [ ] **T-SEC-CERT**: Certificate pinning disabled (MITM risk) — Sprint 2
-- [ ] **T-SEC-WAF**: AWS WAF not configured — Sprint 2
-- [ ] **T-SEC-AUDIT**: Audit logging incomplete (escrow only) — Sprint 2
-- [ ] **T-SEC-GIT**: Git history contains exposed private key — Sprint 2
-- [ ] **T-SEC-SNS**: SNS in sandbox mode — Sprint 2
+- [ ] **T-SEC-CERT**: Certificate pinning disabled (MITM risk) — Sprint 2 (re-confirmed 2026-06-20, see assessment; cross-ref MOB-02 refreshDio unpinned)
+- [ ] **T-SEC-WAF**: AWS WAF not configured — Sprint 2 (re-confirmed 2026-06-20, see assessment; cross-ref INFRA-01. NOTE: API is an HTTP API — WAF can't attach directly; needs /api/* via CloudFront or REST migration)
+- [ ] **T-SEC-AUDIT**: Audit logging incomplete (escrow only) — Sprint 2 (re-confirmed 2026-06-20, see assessment)
+- [ ] **T-SEC-GIT**: Git history contains exposed private key — Sprint 2 (re-confirmed 2026-06-20, see assessment; key also still on disk: server/localstack-data/cache/server.test.pem.key)
+- [ ] **T-SEC-SNS**: SNS in sandbox mode — Sprint 2 (re-confirmed 2026-06-20, see assessment)
+- [ ] **ROL-03**: Access-token role bypass — clients sending the Cognito access token (no `custom:role`) bypass role scoping. Enforce ID-token-only / reject null role on Lambda authorizers. — Sprint 2
+- [ ] **DEPLOY-01**: No server deploy pipeline — CDK stack exists but no CI/CD step publishes the .NET Lambda binary; every server fix (incl. ROL-01/02, CHAIN-01) is dead until this is wired. — Sprint 2
+- [ ] **SRV-01**: `DEV_OTP_BYPASS` env-var guard. **Fix applied 2026-06-20** (added to ProductionBypassGuard FORBIDDEN_ENV_VARS, api-stack.ts). — verify on next synth
+- [ ] **INFRA-02**: `TELEBIRR_MOCK=true` present in staging environment config (guard only fires for `isProd`) — Sprint 2
+- [ ] **CI-01**: Maestro install uses `curl | bash` (unauthenticated remote execution in CI, pr-validation.yml:114) — pin a release download + verify SHA. — Sprint 2
+- [ ] **SCA-01/SCA-02**: Dependency CVEs — react-router (admin) + Astro/Vite (website) high CVEs; add `npm audit --audit-level=high` CI gate. — Sprint 2
 
 ### Unfixed (MEDIUM priority)
 - [ ] **T-SEC-TTL**: 7-day offline session TTL (too long) — Sprint 3
-- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — HS-1 (encryption foundation) **complete** as of 2026-05-13; HS-2..HS-7 in flight. 7-sprint program: `specs/features/isar-hardening/README.md` (ship target 2026-08-20). Until HS-2 wires the primitive into User + CropListing repositories, PII is still plaintext at rest in those collections.
+- [ ] **T-SEC-ISAR**: Isar database unencrypted on disk — HS-1 (encryption foundation) **complete** as of 2026-05-13; HS-2..HS-7 in flight. 7-sprint program: `specs/features/isar-hardening/README.md` (ship target 2026-08-20). Until HS-2 wires the primitive into User + CropListing repositories, PII is still plaintext at rest in those collections. (re-confirmed 2026-06-20, see assessment; cross-ref MOB-01 — FieldEncryptor built but never invoked)
 - [ ] **T-SEC-JWT**: Dead JwtValidator with testing bypass — Sprint 1
 
 ---
