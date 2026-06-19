@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "744765793815",
+    "project_id": "weredaconnect-dev-961cb",
+    "storage_bucket": "weredaconnect-dev-961cb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:744765793815:android:39c94d0d4197282fc45e52",
+        "android_client_info": {
+          "package_name": "et.wereda.connect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2YHIXQmm_urVoowaXolhuOzxZTHNFahY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
