@@ -82,6 +82,11 @@ AWS SNS authenticates to FCM v1 using a Google **service-account private key (JS
 2. Ensure **Firebase Admin SDK** is selected, click **Generate new private key** → **Generate key**.
 3. A JSON file downloads (contains `project_id`, `private_key`, `client_email`, …). **Treat it as a secret** — do not commit it. Rename it to `service-account.json`.
 
+> ⚠️ This is **not** `mobile/android/app/google-services.json`. That file is the Firebase
+> Android *client* config (keys: `project_info`, `client`, `configuration_version`) and has
+> **no `private_key`** — SNS cannot authenticate with it. Use the service-account key from the
+> **Service accounts** tab, which starts with `"type": "service_account"`.
+
 ### 2a. Create the SNS Platform Application (CLI)
 
 CloudFormation has **no resource type** for SNS platform applications, so create it
@@ -89,11 +94,15 @@ once with the CLI. **The name must be exactly `wereda-connect-dev-fcm`** (platfo
 — the CDK references this deterministic ARN.
 
 ```bash
+# --attributes is passed as JSON, NOT the Key=Value shorthand. The service-account key
+# is full of commas, and the shorthand parser splits on them — giving the misleading
+# "parsing parameter '--attributes': expected: =" error. jq --rawfile escapes the whole
+# file into a single JSON string value, so nothing breaks the parser.
 aws sns create-platform-application \
   --region eu-north-1 \
   --name wereda-connect-dev-fcm \
   --platform GCM \
-  --attributes PlatformCredential="$(cat service-account.json)"
+  --attributes "$(jq -n --rawfile cred service-account.json '{PlatformCredential: $cred}')"
 ```
 
 This prints the `PlatformApplicationArn` — it will be
@@ -105,7 +114,7 @@ Lambdas use (no need to copy it anywhere).
 > rejects `PlatformCredential` for v1, follow the current AWS doc "Adding FCM credentials to
 > Amazon SNS" — the platform name and ARN format are unchanged.
 >
-> Rotating later: `aws sns set-platform-application-attributes --platform-application-arn <arn> --attributes PlatformCredential="$(cat service-account.json)"`. No redeploy needed.
+> Rotating later (same JSON-not-shorthand reason): `aws sns set-platform-application-attributes --platform-application-arn <arn> --attributes "$(jq -n --rawfile cred service-account.json '{PlatformCredential: $cred}')"`. No redeploy needed.
 >
 > Optional: also keep the JSON in Secrets Manager (`aws secretsmanager create-secret --name wereda-connect-dev/fcm-service-account --secret-string file://service-account.json`) for safekeeping/rotation.
 
