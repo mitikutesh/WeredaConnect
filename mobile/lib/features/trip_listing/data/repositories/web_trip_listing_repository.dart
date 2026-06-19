@@ -25,6 +25,8 @@ class WebTripListingRepository extends BaseTripListingRepository {
     required double pricePerQuintal,
     String? vehiclePlate,
     String? vehicleDescription,
+    String? fromPlaceId,
+    String? toPlaceId,
   }) async {
     final tripId =
         'trp_${DateTime.now().millisecondsSinceEpoch}_${truckerId.hashCode.abs()}';
@@ -75,6 +77,8 @@ class WebTripListingRepository extends BaseTripListingRepository {
       ..vehicleDescription = vehicleDescription
       ..fromWoreda = fromWoreda
       ..toWoreda = toWoreda
+      ..fromPlaceId = fromPlaceId
+      ..toPlaceId = toPlaceId
       ..departureDate = departureDate
       ..capacity = capacity
       ..pricePerQuintal = pricePerQuintal

@@ -39,6 +39,7 @@ class CropListingRepository extends BaseCropListingRepository {
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
+    String? placeId,
   }) async {
     final listingId = _uuid.v4();
     final now = DateTime.now().toUtc();
@@ -56,6 +57,7 @@ class CropListingRepository extends BaseCropListingRepository {
       ..pricePerKg = pricePerKg
       ..location = location
       ..locationName = locationName
+      ..placeId = placeId
       ..description = description
       ..audioNoteRef = audioNoteRef
       ..status = ListingStatus.active

@@ -134,11 +134,11 @@ void main() {
 
     test('a trip with capacity exactly equal to the need is included', () async {
       // capacityGreaterThan(need - 0.01) → inclusive >= at the boundary.
-      await putCrop(id: 'crop-1', locationName: 'Assosa');
+      // Crop defaults to woreda 'Assosa' (matching the trip); need defaults to 5.
+      await putCrop(id: 'crop-1');
       await putTrip(id: 'trip-eq', fromWoreda: 'Assosa', capacity: 5);
 
-      final results =
-          await service.matchListingsForIntent(buildIntent(quantityNeeded: 5));
+      final results = await service.matchListingsForIntent(buildIntent());
 
       expect(results, hasLength(1));
       expect(
@@ -153,7 +153,7 @@ void main() {
       // disjoint from the delivery woreda → equal geoNeutral). One has a
       // matching trip (adds transport cost → higher total); the one without a
       // trip has the lower landed total and must rank first.
-      await putCrop(id: 'crop-with-trip', locationName: 'Assosa');
+      await putCrop(id: 'crop-with-trip'); // defaults to woreda 'Assosa'
       await putCrop(id: 'crop-no-trip', locationName: 'Gambela');
       await putTrip(id: 'trip-1', fromWoreda: 'Assosa');
 
@@ -175,7 +175,7 @@ void main() {
     test('refreshMatchCounts persists exactly the match-list length', () async {
       // The badge count must never drift from what matchListingsForIntent
       // returns. Seed 2 candidates + 1 non-candidate (over-budget).
-      await putCrop(id: 'cand-1', locationName: 'Assosa');
+      await putCrop(id: 'cand-1'); // defaults to woreda 'Assosa'
       await putCrop(id: 'cand-2', locationName: 'Gambela');
       await putCrop(id: 'too-pricey', pricePerKg: 1000); // beyond +15% band
 

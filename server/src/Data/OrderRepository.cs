@@ -181,20 +181,23 @@ public sealed class OrderRepository : IOrderRepository
             limit = 20;
         }
 
-        // Use most specific GSI available
+        // Use most specific GSI available. When a status filter is supplied
+        // alongside a role id, it is applied as a FilterExpression on top of the
+        // role GSI query — otherwise the status was silently dropped and every
+        // status tab returned the user's full order list (web bug).
         if (!string.IsNullOrEmpty(buyerId))
         {
-            return await QueryByGsiAsync("BuyerIdCreatedAtIndex", "buyerId", buyerId, limit, exclusiveStartKey);
+            return await QueryByGsiAsync("BuyerIdCreatedAtIndex", "buyerId", buyerId, limit, exclusiveStartKey, status);
         }
 
         if (!string.IsNullOrEmpty(farmerId))
         {
-            return await QueryByGsiAsync("FarmerIdCreatedAtIndex", "farmerId", farmerId, limit, exclusiveStartKey);
+            return await QueryByGsiAsync("FarmerIdCreatedAtIndex", "farmerId", farmerId, limit, exclusiveStartKey, status);
         }
 
         if (!string.IsNullOrEmpty(truckerId))
         {
-            return await QueryByGsiAsync("TruckerIdCreatedAtIndex", "truckerId", truckerId, limit, exclusiveStartKey);
+            return await QueryByGsiAsync("TruckerIdCreatedAtIndex", "truckerId", truckerId, limit, exclusiveStartKey, status);
         }
 
         if (!string.IsNullOrEmpty(status))
@@ -289,14 +292,25 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <summary>
-    /// Query a GSI by partition key with optional pagination.
+    /// Query a GSI by partition key with optional pagination and an optional
+    /// status filter.
     /// </summary>
+    /// <remarks>
+    /// When <paramref name="statusFilter"/> is supplied it is applied as a
+    /// DynamoDB FilterExpression on the non-key <c>status</c> attribute (a
+    /// reserved word, hence the <c>#status</c> alias). Note: a FilterExpression
+    /// is applied AFTER <c>Limit</c>, so a single page may contain fewer than
+    /// <c>limit</c> matching items even when more exist; callers can follow the
+    /// returned nextToken. This is acceptable here because a single user's order
+    /// set is small.
+    /// </remarks>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByGsiAsync(
         string indexName,
         string partitionKeyName,
         string partitionKeyValue,
         int limit,
-        Dictionary<string, AttributeValue>? exclusiveStartKey)
+        Dictionary<string, AttributeValue>? exclusiveStartKey,
+        string? statusFilter = null)
     {
         var request = new QueryRequest
         {
@@ -314,6 +328,15 @@ public sealed class OrderRepository : IOrderRepository
             ScanIndexForward = false, // newest first
             Limit = limit
         };
+
+        // Apply the status filter unless status IS the partition key (the
+        // status-only GSI already constrains it via the key condition).
+        if (!string.IsNullOrEmpty(statusFilter) && partitionKeyName != "status")
+        {
+            request.FilterExpression = "#status = :status";
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = statusFilter };
+        }
 
         if (exclusiveStartKey != null)
         {

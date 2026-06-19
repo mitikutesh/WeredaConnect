@@ -8,6 +8,9 @@ import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
+import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
@@ -92,6 +95,26 @@ class _FailingMarketplaceSync implements MarketplaceSync {
 
   @override
   Future<void> pullTrips() async => throw Exception('offline');
+}
+
+/// Fake [BaseMatchingService] whose match call always throws — stands in for the
+/// web `/match` network call failing AFTER the intent has already been saved.
+/// The BLoC must still emit [BuyerIntentCreated] (empty + stale), never
+/// [BuyerIntentError], so the buyer is not told a saved intent "failed" (and
+/// then confusingly finds it later).
+class _ThrowingMatchingService implements BaseMatchingService {
+  @override
+  Future<List<CropMatchResult>> matchListingsForIntent(
+    BuyerIntent intent,
+  ) async {
+    throw Exception('no internet');
+  }
+
+  @override
+  Future<void> refreshMatchCounts(
+    String buyerId,
+    BaseBuyerIntentRepository repository,
+  ) async {}
 }
 
 void main() {
@@ -226,7 +249,10 @@ void main() {
         deliveryWoreda: 'AddisAbeba',
       );
       await repository.updateMatchCount(
-          intent.intentId, 3, DateTime.now().toUtc());
+        intent.intentId,
+        3,
+        DateTime.now().toUtc(),
+      );
       await repository.updateLastViewed(intent.intentId);
 
       final failing = _FailingMarketplaceSync();
@@ -262,10 +288,41 @@ void main() {
         marketplaceSync: failing,
       );
 
-      final created = (await runCreate(bloc)).whereType<BuyerIntentCreated>().single;
+      final created =
+          (await runCreate(bloc)).whereType<BuyerIntentCreated>().single;
 
       expect(failing.pullAllCount, 1);
       expect(created.isStale, isTrue);
+      await bloc.close();
+    });
+
+    test(
+        'matching failure after the intent is saved emits BuyerIntentCreated '
+        '(empty + stale), never BuyerIntentError', () async {
+      // Mirrors the web bug: createIntent succeeds, but the /match network call
+      // throws. The buyer must still land on the results screen with the saved
+      // intent, not see a "no internet" error for an intent that was saved.
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: _ThrowingMatchingService(),
+        marketplaceSync: _FakeMarketplaceSync(isar),
+      );
+
+      final states = await runCreate(bloc);
+
+      expect(
+        states.whereType<BuyerIntentError>(),
+        isEmpty,
+        reason: 'a matching failure must not be surfaced as an error',
+      );
+      final created = states.whereType<BuyerIntentCreated>().single;
+      expect(created.matches, isEmpty);
+      expect(created.isStale, isTrue);
+
+      // The intent was genuinely persisted despite the matching failure.
+      final active = await repository.getActiveIntents('buyer-1');
+      expect(active, hasLength(1));
+      expect(active.first.intentId, created.intent.intentId);
       await bloc.close();
     });
 

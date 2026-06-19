@@ -55,6 +55,34 @@ public class AdminFunction
         _paymentsTable = Environment.GetEnvironmentVariable("PAYMENTS_TABLE") ?? "";
     }
 
+    /// <summary>
+    /// Test/DI constructor: inject the DynamoDB client and the users table name so the
+    /// handler can be exercised without a live AWS client. Other table names default to
+    /// empty (their handlers short-circuit on empty table names).
+    /// </summary>
+    internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable)
+    {
+        _dynamoDb = dynamoDb;
+        _usersTable = usersTable;
+        _escrowsTable = "";
+        _escrowAuditTable = "";
+        _fraudSignalsTable = "";
+        _cropsTable = "";
+        _tripsTable = "";
+        _ordersTable = "";
+        _deliveriesTable = "";
+        _paymentsTable = "";
+    }
+
+    /// <summary>
+    /// Marketplace roles an admin may assign via change_role. "admin" is deliberately
+    /// excluded: allowing it here would let an admin escalate any account (including their
+    /// own) to admin, which EscrowService trusts for fund release (CHAIN-01). Compared
+    /// case-insensitively; the matched canonical lowercase value is what gets stored,
+    /// matching the role-claim convention used across the server (e.g. "buyer"/"farmer").
+    /// </summary>
+    private static readonly string[] AssignableRoles = { "farmer", "trucker", "buyer" };
+
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -609,9 +637,20 @@ public class AdminFunction
                 {
                     return LambdaResponse.Error(400, "ADMIN_008", "NewRole is required for change_role action.");
                 }
+                // Allowlist guard (CHAIN-01): reject any role outside the three marketplace
+                // roles. This forbids escalation to "admin" (which EscrowService trusts for
+                // fund release) and any other arbitrary value. Compared case-insensitively;
+                // the canonical lowercase value is stored.
+                var requestedRole = AssignableRoles.FirstOrDefault(
+                    r => string.Equals(r, body.NewRole, StringComparison.OrdinalIgnoreCase));
+                if (requestedRole == null)
+                {
+                    return LambdaResponse.Error(400, "ADMIN_011",
+                        "NewRole must be one of: farmer, trucker, buyer.");
+                }
                 updateParts.Add("#role = :newRole");
                 attrNames["#role"] = "role";
-                attrValues[":newRole"] = new AttributeValue { S = body.NewRole };
+                attrValues[":newRole"] = new AttributeValue { S = requestedRole };
                 break;
             default:
                 return LambdaResponse.Error(400, "ADMIN_009", $"Unknown action: {body.Action}");

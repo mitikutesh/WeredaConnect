@@ -16,6 +16,8 @@ abstract class BaseTripListingRepository {
     required double pricePerQuintal,
     String? vehiclePlate,
     String? vehicleDescription,
+    String? fromPlaceId,
+    String? toPlaceId,
   });
 
   Future<List<Trip>> getTripsByTrucker(String truckerId);

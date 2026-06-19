@@ -46,6 +46,11 @@ class CropListing {
   @Index()
   late String locationName;
 
+  /// Canonical place id when [locationName] was chosen via the place selector.
+  /// Local-only hint (not synced): [locationName] stays the source of truth for
+  /// matching. Null for free-text / off-list entries.
+  String? placeId;
+
   /// Text description of the crop condition/quality
   /// Supports Amharic, Afan Oromo, and English
   late String description;

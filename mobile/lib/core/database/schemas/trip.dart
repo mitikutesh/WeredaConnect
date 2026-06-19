@@ -43,6 +43,12 @@ class Trip {
   /// Example: 'Addis Ababa', 'Adama'
   late String toWoreda;
 
+  /// Canonical place ids when the woredas were chosen via the place selector.
+  /// Local-only hints (not synced): [fromWoreda]/[toWoreda] stay the source of
+  /// truth for matching. Null for free-text / off-list entries.
+  String? fromPlaceId;
+  String? toPlaceId;
+
   /// Scheduled departure date and time (UTC)
   /// Truckers typically plan 1-3 days ahead
   @Index()

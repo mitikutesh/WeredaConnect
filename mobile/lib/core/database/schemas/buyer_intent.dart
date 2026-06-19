@@ -36,6 +36,11 @@ class BuyerIntent {
   /// Defaults to buyer's registered woreda
   late String deliveryWoreda;
 
+  /// Canonical place id when [deliveryWoreda] was chosen via the place selector.
+  /// Local-only hint (not synced): the display name in [deliveryWoreda] stays
+  /// the source of truth for matching. Null for free-text / off-list entries.
+  String? placeId;
+
   /// Current status of the intent
   @Index()
   @Enumerated(EnumType.name)

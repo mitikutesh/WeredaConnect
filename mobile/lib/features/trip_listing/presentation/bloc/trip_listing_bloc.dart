@@ -111,6 +111,8 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         departureDate: event.departureDate,
         capacity: event.capacity,
         pricePerQuintal: event.pricePerQuintal,
+        fromPlaceId: event.fromPlaceId,
+        toPlaceId: event.toPlaceId,
       );
       emit(TripCreated(trip: trip));
     } on Object catch (e) {

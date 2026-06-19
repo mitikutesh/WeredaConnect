@@ -11,7 +11,9 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
 
 /// Screen for creating a new crop listing.
@@ -44,6 +46,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
 
   CropType? _selectedCropType;
   String? _audioNoteRef;
+
+  /// The place chosen from the location selector, if any. Null for free text.
+  Place? _selectedLocationPlace;
 
   late final GpsCaptureService _gpsCaptureService;
   GpsCaptureResult? _gpsResult;
@@ -115,6 +120,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             description: _descriptionController.text.trim(),
             audioNoteRef: _audioNoteRef,
             woreda: authState.woreda,
+            placeId: _selectedLocationPlace?.id,
           ),
         );
   }
@@ -259,20 +265,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       const SizedBox(height: 16),
 
                       // Location input
-                      TextFormField(
+                      PlaceSelector(
                         controller: _locationController,
-                        decoration: InputDecoration(
-                          labelText: l10n.location,
-                          prefixIcon: const Icon(Icons.location_on),
-                          hintText: l10n.wereda,
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
-                          ),
-                        ),
-                        keyboardType: TextInputType.text,
-                        textCapitalization: TextCapitalization.words,
+                        labelText: l10n.location,
+                        hintText: l10n.wereda,
+                        prefixIcon: Icons.location_on,
+                        onPlaceSelected: (place) =>
+                            setState(() => _selectedLocationPlace = place),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return l10n.locationRequired;

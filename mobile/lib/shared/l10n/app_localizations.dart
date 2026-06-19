@@ -4203,6 +4203,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Password must be at least 8 characters'**
   String get passwordTooShort;
+
+  /// Hint text shown in the place selector typeahead field
+  ///
+  /// In en, this message translates to:
+  /// **'Search woreda or town'**
+  String get placeSearchHint;
+
+  /// Shown under the place selector when a query matches no place; the user may still submit the free text they typed
+  ///
+  /// In en, this message translates to:
+  /// **'No match — you can use what you typed'**
+  String get placeNoResults;
+
+  /// Accessibility label for the place selector results list
+  ///
+  /// In en, this message translates to:
+  /// **'Place results'**
+  String get placeResultsLabel;
 }
 
 class _AppLocalizationsDelegate

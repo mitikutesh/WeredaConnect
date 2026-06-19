@@ -13,6 +13,7 @@ class CropListing {
   late double pricePerKg;
   late LatLng location;
   late String locationName;
+  String? placeId;
   late String description;
   String? audioNoteRef;
   late ListingStatus status;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -68,7 +69,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
               ..pop(); // pop place order (if still in stack) or crop detail
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
+              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
           }
         },

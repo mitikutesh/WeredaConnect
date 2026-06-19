@@ -138,6 +138,8 @@ class TripListingRepository extends BaseTripListingRepository {
     required double pricePerQuintal,
     String? vehiclePlate,
     String? vehicleDescription,
+    String? fromPlaceId,
+    String? toPlaceId,
   }) async {
     // Normalize phone to canonical E.164 before validation/storage
     final normalizedPhone =
@@ -165,6 +167,8 @@ class TripListingRepository extends BaseTripListingRepository {
       ..vehicleDescription = vehicleDescription
       ..fromWoreda = fromWoreda
       ..toWoreda = toWoreda
+      ..fromPlaceId = fromPlaceId
+      ..toPlaceId = toPlaceId
       ..departureDate = departureDate
       ..capacity = capacity
       ..pricePerQuintal = pricePerQuintal

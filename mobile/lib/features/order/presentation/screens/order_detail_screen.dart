@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -62,7 +63,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             Navigator.of(context).pop();
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
+              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
           }
         },
@@ -74,7 +75,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             return _OrderDetailBody(order: state.order);
           }
           if (state is OrderError) {
-            return Center(child: Text(state.message));
+            return Center(child: Text(localizeErrorCode(state.code, l10n)));
           }
           return const SizedBox.shrink();
         },

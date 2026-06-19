@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -16,6 +17,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/offlin
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Screen for creating a new trip listing.
 ///
@@ -75,6 +77,11 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   final _toWoredaController = TextEditingController();
   final _capacityController = TextEditingController();
   final _priceController = TextEditingController();
+
+  /// Places chosen from the origin/destination selectors. Null for free text
+  /// (including quick-fill chips, which set the text directly).
+  Place? _fromPlace;
+  Place? _toPlace;
 
   DateTime? _selectedDepartureDate;
   List<({String from, String to})> _recentRoutes = [];
@@ -259,6 +266,8 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             departureDate: _selectedDepartureDate!,
             capacity: double.parse(_capacityController.text),
             pricePerQuintal: double.parse(_priceController.text),
+            fromPlaceId: _fromPlace?.id,
+            toPlaceId: _toPlace?.id,
           ),
         );
   }
@@ -326,6 +335,10 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                                       setState(() {
                                         _fromWoredaController.text = route.from;
                                         _toWoredaController.text = route.to;
+                                        // Quick-fill sets raw text, not a picked
+                                        // place — drop any resolved place ids.
+                                        _fromPlace = null;
+                                        _toPlace = null;
                                       });
                                     },
                                   );
@@ -421,19 +434,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                             const SizedBox(height: 16),
 
                             // From Woreda input
-                            TextFormField(
+                            PlaceSelector(
                               controller: _fromWoredaController,
-                              decoration: InputDecoration(
-                                labelText: l10n.fromWoreda,
-                                prefixIcon: const Icon(Icons.trip_origin),
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.text,
-                              textCapitalization: TextCapitalization.words,
+                              labelText: l10n.fromWoreda,
+                              prefixIcon: Icons.trip_origin,
+                              onPlaceSelected: (place) =>
+                                  setState(() => _fromPlace = place),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
                                   return l10n.fromWoredaRequired;
@@ -444,19 +450,12 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                             const SizedBox(height: 16),
 
                             // To Woreda input
-                            TextFormField(
+                            PlaceSelector(
                               controller: _toWoredaController,
-                              decoration: InputDecoration(
-                                labelText: l10n.toWoreda,
-                                prefixIcon: const Icon(Icons.place),
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.text,
-                              textCapitalization: TextCapitalization.words,
+                              labelText: l10n.toWoreda,
+                              prefixIcon: Icons.place,
+                              onPlaceSelected: (place) =>
+                                  setState(() => _toPlace = place),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
                                   return l10n.toWoredaRequired;

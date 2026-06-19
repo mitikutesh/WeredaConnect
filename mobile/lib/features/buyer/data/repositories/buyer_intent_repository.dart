@@ -50,6 +50,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
     required double quantityNeeded,
     required double maxPricePerKg,
     required String deliveryWoreda,
+    String? placeId,
   }) async {
     final intentId = _uuid.v4();
     final now = DateTime.now().toUtc();
@@ -61,6 +62,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
       ..quantityNeeded = quantityNeeded
       ..maxPricePerKg = maxPricePerKg
       ..deliveryWoreda = deliveryWoreda
+      ..placeId = placeId
       ..status = BuyerIntentStatus.active
       ..createdAt = now
       ..updatedAt = now

@@ -31,6 +31,11 @@ class CreateTrip extends TripListingEvent {
   final double capacity;
   final double pricePerQuintal;
 
+  /// Canonical place ids when the woredas were picked from the place selector;
+  /// null for free-text entries. Stored locally only.
+  final String? fromPlaceId;
+  final String? toPlaceId;
+
   const CreateTrip({
     required this.truckerId,
     required this.truckerName,
@@ -42,6 +47,8 @@ class CreateTrip extends TripListingEvent {
     required this.pricePerQuintal,
     this.vehiclePlate,
     this.vehicleDescription,
+    this.fromPlaceId,
+    this.toPlaceId,
   });
 
   @override
@@ -56,6 +63,8 @@ class CreateTrip extends TripListingEvent {
         departureDate,
         capacity,
         pricePerQuintal,
+        fromPlaceId,
+        toPlaceId,
       ];
 }
 

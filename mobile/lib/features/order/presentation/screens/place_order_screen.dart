@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -114,7 +115,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
             );
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
+              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
           }
         },

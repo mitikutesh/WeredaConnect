@@ -1,0 +1,453 @@
+<title>WeredaConnect Security Dashboard — 2026-06-20</title>
+<style>
+  :root {
+    --ground: #131A23;
+    --surface: #1C2530;
+    --surface-2: #232E3B;
+    --line: #2E3B49;
+    --text: #E7EDF3;
+    --muted: #8A97A8;
+    --faint: #5E6B7B;
+
+    --crit: #E5484D;
+    --high: #F76808;
+    --med: #EFB008;
+    --low: #4C8DDA;
+    --info: #6B7785;
+    --ok: #46A758;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #1A2532 0%, rgba(26,37,50,0) 60%),
+      var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 72px; }
+
+  /* ---- masthead ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .eyebrow b { color: var(--text); font-weight: 600; }
+  .eyebrow .dot { color: var(--faint); }
+
+  /* ---- verdict band: the one aesthetic risk ---- */
+  .verdict {
+    position: relative;
+    margin: 20px 0 36px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #3a1d20;
+    background:
+      linear-gradient(90deg, rgba(229,72,77,0.16), rgba(229,72,77,0.04) 70%),
+      var(--surface);
+  }
+  .verdict .hazard {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 46%;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      rgba(229,72,77,0.55) 0px, rgba(229,72,77,0.55) 14px,
+      rgba(229,72,77,0.0) 14px, rgba(229,72,77,0.0) 30px
+    );
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 75%);
+    mask-image: linear-gradient(90deg, transparent, #000 75%);
+    transform: translateX(0);
+    pointer-events: none;
+  }
+  .verdict-inner {
+    position: relative;
+    padding: 26px 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 22px;
+    flex-wrap: wrap;
+  }
+  .verdict .tag {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--crit);
+  }
+  .verdict h1 {
+    margin: 0;
+    font-size: clamp(40px, 8vw, 76px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 0.92;
+    color: var(--text);
+  }
+  .verdict h1 .no { color: var(--crit); }
+  .verdict .sub {
+    margin-left: auto;
+    max-width: 360px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .verdict .sub strong { color: var(--text); font-weight: 600; }
+
+  /* ---- section heads ---- */
+  .head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 40px 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .head .note { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-left: auto; }
+
+  /* ---- KPI cards ---- */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--sev, var(--line));
+    border-radius: 8px;
+    padding: 16px 16px 14px;
+  }
+  .kpi .n {
+    font-family: var(--mono);
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--sev, var(--text));
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi .l {
+    margin-top: 8px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---- blockers ---- */
+  .blockers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .blocker {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--sev, var(--crit));
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .blocker .row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  .blocker .id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .blocker h3 { margin: 0; font-size: 15px; font-weight: 700; }
+  .blocker p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+  .blocker .loc { font-family: var(--mono); font-size: 12px; color: var(--low); word-break: break-all; }
+
+  /* ---- chips & badges ---- */
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #0d1116;
+    white-space: nowrap;
+  }
+  .sev-Critical { background: var(--crit); }
+  .sev-High { background: var(--high); }
+  .sev-Medium { background: var(--med); }
+  .sev-Low { background: var(--low); }
+  .sev-Info { background: var(--info); color: #0d1116; }
+
+  .badge-fix {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ok);
+    border: 1px solid rgba(70,167,88,0.4);
+    background: rgba(70,167,88,0.1);
+    padding: 1px 7px;
+    border-radius: 999px;
+  }
+
+  /* ---- filter bar ---- */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+  .filters button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 13px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .filters button:hover { color: var(--text); border-color: var(--faint); }
+  .filters button[aria-pressed="true"] { color: var(--text); border-color: var(--text); background: var(--surface-2); }
+  .filters button .c { color: var(--faint); }
+
+  /* ---- register table ---- */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 12px 14px;
+    background: var(--surface-2);
+    position: sticky;
+    top: 0;
+  }
+  tbody td { padding: 11px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  td.id { font-family: var(--mono); color: var(--text); white-space: nowrap; }
+  td.title { color: var(--text); }
+  td.comp { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  td.loc { font-family: var(--mono); font-size: 12px; color: var(--low); }
+  td.conf { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .conf-live { color: var(--ok); }
+
+  /* ---- prior pentest ---- */
+  .pp { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 24px; }
+  .pp .item { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .pp .k { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 92px; }
+  .pp .v { color: var(--text); flex: 1; }
+  .st { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+  .st.hold { color: var(--ok); }
+  .st.pend { color: var(--high); }
+  .st.part { color: var(--med); }
+
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
+  footer b { color: var(--muted); font-weight: 600; }
+  a { color: var(--low); }
+
+  @media (max-width: 720px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .blockers, .pp { grid-template-columns: 1fr; }
+    .verdict .sub { margin-left: 0; }
+  }
+
+  /* ---- one orchestrated motion moment ---- */
+  @media (prefers-reduced-motion: no-preference) {
+    .verdict .hazard { animation: slidehaz 700ms cubic-bezier(.2,.7,.2,1) both; }
+    .verdict-inner > * { animation: rise 600ms cubic-bezier(.2,.7,.2,1) both; }
+    .verdict h1 { animation-delay: 80ms; }
+    .verdict .sub { animation-delay: 180ms; }
+    @keyframes slidehaz { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">
+    <span><b>WeredaConnect</b> · Security Assessment</span>
+    <span class="dot">/</span>
+    <span>Whole-application audit</span>
+    <span class="dot">/</span>
+    <span>2026-06-20</span>
+    <span class="dot">/</span>
+    <span>branch <b>buyer-intenet</b></span>
+  </div>
+
+  <div class="verdict">
+    <div class="hazard"></div>
+    <div class="verdict-inner">
+      <div>
+        <div class="tag">General Availability verdict</div>
+        <h1>GA — <span class="no">NO-GO</span></h1>
+      </div>
+      <p class="sub">
+        <strong>3 Critical</strong> and <strong>10 High</strong> findings block launch. Crown-jewel escrow flow held under live testing; role isolation and an admin-escalation chain did not. Two blockers were fixed on 2026-06-20 and await deploy.
+      </p>
+    </div>
+  </div>
+
+  <div class="head"><h2>Findings by severity</h2><span class="note">41 total · live-tested + source-verified</span></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="head"><h2>Top GA blockers</h2><span class="note">fix before launch</span></div>
+  <div class="blockers" id="blockers"></div>
+
+  <div class="head"><h2>Risk register</h2><span class="note" id="shown"></span></div>
+  <div class="filters" id="filters"></div>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Sev</th><th>Title</th><th>Component</th><th>Location</th><th>Confidence</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="head"><h2>Prior pentest status</h2><span class="note">2026-03-05 findings, re-checked</span></div>
+  <div class="pp" id="pp"></div>
+
+  <footer>
+    <p><b>Method.</b> STRIDE threat model + OWASP API Top&nbsp;10 / MASVS / CIS AWS, run by a 7-agent security team (architect, red-teamer, pentester, appsec, mobile, cloud, supply-chain). Pentester live-tested the dev API with real test-user tokens; the lead re-verified every Critical/High against source.</p>
+    <p><b>Confidence.</b> <span style="color:var(--ok)">Live</span> = validated against the running dev API. Static = source-traced only. Full report: <b>docs/security/security-assessment-2026-06-20.md</b>.</p>
+  </footer>
+</div>
+
+<script>
+  const F = [
+    {id:"ROL-01", sev:"Critical", title:"Trucker can read ALL crop listings (deployed Lambda lacks F-36 fix)", comp:"server·deploy", loc:"CropFunction.cs:91-109", conf:"Live"},
+    {id:"ROL-02", sev:"Critical", title:"Farmer can read ALL trip listings (deployed Lambda lacks F-36 fix)", comp:"server·deploy", loc:"TripFunction.cs:92-110", conf:"Live"},
+    {id:"CHAIN-01", sev:"Critical", title:"Admin change_role → self-escalation to admin → escrow release", comp:"server", loc:"AdminFunction.cs:607", conf:"Confirmed", fixed:true},
+    {id:"ROL-03", sev:"High", title:"Access token (no custom:role) bypasses role scoping", comp:"server", loc:"AuthHelper.cs:62-87", conf:"Live"},
+    {id:"DEPLOY-01", sev:"High", title:"No automated server Lambda deploy pipeline (root cause of ROL-01/02)", comp:"server·ci", loc:"pr-validation.yml:132", conf:"Confirmed"},
+    {id:"SRV-01", sev:"High", title:"DEV_OTP_BYPASS absent from ProductionBypassGuard; magic OTP 123456", comp:"server·infra", loc:"api-stack.ts:1345", conf:"Confirmed", fixed:true},
+    {id:"INFRA-01", sev:"High", title:"No AWS WAF on API Gateway (T-SEC-04 still open)", comp:"infra", loc:"api-stack.ts:780-797", conf:"Confirmed"},
+    {id:"INFRA-02", sev:"High", title:"TELEBIRR_MOCK=true on staging; guard fires only for isProd", comp:"infra", loc:"api-stack.ts:636", conf:"Live"},
+    {id:"MOB-01", sev:"High", title:"FieldEncryptor implemented but never invoked → PII plaintext in Isar", comp:"mobile", loc:"field_encryptor.dart", conf:"Confirmed"},
+    {id:"MOB-02", sev:"High", title:"refreshDio bypasses cert pinning → refresh-token theft on MITM", comp:"mobile", loc:"main.dart:73-80", conf:"Confirmed"},
+    {id:"CI-01", sev:"High", title:"Maestro CLI piped curl-to-bash in CI (supply chain)", comp:"ci", loc:"pr-validation.yml:114", conf:"Confirmed"},
+    {id:"SCA-01", sev:"High", title:"react-router 7.13.1 multiple high CVEs in admin panel", comp:"admin", loc:"admin/package.json", conf:"Confirmed"},
+    {id:"SCA-02", sev:"High", title:"Astro 5.x / Vite high CVEs in website", comp:"website", loc:"website/package.json", conf:"Likely"},
+    {id:"INFRA-09", sev:"Medium", title:"Cognito MFA OPTIONAL (not REQUIRED) for prod mobile users", comp:"infra", loc:"api-stack.ts:68", conf:"Confirmed"},
+    {id:"CHAIN-05", sev:"Medium", title:"Order logistics transitions lack trucker-only authorization", comp:"server", loc:"SyncFunction.cs:3247", conf:"Confirmed"},
+    {id:"SRV-02", sev:"Medium", title:"AdminAuthHelper self-parses JWT payload w/o signature verify (fallback)", comp:"server", loc:"AdminAuthHelper.cs:48-95", conf:"Likely"},
+    {id:"INFRA-03", sev:"Medium", title:"No CloudTrail (management-plane audit absent)", comp:"infra", loc:"infra/lib/stacks", conf:"Confirmed"},
+    {id:"INFRA-04", sev:"Medium", title:"API Gateway access logging not enabled", comp:"infra", loc:"api-stack.ts:1292", conf:"Confirmed"},
+    {id:"INFRA-05", sev:"Medium", title:"escrow-audit table grants DeleteItem/UpdateItem to 3 Lambdas", comp:"infra", loc:"api-stack.ts:644", conf:"Confirmed"},
+    {id:"INFRA-06", sev:"Medium", title:"DynamoDB AWS-owned key, not CMK", comp:"infra", loc:"dynamodb-construct.ts:26", conf:"Confirmed"},
+    {id:"INFRA-07", sev:"Medium", title:"S3 uploads/access-logs buckets lack enforceSSL", comp:"infra", loc:"database-stack.ts:437", conf:"Confirmed"},
+    {id:"INFRA-08", sev:"Medium", title:"SNS sandbox exit pending (T-SEC-09) — push/SMS OTP may drop", comp:"infra", loc:"api-stack.ts:403", conf:"Needs val."},
+    {id:"CI-02", sev:"Medium", title:"Third-party GitHub Actions pinned to mutable tags, not SHAs", comp:"ci", loc:".github/workflows", conf:"Confirmed"},
+    {id:"SEC-01", sev:"Medium", title:"LocalStack TLS private key in git history (and on disk) not purged", comp:"server·infra", loc:"server.test.pem.key", conf:"Confirmed"},
+    {id:"SCA-03", sev:"Medium", title:"amazon-cognito-identity-js → vulnerable js-cookie", comp:"admin", loc:"admin/package.json", conf:"Confirmed"},
+    {id:"MOB-03", sev:"Medium", title:"No OS-level pin-set in Android Network Security Config", comp:"mobile", loc:"network_security_config.xml:25", conf:"Confirmed"},
+    {id:"MOB-04", sev:"Medium", title:"Fayda deep link autoVerify=false, no PKCE → intent hijack", comp:"mobile", loc:"AndroidManifest.xml:40", conf:"Likely"},
+    {id:"SCA-04", sev:"Medium", title:"fast-uri path traversal (transitive via aws-cdk-lib, build-time)", comp:"infra", loc:"infra/package.json", conf:"Likely"},
+    {id:"SEC-03", sev:"Medium", title:"Sync idempotency key userId prefix not validated → cross-user DoS", comp:"server", loc:"SyncFunction.cs:375", conf:"Live"},
+    {id:"SRV-04", sev:"Low", title:"Fraud-signal status written without allowlist", comp:"server", loc:"AdminFunction.cs:432", conf:"Confirmed"},
+    {id:"SRV-05", sev:"Low", title:"ex.Message in CloudWatch logs (log-plane PII/path leak)", comp:"server", loc:"SyncFunction.cs:421", conf:"Confirmed"},
+    {id:"MOB-05", sev:"Low", title:"clearAllData() doesn't delete Isar file; plaintext persists", comp:"mobile", loc:"isar_service.dart:395", conf:"Confirmed"},
+    {id:"MOB-06", sev:"Low", title:"Full sync response logged via debugPrint (no-op in release)", comp:"mobile", loc:"sync_executor.dart:462", conf:"Confirmed"},
+    {id:"MOB-07", sev:"Low", title:"Web OfflineAuthCache has no offline password verification", comp:"mobile", loc:"offline_auth_cache_web.dart:90", conf:"Confirmed"},
+    {id:"MOB-08", sev:"Low", title:"Dart obfuscation not enabled in release builds", comp:"mobile", loc:"build.gradle:79", conf:"Confirmed"},
+    {id:"INFRA-10", sev:"Low", title:"GitHub OIDC trust uses StringLike wildcard (all branches/PRs)", comp:"infra", loc:"github-actions-stack.ts:86", conf:"Likely"},
+    {id:"INFRA-11", sev:"Low", title:"Cognito custom:role mutable:true (not client-writable; def-in-depth)", comp:"infra", loc:"api-stack.ts:80", conf:"Needs val."},
+    {id:"SCA-05", sev:"Low", title:"Newtonsoft.Json transitive in TEST project only (AOT ban)", comp:"server", loc:"*.Tests.csproj", conf:"Needs val."},
+    {id:"SEC-04", sev:"Low", title:"Dev CORS: localhost + allowCredentials:true + temp CloudFront URL", comp:"infra", loc:"api-stack.ts:764", conf:"Confirmed"},
+    {id:"SRV-12", sev:"Low", title:"Audit logging present for escrow/sync but not admin actions", comp:"server", loc:"AdminFunction.cs", conf:"Confirmed"},
+    {id:"MOB-09", sev:"Info", title:"Client-side role used for UI gating only (server authoritative)", comp:"mobile", loc:"browse_trips_screen.dart:63", conf:"Not a vuln"}
+  ];
+
+  const ORDER = ["Critical","High","Medium","Low","Info"];
+  const counts = Object.fromEntries(ORDER.map(s => [s, F.filter(f => f.sev === s).length]));
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // KPI cards (with optional count-up)
+  const kpis = document.getElementById("kpis");
+  kpis.innerHTML = ORDER.map(s =>
+    `<div class="kpi" style="--sev:var(--${s.toLowerCase()})"><div class="n" data-n="${counts[s]}">${reduce ? counts[s] : 0}</div><div class="l">${s}</div></div>`
+  ).join("");
+  if (!reduce) {
+    document.querySelectorAll(".kpi .n").forEach(el => {
+      const target = +el.dataset.n; if (!target) { el.textContent = 0; return; }
+      const step = Math.max(1, Math.round(target / 22)); let v = 0;
+      const t = setInterval(() => { v += step; if (v >= target) { v = target; clearInterval(t); } el.textContent = v; }, 28);
+    });
+  }
+
+  // Top blockers
+  const BL = [
+    {id:"ROL-01 / ROL-02", sev:"Critical", h:"Role isolation broken in the deployed Lambda", loc:"fix exists in main (commit 91d489b) — never deployed", p:"Trucker reads all crops; Farmer reads all trips. Live-confirmed. Deploy main + build a server pipeline (DEPLOY-01)."},
+    {id:"CHAIN-01", sev:"Critical", h:"Admin role self-escalation → escrow release", loc:"AdminFunction.cs:607 → EscrowService.cs:1099", p:"change_role wrote any role with no allowlist. Allowlist fix applied 2026-06-20; add staging MFA + admin audit logging.", fixed:true},
+    {id:"SRV-01 · INFRA-01", sev:"High", h:"Auth/edge hardening sweep", loc:"DEV_OTP_BYPASS guard · WAF · staging TELEBIRR_MOCK", p:"DEV_OTP_BYPASS guard applied. WAF blocked on HTTP-API topology — needs /api/* via CloudFront or REST migration."},
+    {id:"MOB-01 · MOB-02", sev:"High", h:"Mobile data at-rest & in-transit", loc:"field_encryptor.dart · main.dart:73", p:"PII stored plaintext despite a built encryptor; refresh-token endpoint skips cert pinning. Wire both."}
+  ];
+  document.getElementById("blockers").innerHTML = BL.map(b =>
+    `<div class="blocker" style="--sev:var(--${b.sev.toLowerCase()})">
+      <div class="row"><span class="chip sev-${b.sev}">${b.sev}</span><span class="id">${b.id}</span>${b.fixed ? '<span class="badge-fix">fix applied</span>' : ''}</div>
+      <h3>${b.h}</h3>
+      <p class="loc">${b.loc}</p>
+      <p>${b.p}</p>
+    </div>`
+  ).join("");
+
+  // Filters + table
+  const filters = document.getElementById("filters");
+  const shown = document.getElementById("shown");
+  const rows = document.getElementById("rows");
+  let active = "All";
+
+  function render() {
+    const list = active === "All" ? F : F.filter(f => f.sev === active);
+    rows.innerHTML = list.map(f =>
+      `<tr>
+        <td class="id">${f.id}${f.fixed ? ' <span class="badge-fix">fixed</span>' : ''}</td>
+        <td><span class="chip sev-${f.sev}">${f.sev}</span></td>
+        <td class="title">${f.title}</td>
+        <td class="comp">${f.comp}</td>
+        <td class="loc">${f.loc}</td>
+        <td class="conf ${f.conf === 'Live' ? 'conf-live' : ''}">${f.conf}</td>
+      </tr>`
+    ).join("");
+    shown.textContent = `showing ${list.length} of ${F.length}`;
+    [...filters.children].forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === active)));
+  }
+
+  const opts = [["All", F.length], ...ORDER.map(s => [s, counts[s]])];
+  filters.innerHTML = opts.map(([s, c]) =>
+    `<button data-s="${s}" aria-pressed="${s === 'All'}">${s} <span class="c">${c}</span></button>`
+  ).join("");
+  filters.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return; active = b.dataset.s; render();
+  });
+  render();
+
+  // Prior pentest status
+  const PP = [
+    ["T-SEC-01","Dev-bypass guard (DEV_FAYDA_BYPASS)","hold","Holds"],
+    ["T-SEC-02","TELEBIRR_MOCK guard","part","Prod ok; staging gap"],
+    ["T-SEC-03","Health-endpoint data leak","hold","Holds"],
+    ["T-SEC-04","WAF on API Gateway","pend","Pending"],
+    ["T-SEC-05","/version.json exposure","hold","Holds"],
+    ["T-SEC-06","Localhost CORS in prod","hold","Holds"],
+    ["T-SEC-07","Admin token validity","hold","Holds"],
+    ["T-SEC-08","Admin MFA","part","Prod ok; off on staging"],
+    ["T-SEC-09","SNS sandbox exit","pend","Pending"],
+    ["T-SEC-10","E2E audit logging","part","Partial"],
+    ["T-GA-03","Certificate pinning","part","Bypassed for refreshDio"],
+    ["T-GA-04","Git history key purge","pend","Pending — also on disk"]
+  ];
+  document.getElementById("pp").innerHTML = PP.map(([k,v,st,label]) =>
+    `<div class="item"><span class="k">${k}</span><span class="v">${v}</span><span class="st ${st}">${label}</span></div>`
+  ).join("");
+</script>

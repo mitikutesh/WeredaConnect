@@ -85,9 +85,13 @@ class OrderCard extends StatelessWidget {
                   _OrderStatusChip(status: order.status, l10n: l10n),
                 ],
               ),
-              // Show accept/reject buttons for pending orders in farmer view
+              // Show accept/reject buttons only once the order is funded (buyer
+              // has paid into escrow). This matches the order detail screen, the
+              // repositories, and the server's funded→accepted transition — at
+              // `created` the farmer can't act yet, so the action would no-op
+              // (mobile) or be rejected by the server (web).
               if (isFarmerView &&
-                  order.status == OrderStatus.created &&
+                  order.status == OrderStatus.funded &&
                   (onAccept != null || onReject != null)) ...[
                 const SizedBox(height: 12),
                 Row(

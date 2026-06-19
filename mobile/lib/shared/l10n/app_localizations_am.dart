@@ -2181,4 +2181,13 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get passwordTooShort => 'የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ሊኖሩት ይገባል';
+
+  @override
+  String get placeSearchHint => 'ወረዳ ወይም ከተማ ይፈልጉ';
+
+  @override
+  String get placeNoResults => 'ተመሳሳይ የለም — የጻፉትን መጠቀም ይችላሉ';
+
+  @override
+  String get placeResultsLabel => 'የቦታ ውጤቶች';
 }

@@ -9,8 +9,11 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_sta
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Screen for buyers to create a buying intent.
 ///
@@ -29,13 +32,25 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
   final _maxPriceController = TextEditingController();
   final _woredaController = TextEditingController();
 
+  /// The place chosen from the selector, if any. Null for free-text entries.
+  Place? _selectedDeliveryPlace;
+
   @override
   void initState() {
     super.initState();
-    // Pre-fill delivery woreda from auth state
+    // Pre-fill delivery woreda from auth state, then try to resolve it to a
+    // known place so the saved intent carries a placeId when possible.
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
-      _woredaController.text = authState.woreda ?? '';
+      final woreda = authState.woreda ?? '';
+      _woredaController.text = woreda;
+      if (woreda.trim().isNotEmpty) {
+        PlaceRepository.instance.ensureLoaded().then((_) {
+          if (!mounted) return;
+          final match = PlaceRepository.instance.findByDisplayName(woreda);
+          if (match != null) setState(() => _selectedDeliveryPlace = match);
+        });
+      }
     }
   }
 
@@ -67,6 +82,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
             quantityNeeded: double.parse(_quantityController.text),
             maxPricePerKg: double.parse(_maxPriceController.text),
             deliveryWoreda: _woredaController.text.trim(),
+            placeId: _selectedDeliveryPlace?.id,
           ),
         );
   }
@@ -197,13 +213,11 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                TextField(
+                PlaceSelector(
                   controller: _woredaController,
-                  decoration: InputDecoration(
-                    border: const OutlineInputBorder(),
-                    hintText: l10n.wereda,
-                    prefixIcon: const Icon(Icons.location_on_outlined),
-                  ),
+                  hintText: l10n.wereda,
+                  onPlaceSelected: (place) =>
+                      setState(() => _selectedDeliveryPlace = place),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 32),
