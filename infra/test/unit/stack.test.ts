@@ -21,8 +21,9 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates twelve DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    template.resourceCountIs('AWS::DynamoDB::Table', 12);
+  test('creates fourteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    // 12 core tables + intents (buyer-intent matching) + device_tokens (push alerts).
+    template.resourceCountIs('AWS::DynamoDB::Table', 14);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -90,8 +91,9 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates sixteen Lambda functions on ARM64', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 16);
+  test('creates nineteen Lambda functions on ARM64', () => {
+    // 16 core handlers + match (buyer intent), device-token, and crop-match-stream (push alerts).
+    template.resourceCountIs('AWS::Lambda::Function', 19);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -99,15 +101,16 @@ describe('ApiStack', () => {
   });
 
   test('creates API Gateway routes for all endpoints', () => {
-    // 25 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
+    // 27 base routes: /health, /auth/register, /auth/fayda-verify, /auth/login, /auth/refresh, /auth/logout,
     //                 /sync, /crops, /crops/{id}, /trips, /trips/{id},
     //                 /orders, /orders/{id},
     //                 /deliveries, /deliveries/{id}, /deliveries/{id}/photos,
     //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history,
     //                 /escrow/by-delivery/{deliveryId} (F-33),
-    //                 /auth/forgot-password, /auth/reset-password
+    //                 /auth/forgot-password, /auth/reset-password,
+    //                 /match (buyer intent matching), /device-tokens (push alerts)
     // 15 admin routes: 12 GET + 3 POST
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 40);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 42);
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {
@@ -163,7 +166,7 @@ describe('ApiStack (prod security)', () => {
     }
   });
 
-  test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS or TELEBIRR_MOCK', () => {
+  test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS, TELEBIRR_MOCK, or DEV_OTP_BYPASS', () => {
     const lambdas = template.findResources('AWS::Lambda::Function');
     for (const resource of Object.values(lambdas)) {
       const env = (resource as Record<string, Record<string, Record<string, Record<string, unknown>>>>)
@@ -171,9 +174,11 @@ describe('ApiStack (prod security)', () => {
       // NOTE: toHaveProperty(key, value) treats arg 2 as the EXPECTED VALUE, not a
       // failure message — passing a message made these assertions vacuous (they only
       // failed if the flag existed AND equaled the message text). This describe builds
-      // the PROD stack, where neither flag is set, so the single-arg form is correct.
+      // the PROD stack, where none of these flags is set, so the single-arg form is correct.
       expect(env).not.toHaveProperty('DEV_FAYDA_BYPASS');
       expect(env).not.toHaveProperty('TELEBIRR_MOCK');
+      // SRV-01/CHAIN-04: dev OTP bypass must never reach prod.
+      expect(env).not.toHaveProperty('DEV_OTP_BYPASS');
     }
   });
 
