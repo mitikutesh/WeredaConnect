@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Step 4: Personal Info — phone, name, woreda, password.
 class PersonalInfoScreen extends StatefulWidget {
@@ -203,13 +204,10 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 const SizedBox(height: 16),
 
                 // Woreda
-                TextFormField(
+                PlaceSelector(
                   controller: _weredaController,
-                  decoration: InputDecoration(
-                    labelText: l10n.wereda,
-                    prefixIcon: const Icon(Icons.location_on),
-                  ),
-                  textCapitalization: TextCapitalization.words,
+                  labelText: l10n.wereda,
+                  prefixIcon: Icons.location_on,
                   maxLength: 100,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -217,7 +215,13 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     }
                     return null;
                   },
+                  // Registration stores the woreda name only (no placeId on the
+                  // User entity / auth contract). Selecting a place writes its
+                  // canonical English name; typing reports the raw text.
                   onChanged: widget.onWeredaChanged,
+                  onPlaceSelected: (place) {
+                    if (place != null) widget.onWeredaChanged(place.en);
+                  },
                 ),
                 const SizedBox(height: 16),
 

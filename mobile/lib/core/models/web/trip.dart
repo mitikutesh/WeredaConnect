@@ -10,6 +10,8 @@ class Trip {
   String? vehicleDescription;
   late String fromWoreda;
   late String toWoreda;
+  String? fromPlaceId;
+  String? toPlaceId;
   late DateTime departureDate;
   late double capacity;
   late double pricePerQuintal;

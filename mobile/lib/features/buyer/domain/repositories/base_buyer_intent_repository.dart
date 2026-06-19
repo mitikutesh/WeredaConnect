@@ -11,6 +11,7 @@ abstract class BaseBuyerIntentRepository {
     required double quantityNeeded,
     required double maxPricePerKg,
     required String deliveryWoreda,
+    String? placeId,
   });
 
   Future<List<BuyerIntent>> getActiveIntents(String buyerId);

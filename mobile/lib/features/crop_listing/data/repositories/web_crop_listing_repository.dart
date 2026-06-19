@@ -27,6 +27,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
+    String? placeId,
   }) async {
     final listingId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -82,6 +83,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
         ..latitude = latitude
         ..longitude = longitude)
       ..locationName = locationName
+      ..placeId = placeId
       ..description = description
       ..audioNoteRef = audioNoteRef
       ..status = ListingStatus.active

@@ -2235,4 +2235,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get passwordTooShort => 'Password must be at least 8 characters';
+
+  @override
+  String get placeSearchHint => 'Search woreda or town';
+
+  @override
+  String get placeNoResults => 'No match — you can use what you typed';
+
+  @override
+  String get placeResultsLabel => 'Place results';
 }

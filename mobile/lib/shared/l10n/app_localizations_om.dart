@@ -2253,4 +2253,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get passwordTooShort => 'Jecha darbii xiqqaatu qubee 8 qabaachuu qaba';
+
+  @override
+  String get placeSearchHint => 'Aanaa ykn magaalaa barbaadi';
+
+  @override
+  String get placeNoResults =>
+      'Wal-fakkaataan hin jirne — waan barreessite fayyadamuu dandeessa';
+
+  @override
+  String get placeResultsLabel => 'Bu\'aawwan iddoo';
 }

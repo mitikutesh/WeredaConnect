@@ -16,12 +16,17 @@ class CreateBuyerIntent extends BuyerIntentEvent {
   final double maxPricePerKg;
   final String deliveryWoreda;
 
+  /// Canonical place id when [deliveryWoreda] was picked from the place
+  /// selector; null for free-text entries. Stored locally only.
+  final String? placeId;
+
   const CreateBuyerIntent({
     required this.buyerId,
     required this.cropType,
     required this.quantityNeeded,
     required this.maxPricePerKg,
     required this.deliveryWoreda,
+    this.placeId,
   });
 
   @override
@@ -31,6 +36,7 @@ class CreateBuyerIntent extends BuyerIntentEvent {
         quantityNeeded,
         maxPricePerKg,
         deliveryWoreda,
+        placeId,
       ];
 }
 

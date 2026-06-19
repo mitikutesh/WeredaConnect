@@ -54,6 +54,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         quantityNeeded: event.quantityNeeded,
         maxPricePerKg: event.maxPricePerKg,
         deliveryWoreda: event.deliveryWoreda,
+        placeId: event.placeId,
       );
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));

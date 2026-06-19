@@ -32,6 +32,10 @@ class CreateCropListing extends CropListingEvent {
   final String? audioNoteRef;
   final String? woreda;
 
+  /// Canonical place id when [locationName] was picked from the place selector;
+  /// null for free-text entries. Stored locally only.
+  final String? placeId;
+
   const CreateCropListing({
     required this.farmerId,
     required this.cropType,
@@ -44,6 +48,7 @@ class CreateCropListing extends CropListingEvent {
     this.farmerName,
     this.audioNoteRef,
     this.woreda,
+    this.placeId,
   });
 
   @override
@@ -59,6 +64,7 @@ class CreateCropListing extends CropListingEvent {
         description,
         audioNoteRef,
         woreda,
+        placeId,
       ];
 }
 

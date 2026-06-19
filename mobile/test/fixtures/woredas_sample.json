@@ -1,0 +1,90 @@
+[
+  {
+    "id": "gn-addis",
+    "en": "Addis Ababa",
+    "am": "አዲስ አበባ",
+    "alts": ["Ādīs Ābeba", "Addis Abeba"],
+    "region": "Addis Ababa",
+    "lat": 9.025,
+    "lng": 38.7469,
+    "population": 3000000
+  },
+  {
+    "id": "gn-adama",
+    "en": "Adama",
+    "am": "አዳማ",
+    "alts": ["Nazret", "Nazreth"],
+    "region": "Oromia",
+    "lat": 8.54,
+    "lng": 39.27,
+    "population": 300000
+  },
+  {
+    "id": "gn-bishoftu",
+    "en": "Bishoftu",
+    "om": "Bishooftuu",
+    "alts": ["Debre Zeit"],
+    "region": "Oromia",
+    "lat": 8.75,
+    "lng": 38.98,
+    "population": 170000
+  },
+  {
+    "id": "gn-assosa",
+    "en": "Assosa",
+    "region": "Benishangul-Gumuz",
+    "lat": 10.07,
+    "lng": 34.53,
+    "population": 50000
+  },
+  {
+    "id": "gn-gambela",
+    "en": "Gambela",
+    "am": "ጋምቤላ",
+    "alts": ["Gambella"],
+    "region": "Gambela",
+    "lat": 8.25,
+    "lng": 34.58,
+    "population": 40000
+  },
+  {
+    "id": "gn-robe",
+    "en": "Robe",
+    "region": "Oromia",
+    "lat": 7.13,
+    "lng": 40.0,
+    "population": 100
+  },
+  {
+    "id": "gn-goba",
+    "en": "Goba",
+    "alts": ["Goba Robe"],
+    "region": "Oromia",
+    "lat": 7.01,
+    "lng": 39.97,
+    "population": 999999
+  },
+  {
+    "id": "gn-bure-amhara",
+    "en": "Bure",
+    "region": "Amhara",
+    "lat": 10.7,
+    "lng": 37.06,
+    "population": 20000
+  },
+  {
+    "id": "gn-bure-oromia",
+    "en": "Bure",
+    "region": "Oromia",
+    "lat": 8.27,
+    "lng": 35.08,
+    "population": 5000
+  },
+  {
+    "id": "gn-mertule",
+    "en": "Mertule Maryam",
+    "region": "Amhara",
+    "lat": 10.43,
+    "lng": 38.21
+  }
+]

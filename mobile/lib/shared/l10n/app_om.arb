@@ -2280,5 +2280,8 @@
   "resetPassword": "Jecha Darbii Jijjiiri",
   "passwordResetSuccess": "Jecha darbii milkaa'inaan jijjiirameera! Amma seenuu dandeessu.",
   "codeRequired": "Koodiin mirkaneessaa barbaachisaadha",
-  "passwordTooShort": "Jecha darbii xiqqaatu qubee 8 qabaachuu qaba"
+  "passwordTooShort": "Jecha darbii xiqqaatu qubee 8 qabaachuu qaba",
+  "placeSearchHint": "Aanaa ykn magaalaa barbaadi",
+  "placeNoResults": "Wal-fakkaataan hin jirne — waan barreessite fayyadamuu dandeessa",
+  "placeResultsLabel": "Bu'aawwan iddoo"
 }
