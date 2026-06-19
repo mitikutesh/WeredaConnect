@@ -226,7 +226,10 @@ void main() {
         deliveryWoreda: 'AddisAbeba',
       );
       await repository.updateMatchCount(
-          intent.intentId, 3, DateTime.now().toUtc());
+        intent.intentId,
+        3,
+        DateTime.now().toUtc(),
+      );
       await repository.updateLastViewed(intent.intentId);
 
       final failing = _FailingMarketplaceSync();
