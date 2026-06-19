@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
@@ -48,7 +49,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -74,7 +75,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         ),
       );
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -113,7 +114,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
       emit(TripCreated(trip: trip));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -144,7 +145,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       }).toList();
       emit(TripsLoaded(trips: updatedTrips));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -161,7 +162,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
       emit(TripStarted(trip: trip));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -178,7 +179,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
       emit(TripDelivered(trip: trip));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -208,7 +209,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
         ),
       );
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString()));
+      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 }

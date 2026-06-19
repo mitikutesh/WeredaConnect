@@ -235,15 +235,17 @@ void main() {
       await tester.pumpWidget(buildFraudTestWidget(controller));
       await tester.pumpAndSettle();
 
-      // Emit a generic error from BLoC
+      // Emit a generic error from BLoC (unknown code → generic localized message)
       controller.add(
         const CropListingError(message: 'Something went wrong'),
       );
       await tester.pump();
       await tester.pump();
 
-      // Verify the raw error message is shown (not a fraud-specific message)
-      expect(find.text('Something went wrong'), findsOneWidget);
+      // Verify the localized generic error is shown (not the raw exception text,
+      // and not a fraud-specific message).
+      expect(find.text('An error occurred'), findsOneWidget);
+      expect(find.text('Something went wrong'), findsNothing);
     });
   });
 }

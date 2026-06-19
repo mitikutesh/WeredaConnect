@@ -164,7 +164,11 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
     });
 
     // A fulfilled intent should no longer trigger alerts — remove the server
-    // copy (the local record is kept for the buyer's history).
+    // copy (the local record is kept for the buyer's history). We deliberately
+    // enqueue a `delete` rather than an `update status=fulfilled`: delete is
+    // idempotent (a no-op if the create op hasn't synced yet), whereas an update
+    // would 404 against a not-yet-created server row. The app has no intent-edit
+    // path, so the server row is never needed again once fulfilled.
     await _enqueueIntent('delete', intent.intentId, {'buyerId': intent.buyerId});
   }
 

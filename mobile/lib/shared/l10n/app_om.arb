@@ -125,6 +125,9 @@
   "@noInternetConnection": {
     "description": "Error message when offline"
   },
+  "errorSessionExpired": "Yeroon seensa keessanii xumurameera. Maaloo irra deebi'aa seenaa.",
+  "errorConflict": "Kun bakka biraatti jijjiirameera. Maaloo haaromsaa irra deebi'aa yaalaa.",
+  "showingCachedResults": "Bu'aawwan kuufaman agarsiisaa jira — haaromsuun hin dandaʼamne.",
   "dataWillSyncWhenOnline": "Yeroo online taatan deetaan keessan walsimsifama",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"

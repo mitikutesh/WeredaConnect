@@ -201,4 +201,65 @@ void main() {
       expect(good, greaterThan(worse));
     });
   });
+
+  // ── Parity guards (MUST match server MatchScoringTests.cs) ─────────────────
+  // The server scorer (MatchScoring.cs) is an independent implementation whose
+  // agreement with this one is the contract's hard invariant. These golden
+  // vectors and the weight-sum check are duplicated verbatim on the C# side; if
+  // a weight/band changes on one platform, the identical assertion fails here.
+  group('parity guards', () {
+    test('weights sum to 1.0', () {
+      expect(
+        MatchScorer.wType +
+            MatchScorer.wPrice +
+            MatchScorer.wGeo +
+            MatchScorer.wQuantity +
+            MatchScorer.wFreshness,
+        closeTo(1.0, 1e-10),
+      );
+    });
+
+    test('golden vector: substitute, partial, disjoint woreda → 0.645', () {
+      // type=substitute(0.6), price=within(1.0), qty=5/10(0.5),
+      // geo=disjoint-proxy(0.3), freshness=fresh(1.0).
+      // 0.35*0.6 + 0.20*1.0 + 0.20*0.3 + 0.15*0.5 + 0.10*1.0 = 0.645
+      final score = scorer.scoreListing(
+        intent(),
+        listing(cropType: 'barley', quantity: 5, locationName: 'Mekelle'),
+        now,
+      );
+      expect(score, closeTo(0.645, 1e-6));
+    });
+
+    test('golden vector: price +10% near-miss band → 0.866667', () {
+      // type=exact(1.0), price=1-(0.10/0.15)=0.333333, qty=1.0,
+      // geo=same-woreda(1.0), freshness=fresh(1.0).
+      // 0.35 + 0.20*0.333333 + 0.20 + 0.15 + 0.10 = 0.866667
+      final score = scorer.scoreListing(intent(), listing(pricePerKg: 110), now);
+      expect(score, closeTo(0.866667, 1e-6));
+    });
+
+    test('haversine Adama→Mekelle pins radius and units (~0.083)', () {
+      // Crop with a real GPS fix on Mekelle, delivering to the Adama centroid
+      // (~550 km) → 1/(1+km/50) ≈ 0.083. Catches a radius/units regression
+      // against the server haversine.
+      final score = scorer.geoScore(intent(), listing(lat: 13.49, lon: 39.47));
+      expect(score, closeTo(0.083, 0.04));
+    });
+
+    test('legume substitutes are reachable (chickpea↔lentils)', () {
+      // Regression: the substitute map previously used non-existent crop types
+      // ("lentil"/"fababean") so legume substitution never matched real data.
+      expect(scorer.candidateCropTypes('chickpea'), containsAll(['chickpea', 'lentils']));
+      expect(scorer.candidateCropTypes('lentils'), containsAll(['lentils', 'chickpea']));
+      expect(
+        scorer.isSubstitute(intent(cropType: 'chickpea'), listing(cropType: 'lentils')),
+        isTrue,
+      );
+      expect(
+        scorer.isCandidate(intent(cropType: 'chickpea'), listing(cropType: 'lentils')),
+        isTrue,
+      );
+    });
+  });
 }

@@ -165,12 +165,18 @@ class WebMatchingService extends BaseMatchingService {
 
   /// Filter trips matching origin → destination route.
   ///
-  /// Mirrors mobile MatchingService logic:
+  /// Approximates mobile MatchingService trip filtering:
   /// - fromWoreda contains listing location (case-insensitive)
   /// - toWoreda contains delivery woreda (case-insensitive)
   /// - departureDate in the future
   /// - capacity >= quantityNeeded
   /// - Sorted by pricePerQuintal ascending
+  ///
+  /// NOTE: mobile applies a 0.01 float tolerance on the capacity check
+  /// (`capacityGreaterThan(needed - 0.01)`); this strict `<` comparison can
+  /// differ from mobile at the exact capacity == needed boundary under float
+  /// representation. Acceptable for the online path (a near-exact capacity match
+  /// is rare and only affects trip suggestions, not crop ranking).
   List<Trip> _filterTripsForRoute(
     List<Trip> trips,
     String fromLocation,

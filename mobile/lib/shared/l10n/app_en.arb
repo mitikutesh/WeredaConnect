@@ -125,6 +125,12 @@
   "@noInternetConnection": {
     "description": "Error message when offline"
   },
+  "errorSessionExpired": "Your session expired. Please sign in again.",
+  "@errorSessionExpired": { "description": "Shown when an authentication/session error occurs" },
+  "errorConflict": "This was updated elsewhere. Refresh and try again.",
+  "@errorConflict": { "description": "Shown on a sync/version conflict (HTTP 409)" },
+  "showingCachedResults": "Showing saved results — couldn't refresh.",
+  "@showingCachedResults": { "description": "Banner when a marketplace refresh failed and cached data is shown" },
   "dataWillSyncWhenOnline": "Your data will sync when you're back online",
   "@dataWillSyncWhenOnline": {
     "description": "Reassurance message for offline operations"

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
@@ -41,7 +42,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
-      emit(CropListingError(message: e.toString()));
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -68,7 +69,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         ),
       );
     } on Object catch (e) {
-      emit(CropListingError(message: e.toString()));
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -94,7 +95,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       );
       emit(CropListingCreated(listing: listing));
     } on Object catch (e) {
-      emit(CropListingError(message: e.toString()));
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -113,7 +114,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
-      emit(CropListingError(message: e.toString()));
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 
@@ -150,7 +151,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         ),
       );
     } on Object catch (e) {
-      emit(CropListingError(message: e.toString()));
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
 }

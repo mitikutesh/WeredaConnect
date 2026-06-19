@@ -54,8 +54,10 @@ class MatchScorer {
   static const int freshFloorDays = 30;
   static const double freshFloor = 0.3;
 
-  /// Geo score returned when either location is unknown, or for crops in a
-  /// different woreda (transport handles the distance, so don't over-penalise).
+  /// Geo score floor returned when either location name is unknown/empty, or
+  /// when the two woreda strings share no substring. Closer textual matches
+  /// score higher (exact = 1.0, partial overlap = 0.6); transport handles the
+  /// distance, so a fully-different woreda is a floor, not a hard reject.
   static const double geoNeutral = 0.3;
 
   /// Distance (km) at which the haversine geo score decays to 0.5
@@ -63,18 +65,18 @@ class MatchScorer {
   /// rural→market distances; tune empirically.
   static const double geoHalfScoreKm = 50.0;
 
-  /// Accepted-substitute map (lowercase English crop names, matching the
-  /// schema's stored form). A buyer asking for the key may also accept the
-  /// listed crops when exact matches are scarce. This is a domain artifact —
-  /// tune it with agronomic / market knowledge. `teff` intentionally has no
-  /// close substitute in the Ethiopian context.
+  /// Accepted-substitute map (lowercase keys MUST match the stored `CropType`
+  /// enum names, e.g. `lentils` not `lentil`). A buyer asking for the key may
+  /// also accept the listed crops when exact matches are scarce. This is a
+  /// domain artifact — tune it with agronomic / market knowledge. `teff`
+  /// intentionally has no close substitute in the Ethiopian context.
   static const Map<String, List<String>> substitutes = {
     'wheat': ['barley'],
     'barley': ['wheat'],
     'maize': ['sorghum'],
     'sorghum': ['maize'],
-    'chickpea': ['lentil', 'fababean'],
-    'lentil': ['chickpea'],
+    'chickpea': ['lentils'],
+    'lentils': ['chickpea'],
   };
 
   /// Crop types to search for a given intent: the exact type plus its accepted
@@ -113,6 +115,11 @@ class MatchScorer {
 
   double priceScore(BuyerIntent intent, CropListing listing) {
     final max = intent.maxPricePerKg;
+    // Mobile intents always carry a positive budget, so a non-positive budget
+    // is a degenerate/draft case and scores at the floor. NOTE: the server
+    // scorer (MatchScoring.PriceScore) deliberately diverges here — it treats
+    // an absent budget as "unconstrained" and returns 1.0, because GET /match
+    // allows budget-less queries. Keep this divergence intentional, not a bug.
     if (max <= 0) return 0;
     if (listing.pricePerKg <= max) return 1.0;
     // Linear decay across the tolerance band: at +0% over → 1.0, at +tol → 0.

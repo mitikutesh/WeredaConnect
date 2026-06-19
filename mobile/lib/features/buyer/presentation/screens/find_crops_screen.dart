@@ -237,6 +237,32 @@ class _MyRequestsTab extends StatelessWidget {
 
           return Column(
             children: [
+              // Offline-first: warn when the marketplace refresh failed and these
+              // counts/matches were computed against cached data (C1).
+              if (state.isStale)
+                Container(
+                  width: double.infinity,
+                  color: Colors.amber.shade100,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_off, size: 16, color: AppTheme.textDark),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l10n.showingCachedResults,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.textDark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: onRefreshMatches,

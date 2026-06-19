@@ -101,6 +101,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get noInternetConnection => 'የበይነመረብ ግንኙነት የለም';
 
   @override
+  String get errorSessionExpired => 'ክፍለ ጊዜዎ አብቅቷል። እባክዎ እንደገና ይግቡ።';
+
+  @override
+  String get errorConflict => 'ይህ በሌላ ቦታ ተቀይሯል። እባክዎ አድሰው እንደገና ይሞክሩ።';
+
+  @override
+  String get showingCachedResults => 'የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።';
+
+  @override
   String get dataWillSyncWhenOnline => 'መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል';
 
   @override

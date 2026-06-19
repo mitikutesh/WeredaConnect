@@ -101,6 +101,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noInternetConnection => 'No internet connection';
 
   @override
+  String get errorSessionExpired =>
+      'Your session expired. Please sign in again.';
+
+  @override
+  String get errorConflict =>
+      'This was updated elsewhere. Refresh and try again.';
+
+  @override
+  String get showingCachedResults =>
+      'Showing saved results — couldn\'t refresh.';
+
+  @override
   String get dataWillSyncWhenOnline =>
       'Your data will sync when you\'re back online';
 

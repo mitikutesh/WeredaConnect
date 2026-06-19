@@ -75,6 +75,25 @@ class _FakeMarketplaceSync implements MarketplaceSync {
   }
 }
 
+/// Fake [MarketplaceSync] whose pull always fails (offline/transient) — used to
+/// verify the C1 fix: a failed refresh must NOT overwrite cached match counts
+/// and must flag the result as stale.
+class _FailingMarketplaceSync implements MarketplaceSync {
+  int pullAllCount = 0;
+
+  @override
+  Future<void> pullAll() async {
+    pullAllCount++;
+    throw Exception('offline');
+  }
+
+  @override
+  Future<void> pullCrops() async => throw Exception('offline');
+
+  @override
+  Future<void> pullTrips() async => throw Exception('offline');
+}
+
 void main() {
   group('BuyerIntentBloc marketplace-backed matching', () {
     late Isar isar;
@@ -192,6 +211,113 @@ void main() {
 
       final created = states.whereType<BuyerIntentCreated>().single;
       expect(created.matches, isEmpty);
+      await bloc.close();
+    });
+
+    test(
+        'C1: a failed pull on RefreshAllMatches preserves the cached count and '
+        'flags the result stale', () async {
+      // Seed an intent with a known good count, then view it (snapshot).
+      final intent = await repository.createIntent(
+        buyerId: 'buyer-1',
+        cropType: 'wheat',
+        quantityNeeded: 5,
+        maxPricePerKg: 150,
+        deliveryWoreda: 'AddisAbeba',
+      );
+      await repository.updateMatchCount(
+          intent.intentId, 3, DateTime.now().toUtc());
+      await repository.updateLastViewed(intent.intentId);
+
+      final failing = _FailingMarketplaceSync();
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: matchingService,
+        marketplaceSync: failing,
+      );
+
+      final states = <BuyerIntentState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(const RefreshAllMatches(buyerId: 'buyer-1'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await sub.cancel();
+
+      expect(failing.pullAllCount, 1);
+      final loaded = states.whereType<ActiveIntentsLoaded>().last;
+      expect(loaded.isStale, isTrue, reason: 'pull failed → stale results');
+      expect(
+        loaded.intents.first.matchCount,
+        3,
+        reason: 'a failed pull must NOT overwrite the cached count (with 0)',
+      );
+      await bloc.close();
+    });
+
+    test('C1: a failed pull on create still emits matches but flags them stale',
+        () async {
+      final failing = _FailingMarketplaceSync();
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: matchingService,
+        marketplaceSync: failing,
+      );
+
+      final created = (await runCreate(bloc)).whereType<BuyerIntentCreated>().single;
+
+      expect(failing.pullAllCount, 1);
+      expect(created.isStale, isTrue);
+      await bloc.close();
+    });
+
+    test('I5: FulfillIntent emits a terminal ActiveIntentsLoaded', () async {
+      final intent = await repository.createIntent(
+        buyerId: 'buyer-1',
+        cropType: 'wheat',
+        quantityNeeded: 5,
+        maxPricePerKg: 150,
+        deliveryWoreda: 'AddisAbeba',
+      );
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: matchingService,
+      );
+
+      final states = <BuyerIntentState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(FulfillIntent(intentId: intent.intentId, buyerId: 'buyer-1'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await sub.cancel();
+
+      final loaded = states.whereType<ActiveIntentsLoaded>().last;
+      expect(
+        loaded.intents,
+        isEmpty,
+        reason: 'a fulfilled intent leaves the active list',
+      );
+      await bloc.close();
+    });
+
+    test('I5: DeleteIntent emits a terminal ActiveIntentsLoaded', () async {
+      final intent = await repository.createIntent(
+        buyerId: 'buyer-1',
+        cropType: 'wheat',
+        quantityNeeded: 5,
+        maxPricePerKg: 150,
+        deliveryWoreda: 'AddisAbeba',
+      );
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: matchingService,
+      );
+
+      final states = <BuyerIntentState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(DeleteIntent(intentId: intent.intentId, buyerId: 'buyer-1'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await sub.cancel();
+
+      final loaded = states.whereType<ActiveIntentsLoaded>().last;
+      expect(loaded.intents, isEmpty);
       await bloc.close();
     });
   });
