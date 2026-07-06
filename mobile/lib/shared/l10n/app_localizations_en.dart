@@ -374,6 +374,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get market => 'Market';
 
   @override
+  String get marketCrops => 'Crops';
+
+  @override
+  String get marketTransport => 'Transport';
+
+  @override
   String get orders => 'Orders';
 
   @override

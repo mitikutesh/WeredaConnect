@@ -21,7 +21,11 @@ import 'package:wereda_connect/shared/widgets/green_header.dart';
 /// Uses GreenHeader for visual consistency with other tabs.
 /// Reads from OrderBloc (provided at app root) via LoadUserOrders.
 class OrdersTabScreen extends StatefulWidget {
-  const OrdersTabScreen({super.key});
+  /// Shows a back button in the header when pushed as a standalone screen
+  /// (roles whose tab bar doesn't include Orders reach it that way).
+  final bool showBackButton;
+
+  const OrdersTabScreen({this.showBackButton = false, super.key});
 
   @override
   State<OrdersTabScreen> createState() => _OrdersTabScreenState();
@@ -329,6 +333,16 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
+                      if (widget.showBackButton)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                          ),
+                          tooltip:
+                              MaterialLocalizations.of(context).backButtonTooltip,
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        ),
                       Expanded(
                         child: Text(
                           l10n.orders,

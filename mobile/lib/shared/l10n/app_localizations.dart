@@ -772,6 +772,18 @@ abstract class AppLocalizations {
   /// **'Market'**
   String get market;
 
+  /// Market hub segment showing all crop listings
+  ///
+  /// In en, this message translates to:
+  /// **'Crops'**
+  String get marketCrops;
+
+  /// Market hub segment showing all trips
+  ///
+  /// In en, this message translates to:
+  /// **'Transport'**
+  String get marketTransport;
+
   /// Orders bottom nav tab label
   ///
   /// In en, this message translates to:

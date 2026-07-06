@@ -377,6 +377,12 @@ class AppLocalizationsOm extends AppLocalizations {
   String get market => 'Gabaa';
 
   @override
+  String get marketCrops => 'Midhaan';
+
+  @override
+  String get marketTransport => 'Geejjiba';
+
+  @override
   String get orders => 'Ajaja';
 
   @override

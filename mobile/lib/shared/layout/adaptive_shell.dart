@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Adaptive shell that switches between sidebar, rail, and bottom navigation.
@@ -18,9 +19,11 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Tablet (600–1024px): Collapsed NavigationRail (72px) with icons
 /// - Mobile (<600px): BottomNavigationBar
 ///
-/// Navigation is **role-aware**: each role sees a dedicated 2nd tab
-/// (Farmer → My Listings, Trucker → My Trips, Buyer → Marketplace).
-/// The sidebar (tablet/desktop) also includes Orders; the bottom nav omits it.
+/// Navigation is **role-shaped** and comes from [tabsForRole] — the same
+/// single source of truth the mobile shell uses, so both platforms always
+/// present identical destination sets per role. The sidebar
+/// (tablet/desktop) appends [sidebarExtrasForRole] so destinations that
+/// didn't earn a bar slot stay one click away on wide screens.
 class AdaptiveShell extends StatelessWidget {
   final Widget child;
 
@@ -28,70 +31,23 @@ class AdaptiveShell extends StatelessWidget {
 
   // ── Destination helpers ──────────────────────────────────────────────
 
-  /// Builds the list of navigation destinations based on role and layout.
-  ///
-  /// All roles get 4 core tabs (symmetric design):
-  ///   Home, [role-specific tab], Deliveries, Payments
-  ///
-  /// Sidebar (tablet/desktop) adds Orders as an extra item.
-  ///
-  /// Role-specific tab:
-  ///   Farmer → My Crops (/my-crops)
-  ///   Trucker → My Trips (/trips)
-  ///   Buyer  → Find Crops (/find-crops)
   List<_NavDestination> _destinations(
     AppLocalizations l10n,
     UserRole role, {
     required bool includeSidebarExtras,
   }) {
-    final roleTab = switch (role) {
-      UserRole.farmer => _NavDestination(
-          Icons.eco_outlined,
-          Icons.eco,
-          l10n.myCrops,
-          '/my-crops',
-        ),
-      UserRole.trucker => _NavDestination(
-          Icons.route_outlined,
-          Icons.route,
-          l10n.myTrips,
-          '/trips',
-        ),
-      UserRole.buyer => _NavDestination(
-          Icons.search_outlined,
-          Icons.search,
-          l10n.findCrops,
-          '/find-crops',
-        ),
-    };
-
+    final tabs = [
+      ...tabsForRole(role),
+      if (includeSidebarExtras) ...sidebarExtrasForRole(role),
+    ];
     return [
-      _NavDestination(
-        Icons.home_outlined,
-        Icons.home,
-        l10n.home,
-        '/',
-      ),
-      roleTab,
-      if (includeSidebarExtras)
+      for (final tab in tabs)
         _NavDestination(
-          Icons.receipt_long_outlined,
-          Icons.receipt_long,
-          l10n.orders,
-          '/orders',
+          tab.icon,
+          tab.activeIcon,
+          tab.label(l10n),
+          tab.route,
         ),
-      _NavDestination(
-        Icons.local_shipping_outlined,
-        Icons.local_shipping,
-        l10n.deliveries,
-        '/deliveries',
-      ),
-      _NavDestination(
-        Icons.payments_outlined,
-        Icons.payments,
-        l10n.payments,
-        '/payments',
-      ),
     ];
   }
 
@@ -173,11 +129,11 @@ class AdaptiveShell extends StatelessWidget {
 
       return Scaffold(
         body: child,
-        floatingActionButton: FloatingActionButton(
+        floatingActionButton: FloatingActionButton.extended(
           onPressed: () => _onFabPressed(context, role),
-          backgroundColor: AppTheme.primaryGreen,
-          tooltip: _fabTooltip(l10n, role),
-          child: const Icon(Icons.add, color: Colors.white),
+          shape: const StadiumBorder(),
+          icon: const Icon(Icons.add),
+          label: Text(_fabTooltip(l10n, role)),
         ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: clampedIndex,
@@ -221,10 +177,11 @@ class AdaptiveShell extends StatelessWidget {
           Expanded(child: child),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _onFabPressed(context, role),
-        tooltip: _fabTooltip(l10n, role),
-        child: const Icon(Icons.add),
+        shape: const StadiumBorder(),
+        icon: const Icon(Icons.add),
+        label: Text(_fabTooltip(l10n, role)),
       ),
     );
   }

@@ -29,10 +29,13 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
+import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/stat_tile.dart';
@@ -883,13 +886,21 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             label: l10n.myOrders,
             color: AppTheme.statusInfo,
-            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
+            onTap: () => _goToRoute(
+              context,
+              '/orders',
+              mobileTabIndex: roleTabIndex(role, RoleTab.orders),
+            ),
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.accentGold,
-            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
+            onTap: () => _goToRoute(
+              context,
+              '/deliveries',
+              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
+            ),
           ),
         ];
       case UserRole.trucker:
@@ -915,19 +926,42 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             label: l10n.myOrders,
             color: AppTheme.statusInfo,
-            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
+            onTap: () {
+              // Orders isn't a trucker tab (truckers act on deliveries) —
+              // reachable here as a pushed screen instead.
+              if (kIsWeb) {
+                context.go('/orders');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: OrdersTabScreen(showBackButton: true),
+                    ),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
+            },
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
+            onTap: () => _goToRoute(
+              context,
+              '/deliveries',
+              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
+            ),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
+            onTap: () => _goToRoute(
+              context,
+              '/payments',
+              mobileTabIndex: roleTabIndex(role, RoleTab.payments),
+            ),
           ),
         ];
       case UserRole.buyer:
@@ -970,19 +1004,40 @@ class _QuickActionsGrid extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             label: l10n.myOrders,
             color: AppTheme.statusInfo,
-            onTap: () => _goToRoute(context, '/orders', mobileTabIndex: 1),
+            onTap: () => _goToRoute(
+              context,
+              '/orders',
+              mobileTabIndex: roleTabIndex(role, RoleTab.orders),
+            ),
           ),
           _QuickActionTile(
             icon: Icons.local_shipping_outlined,
             label: l10n.myDeliveries,
             color: AppTheme.statusTransit,
-            onTap: () => _goToRoute(context, '/deliveries', mobileTabIndex: 2),
+            onTap: () => _goToRoute(
+              context,
+              '/deliveries',
+              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
+            ),
           ),
           _QuickActionTile(
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.myPayments,
             color: AppTheme.accentGold,
-            onTap: () => _goToRoute(context, '/payments', mobileTabIndex: 3),
+            onTap: () {
+              // Payments isn't a buyer tab (a buyer's money lives on the
+              // order timeline) — payment history pushes instead.
+              if (kIsWeb) {
+                context.go('/payments');
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const PaymentHistoryScreen(),
+                  ),
+                ).then((_) => onRefresh?.call());
+              }
+            },
           ),
         ];
     }
@@ -2481,13 +2536,28 @@ class _NotificationIconState extends State<_NotificationIcon> {
   void _handleNotifTap(BuildContext sheetContext, _NotifItem item) {
     _dismissNotification(item.key);
     Navigator.of(sheetContext).pop(); // close sheet
+    final authState = context.read<AuthBloc>().state;
+    final role =
+        authState is AuthAuthenticated ? authState.role : UserRole.farmer;
     switch (item.action) {
       case _NotifAction.syncStatus:
         _openSyncStatusSheet();
       case _NotifAction.deliveriesTab:
-        widget.onNavigateToTab?.call(2);
+        final index = roleTabIndex(role, RoleTab.deliveries);
+        if (index != null) widget.onNavigateToTab?.call(index);
       case _NotifAction.paymentsTab:
-        widget.onNavigateToTab?.call(3);
+        // Payments is only a trucker tab; other roles push history.
+        final index = roleTabIndex(role, RoleTab.payments);
+        if (index != null) {
+          widget.onNavigateToTab?.call(index);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const PaymentHistoryScreen(),
+            ),
+          );
+        }
     }
   }
 

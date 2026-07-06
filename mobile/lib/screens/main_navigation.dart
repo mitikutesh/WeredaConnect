@@ -12,19 +12,23 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
+import 'package:wereda_connect/screens/market_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/payments_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Main navigation with center FAB + 4-tab bottom bar.
+/// Main navigation with a labeled center FAB + role-shaped 4-tab bar.
 ///
-/// Tabs: Home | Orders | [FAB] | Deliveries | Payments
-/// The FAB creates a listing/trip or opens market depending on role.
+/// Tab sets come from [tabsForRole] — each role's bar reflects its actual
+/// job (see role_navigation.dart). The FAB is the role's create verb.
 /// No AppBar — each screen manages its own header.
 /// Profile accessible from header icon on each screen.
 class MainNavigation extends StatefulWidget {
@@ -63,18 +67,25 @@ class _MainNavigationState extends State<MainNavigation> {
     if (mounted) setState(() => _homeRefreshKey++);
   }
 
-  List<Widget> _buildScreens() {
+  List<Widget> _buildScreens(UserRole role) {
     return [
-      HomeScreen(
-        key: ValueKey('home_$_homeRefreshKey'),
-        isOnline: _isOnline,
-        onNavigateToTab: (index) {
-          setState(() => _currentIndex = index);
+      for (final tab in tabsForRole(role))
+        switch (tab) {
+          RoleTab.home => HomeScreen(
+              key: ValueKey('home_$_homeRefreshKey'),
+              isOnline: _isOnline,
+              onNavigateToTab: (index) {
+                setState(() => _currentIndex = index);
+              },
+            ),
+          RoleTab.myCrops =>
+            const BrowseListingsScreen(ownerMode: true, embedded: true),
+          RoleTab.myTrips => const BrowseTripsScreen(embedded: true),
+          RoleTab.market => const MarketScreen(),
+          RoleTab.orders => const OrdersTabScreen(),
+          RoleTab.deliveries => const DeliveriesTabScreen(),
+          RoleTab.payments => const PaymentsTabScreen(),
         },
-      ),
-      const OrdersTabScreen(),
-      const DeliveriesTabScreen(),
-      const PaymentsTabScreen(),
     ];
   }
 
@@ -117,7 +128,10 @@ class _MainNavigationState extends State<MainNavigation> {
       builder: (context, authState) {
         final role =
             authState is AuthAuthenticated ? authState.role : UserRole.farmer;
-        final screens = _buildScreens();
+        final screens = _buildScreens(role);
+        final tabs = tabsForRole(role);
+        // Role changes rebuild the tab set; never index past it.
+        if (_currentIndex >= screens.length) _currentIndex = 0;
 
         return BlocListener<ConflictBloc, ConflictState>(
           listener: (context, state) {
@@ -169,56 +183,42 @@ class _MainNavigationState extends State<MainNavigation> {
           },
           child: Scaffold(
             body: screens[_currentIndex],
-            floatingActionButton: FloatingActionButton(
+            // The role's one create verb, labeled — an icon-only "+"
+            // assumes app-convention literacy; a verb assumes nothing.
+            floatingActionButton: FloatingActionButton.extended(
               onPressed: () => _onFabPressed(context, role),
-              tooltip: switch (role) {
-                UserRole.farmer => l10n.sellCrops,
-                UserRole.trucker => l10n.postTrip,
-                UserRole.buyer => l10n.newBuyingIntent,
-              },
-              child: const Icon(Icons.add),
+              shape: const StadiumBorder(),
+              icon: const Icon(Icons.add),
+              label: Text(
+                switch (role) {
+                  UserRole.farmer => l10n.sellCrops,
+                  UserRole.trucker => l10n.postTrip,
+                  UserRole.buyer => l10n.newBuyingIntent,
+                },
+              ),
             ),
             floatingActionButtonLocation:
                 FloatingActionButtonLocation.centerDocked,
             bottomNavigationBar: BottomAppBar(
-              shape: const CircularNotchedRectangle(),
+              shape: const AutomaticNotchedShape(
+                RoundedRectangleBorder(),
+                StadiumBorder(),
+              ),
               notchMargin: 8,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _NavItem(
-                    icon: Icons.home_outlined,
-                    activeIcon: Icons.home,
-                    label: l10n.home,
-                    index: 0,
-                    currentIndex: _currentIndex,
-                    onTap: () => setState(() => _currentIndex = 0),
-                  ),
-                  _NavItem(
-                    icon: Icons.receipt_long_outlined,
-                    activeIcon: Icons.receipt_long,
-                    label: l10n.orders,
-                    index: 1,
-                    currentIndex: _currentIndex,
-                    onTap: () => setState(() => _currentIndex = 1),
-                  ),
-                  const SizedBox(width: 48), // FAB gap
-                  _NavItem(
-                    icon: Icons.local_shipping_outlined,
-                    activeIcon: Icons.local_shipping,
-                    label: l10n.deliveries,
-                    index: 2,
-                    currentIndex: _currentIndex,
-                    onTap: () => setState(() => _currentIndex = 2),
-                  ),
-                  _NavItem(
-                    icon: Icons.account_balance_wallet_outlined,
-                    activeIcon: Icons.account_balance_wallet,
-                    label: l10n.payments,
-                    index: 3,
-                    currentIndex: _currentIndex,
-                    onTap: () => setState(() => _currentIndex = 3),
-                  ),
+                  for (var i = 0; i < tabs.length; i++) ...[
+                    if (i == 2) const SizedBox(width: 48), // FAB gap
+                    _NavItem(
+                      icon: tabs[i].icon,
+                      activeIcon: tabs[i].activeIcon,
+                      label: tabs[i].label(l10n),
+                      index: i,
+                      currentIndex: _currentIndex,
+                      onTap: () => setState(() => _currentIndex = i),
+                    ),
+                  ],
                 ],
               ),
             ),
