@@ -1,17 +1,27 @@
 @import "tailwindcss";
 
+/*
+ * WeredaConnect tokens — must match mobile/lib/shared/theme/app_theme.dart
+ * and website/src/styles/global.css (design brief 2026-07-06).
+ * Money (#A64B1A) is reserved for money-moving actions only.
+ */
 @theme {
   --color-primary: #1a6b5c;
-  --color-primary-light: #238272;
-  --color-primary-dark: #145549;
+  --color-primary-light: #2d9b89;
+  --color-primary-dark: #14524a;
+  --color-money: #a64b1a;
   --color-accent: #d4804a;
-  --color-accent-light: #e09565;
+  --color-accent-light: #e09a6c;
   --color-cream: #f5f3f0;
+  --color-surface: #ffffff;
   --color-text: #1e293b;
-  --color-text-muted: #64748b;
+  --color-text-muted: #526071;
+  --color-border: #e2e8f0;
   --color-danger: #dc2626;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-info: #1d4ed8;
+  --color-transit: #6d28d9;
 }
 
 body {

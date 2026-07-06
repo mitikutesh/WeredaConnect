@@ -1,15 +1,20 @@
 @import "tailwindcss";
 
+/*
+ * WeredaConnect tokens — must match mobile/lib/shared/theme/app_theme.dart
+ * and admin/src/index.css (design brief 2026-07-06).
+ */
 @theme {
   --color-primary: #1A6B5C;
   --color-primary-light: #2D9B89;
   --color-primary-dark: #14524A;
+  --color-money: #A64B1A;
   --color-accent: #D4804A;
   --color-accent-light: #E09A6C;
   --color-cream: #F5F3F0;
   --color-surface: #FFFFFF;
   --color-text-dark: #1E293B;
-  --color-text-muted: #64748B;
+  --color-text-muted: #526071;
   --color-border-light: #E2E8F0;
 }
 
