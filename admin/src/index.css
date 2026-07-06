@@ -24,12 +24,24 @@
   --color-transit: #6d28d9;
 }
 
+/* Self-hosted variable font (400-700) — Amharic/fidäl must render
+ * consistently without a CDN round-trip. Latin uses system-ui. */
+@font-face {
+  font-family: "Noto Sans Ethiopic";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/NotoSansEthiopic-var.woff2") format("woff2");
+  unicode-range: U+1200-137F, U+1380-139F, U+2D80-2DDF, U+AB00-AB2F,
+    U+FE20-FE2F;
+}
+
 body {
   margin: 0;
   font-family:
-    "Inter",
     system-ui,
     -apple-system,
+    "Noto Sans Ethiopic",
     sans-serif;
   background-color: var(--color-cream);
   color: var(--color-text);

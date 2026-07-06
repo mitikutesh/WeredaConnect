@@ -18,21 +18,14 @@
   --color-border-light: #E2E8F0;
 }
 
+/* Self-hosted variable font (400-700) — was CDN-loaded; local file keeps
+ * fidäl rendering consistent and independent of gstatic availability. */
 @font-face {
   font-family: 'Noto Sans Ethiopic';
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 700;
   font-display: swap;
-  src: url('https://fonts.gstatic.com/s/notosansethiopic/v47/7cHPv50vjIepfJVOZZgcpQ5B9FBTH9KGNfhSTgtoow1KVnIvyBoMSzUMacb-T35OKqDjJgR.woff2') format('woff2');
-  unicode-range: U+1200-137F, U+1380-139F, U+2D80-2DDF, U+AB00-AB2F, U+FE20-FE2F;
-}
-
-@font-face {
-  font-family: 'Noto Sans Ethiopic';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('https://fonts.gstatic.com/s/notosansethiopic/v47/7cHPv50vjIepfJVOZZgcpQ5B9FBTH9KGNfhSTgtoow1KVnIvyBoMSzUMacb-T35OK9_jJgR.woff2') format('woff2');
+  src: url('/fonts/NotoSansEthiopic-var.woff2') format('woff2');
   unicode-range: U+1200-137F, U+1380-139F, U+2D80-2DDF, U+AB00-AB2F, U+FE20-FE2F;
 }
 

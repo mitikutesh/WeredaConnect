@@ -175,7 +175,13 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: scaffoldBackground,
-      textTheme: _textTheme(text: text, muted: muted),
+      // Bundled families: Latin in Noto Sans, Ethiopic glyphs fall back
+      // to Noto Sans Ethiopic — one consistent face on every device.
+      fontFamily: 'NotoSans',
+      textTheme: _textTheme(text: text, muted: muted).apply(
+        fontFamily: 'NotoSans',
+        fontFamilyFallback: const ['NotoSansEthiopic'],
+      ),
 
       // ── AppBar ────────────────────────────────────────────────────
       appBarTheme: AppBarTheme(

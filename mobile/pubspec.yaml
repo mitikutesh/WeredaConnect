@@ -94,10 +94,22 @@ flutter:
   assets:
     - assets/data/ethiopia_woredas.json
 
-  # Fonts
-  # fonts:
-  #   - family: NotoSansEthiopic
-  #     fonts:
-  #       - asset: fonts/NotoSansEthiopic-Regular.ttf
-  #       - asset: fonts/NotoSansEthiopic-Bold.ttf
-  #         weight: 700
+  # Fonts — Noto Sans (Latin) + Noto Sans Ethiopic (Amharic fidäl),
+  # bundled so all three languages render identically on every device
+  # and offline (design brief 2026-07-06). Weights match the type
+  # scale: 400 / 600 / 700.
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: NotoSansEthiopic
+      fonts:
+        - asset: assets/fonts/NotoSansEthiopic-Regular.ttf
+        - asset: assets/fonts/NotoSansEthiopic-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSansEthiopic-Bold.ttf
+          weight: 700
