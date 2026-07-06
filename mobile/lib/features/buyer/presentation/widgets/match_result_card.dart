@@ -9,13 +9,19 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 ///
 /// Displays: crop type + location, farmer name, quantity + price,
 /// trip count badge, and estimated total cost.
+///
+/// The card itself opens the listing detail; [onOrder] renders a primary
+/// Order button so the funnel's money moment is one tap from the match
+/// (previously buyers had to find Place Order two screens deeper).
 class MatchResultCard extends StatelessWidget {
   final CropMatchResult result;
   final VoidCallback onTap;
+  final VoidCallback? onOrder;
 
   const MatchResultCard({
     required this.result,
     required this.onTap,
+    this.onOrder,
     super.key,
   });
 
@@ -119,6 +125,33 @@ class MatchResultCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (onOrder != null) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onTap,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(40),
+                        ),
+                        child: Text(l10n.viewDetails),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onOrder,
+                        icon: const Icon(Icons.shopping_cart, size: 18),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(40),
+                        ),
+                        label: Text(l10n.placeOrder),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

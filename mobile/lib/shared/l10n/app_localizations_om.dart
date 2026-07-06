@@ -1890,6 +1890,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get placeOrder => 'Ajaja Galmeessi';
 
   @override
+  String get viewDetails => 'Bal\'ina Ilaali';
+
+  @override
   String get cropCost => 'Gatii Midhaanii';
 
   @override

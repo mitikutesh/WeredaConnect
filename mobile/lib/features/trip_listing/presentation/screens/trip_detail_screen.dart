@@ -8,7 +8,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -65,7 +65,7 @@ class TripDetailScreen extends StatelessWidget {
         body: SafeArea(
           child: Column(
             children: [
-              const TripOfflineBanner(),
+              const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24.0),

@@ -1876,6 +1876,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get placeOrder => 'Place Order';
 
   @override
+  String get viewDetails => 'View Details';
+
+  @override
   String get cropCost => 'Crop Cost';
 
   @override

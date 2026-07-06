@@ -3562,6 +3562,12 @@ abstract class AppLocalizations {
   /// **'Place Order'**
   String get placeOrder;
 
+  /// Secondary button opening a listing/match detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'View Details'**
+  String get viewDetails;
+
   /// Label for the crop cost line in price breakdown
   ///
   /// In en, this message translates to:

@@ -20,7 +20,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Full delivery details with status timeline and action buttons.
@@ -94,7 +94,7 @@ class DeliveryDetailScreen extends StatelessWidget {
         body: SafeArea(
           child: Column(
             children: [
-              const TripOfflineBanner(),
+              const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),

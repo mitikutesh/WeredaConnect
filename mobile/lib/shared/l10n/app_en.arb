@@ -2539,6 +2539,10 @@
     "description": "Error when Fayda ID is already used by another user"
   },
   "placeOrder": "Place Order",
+  "viewDetails": "View Details",
+  "@viewDetails": {
+    "description": "Secondary button opening a listing/match detail screen"
+  },
   "@placeOrder": {
     "description": "Button label to place a new order"
   },

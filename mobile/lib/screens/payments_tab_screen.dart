@@ -10,6 +10,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Payments tab screen — GreenHeader + embedded PaymentHistoryScreen.
 ///
@@ -85,6 +86,7 @@ class PaymentsTabScreen extends StatelessWidget {
               ],
             ),
           ),
+          const OfflineBanner(),
           const Expanded(
             child: PaymentHistoryScreen(embedded: true),
           ),

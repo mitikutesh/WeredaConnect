@@ -12,7 +12,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
-import 'package:wereda_connect/features/crop_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';

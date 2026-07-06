@@ -9,7 +9,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -141,7 +141,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                 ],
               ),
             ),
-            const TripOfflineBanner(),
+            const OfflineBanner(),
             // Filter row
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

@@ -1828,6 +1828,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get placeOrder => 'ትዕዛዝ ያስገቡ';
 
   @override
+  String get viewDetails => 'ዝርዝር ይመልከቱ';
+
+  @override
   String get cropCost => 'የሰብል ዋጋ';
 
   @override

@@ -15,6 +15,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// Orders tab screen — shows incoming/outgoing orders with status filter chips.
 ///
@@ -367,6 +368,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                 ],
               ),
             ),
+            const OfflineBanner(),
             filterChips,
             orderList,
           ],
