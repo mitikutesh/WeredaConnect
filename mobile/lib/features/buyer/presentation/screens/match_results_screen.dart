@@ -82,8 +82,12 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
                 }
                 if (state is BuyerIntentError) {
                   return Center(
-                    child: Text(localizeErrorCode(
-                        state.code, AppLocalizations.of(context)!,),),
+                    child: Text(
+                      localizeErrorCode(
+                        state.code,
+                        AppLocalizations.of(context)!,
+                      ),
+                    ),
                   );
                 }
                 return const Center(child: CircularProgressIndicator());
@@ -140,11 +144,15 @@ class _MatchResultsBody extends StatelessWidget {
           if (isStale)
             Container(
               width: double.infinity,
-              color: Colors.amber.shade100,
+              color: AppTheme.statusWarningContainer,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Icon(Icons.cloud_off, size: 16, color: AppTheme.textDark),
+                  const Icon(
+                    Icons.cloud_off,
+                    size: 16,
+                    color: AppTheme.textDark,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(

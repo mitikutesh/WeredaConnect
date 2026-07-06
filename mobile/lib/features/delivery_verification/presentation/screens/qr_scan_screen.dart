@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// QR scan screen for pickup and delivery verification.
 ///
@@ -185,7 +186,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   state.code,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -267,7 +268,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           // Green checkmark
           const Icon(
             Icons.check_circle,
-            color: Colors.green,
+            color: AppTheme.statusSuccess,
             size: 64,
           ),
           const SizedBox(height: 16),
@@ -275,7 +276,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             l10n.deliveryQrVerified,
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Colors.green,
+              color: AppTheme.statusSuccess,
             ),
           ),
           const SizedBox(height: 8),
@@ -306,7 +307,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             child: FilledButton(
               onPressed: _isConfirming ? null : _confirm,
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: AppTheme.statusSuccess,
                 minimumSize: const Size.fromHeight(48),
               ),
               child: _isConfirming
@@ -388,14 +389,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
+                color: AppTheme.statusWarning.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   const Icon(
                     Icons.warning_amber,
-                    color: Colors.orange,
+                    color: AppTheme.statusWarning,
                     size: 20,
                   ),
                   const SizedBox(width: 8),
@@ -403,7 +404,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                     child: Text(
                       AppLocalizations.of(context)!.deliveryGpsUnavailable,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.orange.shade800,
+                        color: AppTheme.onStatusWarningContainer,
                       ),
                     ),
                   ),
@@ -439,7 +440,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           children: [
             const Icon(
               Icons.cancel,
-              color: Colors.red,
+              color: AppTheme.statusError,
               size: 64,
             ),
             const SizedBox(height: 16),
@@ -447,7 +448,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               l10n.deliveryQrFailed,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
-                color: Colors.red,
+                color: AppTheme.statusError,
               ),
             ),
             const SizedBox(height: 8),

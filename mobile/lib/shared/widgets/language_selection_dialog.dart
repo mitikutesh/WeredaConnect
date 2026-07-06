@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Dialog for selecting the app language.
 ///
@@ -69,7 +70,7 @@ class LanguageSelectionDialog extends StatelessWidget {
               ),
             ),
             secondary: isSelected
-                ? const Icon(Icons.check, color: Colors.green)
+                ? const Icon(Icons.check, color: AppTheme.statusSuccess)
                 : null,
           );
         }).toList(),

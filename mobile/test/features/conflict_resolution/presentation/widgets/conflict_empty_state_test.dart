@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_empty_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 Widget _buildWidget(Widget child) {
   return MaterialApp(
@@ -26,7 +27,7 @@ void main() {
 
       final icon = tester.widget<Icon>(find.byIcon(Icons.check_circle));
       expect(icon.size, equals(80));
-      expect(icon.color, equals(Colors.green.shade400));
+      expect(icon.color, equals(AppTheme.statusSuccess));
     });
 
     testWidgets('shows title text from l10n.conflictEmptyTitle',

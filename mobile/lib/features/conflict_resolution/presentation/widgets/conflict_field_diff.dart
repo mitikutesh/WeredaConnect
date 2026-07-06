@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Stacked row showing the server value for one changed field.
 ///
@@ -23,10 +24,10 @@ class ConflictFieldDiff extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.green.shade50,
+        color: AppTheme.statusSuccessContainer,
         borderRadius: BorderRadius.circular(4),
-        border: Border(
-          left: BorderSide(color: Colors.green.shade700, width: 4),
+        border: const Border(
+          left: BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -37,14 +38,18 @@ class ConflictFieldDiff extends StatelessWidget {
             children: [
               Text(
                 l10n.conflictCurrentVersion.toUpperCase(),
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
-                  color: Colors.green.shade800,
+                  color: AppTheme.onStatusSuccessContainer,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(width: 4),
-              Icon(Icons.check, size: 16, color: Colors.green.shade700),
+              const Icon(
+                Icons.check,
+                size: 16,
+                color: AppTheme.onStatusSuccessContainer,
+              ),
             ],
           ),
           const SizedBox(height: 4),

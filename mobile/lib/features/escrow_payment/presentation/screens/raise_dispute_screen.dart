@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen for raising a dispute on an escrowed payment.
 ///
@@ -124,7 +125,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                   state.message,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -235,7 +236,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                           : const Icon(Icons.warning_amber),
                       label: Text(l10n.escrowDisputeSubmit),
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.orange.shade800,
+                        backgroundColor: AppTheme.onStatusWarningContainer,
                         minimumSize: const Size.fromHeight(56),
                         textStyle: const TextStyle(fontSize: 18),
                       ),
@@ -304,7 +305,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                     );
               },
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.orange.shade800,
+                backgroundColor: AppTheme.onStatusWarningContainer,
               ),
               child: Text(dl10n.escrowDisputeSubmit),
             ),
@@ -322,18 +323,18 @@ class _ExpiredBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
+        color: AppTheme.statusError.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+        border: Border.all(color: AppTheme.statusError.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.cancel, color: Colors.red),
+          const Icon(Icons.cancel, color: AppTheme.statusError),
           const SizedBox(width: 12),
           Text(
             l10n.escrowDisputeWindowExpired,
-            style: TextStyle(
-              color: Colors.red.shade800,
+            style: const TextStyle(
+              color: AppTheme.onStatusErrorContainer,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -354,21 +355,22 @@ class _CountdownBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.1),
+        color: AppTheme.statusWarning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+        border:
+            Border.all(color: AppTheme.statusWarning.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.timer, color: Colors.orange),
+          const Icon(Icons.timer, color: AppTheme.statusWarning),
           const SizedBox(width: 12),
           Text(
             l10n.escrowDisputeTimeRemaining(
               remaining.inHours,
               remaining.inMinutes.remainder(60),
             ),
-            style: TextStyle(
-              color: Colors.orange.shade800,
+            style: const TextStyle(
+              color: AppTheme.onStatusWarningContainer,
               fontWeight: FontWeight.w600,
             ),
           ),

@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Raise a dispute within 48 hours of delivery confirmation.
 ///
@@ -82,7 +83,8 @@ class _DisputeScreenState extends State<DisputeScreen> {
                       ),
                     );
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style:
+                  TextButton.styleFrom(foregroundColor: AppTheme.statusError),
               child: Text(l10n.deliveryDisputeSubmit),
             ),
           ],
@@ -119,7 +121,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
                   state.code,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -166,17 +168,17 @@ class _DisputeScreenState extends State<DisputeScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.05),
+                        color: AppTheme.statusError.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.2),
+                          color: AppTheme.statusError.withValues(alpha: 0.2),
                         ),
                       ),
                       child: Row(
                         children: [
                           const Icon(
                             Icons.timer_off,
-                            color: Colors.red,
+                            color: AppTheme.statusError,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
@@ -184,7 +186,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
                             child: Text(
                               l10n.deliveryDisputeExpired,
                               style: const TextStyle(
-                                color: Colors.red,
+                                color: AppTheme.statusError,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -197,25 +199,25 @@ class _DisputeScreenState extends State<DisputeScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.05),
+                        color: AppTheme.statusWarning.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: Colors.orange.withValues(alpha: 0.2),
+                          color: AppTheme.statusWarning.withValues(alpha: 0.2),
                         ),
                       ),
                       child: Row(
                         children: [
                           const Icon(
                             Icons.timer,
-                            color: Colors.orange,
+                            color: AppTheme.statusWarning,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               '${l10n.deliveryDisputeTimeRemaining}: ${remaining.inHours}h ${remaining.inMinutes.remainder(60)}m',
-                              style: TextStyle(
-                                color: Colors.orange.shade800,
+                              style: const TextStyle(
+                                color: AppTheme.onStatusWarningContainer,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -261,7 +263,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
                       onPressed:
                           _isExpired || _isSubmitting ? null : _submitDispute,
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.red,
+                        backgroundColor: AppTheme.statusError,
                         minimumSize: const Size.fromHeight(48),
                       ),
                       child: _isSubmitting

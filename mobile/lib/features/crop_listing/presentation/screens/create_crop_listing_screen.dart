@@ -15,6 +15,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 import 'package:wereda_connect/shared/widgets/voice_note_widget.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen for creating a new crop listing.
 ///
@@ -143,21 +144,21 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(l10n.fraudDuplicateListing),
-                backgroundColor: Colors.orange,
+                backgroundColor: AppTheme.statusWarning,
               ),
             );
           } else if (state.message.contains('FRAUD_VELOCITY_EXCEEDED')) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(l10n.fraudVelocityExceeded),
-                backgroundColor: Colors.orange,
+                backgroundColor: AppTheme.statusWarning,
               ),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(localizeErrorCode(state.code, l10n)),
-                backgroundColor: Colors.red,
+                backgroundColor: AppTheme.statusError,
               ),
             );
           }
@@ -405,12 +406,16 @@ class _GpsStatusIndicator extends StatelessWidget {
     if (gpsResult != null && gpsResult!.isAvailable) {
       return Row(
         children: [
-          Icon(Icons.check_circle, size: 16, color: Colors.green.shade600),
+          const Icon(
+            Icons.check_circle,
+            size: 16,
+            color: AppTheme.statusSuccess,
+          ),
           const SizedBox(width: 8),
           Text(
             l10n.deliveryGpsCaptured,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.green.shade600,
+                  color: AppTheme.statusSuccess,
                 ),
           ),
         ],
@@ -419,21 +424,25 @@ class _GpsStatusIndicator extends StatelessWidget {
 
     return Row(
       children: [
-        Icon(Icons.warning_amber, size: 16, color: Colors.orange.shade700),
+        const Icon(
+          Icons.warning_amber,
+          size: 16,
+          color: AppTheme.onStatusWarningContainer,
+        ),
         const SizedBox(width: 8),
         Text(
           l10n.deliveryGpsUnavailable,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.orange.shade700,
+                color: AppTheme.onStatusWarningContainer,
               ),
         ),
         const SizedBox(width: 8),
         GestureDetector(
           onTap: onRetry,
-          child: Icon(
+          child: const Icon(
             Icons.refresh,
             size: 16,
-            color: Colors.orange.shade700,
+            color: AppTheme.onStatusWarningContainer,
           ),
         ),
       ],
@@ -471,7 +480,7 @@ class _CropTypeGrid extends StatelessWidget {
               border: Border.all(
                 color: isSelected
                     ? theme.colorScheme.primary
-                    : Colors.grey.shade300,
+                    : AppTheme.borderLight,
                 width: isSelected ? 2 : 1,
               ),
               borderRadius: BorderRadius.circular(12),
@@ -486,7 +495,7 @@ class _CropTypeGrid extends StatelessWidget {
                   size: 32,
                   color: isSelected
                       ? theme.colorScheme.primary
-                      : Colors.grey.shade600,
+                      : AppTheme.textMuted,
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -495,7 +504,7 @@ class _CropTypeGrid extends StatelessWidget {
                     fontSize: 12,
                     color: isSelected
                         ? theme.colorScheme.primary
-                        : Colors.grey.shade700,
+                        : AppTheme.textMuted,
                     fontWeight:
                         isSelected ? FontWeight.bold : FontWeight.normal,
                   ),

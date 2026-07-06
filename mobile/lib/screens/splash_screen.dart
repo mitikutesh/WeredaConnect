@@ -15,7 +15,7 @@ class SplashScreen extends StatelessWidget {
   final VoidCallback onGetStarted;
 
   // ── Design tokens ─────────────────────────────────────────────────────
-  static const _bgColor = Color(0xFFEDEBE8); // dirty white
+  static const _bgColor = AppTheme.backgroundCream;
 
   @override
   Widget build(BuildContext context) {

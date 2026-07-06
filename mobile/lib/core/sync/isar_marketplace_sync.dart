@@ -113,14 +113,11 @@ class IsarMarketplaceSync implements MarketplaceSync {
       await _isar.trips.filter().not().truckerIdEqualTo(userId).deleteAll();
       return;
     }
-    final staleIds = (await _isar.trips
-            .filter()
-            .not()
-            .truckerIdEqualTo(userId)
-            .findAll())
-        .where((t) => !protectedIds.contains(t.tripId))
-        .map((t) => t.id)
-        .toList();
+    final staleIds =
+        (await _isar.trips.filter().not().truckerIdEqualTo(userId).findAll())
+            .where((t) => !protectedIds.contains(t.tripId))
+            .map((t) => t.id)
+            .toList();
     await _isar.trips.deleteAll(staleIds);
   }
 

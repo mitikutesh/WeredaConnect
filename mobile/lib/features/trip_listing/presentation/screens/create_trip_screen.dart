@@ -369,8 +369,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                         child: OutlinedButton(
                           onPressed: isLoading ? null : _handleBack,
                           child: Text(
-                            MaterialLocalizations.of(context)
-                                .backButtonTooltip,
+                            MaterialLocalizations.of(context).backButtonTooltip,
                           ),
                         ),
                       ),
@@ -669,8 +668,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             IconButton(
-              onPressed: () =>
-                  _adjustValue(_priceController, -10, 0.01, 10000),
+              onPressed: () => _adjustValue(_priceController, -10, 0.01, 10000),
               icon: const Icon(Icons.remove_circle_outline),
               iconSize: 28,
               constraints: const BoxConstraints(minWidth: 56, minHeight: 56),

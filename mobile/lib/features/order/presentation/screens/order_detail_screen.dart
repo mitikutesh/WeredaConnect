@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Full order detail screen with status timeline and role-based actions.
 ///
@@ -275,8 +276,8 @@ class _OrderDetailBody extends StatelessWidget {
                       );
                 },
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
+                  foregroundColor: AppTheme.statusError,
+                  side: const BorderSide(color: AppTheme.statusError),
                   minimumSize: const Size.fromHeight(48),
                 ),
                 child: Text(l10n.rejectOrder),
@@ -338,8 +339,8 @@ class _OrderDetailBody extends StatelessWidget {
           child: OutlinedButton(
             onPressed: () => _showCancelDialog(context, order, userId, l10n),
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
+              foregroundColor: AppTheme.statusError,
+              side: const BorderSide(color: AppTheme.statusError),
               minimumSize: const Size.fromHeight(48),
             ),
             child: Text(l10n.cancelOrder),
@@ -431,7 +432,7 @@ class _OrderDetailBody extends StatelessWidget {
                 Navigator.pop(dialogContext);
               },
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: AppTheme.statusError,
               ),
               child: Text(l10n.cancelOrder),
             ),

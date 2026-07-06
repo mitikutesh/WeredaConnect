@@ -625,7 +625,7 @@ class _BannerCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isFarmer
-              ? [AppTheme.primaryGreen, const Color(0xFF2E7D32)]
+              ? [AppTheme.primary, AppTheme.primaryDeep]
               : [AppTheme.accentGold, AppTheme.accentGoldLight],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -2001,7 +2001,7 @@ class _SyncStatusIconState extends State<_SyncStatusIcon>
     if (_failedCount > 0) {
       return (
         icon: Icons.cloud_off_outlined,
-        color: const Color(0xFFFF8A80),
+        color: AppTheme.statusError,
       );
     }
     if (_pendingCount > 0) {

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_field_diff.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 Widget _buildWidget(Widget child) {
   return MaterialApp(
@@ -70,12 +71,12 @@ void main() {
       );
 
       final decoration = container.decoration as BoxDecoration;
-      expect(decoration.color, equals(Colors.green.shade50));
+      expect(decoration.color, equals(AppTheme.statusSuccessContainer));
       expect(
         decoration.border,
         equals(
           Border(
-            left: BorderSide(color: Colors.green.shade700, width: 4),
+            left: BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
           ),
         ),
       );
@@ -129,7 +130,7 @@ void main() {
       final labelText = tester.widget<Text>(find.text('CURRENT VERSION'));
       expect(labelText.style?.fontSize, equals(12));
       expect(labelText.style?.fontWeight, equals(FontWeight.w600));
-      expect(labelText.style?.color, equals(Colors.green.shade800));
+      expect(labelText.style?.color, equals(AppTheme.onStatusSuccessContainer));
     });
 
     testWidgets('field value text has fontSize 14',

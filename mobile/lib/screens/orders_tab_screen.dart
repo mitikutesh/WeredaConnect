@@ -340,8 +340,8 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                             Icons.arrow_back,
                             color: Colors.white,
                           ),
-                          tooltip:
-                              MaterialLocalizations.of(context).backButtonTooltip,
+                          tooltip: MaterialLocalizations.of(context)
+                              .backButtonTooltip,
                           onPressed: () => Navigator.of(context).maybePop(),
                         ),
                       Expanded(

@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/rais
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Escrow detail screen showing status, amount, timeline, and actions.
 ///
@@ -82,7 +83,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
                     const Icon(
                       Icons.error_outline,
                       size: 64,
-                      color: Colors.red,
+                      color: AppTheme.statusError,
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -171,7 +172,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
                       value: l10n.escrowEtbAmount(
                         _amountFormat.format(payment.farmerPayout),
                       ),
-                      valueColor: Colors.green.shade700,
+                      valueColor: AppTheme.onStatusSuccessContainer,
                     ),
                   ],
                 ),
@@ -250,8 +251,10 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
                 icon: const Icon(Icons.warning_amber),
                 label: Text(l10n.escrowRaiseDispute),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange.shade800,
-                  side: BorderSide(color: Colors.orange.shade800),
+                  foregroundColor: AppTheme.onStatusWarningContainer,
+                  side: const BorderSide(
+                    color: AppTheme.onStatusWarningContainer,
+                  ),
                   minimumSize: const Size.fromHeight(48),
                 ),
               ),
@@ -302,21 +305,21 @@ class _DisputeInfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.05),
+        color: AppTheme.statusError.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+        border: Border.all(color: AppTheme.statusError.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.warning, color: Colors.red.shade700),
+              const Icon(Icons.warning, color: AppTheme.onStatusErrorContainer),
               const SizedBox(width: 8),
               Text(
                 AppLocalizations.of(context)!.escrowDisputeDetailsTitle,
                 style: theme.textTheme.titleMedium?.copyWith(
-                  color: Colors.red.shade700,
+                  color: AppTheme.onStatusErrorContainer,
                   fontWeight: FontWeight.bold,
                 ),
               ),

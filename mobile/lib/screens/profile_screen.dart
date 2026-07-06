@@ -632,7 +632,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: Icons.delete_sweep,
           title: 'Reset Test Data',
           subtitle: 'Clear all business data',
-          iconColor: Colors.orange,
+          iconColor: AppTheme.statusWarning,
           onTap: () => _showResetTestData(context),
         ),
     ];
@@ -872,7 +872,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   }
                 }
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              style:
+                  TextButton.styleFrom(foregroundColor: AppTheme.statusWarning),
               child: const Text('Reset'),
             ),
           ],

@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_s
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen showing full details of a single trip.
 ///
@@ -52,7 +53,7 @@ class TripDetailScreen extends StatelessWidget {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(localizeErrorCode(state.code, l10n)),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -150,7 +151,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
+                                      backgroundColor: AppTheme.statusSuccess,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -191,7 +192,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
+                                      backgroundColor: AppTheme.statusSuccess,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -237,7 +238,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: AppTheme.statusError,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -330,7 +331,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.startTrip,
       body: l10n.startTripConfirmation,
       confirmLabel: l10n.startTrip,
-      confirmColor: Colors.green,
+      confirmColor: AppTheme.statusSuccess,
       eventFactory: (truckerId) =>
           StartTrip(tripId: trip.tripId, truckerId: truckerId),
     );
@@ -345,7 +346,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.markDelivered,
       body: l10n.markDeliveredConfirmation,
       confirmLabel: l10n.markDelivered,
-      confirmColor: Colors.green,
+      confirmColor: AppTheme.statusSuccess,
       eventFactory: (truckerId) =>
           MarkTripDelivered(tripId: trip.tripId, truckerId: truckerId),
     );
@@ -357,7 +358,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.cancelTrip,
       body: l10n.cancelTripConfirmation,
       confirmLabel: l10n.cancelTrip,
-      confirmColor: Colors.red,
+      confirmColor: AppTheme.statusError,
       eventFactory: (truckerId) =>
           CancelTrip(tripId: trip.tripId, truckerId: truckerId),
     );

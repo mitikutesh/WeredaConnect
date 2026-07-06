@@ -102,7 +102,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                           const Icon(
                             Icons.error_outline,
                             size: 56,
-                            color: Colors.red,
+                            color: AppTheme.statusError,
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -266,7 +266,8 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                       CancelPaymentIntent(idempotencyKey: idempotencyKey),
                     );
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style:
+                  TextButton.styleFrom(foregroundColor: AppTheme.statusError),
               child: Text(dl10n.escrowCancelIntent),
             ),
           ],
