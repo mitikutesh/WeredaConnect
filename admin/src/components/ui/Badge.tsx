@@ -1,13 +1,22 @@
 import type { ReactNode } from "react";
 
-type Variant = "default" | "success" | "warning" | "danger" | "info";
+type Variant =
+  | "default"
+  | "success"
+  | "warning"
+  | "danger"
+  | "info"
+  | "transit";
 
+/* Token-driven — mirrors the mobile StatusChip vocabulary so the same
+ * state reads the same color in the app and the admin console. */
 const variants: Record<Variant, string> = {
-  default: "bg-gray-100 text-gray-700",
-  success: "bg-green-100 text-green-700",
-  warning: "bg-amber-100 text-amber-700",
-  danger: "bg-red-100 text-red-700",
-  info: "bg-blue-100 text-blue-700",
+  default: "bg-text-muted/10 text-text-muted",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  danger: "bg-danger/10 text-danger",
+  info: "bg-info/10 text-info",
+  transit: "bg-transit/10 text-transit",
 };
 
 interface BadgeProps {

@@ -34,7 +34,7 @@ void main() {
         });
       }
 
-      testWidgets('initiated shows grey hourglass_empty',
+      testWidgets('initiated shows neutral hourglass_empty',
           (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
@@ -45,10 +45,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.hourglass_empty);
-        expect(icon.color, AppTheme.textMuted);
+        expect(icon.color, AppTheme.onStatusNeutralContainer);
       });
 
-      testWidgets('escrowed shows amber shield', (WidgetTester tester) async {
+      testWidgets('escrowed shows warning shield', (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.escrowed),
@@ -58,10 +58,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.shield);
-        expect(icon.color, AppTheme.statusWarning);
+        expect(icon.color, AppTheme.onStatusWarningContainer);
       });
 
-      testWidgets('released shows blue send', (WidgetTester tester) async {
+      testWidgets('released shows info send', (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.released),
@@ -71,10 +71,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.send);
-        expect(icon.color, AppTheme.statusInfo);
+        expect(icon.color, AppTheme.onStatusInfoContainer);
       });
 
-      testWidgets('completed shows green check_circle',
+      testWidgets('completed shows success check_circle',
           (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
@@ -85,10 +85,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.check_circle);
-        expect(icon.color, AppTheme.statusSuccess);
+        expect(icon.color, AppTheme.onStatusSuccessContainer);
       });
 
-      testWidgets('cancelled shows grey cancel', (WidgetTester tester) async {
+      testWidgets('cancelled shows neutral cancel', (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.cancelled),
@@ -98,10 +98,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.cancel);
-        expect(icon.color, AppTheme.textMuted);
+        expect(icon.color, AppTheme.onStatusNeutralContainer);
       });
 
-      testWidgets('disputed shows red warning', (WidgetTester tester) async {
+      testWidgets('disputed shows error warning', (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.disputed),
@@ -111,10 +111,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.warning);
-        expect(icon.color, AppTheme.statusError);
+        expect(icon.color, AppTheme.onStatusErrorContainer);
       });
 
-      testWidgets('refunded shows teal replay', (WidgetTester tester) async {
+      testWidgets('refunded shows info replay', (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.refunded),
@@ -124,10 +124,10 @@ void main() {
 
         final icon = tester.widget<Icon>(find.byType(Icon));
         expect(icon.icon, Icons.replay);
-        expect(icon.color, AppTheme.primaryGreenLight);
+        expect(icon.color, AppTheme.onStatusInfoContainer);
       });
 
-      testWidgets('compact variant has 16px icon size',
+      testWidgets('compact variant has the shared StatusChip icon size (14px)',
           (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
@@ -137,7 +137,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final icon = tester.widget<Icon>(find.byType(Icon));
-        expect(icon.size, 16);
+        expect(icon.size, 14);
       });
     });
 

@@ -9,8 +9,10 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Screen showing full details of a single trip.
 ///
@@ -423,6 +425,9 @@ class _RouteHeader extends StatelessWidget {
 }
 
 /// Status badge for the detail screen (larger than card version).
+///
+/// Uses the shared status vocabulary — same kind mapping as the trip card,
+/// so the detail screen can never show a different color for the same state.
 class _TripDetailStatusBadge extends StatelessWidget {
   final TripStatus status;
 
@@ -431,29 +436,18 @@ class _TripDetailStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, label) = switch (status) {
-      TripStatus.open => (Colors.green, l10n.tripStatusOpen),
-      TripStatus.matched => (Colors.blue, l10n.tripStatusMatched),
-      TripStatus.inTransit => (Colors.orange, l10n.tripStatusInTransit),
-      TripStatus.delivered => (Colors.green, l10n.tripStatusDelivered),
-      TripStatus.cancelled => (Colors.red, l10n.tripStatusCancelled),
+    final label = switch (status) {
+      TripStatus.open => l10n.tripStatusOpen,
+      TripStatus.matched => l10n.tripStatusMatched,
+      TripStatus.inTransit => l10n.tripStatusInTransit,
+      TripStatus.delivered => l10n.tripStatusDelivered,
+      TripStatus.cancelled => l10n.tripStatusCancelled,
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    return StatusChip(
+      label: label,
+      kind: tripStatusKind(status),
+      large: true,
     );
   }
 }

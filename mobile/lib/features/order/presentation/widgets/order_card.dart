@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Card displaying a single order in a list.
 ///
@@ -102,8 +104,10 @@ class OrderCard extends StatelessWidget {
                         child: OutlinedButton(
                           onPressed: onReject,
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
-                            side: const BorderSide(color: Colors.red),
+                            foregroundColor: AppTheme.onStatusErrorContainer,
+                            side: const BorderSide(
+                              color: AppTheme.onStatusErrorContainer,
+                            ),
                           ),
                           child: Text(l10n.rejectOrder),
                         ),
@@ -128,6 +132,27 @@ class OrderCard extends StatelessWidget {
   }
 }
 
+/// Maps order lifecycle states onto the shared six-kind status vocabulary.
+StatusKind orderStatusKind(OrderStatus status) {
+  return switch (status) {
+    OrderStatus.created => StatusKind.neutral,
+    OrderStatus.pendingPayment => StatusKind.warning,
+    OrderStatus.paymentSubmitted => StatusKind.warning,
+    OrderStatus.funded => StatusKind.info,
+    OrderStatus.accepted => StatusKind.info,
+    OrderStatus.rejected => StatusKind.error,
+    OrderStatus.cancelled => StatusKind.neutral,
+    OrderStatus.pickupConfirmed => StatusKind.transit,
+    OrderStatus.inTransit => StatusKind.transit,
+    OrderStatus.delivered => StatusKind.success,
+    OrderStatus.disbursing => StatusKind.info,
+    OrderStatus.settled => StatusKind.success,
+    OrderStatus.paymentFailed => StatusKind.error,
+    OrderStatus.disputed => StatusKind.error,
+    OrderStatus.disputeResolved => StatusKind.neutral,
+  };
+}
+
 class _OrderStatusChip extends StatelessWidget {
   final OrderStatus status;
   final AppLocalizations l10n;
@@ -136,42 +161,24 @@ class _OrderStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (color, label) = switch (status) {
-      OrderStatus.created => (Colors.orange, l10n.statusCreated),
-      OrderStatus.pendingPayment => (Colors.orange, l10n.statusPendingPayment),
-      OrderStatus.paymentSubmitted => (
-          Colors.amber,
-          l10n.statusPaymentSubmitted
-        ),
-      OrderStatus.funded => (Colors.teal, l10n.statusFunded),
-      OrderStatus.accepted => (Colors.green, l10n.orderAccepted),
-      OrderStatus.rejected => (Colors.red, l10n.orderRejected),
-      OrderStatus.cancelled => (Colors.grey, l10n.orderCancelled),
-      OrderStatus.pickupConfirmed => (Colors.blue, l10n.statusPickupConfirmed),
-      OrderStatus.inTransit => (Colors.indigo, l10n.statusInTransit),
-      OrderStatus.delivered => (Colors.green, l10n.statusDelivered),
-      OrderStatus.disbursing => (Colors.teal, l10n.statusDisbursing),
-      OrderStatus.settled => (Colors.green.shade800, l10n.statusSettled),
-      OrderStatus.paymentFailed => (Colors.red, l10n.statusPaymentFailed),
-      OrderStatus.disputed => (Colors.deepOrange, l10n.statusDisputed),
-      OrderStatus.disputeResolved => (Colors.grey, l10n.statusDisputeResolved),
+    final label = switch (status) {
+      OrderStatus.created => l10n.statusCreated,
+      OrderStatus.pendingPayment => l10n.statusPendingPayment,
+      OrderStatus.paymentSubmitted => l10n.statusPaymentSubmitted,
+      OrderStatus.funded => l10n.statusFunded,
+      OrderStatus.accepted => l10n.orderAccepted,
+      OrderStatus.rejected => l10n.orderRejected,
+      OrderStatus.cancelled => l10n.orderCancelled,
+      OrderStatus.pickupConfirmed => l10n.statusPickupConfirmed,
+      OrderStatus.inTransit => l10n.statusInTransit,
+      OrderStatus.delivered => l10n.statusDelivered,
+      OrderStatus.disbursing => l10n.statusDisbursing,
+      OrderStatus.settled => l10n.statusSettled,
+      OrderStatus.paymentFailed => l10n.statusPaymentFailed,
+      OrderStatus.disputed => l10n.statusDisputed,
+      OrderStatus.disputeResolved => l10n.statusDisputeResolved,
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+    return StatusChip(label: label, kind: orderStatusKind(status));
   }
 }

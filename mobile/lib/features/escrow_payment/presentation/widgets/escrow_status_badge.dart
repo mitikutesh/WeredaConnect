@@ -2,9 +2,25 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
+
+/// Maps escrow payment states onto the shared six-kind status vocabulary.
+StatusKind escrowStatusKind(PaymentStatus status) {
+  return switch (status) {
+    PaymentStatus.initiated => StatusKind.neutral,
+    PaymentStatus.escrowed => StatusKind.warning,
+    PaymentStatus.released => StatusKind.info,
+    PaymentStatus.completed => StatusKind.success,
+    PaymentStatus.cancelled => StatusKind.neutral,
+    PaymentStatus.disputed => StatusKind.error,
+    PaymentStatus.refunded => StatusKind.info,
+  };
+}
 
 /// Color-coded status badge for escrow payment status.
+///
+/// Colors come from the shared status vocabulary; icons stay
+/// escrow-specific (shield = funds held, send = released, …).
 ///
 /// Supports two sizes:
 /// - Default: compact chip with icon + label (for list cards)
@@ -22,26 +38,28 @@ class EscrowStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, icon) = _statusVisual(status);
+    final kind = escrowStatusKind(status);
+    final icon = _statusIcon(status);
     final label = _statusLabel(status, l10n);
 
     if (large) {
+      final fg = kind.foreground;
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
+          color: kind.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: fg.withValues(alpha: 0.25)),
         ),
         child: Column(
           children: [
-            Icon(icon, size: 48, color: color),
+            Icon(icon, size: 48, color: fg),
             const SizedBox(height: 8),
             Text(
               label.toUpperCase(),
               style: TextStyle(
-                color: color,
+                color: fg,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.2,
@@ -51,7 +69,7 @@ class EscrowStatusBadge extends StatelessWidget {
             Text(
               _statusDescription(status, l10n),
               style: TextStyle(
-                color: color.withValues(alpha: 0.8),
+                color: fg.withValues(alpha: 0.8),
                 fontSize: 14,
               ),
             ),
@@ -60,40 +78,18 @@ class EscrowStatusBadge extends StatelessWidget {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
+    return StatusChip(label: label, kind: kind, icon: icon);
   }
 
-  static (Color, IconData) _statusVisual(PaymentStatus status) {
+  static IconData _statusIcon(PaymentStatus status) {
     return switch (status) {
-      PaymentStatus.initiated => (AppTheme.textMuted, Icons.hourglass_empty),
-      PaymentStatus.escrowed => (AppTheme.statusWarning, Icons.shield),
-      PaymentStatus.released => (AppTheme.statusInfo, Icons.send),
-      PaymentStatus.completed => (AppTheme.statusSuccess, Icons.check_circle),
-      PaymentStatus.cancelled => (AppTheme.textMuted, Icons.cancel),
-      PaymentStatus.disputed => (AppTheme.statusError, Icons.warning),
-      PaymentStatus.refunded => (AppTheme.primaryGreenLight, Icons.replay),
+      PaymentStatus.initiated => Icons.hourglass_empty,
+      PaymentStatus.escrowed => Icons.shield,
+      PaymentStatus.released => Icons.send,
+      PaymentStatus.completed => Icons.check_circle,
+      PaymentStatus.cancelled => Icons.cancel,
+      PaymentStatus.disputed => Icons.warning,
+      PaymentStatus.refunded => Icons.replay,
     };
   }
 
