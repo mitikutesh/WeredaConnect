@@ -119,6 +119,14 @@ class AdaptiveShell extends StatelessWidget {
     final role =
         authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
+    // Role identity accent — decorative only; picks the variant with
+    // ≥3:1 icon contrast for the ground it sits on.
+    final isDarkTheme = Theme.of(context).brightness == Brightness.dark;
+    final navAccent =
+        isDarkTheme ? AppTheme.darkRoleAccent(role) : AppTheme.roleAccent(role);
+    // The sidebar ground is the dark teal rail in both themes.
+    final sidebarAccent = AppTheme.darkRoleAccent(role);
+
     if (windowClass == WindowClass.mobile) {
       final dests = _destinations(l10n, role, includeSidebarExtras: false);
       final selectedIndex = _currentIndex(context, dests);
@@ -139,8 +147,7 @@ class AdaptiveShell extends StatelessWidget {
           currentIndex: clampedIndex,
           onTap: (i) => _onDestinationSelected(context, i, dests),
           type: BottomNavigationBarType.fixed,
-          selectedItemColor:
-              selectedIndex < 0 ? AppTheme.textMuted : AppTheme.primaryGreen,
+          selectedItemColor: selectedIndex < 0 ? AppTheme.textMuted : navAccent,
           unselectedItemColor: AppTheme.textMuted,
           items: dests
               .map(
@@ -168,6 +175,7 @@ class AdaptiveShell extends StatelessWidget {
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
+            accent: sidebarAccent,
             currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
@@ -196,6 +204,12 @@ class _Sidebar extends StatelessWidget {
   final bool expanded;
   final int selectedIndex;
   final List<_NavDestination> destinations;
+
+  /// Role identity accent (decorative) for the logo tile and the
+  /// selected item — always a dark-ground variant, since the rail is
+  /// dark teal in both themes.
+  final Color accent;
+
   final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
@@ -205,6 +219,7 @@ class _Sidebar extends StatelessWidget {
     required this.expanded,
     required this.selectedIndex,
     required this.destinations,
+    required this.accent,
     required this.currentLocation,
     required this.onSelected,
     required this.onProfileTap,
@@ -232,7 +247,7 @@ class _Sidebar extends StatelessWidget {
       child: Column(
         children: [
           // App branding
-          _SidebarHeader(expanded: expanded),
+          _SidebarHeader(expanded: expanded, accent: accent),
           const SizedBox(height: 8),
           // Navigation items
           Expanded(
@@ -244,6 +259,7 @@ class _Sidebar extends StatelessWidget {
                     item: destinations[i],
                     selected: selectedIndex == i,
                     expanded: expanded,
+                    accent: accent,
                     onTap: () => onSelected(i),
                   ),
               ],
@@ -266,7 +282,11 @@ class _Sidebar extends StatelessWidget {
 
 class _SidebarHeader extends StatelessWidget {
   final bool expanded;
-  const _SidebarHeader({required this.expanded});
+
+  /// Role identity accent for the logo tile (decorative only).
+  final Color accent;
+
+  const _SidebarHeader({required this.expanded, required this.accent});
 
   @override
   Widget build(BuildContext context) {
@@ -283,12 +303,14 @@ class _SidebarHeader extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.accentGold,
+              color: accent,
               borderRadius: BorderRadius.circular(10),
             ),
+            // Dark-teal glyph: ≥3.65:1 on every role accent (computed);
+            // white would fail on these light dark-ground tints.
             child: const Icon(
               Icons.agriculture,
-              color: Colors.white,
+              color: AppTheme.primaryDeep,
               size: 24,
             ),
           ),
@@ -332,12 +354,17 @@ class _SidebarItem extends StatefulWidget {
   final _NavDestination item;
   final bool selected;
   final bool expanded;
+
+  /// Role identity accent for the selected icon/left border (decorative).
+  final Color accent;
+
   final VoidCallback onTap;
 
   const _SidebarItem({
     required this.item,
     required this.selected,
     required this.expanded,
+    required this.accent,
     required this.onTap,
   });
 
@@ -356,7 +383,7 @@ class _SidebarItemState extends State<_SidebarItem> {
             ? Colors.white.withAlpha(13)
             : Colors.transparent;
     final iconColor =
-        widget.selected ? AppTheme.accentGold : Colors.white.withAlpha(180);
+        widget.selected ? widget.accent : Colors.white.withAlpha(180);
     final textColor =
         widget.selected ? Colors.white : Colors.white.withAlpha(180);
 
@@ -383,7 +410,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                 border: widget.selected
                     ? Border(
                         left: BorderSide(
-                          color: AppTheme.accentGold,
+                          color: widget.accent,
                           width: widget.expanded ? 3 : 0,
                         ),
                       )

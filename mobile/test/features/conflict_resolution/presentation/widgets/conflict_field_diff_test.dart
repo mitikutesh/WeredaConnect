@@ -75,7 +75,7 @@ void main() {
       expect(
         decoration.border,
         equals(
-          Border(
+          const Border(
             left: BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
           ),
         ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
+
 /// WeredaConnect design system — "Highland Teal".
 ///
 /// Token rules (see specs design brief, 2026-07-06):
@@ -10,6 +12,9 @@ import 'package:flutter/material.dart';
 ///   fails 4.5:1 with white text, so never use it behind text
 /// - Status: closed 5-token vocabulary (+ neutral), always paired with an
 ///   icon and a label — color is never the only signal
+/// - Role accents: one decorative hue per signed-in role for nav chrome
+///   only ([roleAccent]) — NOT a per-role theme; everything else above
+///   is shared by all roles
 /// - Dark theme tokens are defined here from day one; `themeMode` stays
 ///   pinned to light until the raw `Colors.*` sweep makes screens dark-safe
 class AppTheme {
@@ -27,6 +32,42 @@ class AppTheme {
   static const Color textDark = Color(0xFF1E293B);
   static const Color textMuted = Color(0xFF526071);
   static const Color borderLight = Color(0xFFE2E8F0);
+
+  // ── Role identity accents (decorative only — no status meaning) ──────
+  // A single hue cue per signed-in role, used on nav chrome (sidebar logo
+  // tile, selected nav item) so users always know which role they're
+  // acting as. This is NOT a per-role theme: ColorScheme, buttons, the
+  // money FAB, and the status vocabulary stay shared across roles.
+  // Farmer reuses the primary teal — already its implicit identity.
+  // Hues sit clear of money terracotta and all five status tokens
+  // (sky ≠ info royal-blue #1D4ED8; plum ≠ transit violet #6D28D9).
+  static const Color roleAccentTrucker = Color(0xFF0369A1); // deep sky
+  static const Color roleAccentBuyer = Color(0xFFA21CAF); // plum
+
+  // Dark counterparts — computed ≥3:1 for icon use on darkSurface AND on
+  // the always-dark sidebar (primaryDeep #14524A): sky 7.47/4.20,
+  // plum 6.50/3.65, teal 7.62/4.28.
+  static const Color darkRoleAccentTrucker = Color(0xFF38BDF8);
+  static const Color darkRoleAccentBuyer = Color(0xFFE879F9);
+
+  /// Decorative accent for [role] on light grounds (≥5.9:1 on white).
+  static Color roleAccent(UserRole role) {
+    return switch (role) {
+      UserRole.farmer => primary,
+      UserRole.trucker => roleAccentTrucker,
+      UserRole.buyer => roleAccentBuyer,
+    };
+  }
+
+  /// Decorative accent for [role] on dark grounds (darkSurface and the
+  /// dark-teal sidebar).
+  static Color darkRoleAccent(UserRole role) {
+    return switch (role) {
+      UserRole.farmer => darkPrimary,
+      UserRole.trucker => darkRoleAccentTrucker,
+      UserRole.buyer => darkRoleAccentBuyer,
+    };
+  }
 
   // ── Legacy aliases — do not use in new code (removed by the token sweep)
   static const Color primaryGreen = primary;
