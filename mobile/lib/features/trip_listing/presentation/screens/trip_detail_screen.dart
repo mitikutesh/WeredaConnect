@@ -8,9 +8,12 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen showing full details of a single trip.
 ///
@@ -50,7 +53,7 @@ class TripDetailScreen extends StatelessWidget {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(localizeErrorCode(state.code, l10n)),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -63,7 +66,7 @@ class TripDetailScreen extends StatelessWidget {
         body: SafeArea(
           child: Column(
             children: [
-              const TripOfflineBanner(),
+              const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24.0),
@@ -148,7 +151,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
+                                      backgroundColor: AppTheme.statusSuccess,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -189,7 +192,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
+                                      backgroundColor: AppTheme.statusSuccess,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -235,7 +238,7 @@ class TripDetailScreen extends StatelessWidget {
                                               l10n,
                                             ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: AppTheme.statusError,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -328,7 +331,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.startTrip,
       body: l10n.startTripConfirmation,
       confirmLabel: l10n.startTrip,
-      confirmColor: Colors.green,
+      confirmColor: AppTheme.statusSuccess,
       eventFactory: (truckerId) =>
           StartTrip(tripId: trip.tripId, truckerId: truckerId),
     );
@@ -343,7 +346,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.markDelivered,
       body: l10n.markDeliveredConfirmation,
       confirmLabel: l10n.markDelivered,
-      confirmColor: Colors.green,
+      confirmColor: AppTheme.statusSuccess,
       eventFactory: (truckerId) =>
           MarkTripDelivered(tripId: trip.tripId, truckerId: truckerId),
     );
@@ -355,7 +358,7 @@ class TripDetailScreen extends StatelessWidget {
       title: l10n.cancelTrip,
       body: l10n.cancelTripConfirmation,
       confirmLabel: l10n.cancelTrip,
-      confirmColor: Colors.red,
+      confirmColor: AppTheme.statusError,
       eventFactory: (truckerId) =>
           CancelTrip(tripId: trip.tripId, truckerId: truckerId),
     );
@@ -423,6 +426,9 @@ class _RouteHeader extends StatelessWidget {
 }
 
 /// Status badge for the detail screen (larger than card version).
+///
+/// Uses the shared status vocabulary — same kind mapping as the trip card,
+/// so the detail screen can never show a different color for the same state.
 class _TripDetailStatusBadge extends StatelessWidget {
   final TripStatus status;
 
@@ -431,29 +437,18 @@ class _TripDetailStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, label) = switch (status) {
-      TripStatus.open => (Colors.green, l10n.tripStatusOpen),
-      TripStatus.matched => (Colors.blue, l10n.tripStatusMatched),
-      TripStatus.inTransit => (Colors.orange, l10n.tripStatusInTransit),
-      TripStatus.delivered => (Colors.green, l10n.tripStatusDelivered),
-      TripStatus.cancelled => (Colors.red, l10n.tripStatusCancelled),
+    final label = switch (status) {
+      TripStatus.open => l10n.tripStatusOpen,
+      TripStatus.matched => l10n.tripStatusMatched,
+      TripStatus.inTransit => l10n.tripStatusInTransit,
+      TripStatus.delivered => l10n.tripStatusDelivered,
+      TripStatus.cancelled => l10n.tripStatusCancelled,
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    return StatusChip(
+      label: label,
+      kind: tripStatusKind(status),
+      large: true,
     );
   }
 }

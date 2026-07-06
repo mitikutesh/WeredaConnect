@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Empty state widget shown when there are no pending conflicts.
 ///
@@ -18,10 +19,10 @@ class ConflictEmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
+          const Icon(
             Icons.check_circle,
             size: 80,
-            color: Colors.green.shade400,
+            color: AppTheme.statusSuccess,
           ),
           const SizedBox(height: 24),
           Text(

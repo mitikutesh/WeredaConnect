@@ -177,9 +177,9 @@ class MatchingService extends BaseMatchingService {
           .filter()
           .statusEqualTo(ListingStatus.active)
           .anyOf<String, QAfterFilterCondition>(
-          types,
-          (q, t) => q.cropTypeEqualTo(t),
-        )
+            types,
+            (q, t) => q.cropTypeEqualTo(t),
+          )
           .findAll();
 
       final count =

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/audio_player_service.dart';
 import 'package:wereda_connect/shared/services/audio_recorder_service.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Self-contained voice note widget handling record/playback lifecycle.
 ///
@@ -337,9 +338,9 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.red.shade300),
+        border: Border.all(color: AppTheme.statusError),
         borderRadius: BorderRadius.circular(12),
-        color: Colors.red.shade50,
+        color: AppTheme.statusErrorContainer,
       ),
       child: Row(
         children: [
@@ -351,7 +352,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: _pulseController.value),
+                  color: AppTheme.statusError
+                      .withValues(alpha: _pulseController.value),
                   shape: BoxShape.circle,
                 ),
               );
@@ -366,14 +368,14 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
                 Text(
                   l10n.recording,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.red.shade700,
+                    color: AppTheme.onStatusErrorContainer,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   l10n.secondsAbbreviation(_recordingSeconds),
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.red.shade600,
+                    color: AppTheme.onStatusErrorContainer,
                   ),
                 ),
               ],
@@ -385,7 +387,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             icon: const Icon(Icons.stop, size: 20),
             label: Text(l10n.stopRecording),
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
               minimumSize: const Size(0, 48),
             ),
           ),
@@ -453,7 +455,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             icon: const Icon(Icons.delete_outline),
             iconSize: 20,
             tooltip: l10n.deleteRecording,
-            color: Colors.red.shade400,
+            color: AppTheme.statusError,
           ),
         ],
       ),
@@ -524,7 +526,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             icon: const Icon(Icons.delete_outline),
             iconSize: 20,
             tooltip: l10n.deleteRecording,
-            color: Colors.red.shade400,
+            color: AppTheme.statusError,
           ),
         ],
       ),

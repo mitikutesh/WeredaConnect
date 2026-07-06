@@ -4,20 +4,23 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Banner shown when the device is offline.
+/// The one offline banner — offline is a status, never a surprise.
 ///
-/// Uses connectivity_plus to monitor connectivity changes.
-/// Shows an amber banner with offline indicator message.
-/// Reuses the same pattern as crop_listing OfflineBanner.
-class TripOfflineBanner extends StatefulWidget {
-  const TripOfflineBanner({super.key});
+/// Self-contained (monitors connectivity itself) so any screen can drop
+/// it into its column. Appears in the same slot (under the header) on
+/// every tab so users learn a single place to look. Replaces the two
+/// identical per-feature copies that used to live in crop_listing and
+/// trip_listing.
+class OfflineBanner extends StatefulWidget {
+  const OfflineBanner({super.key});
 
   @override
-  State<TripOfflineBanner> createState() => _TripOfflineBannerState();
+  State<OfflineBanner> createState() => _OfflineBannerState();
 }
 
-class _TripOfflineBannerState extends State<TripOfflineBanner> {
+class _OfflineBannerState extends State<OfflineBanner> {
   bool _isOffline = false;
   StreamSubscription<List<ConnectivityResult>>? _subscription;
 
@@ -64,17 +67,24 @@ class _TripOfflineBannerState extends State<TripOfflineBanner> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       content: Row(
         children: [
-          const Icon(Icons.cloud_off, color: Colors.white, size: 20),
+          const Icon(
+            Icons.cloud_off,
+            color: AppTheme.onStatusWarningContainer,
+            size: 20,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               l10n.offlineModeIndicator,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(
+                color: AppTheme.onStatusWarningContainer,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
       ),
-      backgroundColor: Colors.amber.shade800,
+      backgroundColor: AppTheme.statusWarningContainer,
       actions: const [SizedBox.shrink()],
     );
   }

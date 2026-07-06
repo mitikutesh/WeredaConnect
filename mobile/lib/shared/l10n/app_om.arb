@@ -459,6 +459,14 @@
   "@market": {
     "description": "Market bottom nav tab label"
   },
+  "marketCrops": "Midhaan",
+  "@marketCrops": {
+    "description": "Market hub segment showing all crop listings"
+  },
+  "marketTransport": "Geejjiba",
+  "@marketTransport": {
+    "description": "Market hub segment showing all trips"
+  },
   "orders": "Ajaja",
   "@orders": {
     "description": "Orders bottom nav tab label"
@@ -2151,6 +2159,7 @@
   "pendingOrders": "Ajaja Eeggataa",
   "activeOrders": "Ajaja Hojii Irra Jiran",
   "placeOrder": "Ajaja Galmeessi",
+  "viewDetails": "Bal'ina Ilaali",
   "cropCost": "Gatii Midhaanii",
   "transportCost": "Baasii Geejjibaa",
   "platformCommission": "Komishiinii Waltajjii (5%)",

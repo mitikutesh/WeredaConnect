@@ -9,7 +9,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Browse and filter deliveries for the current user.
@@ -83,7 +83,7 @@ class _DeliveryListScreenState extends State<DeliveryListScreen> {
       },
       child: Column(
         children: [
-          const TripOfflineBanner(),
+          const OfflineBanner(),
           // Title
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),

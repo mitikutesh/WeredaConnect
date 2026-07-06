@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Buyer payment initiation screen with commission breakdown.
 ///
@@ -73,7 +74,7 @@ class InitiatePaymentScreen extends StatelessWidget {
                   state.message,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -177,7 +178,7 @@ class InitiatePaymentScreen extends StatelessWidget {
                             _formatter.format(farmerPayout),
                           ),
                           style: theme.textTheme.titleLarge?.copyWith(
-                            color: Colors.green.shade700,
+                            color: AppTheme.onStatusSuccessContainer,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -192,21 +193,24 @@ class InitiatePaymentScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
+                      color: AppTheme.statusWarning.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: Colors.orange.withValues(alpha: 0.3),
+                        color: AppTheme.statusWarning.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.warning_amber, color: Colors.orange),
+                        const Icon(
+                          Icons.warning_amber,
+                          color: AppTheme.statusWarning,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             l10n.escrowFaydaWarning,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.orange.shade800,
+                              color: AppTheme.onStatusWarningContainer,
                             ),
                           ),
                         ),

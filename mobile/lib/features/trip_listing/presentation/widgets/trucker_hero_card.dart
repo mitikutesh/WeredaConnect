@@ -284,7 +284,7 @@ class _MatchedCard extends StatelessWidget {
                 _confirmStartTrip(context, l10n);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: AppTheme.statusSuccess,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(56),
                 shape: RoundedRectangleBorder(
@@ -359,7 +359,7 @@ class _InTransitCard extends StatelessWidget {
                 _confirmMarkDelivered(context, l10n);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: AppTheme.statusSuccess,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(56),
                 shape: RoundedRectangleBorder(
@@ -510,7 +510,8 @@ void _showHeroConfirmation(
                 onRefresh?.call();
               }
             },
-            style: TextButton.styleFrom(foregroundColor: Colors.green),
+            style:
+                TextButton.styleFrom(foregroundColor: AppTheme.statusSuccess),
             child: Text(confirmLabel),
           ),
         ],

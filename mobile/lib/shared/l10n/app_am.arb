@@ -465,6 +465,14 @@
   "@market": {
     "description": "Market bottom nav tab label"
   },
+  "marketCrops": "ሰብሎች",
+  "@marketCrops": {
+    "description": "Market hub segment showing all crop listings"
+  },
+  "marketTransport": "ትራንስፖርት",
+  "@marketTransport": {
+    "description": "Market hub segment showing all trips"
+  },
   "orders": "ትዕዛዞች",
   "@orders": {
     "description": "Orders bottom nav tab label"
@@ -2130,6 +2138,7 @@
   "pendingOrders": "በመጠባበቅ ላይ ያሉ ትዕዛዞች",
   "activeOrders": "ንቁ ትዕዛዞች",
   "placeOrder": "ትዕዛዝ ያስገቡ",
+  "viewDetails": "ዝርዝር ይመልከቱ",
   "cropCost": "የሰብል ዋጋ",
   "transportCost": "የማጓጓዣ ወጪ",
   "platformCommission": "የመድረክ ኮሚሽን (5%)",

@@ -360,6 +360,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String get market => 'ገበያ';
 
   @override
+  String get marketCrops => 'ሰብሎች';
+
+  @override
+  String get marketTransport => 'ትራንስፖርት';
+
+  @override
   String get orders => 'ትዕዛዞች';
 
   @override
@@ -1820,6 +1826,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get placeOrder => 'ትዕዛዝ ያስገቡ';
+
+  @override
+  String get viewDetails => 'ዝርዝር ይመልከቱ';
 
   @override
   String get cropCost => 'የሰብል ዋጋ';

@@ -249,6 +249,10 @@ Future<void> _runWeb({
                 Locale('om'),
               ],
               theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              // Pinned to light until the raw Colors.* sweep makes all
+              // screens dark-safe; then a Settings toggle can ship.
+              themeMode: ThemeMode.light,
               routerConfig: router,
             );
           },

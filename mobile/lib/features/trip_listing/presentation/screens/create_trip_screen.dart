@@ -13,20 +13,24 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Screen for creating a new trip listing.
 ///
-/// Features:
-/// - Auto-fills trucker name/phone from user profile
-/// - Recent route chips for quick-fill
-/// - Stepper buttons for capacity and price
-/// - Repeat-last-trip factory constructor
-/// - 56dp touch targets for rural trucker usability
+/// A 3-step wizard (progressive disclosure — the single 9-field scroll
+/// exceeded working-memory limits; registration already proved the
+/// wizard pattern works here):
+///   1. Route & departure date (with recent-route quick fill)
+///   2. Driver & vehicle (name/phone prefilled from the profile)
+///   3. Capacity & price (steppers) + save
+///
+/// The primary action is pinned in a bottom action bar (thumb zone,
+/// always visible) instead of buried at the end of the scroll.
 class CreateTripScreen extends StatefulWidget {
   final String? truckerName;
   final String? truckerPhone;
@@ -68,7 +72,13 @@ class CreateTripScreen extends StatefulWidget {
 }
 
 class _CreateTripScreenState extends State<CreateTripScreen> {
-  final _formKey = GlobalKey<FormState>();
+  static const _stepCount = 3;
+
+  /// One form key per wizard step — only the visible step validates.
+  final _stepFormKeys =
+      List.generate(_stepCount, (_) => GlobalKey<FormState>());
+  int _step = 0;
+
   final _truckerNameController = TextEditingController();
   final _truckerPhoneController = TextEditingController();
   final _vehiclePlateController = TextEditingController();
@@ -227,17 +237,35 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         : newValue.toStringAsFixed(2);
   }
 
-  void _handleSave() {
-    if (!_formKey.currentState!.validate()) return;
-
+  bool _validateCurrentStep() {
     final l10n = AppLocalizations.of(context)!;
-
-    if (_selectedDepartureDate == null) {
+    if (!(_stepFormKeys[_step].currentState?.validate() ?? false)) {
+      return false;
+    }
+    if (_step == 0 && _selectedDepartureDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.departureDateRequired)),
       );
-      return;
+      return false;
     }
+    return true;
+  }
+
+  void _handleContinue() {
+    if (!_validateCurrentStep()) return;
+    if (_step < _stepCount - 1) {
+      setState(() => _step++);
+    } else {
+      _handleSave();
+    }
+  }
+
+  void _handleBack() {
+    if (_step > 0) setState(() => _step--);
+  }
+
+  void _handleSave() {
+    final l10n = AppLocalizations.of(context)!;
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) {
@@ -287,408 +315,403 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(localizeErrorCode(state.code, l10n)),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(l10n.createTrip),
+          title: Text('${l10n.createTrip} · ${_step + 1}/$_stepCount'),
           elevation: 0,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(4),
+            child: LinearProgressIndicator(
+              value: (_step + 1) / _stepCount,
+              backgroundColor: Colors.white24,
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(AppTheme.accentSoft),
+            ),
+          ),
         ),
         body: SafeArea(
           child: Column(
             children: [
-              const TripOfflineBanner(),
+              const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.all(24),
                   child: Form(
-                    key: _formKey,
-                    child: BlocBuilder<TripListingBloc, TripListingState>(
-                      builder: (context, state) {
-                        final isLoading = state is TripListingLoading;
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Recent route chips
-                            if (_recentRoutes.isNotEmpty) ...[
-                              Text(
-                                l10n.quickFill,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelMedium
-                                    ?.copyWith(fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: _recentRoutes.map((route) {
-                                  return ActionChip(
-                                    label: Text('${route.from} → ${route.to}'),
-                                    materialTapTargetSize:
-                                        MaterialTapTargetSize.padded,
-                                    onPressed: () {
-                                      setState(() {
-                                        _fromWoredaController.text = route.from;
-                                        _toWoredaController.text = route.to;
-                                        // Quick-fill sets raw text, not a picked
-                                        // place — drop any resolved place ids.
-                                        _fromPlace = null;
-                                        _toPlace = null;
-                                      });
-                                    },
-                                  );
-                                }).toList(),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-
-                            // Trucker name input
-                            TextFormField(
-                              controller: _truckerNameController,
-                              decoration: InputDecoration(
-                                labelText: l10n.truckerName,
-                                prefixIcon: const Icon(Icons.person),
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.name,
-                              textCapitalization: TextCapitalization.words,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return l10n.truckerNameRequired;
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Trucker phone input
-                            TextFormField(
-                              controller: _truckerPhoneController,
-                              decoration: InputDecoration(
-                                labelText: l10n.truckerPhone,
-                                prefixIcon: const Icon(Icons.phone),
-                                hintText: '09XXXXXXXX',
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.phone,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return l10n.invalidPhoneFormat;
-                                }
-                                if (!isValidEthiopianPhone(value.trim())) {
-                                  return l10n.invalidPhoneFormat;
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Vehicle plate input
-                            TextFormField(
-                              controller: _vehiclePlateController,
-                              decoration: InputDecoration(
-                                labelText: l10n.vehiclePlate,
-                                prefixIcon:
-                                    const Icon(Icons.confirmation_number),
-                                hintText: '3-AA-12345',
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.text,
-                              textCapitalization: TextCapitalization.characters,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Vehicle description input
-                            TextFormField(
-                              controller: _vehicleDescriptionController,
-                              decoration: InputDecoration(
-                                labelText: l10n.vehicleDescription,
-                                prefixIcon: const Icon(Icons.directions_car),
-                                hintText: 'Isuzu FTR 10-ton',
-                                border: const OutlineInputBorder(),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 20,
-                                ),
-                              ),
-                              keyboardType: TextInputType.text,
-                              textCapitalization: TextCapitalization.words,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // From Woreda input
-                            PlaceSelector(
-                              controller: _fromWoredaController,
-                              labelText: l10n.fromWoreda,
-                              prefixIcon: Icons.trip_origin,
-                              onPlaceSelected: (place) =>
-                                  setState(() => _fromPlace = place),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return l10n.fromWoredaRequired;
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            // To Woreda input
-                            PlaceSelector(
-                              controller: _toWoredaController,
-                              labelText: l10n.toWoreda,
-                              prefixIcon: Icons.place,
-                              onPlaceSelected: (place) =>
-                                  setState(() => _toPlace = place),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return l10n.toWoredaRequired;
-                                }
-                                if (value.trim() ==
-                                    _fromWoredaController.text.trim()) {
-                                  return l10n.sameOriginDestination;
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Departure date picker
-                            InkWell(
-                              onTap: _pickDepartureDate,
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: l10n.departureDate,
-                                  prefixIcon: const Icon(
-                                    Icons.calendar_today,
-                                  ),
-                                  border: const OutlineInputBorder(),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 20,
-                                  ),
-                                ),
-                                child: Text(
-                                  _selectedDepartureDate != null
-                                      ? DateFormat.yMMMd().format(
-                                          _selectedDepartureDate!,
-                                        )
-                                      : l10n.selectDepartureDate,
-                                  style: TextStyle(
-                                    color: _selectedDepartureDate != null
-                                        ? null
-                                        : Theme.of(context).hintColor,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Capacity input with stepper buttons
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                IconButton(
-                                  onPressed: () => _adjustValue(
-                                    _capacityController,
-                                    -10,
-                                    0.1,
-                                    1000,
-                                  ),
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                  iconSize: 28,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 56,
-                                    minHeight: 56,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _capacityController,
-                                    decoration: InputDecoration(
-                                      labelText: l10n.capacity,
-                                      prefixIcon:
-                                          const Icon(Icons.local_shipping),
-                                      suffixText: l10n.quintals,
-                                      border: const OutlineInputBorder(),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 20,
-                                      ),
-                                    ),
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.allow(
-                                        RegExp(r'^\d+\.?\d{0,2}'),
-                                      ),
-                                    ],
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return l10n.capacityRequired;
-                                      }
-                                      final capacity = double.tryParse(value);
-                                      if (capacity == null ||
-                                          capacity < 0.1 ||
-                                          capacity > 1000) {
-                                        return l10n.invalidCapacity;
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () => _adjustValue(
-                                    _capacityController,
-                                    10,
-                                    0.1,
-                                    1000,
-                                  ),
-                                  icon: const Icon(Icons.add_circle_outline),
-                                  iconSize: 28,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 56,
-                                    minHeight: 56,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Price per quintal input with stepper buttons
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                IconButton(
-                                  onPressed: () => _adjustValue(
-                                    _priceController,
-                                    -10,
-                                    0.01,
-                                    10000,
-                                  ),
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                  iconSize: 28,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 56,
-                                    minHeight: 56,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _priceController,
-                                    decoration: InputDecoration(
-                                      labelText: l10n.pricePerQuintal,
-                                      prefixIcon: const Icon(Icons.payments),
-                                      suffixText: 'ETB',
-                                      border: const OutlineInputBorder(),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 20,
-                                      ),
-                                    ),
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.allow(
-                                        RegExp(r'^\d+\.?\d{0,2}'),
-                                      ),
-                                    ],
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return l10n.priceRequired;
-                                      }
-                                      final price = double.tryParse(value);
-                                      if (price == null ||
-                                          price < 0.01 ||
-                                          price > 10000) {
-                                        return l10n.invalidPrice;
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () => _adjustValue(
-                                    _priceController,
-                                    10,
-                                    0.01,
-                                    10000,
-                                  ),
-                                  icon: const Icon(Icons.add_circle_outline),
-                                  iconSize: 28,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 56,
-                                    minHeight: 56,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-
-                            // Save button
-                            ElevatedButton(
-                              onPressed: isLoading ? null : _handleSave,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                minimumSize: const Size.fromHeight(56),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                          Colors.white,
-                                        ),
-                                      ),
-                                    )
-                                  : Text(
-                                      l10n.save,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+                    key: _stepFormKeys[_step],
+                    child: switch (_step) {
+                      0 => _buildRouteStep(l10n),
+                      1 => _buildVehicleStep(l10n),
+                      _ => _buildCapacityPriceStep(l10n),
+                    },
                   ),
                 ),
               ),
             ],
           ),
         ),
+        // Pinned action bar: the next step is always visible and in the
+        // thumb zone — never buried at the end of the scroll.
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: BlocBuilder<TripListingBloc, TripListingState>(
+              builder: (context, state) {
+                final isLoading = state is TripListingLoading;
+                return Row(
+                  children: [
+                    if (_step > 0) ...[
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: isLoading ? null : _handleBack,
+                          child: Text(
+                            MaterialLocalizations.of(context).backButtonTooltip,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        onPressed: isLoading ? null : _handleContinue,
+                        child: isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : Text(
+                                _step < _stepCount - 1
+                                    ? l10n.continueButton
+                                    : l10n.save,
+                              ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  // ── Step 1: Route & date ────────────────────────────────────────────
+  Widget _buildRouteStep(AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_recentRoutes.isNotEmpty) ...[
+          Text(
+            l10n.quickFill,
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _recentRoutes.map((route) {
+              return ActionChip(
+                label: Text('${route.from} → ${route.to}'),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                onPressed: () {
+                  setState(() {
+                    _fromWoredaController.text = route.from;
+                    _toWoredaController.text = route.to;
+                    // Quick-fill sets raw text, not a picked
+                    // place — drop any resolved place ids.
+                    _fromPlace = null;
+                    _toPlace = null;
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
+        PlaceSelector(
+          controller: _fromWoredaController,
+          labelText: l10n.fromWoreda,
+          prefixIcon: Icons.trip_origin,
+          onPlaceSelected: (place) => setState(() => _fromPlace = place),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return l10n.fromWoredaRequired;
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        PlaceSelector(
+          controller: _toWoredaController,
+          labelText: l10n.toWoreda,
+          prefixIcon: Icons.place,
+          onPlaceSelected: (place) => setState(() => _toPlace = place),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return l10n.toWoredaRequired;
+            }
+            if (value.trim() == _fromWoredaController.text.trim()) {
+              return l10n.sameOriginDestination;
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: _pickDepartureDate,
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: l10n.departureDate,
+              prefixIcon: const Icon(Icons.calendar_today),
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 20,
+              ),
+            ),
+            child: Text(
+              _selectedDepartureDate != null
+                  ? DateFormat.yMMMd().format(_selectedDepartureDate!)
+                  : l10n.selectDepartureDate,
+              style: TextStyle(
+                color: _selectedDepartureDate != null
+                    ? null
+                    : Theme.of(context).hintColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Step 2: Driver & vehicle (prefilled from profile) ──────────────
+  Widget _buildVehicleStep(AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextFormField(
+          controller: _truckerNameController,
+          decoration: InputDecoration(
+            labelText: l10n.truckerName,
+            prefixIcon: const Icon(Icons.person),
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 20,
+            ),
+          ),
+          keyboardType: TextInputType.name,
+          textCapitalization: TextCapitalization.words,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return l10n.truckerNameRequired;
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _truckerPhoneController,
+          decoration: InputDecoration(
+            labelText: l10n.truckerPhone,
+            prefixIcon: const Icon(Icons.phone),
+            hintText: '09XXXXXXXX',
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 20,
+            ),
+          ),
+          keyboardType: TextInputType.phone,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return l10n.invalidPhoneFormat;
+            }
+            if (!isValidEthiopianPhone(value.trim())) {
+              return l10n.invalidPhoneFormat;
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _vehiclePlateController,
+          decoration: InputDecoration(
+            labelText: l10n.vehiclePlate,
+            prefixIcon: const Icon(Icons.confirmation_number),
+            hintText: '3-AA-12345',
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 20,
+            ),
+          ),
+          keyboardType: TextInputType.text,
+          textCapitalization: TextCapitalization.characters,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _vehicleDescriptionController,
+          decoration: InputDecoration(
+            labelText: l10n.vehicleDescription,
+            prefixIcon: const Icon(Icons.directions_car),
+            hintText: 'Isuzu FTR 10-ton',
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 20,
+            ),
+          ),
+          keyboardType: TextInputType.text,
+          textCapitalization: TextCapitalization.words,
+        ),
+      ],
+    );
+  }
+
+  // ── Step 3: Capacity & price + route summary ────────────────────────
+  Widget _buildCapacityPriceStep(AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Route summary — what the trucker is about to publish.
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withAlpha(15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.route, color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${_fromWoredaController.text} → ${_toWoredaController.text}'
+                  '${_selectedDepartureDate != null ? ' · ${DateFormat.yMMMd().format(_selectedDepartureDate!)}' : ''}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconButton(
+              onPressed: () =>
+                  _adjustValue(_capacityController, -10, 0.1, 1000),
+              icon: const Icon(Icons.remove_circle_outline),
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+            ),
+            Expanded(
+              child: TextFormField(
+                controller: _capacityController,
+                decoration: InputDecoration(
+                  labelText: l10n.capacity,
+                  prefixIcon: const Icon(Icons.local_shipping),
+                  suffixText: l10n.quintals,
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return l10n.capacityRequired;
+                  }
+                  final capacity = double.tryParse(value);
+                  if (capacity == null || capacity < 0.1 || capacity > 1000) {
+                    return l10n.invalidCapacity;
+                  }
+                  return null;
+                },
+              ),
+            ),
+            IconButton(
+              onPressed: () => _adjustValue(_capacityController, 10, 0.1, 1000),
+              icon: const Icon(Icons.add_circle_outline),
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconButton(
+              onPressed: () => _adjustValue(_priceController, -10, 0.01, 10000),
+              icon: const Icon(Icons.remove_circle_outline),
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+            ),
+            Expanded(
+              child: TextFormField(
+                controller: _priceController,
+                decoration: InputDecoration(
+                  labelText: l10n.pricePerQuintal,
+                  prefixIcon: const Icon(Icons.payments),
+                  suffixText: 'ETB',
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                ],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return l10n.priceRequired;
+                  }
+                  final price = double.tryParse(value);
+                  if (price == null || price < 0.01 || price > 10000) {
+                    return l10n.invalidPrice;
+                  }
+                  return null;
+                },
+              ),
+            ),
+            IconButton(
+              onPressed: () => _adjustValue(_priceController, 10, 0.01, 10000),
+              icon: const Icon(Icons.add_circle_outline),
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/database/isar_service.dart'
+    if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -13,6 +17,7 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/match_result_
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -77,8 +82,12 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
                 }
                 if (state is BuyerIntentError) {
                   return Center(
-                    child: Text(localizeErrorCode(
-                        state.code, AppLocalizations.of(context)!,),),
+                    child: Text(
+                      localizeErrorCode(
+                        state.code,
+                        AppLocalizations.of(context)!,
+                      ),
+                    ),
                   );
                 }
                 return const Center(child: CircularProgressIndicator());
@@ -111,6 +120,15 @@ class _MatchResultsBody extends StatelessWidget {
     return '${diff.inDays}d';
   }
 
+  static Future<String> _lookupFarmerName(CropListing listing) async {
+    if (listing.farmerName.isNotEmpty) return listing.farmerName;
+    if (kIsWeb) return listing.farmerId;
+    final isar = IsarService.instance.db;
+    final farmer =
+        await isar.users.filter().userIdEqualTo(listing.farmerId).findFirst();
+    return farmer?.name ?? listing.farmerId;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -126,11 +144,15 @@ class _MatchResultsBody extends StatelessWidget {
           if (isStale)
             Container(
               width: double.infinity,
-              color: Colors.amber.shade100,
+              color: AppTheme.statusWarningContainer,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Icon(Icons.cloud_off, size: 16, color: AppTheme.textDark),
+                  const Icon(
+                    Icons.cloud_off,
+                    size: 16,
+                    color: AppTheme.textDark,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -212,6 +234,25 @@ class _MatchResultsBody extends StatelessWidget {
                                 currentUserRole: userRole,
                                 deliveryWoreda: intent.deliveryWoreda,
                                 quantityNeeded: intent.quantityNeeded,
+                              ),
+                            ),
+                          );
+                        },
+                        // One tap from match to order — the matcher's best
+                        // trip suggestion comes along preselected.
+                        onOrder: () async {
+                          final farmerName =
+                              await _lookupFarmerName(match.listing);
+                          if (!context.mounted) return;
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => PlaceOrderScreen(
+                                listing: match.listing,
+                                farmerName: farmerName,
+                                selectedTrip: match.suggestedTrips.isNotEmpty
+                                    ? match.suggestedTrips.first
+                                    : null,
                               ),
                             ),
                           );

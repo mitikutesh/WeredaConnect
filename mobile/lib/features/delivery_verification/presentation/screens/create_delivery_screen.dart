@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Screen for creating a new Delivery record.
 ///
@@ -148,7 +149,7 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
                   state.code,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -292,18 +293,22 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.orange.shade300),
+          border: Border.all(color: AppTheme.statusWarning),
           borderRadius: BorderRadius.circular(8),
-          color: Colors.orange.shade50,
+          color: AppTheme.statusWarningContainer,
         ),
         child: Row(
           children: [
-            Icon(Icons.warning_amber, color: Colors.orange.shade700),
+            const Icon(
+              Icons.warning_amber,
+              color: AppTheme.onStatusWarningContainer,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 AppLocalizations.of(context)!.noOpenTrips,
-                style: TextStyle(color: Colors.orange.shade800),
+                style:
+                    const TextStyle(color: AppTheme.onStatusWarningContainer),
               ),
             ),
           ],
@@ -459,12 +464,12 @@ class _SummaryRow extends StatelessWidget {
 
     return Row(
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade600),
+        Icon(icon, size: 18, color: AppTheme.textMuted),
         const SizedBox(width: 8),
         Text(
           '$label: ',
           style: theme.textTheme.bodySmall?.copyWith(
-            color: Colors.grey.shade600,
+            color: AppTheme.textMuted,
           ),
         ),
         Expanded(

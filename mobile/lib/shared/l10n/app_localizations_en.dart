@@ -374,6 +374,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get market => 'Market';
 
   @override
+  String get marketCrops => 'Crops';
+
+  @override
+  String get marketTransport => 'Transport';
+
+  @override
   String get orders => 'Orders';
 
   @override
@@ -1868,6 +1874,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get placeOrder => 'Place Order';
+
+  @override
+  String get viewDetails => 'View Details';
 
   @override
   String get cropCost => 'Crop Cost';

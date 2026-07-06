@@ -7,6 +7,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Reset password screen — collects verification code and new password.
 ///
@@ -78,7 +79,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(l10n.passwordResetSuccess),
-              backgroundColor: Colors.green,
+              backgroundColor: AppTheme.statusSuccess,
             ),
           );
           // Pop all the way back to login

@@ -242,14 +242,18 @@ class _MyRequestsTab extends StatelessWidget {
               if (state.isStale)
                 Container(
                   width: double.infinity,
-                  color: Colors.amber.shade100,
+                  color: AppTheme.statusWarningContainer,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
                     vertical: 8,
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.cloud_off, size: 16, color: AppTheme.textDark),
+                      const Icon(
+                        Icons.cloud_off,
+                        size: 16,
+                        color: AppTheme.textDark,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(

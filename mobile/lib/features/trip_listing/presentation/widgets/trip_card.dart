@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Card displaying a single trip listing.
 ///
@@ -187,15 +189,8 @@ class TripCard extends StatelessWidget {
     );
   }
 
-  static Color _statusColor(TripStatus status) {
-    return switch (status) {
-      TripStatus.open => AppTheme.statusSuccess,
-      TripStatus.matched => AppTheme.statusInfo,
-      TripStatus.inTransit => AppTheme.statusTransit,
-      TripStatus.delivered => AppTheme.statusSuccess,
-      TripStatus.cancelled => AppTheme.statusError,
-    };
-  }
+  static Color _statusColor(TripStatus status) =>
+      tripStatusKind(status).foreground;
 }
 
 class _TripStatusChip extends StatelessWidget {
@@ -206,35 +201,14 @@ class _TripStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, label) = switch (status) {
-      TripStatus.open => (AppTheme.statusSuccess, l10n.tripStatusOpen),
-      TripStatus.matched => (AppTheme.statusInfo, l10n.tripStatusMatched),
-      TripStatus.inTransit => (
-          AppTheme.statusTransit,
-          l10n.tripStatusInTransit
-        ),
-      TripStatus.delivered => (
-          AppTheme.statusSuccess,
-          l10n.tripStatusDelivered
-        ),
-      TripStatus.cancelled => (AppTheme.statusError, l10n.tripStatusCancelled),
+    final label = switch (status) {
+      TripStatus.open => l10n.tripStatusOpen,
+      TripStatus.matched => l10n.tripStatusMatched,
+      TripStatus.inTransit => l10n.tripStatusInTransit,
+      TripStatus.delivered => l10n.tripStatusDelivered,
+      TripStatus.cancelled => l10n.tripStatusCancelled,
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
+    return StatusChip(label: label, kind: tripStatusKind(status));
   }
 }

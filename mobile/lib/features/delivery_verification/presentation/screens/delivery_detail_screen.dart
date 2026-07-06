@@ -20,8 +20,9 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Full delivery details with status timeline and action buttons.
 ///
@@ -79,7 +80,7 @@ class DeliveryDetailScreen extends StatelessWidget {
                   state.code,
                 ),
               ),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
             ),
           );
         }
@@ -94,7 +95,7 @@ class DeliveryDetailScreen extends StatelessWidget {
         body: SafeArea(
           child: Column(
             children: [
-              const TripOfflineBanner(),
+              const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
@@ -270,21 +271,21 @@ class DeliveryDetailScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.05),
+        color: AppTheme.statusError.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+        border: Border.all(color: AppTheme.statusError.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.warning, color: Colors.red, size: 20),
+              const Icon(Icons.warning, color: AppTheme.statusError, size: 20),
               const SizedBox(width: 8),
               Text(
                 AppLocalizations.of(context)!.deliveryStatusDisputed,
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: Colors.red,
+                  color: AppTheme.statusError,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -479,8 +480,8 @@ class DeliveryDetailScreen extends StatelessWidget {
                 onPressed:
                     isLoading ? null : () => _showCancelConfirmation(context),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
+                  foregroundColor: AppTheme.statusError,
+                  side: const BorderSide(color: AppTheme.statusError),
                   minimumSize: const Size.fromHeight(48),
                 ),
                 icon: const Icon(Icons.cancel_outlined),
@@ -499,18 +500,18 @@ class DeliveryDetailScreen extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.05),
+            color: AppTheme.statusError.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.info_outline, color: Colors.red),
+              const Icon(Icons.info_outline, color: AppTheme.statusError),
               const SizedBox(width: 8),
               Text(
                 AppLocalizations.of(context)!.deliveryStatusDisputed,
                 style: const TextStyle(
-                  color: Colors.red,
+                  color: AppTheme.statusError,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -545,7 +546,7 @@ class DeliveryDetailScreen extends StatelessWidget {
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.statusError,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(48),
             ),
@@ -582,7 +583,8 @@ class DeliveryDetailScreen extends StatelessWidget {
                       ),
                     );
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style:
+                  TextButton.styleFrom(foregroundColor: AppTheme.statusError),
               child: Text(l10n.deliveryCancel),
             ),
           ],
@@ -859,7 +861,7 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
         label: Text(l10n.escrowPayForDelivery),
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
-          backgroundColor: Colors.green.shade700,
+          backgroundColor: AppTheme.onStatusSuccessContainer,
         ),
       ),
     );
