@@ -9,14 +9,20 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// Compact card for displaying a buyer intent on the home screen.
 ///
 /// Shows crop icon, summary (crop, quantity, budget, destination),
-/// match count, and a green dot badge for new matches.
+/// match count, and a green dot badge for new matches. When [onDelete] /
+/// [onFulfill] are provided, a trailing menu exposes those actions so stale
+/// or satisfied requests don't keep generating badges and alerts forever.
 class IntentCard extends StatelessWidget {
   final BuyerIntent intent;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
+  final VoidCallback? onFulfill;
 
   const IntentCard({
     required this.intent,
     required this.onTap,
+    this.onDelete,
+    this.onFulfill,
     super.key,
   });
 
@@ -73,7 +79,8 @@ class IntentCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg} → ${intent.deliveryWoreda}',
+                      // 0 budget = optional max price left empty.
+                      '${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice} → ${intent.deliveryWoreda}',
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppTheme.textMuted,
@@ -138,6 +145,52 @@ class IntentCard extends StatelessWidget {
                     ),
                 ],
               ),
+              if (onDelete != null || onFulfill != null)
+                PopupMenuButton<_IntentAction>(
+                  icon: const Icon(
+                    Icons.more_vert,
+                    size: 20,
+                    color: AppTheme.textMuted,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onSelected: (action) => switch (action) {
+                    _IntentAction.fulfill => onFulfill?.call(),
+                    _IntentAction.delete => onDelete?.call(),
+                  },
+                  itemBuilder: (context) => [
+                    if (onFulfill != null)
+                      PopupMenuItem(
+                        value: _IntentAction.fulfill,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle_outline, size: 18),
+                            const SizedBox(width: 8),
+                            Text(l10n.markFulfilled),
+                          ],
+                        ),
+                      ),
+                    if (onDelete != null)
+                      PopupMenuItem(
+                        value: _IntentAction.delete,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              l10n.deleteRequest,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -145,3 +198,5 @@ class IntentCard extends StatelessWidget {
     );
   }
 }
+
+enum _IntentAction { fulfill, delete }

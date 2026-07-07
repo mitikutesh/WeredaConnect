@@ -31,6 +31,13 @@ public sealed record MatchDto
 
     /// <summary>True when this crop matched via a substitute type, not the exact ask.</summary>
     public required bool IsSubstitute { get; init; }
+
+    /// <summary>
+    /// Farmer's reliability in [0, 1] (listing-conversion track record). Absent
+    /// when the server has no history for the farmer; clients default it to a
+    /// neutral value in scoring.
+    /// </summary>
+    public double? FarmerReliability { get; init; }
 }
 
 /// <summary>Response body for GET /match.</summary>
@@ -38,4 +45,10 @@ public sealed record GetMatchesResponse
 {
     public required List<MatchDto> Matches { get; init; }
     public required int Count { get; init; }
+
+    /// <summary>
+    /// Total eligible matches BEFORE the limit cut. Clients derive match-count
+    /// badges from this so counts don't saturate at the page limit.
+    /// </summary>
+    public int TotalMatches { get; init; }
 }

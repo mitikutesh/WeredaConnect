@@ -2058,6 +2058,78 @@ class AppLocalizationsAm extends AppLocalizations {
   String get intentSaved => 'ተቀምጧል! አዲስ ተመሳሳይ ሲኖር እናሳውቅዎታለን';
 
   @override
+  String get intentSaveHint => 'ይህን ጥያቄ ማስቀመጥ አዲስ ተዛማጆች ሲመጡ እንድናሳውቅዎ ያስችላል';
+
+  @override
+  String get selectCropTypeError => 'የሰብል አይነት ይምረጡ';
+
+  @override
+  String get enterQuantityError => 'የሚፈልጉትን መጠን ያስገቡ';
+
+  @override
+  String get enterValidPriceError => 'ትክክለኛ ዋጋ ያስገቡ ወይም ባዶ ይተዉት';
+
+  @override
+  String get enterDeliveryWoredaError => 'የመላኪያ ወረዳ ያስገቡ';
+
+  @override
+  String get maxPriceOptionalHint => 'አማራጭ — ሁሉንም ዋጋዎች ለማየት ባዶ ይተዉት';
+
+  @override
+  String get anyPrice => 'ማንኛውም ዋጋ';
+
+  @override
+  String get similarCrop => 'ተመሳሳይ ሰብል';
+
+  @override
+  String get withinBudget => 'በበጀት ውስጥ';
+
+  @override
+  String get slightlyOverBudget => 'ከበጀት ትንሽ በላይ';
+
+  @override
+  String get coversFullQuantity => 'ሙሉ መጠን ይሸፍናል';
+
+  @override
+  String get partialQuantity => 'ከፊል መጠን';
+
+  @override
+  String get nearYou => 'በአቅራቢያዎ';
+
+  @override
+  String get deleteRequest => 'ጥያቄ ሰርዝ';
+
+  @override
+  String get deleteRequestConfirm =>
+      'ይህ የግዢ ጥያቄ ይሰረዝ? ለእሱ የተዛማጅ ማሳወቂያዎችን አያገኙም።';
+
+  @override
+  String get requestDeleted => 'ጥያቄው ተሰርዟል';
+
+  @override
+  String get markFulfilled => 'እንደተሟላ ምልክት አድርግ';
+
+  @override
+  String get requestFulfilled => 'ጥያቄው እንደተሟላ ምልክት ተደርጓል';
+
+  @override
+  String quintalEquivalent(String count) {
+    return '= $count ኩንታል';
+  }
+
+  @override
+  String get neededByDate => 'የሚያስፈልግበት ቀን (አማራጭ)';
+
+  @override
+  String get neededByDateHint => 'በጊዜው ማድረስ የሚችል መጓጓዣን እናስቀድማለን';
+
+  @override
+  String get selectDate => 'ቀን ይምረጡ';
+
+  @override
+  String get clearDate => 'አጽዳ';
+
+  @override
   String get newMatchesAvailable => 'አዲስ ተመሳሳይ ተገኝቷል!';
 
   @override

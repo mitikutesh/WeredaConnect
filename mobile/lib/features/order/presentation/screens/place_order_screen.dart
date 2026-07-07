@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -21,10 +24,17 @@ class PlaceOrderScreen extends StatefulWidget {
   final String farmerName;
   final Trip? selectedTrip;
 
+  /// The buying request this order came from, when reached via match results.
+  /// When set, a [BuyerIntentBloc] MUST be available above this screen: a
+  /// successful order that covers the full quantity needed marks the request
+  /// fulfilled so it stops generating "new match" badges and push alerts.
+  final BuyerIntent? intent;
+
   const PlaceOrderScreen({
     required this.listing,
     required this.farmerName,
     this.selectedTrip,
+    this.intent,
     super.key,
   });
 
@@ -39,8 +49,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill with listing quantity (convert quintals to kg)
-    final kgQuantity = widget.listing.quantity * 100;
+    // Pre-fill in kg (listing/intent quantities are quintals). When arriving
+    // from a buying request, start from what the buyer NEEDS, capped by what
+    // the listing has — not the listing's full quantity.
+    final listingKg = widget.listing.quantity * 100;
+    final neededKg =
+        widget.intent != null ? widget.intent!.quantityNeeded * 100 : listingKg;
+    final kgQuantity = neededKg < listingKg ? neededKg : listingKg;
     _quantityController =
         TextEditingController(text: kgQuantity.toStringAsFixed(0));
   }
@@ -65,6 +80,38 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   double get _commission => (_cropCost + _transportCost) * _commissionRate;
 
   double get _total => _cropCost + _transportCost + _commission;
+
+  /// Close the loop from order back to the buying request: when the order
+  /// covers the full quantity the request asked for, mark it fulfilled so it
+  /// stops accumulating "new match" badges and server push alerts. Partial
+  /// orders leave the request active — the buyer still needs the rest.
+  void _fulfillIntentIfCovered(BuildContext context, AppLocalizations l10n) {
+    final intent = widget.intent;
+    if (intent == null) return;
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) return;
+    final neededKg = intent.quantityNeeded * 100;
+    if (_quantity < neededKg) return;
+
+    context.read<BuyerIntentBloc>().add(
+          FulfillIntent(intentId: intent.intentId, buyerId: authState.userId),
+        );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.requestFulfilled)),
+    );
+  }
+
+  /// Telemetry: record the match→order conversion (best-effort, no UI effect).
+  void _logOrderCreated(BuildContext context) {
+    final intent = widget.intent;
+    if (intent == null) return;
+    context.read<BuyerIntentBloc>().add(
+          LogMatchOrderCreated(
+            intent: intent,
+            listingId: widget.listing.listingId,
+          ),
+        );
+  }
 
   void _placeOrder() {
     final authState = context.read<AuthBloc>().state;
@@ -105,6 +152,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderPlacedSuccess)),
             );
+            _logOrderCreated(context);
+            _fulfillIntentIfCovered(context, l10n);
             Navigator.pushReplacement(
               context,
               MaterialPageRoute<void>(
@@ -183,6 +232,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                     suffixText: 'kg',
                     border: const OutlineInputBorder(),
                     hintText: l10n.quantity,
+                    // Listings and requests are quoted in quintals; show the
+                    // conversion so the kg entry isn't a unit trap.
+                    helperText: l10n.quintalEquivalent(
+                      (_quantity / 100).toStringAsFixed(1),
+                    ),
                   ),
                   onChanged: (_) => setState(() {}),
                 ),

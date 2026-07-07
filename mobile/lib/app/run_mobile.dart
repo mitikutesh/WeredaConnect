@@ -19,6 +19,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
+import 'package:wereda_connect/features/buyer/domain/services/match_event_logger.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -277,6 +278,7 @@ class WeredaConnectApp extends StatelessWidget {
                 isar: IsarService.instance.db,
               ),
               marketplaceSync: marketplaceSync,
+              eventLogger: MatchEventLogger(syncQueue: syncQueue),
             ),
           ),
           BlocProvider<ConflictBloc>(

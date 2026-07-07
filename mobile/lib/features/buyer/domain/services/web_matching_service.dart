@@ -32,6 +32,18 @@ class WebMatchingService extends BaseMatchingService {
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
   ) async {
+    final (matches, _) = await _fetchMatches(intent);
+    return matches;
+  }
+
+  /// Fetch ranked matches plus the server's total eligible-match count.
+  ///
+  /// The display list is capped by the request `limit`, but the badge count
+  /// must not saturate at that cap — the server reports `totalMatches`
+  /// (eligible matches before the limit cut) for that purpose.
+  Future<(List<CropMatchResult>, int)> _fetchMatches(
+    BuyerIntent intent,
+  ) async {
     try {
       // Server-side scoring: GET /match returns crops already ranked by the
       // shared scoring formula. Resolve the delivery woreda to coordinates
@@ -55,7 +67,10 @@ class WebMatchingService extends BaseMatchingService {
         queryParameters: params,
       );
       final rawMatches = data['matches'] as List<dynamic>? ?? [];
-      if (rawMatches.isEmpty) return [];
+      // Fall back to the returned page size for servers without totalMatches.
+      final totalMatches =
+          (data['totalMatches'] as num?)?.toInt() ?? rawMatches.length;
+      if (rawMatches.isEmpty) return (const <CropMatchResult>[], totalMatches);
 
       // Pair each matched crop with suggested trips (the match endpoint returns
       // crops only). Fetch open trips once for all matches.
@@ -70,6 +85,7 @@ class WebMatchingService extends BaseMatchingService {
           listing.locationName,
           intent.deliveryWoreda,
           intent.quantityNeeded,
+          neededByDate: intent.neededByDate,
         );
 
         // Compute estimated total with the cheapest trip if available.
@@ -93,7 +109,7 @@ class WebMatchingService extends BaseMatchingService {
       }
 
       // The server already ranked by score; preserve that order.
-      return matches;
+      return (matches, totalMatches);
     } on ApiException {
       // Surface transient network/auth/server failures to the caller so the
       // BLoC can emit an error state instead of silently masking the failure
@@ -112,10 +128,13 @@ class WebMatchingService extends BaseMatchingService {
   ) async {
     final intents = await repository.getActiveIntents(buyerId);
     for (final intent in intents) {
-      final matches = await matchListingsForIntent(intent);
+      // Use the server's total (pre-limit) count so the badge matches the
+      // uncapped on-device count on mobile instead of saturating at the
+      // request limit.
+      final (_, totalMatches) = await _fetchMatches(intent);
       await repository.updateMatchCount(
         intent.intentId,
-        matches.length,
+        totalMatches,
         DateTime.now().toUtc(),
       );
     }
@@ -181,15 +200,21 @@ class WebMatchingService extends BaseMatchingService {
     List<Trip> trips,
     String fromLocation,
     String toLocation,
-    double quantityNeeded,
-  ) {
+    double quantityNeeded, {
+    DateTime? neededByDate,
+  }) {
     final now = DateTime.now().toUtc();
     final fromLower = fromLocation.toLowerCase();
     final toLower = toLocation.toLowerCase();
+    final deadline = neededByDate?.toUtc();
 
     final matched = trips.where((trip) {
       if (trip.departureDate.isBefore(now)) return false;
       if (trip.capacity < quantityNeeded) return false;
+      // Date-fit: drop trips departing after the buyer's delivery deadline.
+      if (deadline != null && trip.departureDate.isAfter(deadline)) {
+        return false;
+      }
       return trip.fromWoreda.toLowerCase().contains(fromLower) &&
           trip.toWoreda.toLowerCase().contains(toLower);
     }).toList();
@@ -246,6 +271,7 @@ class WebMatchingService extends BaseMatchingService {
         ..longitude = (m['longitude'] as num?)?.toDouble() ?? 0)
       ..locationName = m['woreda'] as String? ?? ''
       ..description = ''
+      ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
       ..status = ListingStatus.active
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

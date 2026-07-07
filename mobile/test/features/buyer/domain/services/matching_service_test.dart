@@ -74,6 +74,7 @@ void main() {
       String toWoreda = 'AddisAbeba',
       double capacity = 100,
       double pricePerQuintal = 10,
+      Duration departsIn = const Duration(days: 2),
     }) async {
       await isar.writeTxn(() async {
         await isar.trips.putByTripId(
@@ -84,7 +85,7 @@ void main() {
             ..truckerPhone = '+251900000000'
             ..fromWoreda = fromWoreda
             ..toWoreda = toWoreda
-            ..departureDate = DateTime.now().toUtc().add(const Duration(days: 2))
+            ..departureDate = DateTime.now().toUtc().add(departsIn)
             ..capacity = capacity
             ..pricePerQuintal = pricePerQuintal
             ..status = TripStatus.open
@@ -101,6 +102,7 @@ void main() {
       double quantityNeeded = 5,
       double maxPricePerKg = 150,
       String deliveryWoreda = 'AddisAbeba',
+      DateTime? neededByDate,
     }) {
       return BuyerIntent()
         ..intentId = 'i1'
@@ -109,6 +111,7 @@ void main() {
         ..quantityNeeded = quantityNeeded
         ..maxPricePerKg = maxPricePerKg
         ..deliveryWoreda = deliveryWoreda
+        ..neededByDate = neededByDate
         ..status = BuyerIntentStatus.active
         ..createdAt = DateTime.now().toUtc()
         ..updatedAt = DateTime.now().toUtc()
@@ -132,7 +135,8 @@ void main() {
       );
     });
 
-    test('a trip with capacity exactly equal to the need is included', () async {
+    test('a trip with capacity exactly equal to the need is included',
+        () async {
       // capacityGreaterThan(need - 0.01) → inclusive >= at the boundary.
       // Crop defaults to woreda 'Assosa' (matching the trip); need defaults to 5.
       await putCrop(id: 'crop-1');
@@ -148,14 +152,57 @@ void main() {
       );
     });
 
-    test('equal-score crops are tie-broken by cheaper landed total', () async {
-      // Two identical-scoring crops (same type/price/qty, both in woredas
-      // disjoint from the delivery woreda → equal geoNeutral). One has a
-      // matching trip (adds transport cost → higher total); the one without a
-      // trip has the lower landed total and must rank first.
-      await putCrop(id: 'crop-with-trip'); // defaults to woreda 'Assosa'
-      await putCrop(id: 'crop-no-trip', locationName: 'Gambela');
-      await putTrip(id: 'trip-1', fromWoreda: 'Assosa');
+    test('neededByDate drops trips departing after the deadline', () async {
+      await putCrop(id: 'crop-1'); // woreda 'Assosa'
+      // In-time trip departs in 3 days; late trip departs in 10 days.
+      await putTrip(
+        id: 'trip-intime',
+        fromWoreda: 'Assosa',
+        departsIn: const Duration(days: 3),
+      );
+      await putTrip(
+        id: 'trip-late',
+        fromWoreda: 'Assosa',
+        departsIn: const Duration(days: 10),
+      );
+
+      final results = await service.matchListingsForIntent(
+        buildIntent(
+          neededByDate: DateTime.now().toUtc().add(const Duration(days: 5)),
+        ),
+      );
+
+      expect(results, hasLength(1));
+      final tripIds =
+          results.single.suggestedTrips.map((t) => t.tripId).toList();
+      expect(
+        tripIds,
+        ['trip-intime'],
+        reason: 'the trip departing after the deadline must be dropped',
+      );
+    });
+
+    test('no neededByDate keeps all otherwise-matching trips', () async {
+      await putCrop(id: 'crop-1');
+      await putTrip(
+        id: 'trip-far-out',
+        fromWoreda: 'Assosa',
+        departsIn: const Duration(days: 40),
+      );
+
+      final results = await service.matchListingsForIntent(buildIntent());
+
+      expect(results.single.suggestedTrips, hasLength(1));
+    });
+
+    test('equal-score crops are tie-broken by cheaper crop price', () async {
+      // Two identical-scoring crops (both within budget → equal price score;
+      // both in woredas disjoint from the delivery woreda → equal geoNeutral).
+      // The cheaper crop ranks first — the SAME tie-break as the server's
+      // GET /match (score DESC, then pricePerKg ASC), so the ranking does not
+      // reorder when the buyer switches between online and offline.
+      await putCrop(id: 'crop-pricey', locationName: 'Gambela');
+      await putCrop(id: 'crop-cheap', pricePerKg: 90);
 
       final results = await service.matchListingsForIntent(buildIntent());
 
@@ -163,12 +210,12 @@ void main() {
       expect(
         results.first.matchScore,
         closeTo(results.last.matchScore, 1e-9),
-        reason: 'both crops score identically',
+        reason: 'both crops score identically (both within budget)',
       );
       expect(
         results.first.listing.listingId,
-        'crop-no-trip',
-        reason: 'cheaper landed total (no transport) wins the tie-break',
+        'crop-cheap',
+        reason: 'cheaper crop price wins the tie-break (server parity)',
       );
     });
 

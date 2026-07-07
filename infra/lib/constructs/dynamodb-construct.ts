@@ -9,6 +9,8 @@ export interface DynamoDbTableProps {
   readonly isProd: boolean;
   /** Optional DynamoDB stream view type (e.g. NEW_IMAGE for change consumers). */
   readonly stream?: dynamodb.StreamViewType;
+  /** Optional TTL attribute name (epoch seconds) for auto-expiring items. */
+  readonly timeToLiveAttribute?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export class WeredaDynamoTable extends Construct {
       removalPolicy: props.isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       stream: props.stream,
+      timeToLiveAttribute: props.timeToLiveAttribute,
     });
   }
 }

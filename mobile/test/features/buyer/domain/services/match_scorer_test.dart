@@ -36,6 +36,7 @@ void main() {
     double lat = 0,
     double lon = 0,
     DateTime? createdAt,
+    double? farmerReliability,
   }) {
     return CropListing()
       ..listingId = 'c1'
@@ -48,6 +49,7 @@ void main() {
         ..longitude = lon)
       ..locationName = locationName
       ..description = ''
+      ..farmerReliability = farmerReliability
       ..status = ListingStatus.active
       ..createdAt = createdAt ?? now
       ..updatedAt = now
@@ -56,7 +58,10 @@ void main() {
 
   group('candidateCropTypes', () {
     test('includes the exact type plus accepted substitutes', () {
-      expect(scorer.candidateCropTypes('wheat'), containsAll(['wheat', 'barley']));
+      expect(
+        scorer.candidateCropTypes('wheat'),
+        containsAll(['wheat', 'barley']),
+      );
     });
 
     test('teff has no substitutes (returns only itself)', () {
@@ -98,6 +103,16 @@ void main() {
     test('partial fill at or above the floor is accepted', () {
       expect(scorer.isCandidate(intent(), listing(quantity: 6)), isTrue);
     });
+
+    test('no budget (0) leaves price unconstrained', () {
+      expect(
+        scorer.isCandidate(
+          intent(maxPricePerKg: 0),
+          listing(pricePerKg: 500),
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('component scores', () {
@@ -114,6 +129,13 @@ void main() {
       final nearMiss = scorer.priceScore(intent(), listing(pricePerKg: 110));
       expect(nearMiss, greaterThan(0));
       expect(nearMiss, lessThan(1.0));
+    });
+
+    test('no budget (0) scores price 1.0 — parity with the server scorer', () {
+      expect(
+        scorer.priceScore(intent(maxPricePerKg: 0), listing(pricePerKg: 500)),
+        1.0,
+      );
     });
 
     test('quantity score is the partial-fill ratio, capped at 1.0', () {
@@ -214,29 +236,49 @@ void main() {
             MatchScorer.wPrice +
             MatchScorer.wGeo +
             MatchScorer.wQuantity +
-            MatchScorer.wFreshness,
+            MatchScorer.wFreshness +
+            MatchScorer.wReliability,
         closeTo(1.0, 1e-10),
       );
     });
 
-    test('golden vector: substitute, partial, disjoint woreda → 0.645', () {
+    test('golden vector: substitute, partial, disjoint woreda → 0.664', () {
       // type=substitute(0.6), price=within(1.0), qty=5/10(0.5),
-      // geo=disjoint-proxy(0.3), freshness=fresh(1.0).
-      // 0.35*0.6 + 0.20*1.0 + 0.20*0.3 + 0.15*0.5 + 0.10*1.0 = 0.645
+      // geo=disjoint-proxy(0.3), freshness=fresh(1.0), reliability=neutral(0.7).
+      // 0.30*0.6 + 0.20*1.0 + 0.18*0.3 + 0.12*0.5 + 0.10*1.0 + 0.10*0.7 = 0.664
       final score = scorer.scoreListing(
         intent(),
         listing(cropType: 'barley', quantity: 5, locationName: 'Mekelle'),
         now,
       );
-      expect(score, closeTo(0.645, 1e-6));
+      expect(score, closeTo(0.664, 1e-6));
     });
 
-    test('golden vector: price +10% near-miss band → 0.866667', () {
+    test('golden vector: price +10% near-miss band → 0.836667', () {
       // type=exact(1.0), price=1-(0.10/0.15)=0.333333, qty=1.0,
-      // geo=same-woreda(1.0), freshness=fresh(1.0).
-      // 0.35 + 0.20*0.333333 + 0.20 + 0.15 + 0.10 = 0.866667
-      final score = scorer.scoreListing(intent(), listing(pricePerKg: 110), now);
-      expect(score, closeTo(0.866667, 1e-6));
+      // geo=same-woreda(1.0), freshness=fresh(1.0), reliability=neutral(0.7).
+      // 0.30 + 0.20*0.333333 + 0.18 + 0.12 + 0.10 + 0.10*0.7 = 0.836667
+      final score =
+          scorer.scoreListing(intent(), listing(pricePerKg: 110), now);
+      expect(score, closeTo(0.836667, 1e-6));
+    });
+
+    test('golden vector: reliability moves the score by its full weight', () {
+      // A perfect match with a flaky farmer (reliability 0.2) vs a proven one
+      // (1.0) must differ by exactly wReliability * (1.0 - 0.2) = 0.08.
+      final flaky = scorer.scoreListing(
+        intent(),
+        listing(farmerReliability: 0.2),
+        now,
+      );
+      final proven = scorer.scoreListing(
+        intent(),
+        listing(farmerReliability: 1.0),
+        now,
+      );
+      expect(proven - flaky, closeTo(MatchScorer.wReliability * 0.8, 1e-9));
+      // A proven farmer's perfect match reaches the top of the range.
+      expect(proven, closeTo(1.0, 1e-9));
     });
 
     test('haversine Adama→Mekelle pins radius and units (~0.083)', () {
@@ -247,17 +289,88 @@ void main() {
       expect(score, closeTo(0.083, 0.04));
     });
 
+    test('full substitute map parity (exact lists, both directions)', () {
+      // The COMPLETE substitute map as exact lists — a one-sided edit to any
+      // pair (not just the golden-vector pairs) fails here and on the C# side.
+      expect(scorer.candidateCropTypes('wheat'), ['wheat', 'barley']);
+      expect(scorer.candidateCropTypes('barley'), ['barley', 'wheat']);
+      expect(scorer.candidateCropTypes('maize'), ['maize', 'sorghum']);
+      expect(scorer.candidateCropTypes('sorghum'), ['sorghum', 'maize']);
+      expect(scorer.candidateCropTypes('chickpea'), ['chickpea', 'lentils']);
+      expect(scorer.candidateCropTypes('lentils'), ['lentils', 'chickpea']);
+    });
+
+    test('golden vector: maize→sorghum mirrors wheat→barley (0.664)', () {
+      // The maize↔sorghum pair must score exactly like wheat↔barley — pins the
+      // one substitute pair the original golden vectors didn't exercise.
+      final viaGrain = scorer.scoreListing(
+        intent(),
+        listing(cropType: 'barley', quantity: 5, locationName: 'Mekelle'),
+        now,
+      );
+      final viaMaize = scorer.scoreListing(
+        intent(cropType: 'maize'),
+        listing(cropType: 'sorghum', quantity: 5, locationName: 'Mekelle'),
+        now,
+      );
+      expect(viaMaize, closeTo(0.664, 1e-6));
+      expect(viaMaize, closeTo(viaGrain, 1e-9));
+    });
+
+    test('golden ranking order is identical across platforms', () {
+      // A fixed candidate set must produce ONE exact ranked order, duplicated
+      // verbatim on the C# side — catches formula drift that the per-signal
+      // golden vectors can miss. All crops carry neutral reliability.
+      final i = intent();
+      final exactSame = scorer.scoreListing(i, listing(), now); // 0.97
+      final nearMissPrice =
+          scorer.scoreListing(i, listing(pricePerKg: 110), now); // 0.836667
+      final exactFar = scorer.scoreListing(
+        i,
+        listing(locationName: 'Mekelle'),
+        now,
+      ); // 0.844
+      final substitutePartial =
+          scorer.scoreListing(i, listing(cropType: 'barley', quantity: 5), now);
+      final scores = <String, double>{
+        'exact-same': exactSame,
+        'near-miss-price': nearMissPrice,
+        'exact-far': exactFar,
+        'substitute-partial': substitutePartial, // 0.79
+      };
+      final ranked = scores.keys.toList()
+        ..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+      expect(ranked, [
+        'exact-same',
+        'exact-far',
+        'near-miss-price',
+        'substitute-partial',
+      ]);
+    });
+
     test('legume substitutes are reachable (chickpea↔lentils)', () {
       // Regression: the substitute map previously used non-existent crop types
       // ("lentil"/"fababean") so legume substitution never matched real data.
-      expect(scorer.candidateCropTypes('chickpea'), containsAll(['chickpea', 'lentils']));
-      expect(scorer.candidateCropTypes('lentils'), containsAll(['lentils', 'chickpea']));
       expect(
-        scorer.isSubstitute(intent(cropType: 'chickpea'), listing(cropType: 'lentils')),
+        scorer.candidateCropTypes('chickpea'),
+        containsAll(['chickpea', 'lentils']),
+      );
+      expect(
+        scorer.candidateCropTypes('lentils'),
+        containsAll(['lentils', 'chickpea']),
+      );
+      expect(
+        scorer.isSubstitute(
+          intent(cropType: 'chickpea'),
+          listing(cropType: 'lentils'),
+        ),
         isTrue,
       );
       expect(
-        scorer.isCandidate(intent(cropType: 'chickpea'), listing(cropType: 'lentils')),
+        scorer.isCandidate(
+          intent(cropType: 'chickpea'),
+          listing(cropType: 'lentils'),
+        ),
         isTrue,
       );
     });

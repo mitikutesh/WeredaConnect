@@ -15,6 +15,7 @@ class CropListing {
   late String locationName;
   String? placeId;
   late String description;
+  double? farmerReliability;
   String? audioNoteRef;
   late ListingStatus status;
   late DateTime createdAt;

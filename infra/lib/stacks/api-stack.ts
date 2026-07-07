@@ -34,6 +34,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly fraudSignalsTable: dynamodb.Table;
   readonly intentsTable: dynamodb.Table;
   readonly deviceTokensTable: dynamodb.Table;
+  readonly matchEventsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -316,6 +317,7 @@ export class ApiStack extends cdk.Stack {
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         INTENTS_TABLE: props.intentsTable.tableName,
+        MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
@@ -323,6 +325,8 @@ export class ApiStack extends cdk.Stack {
     // Sync needs read-write on entity tables and sync metadata
     props.syncMetadataTable.grantReadWriteData(syncFn.function);
     props.intentsTable.grantReadWriteData(syncFn.function);
+    // Match events are append-only telemetry: write-only grant.
+    props.matchEventsTable.grantWriteData(syncFn.function);
     props.cropsTable.grantReadWriteData(syncFn.function);
     props.usersTable.grantReadData(syncFn.function);
     props.tripsTable.grantReadWriteData(syncFn.function);

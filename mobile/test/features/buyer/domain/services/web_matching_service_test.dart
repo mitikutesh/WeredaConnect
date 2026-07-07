@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/features/buyer/data/repositories/web_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/web_matching_service.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
@@ -35,29 +36,36 @@ void main() {
     String cropType = 'wheat',
     double score = 0.9,
     bool isSubstitute = false,
-  }) => {
-    'cropId': cropId,
-    'farmerId': 'f1',
-    'farmerName': 'Farmer',
-    'cropType': cropType,
-    'woreda': 'Adama',
-    'quantityKg': 10,
-    'pricePerKg': 100.0,
-    'status': 'available',
-    'createdAt': '2026-06-15T08:00:00Z',
-    'latitude': 8.54,
-    'longitude': 39.27,
-    'score': score,
-    'isSubstitute': isSubstitute,
-  };
+  }) =>
+      {
+        'cropId': cropId,
+        'farmerId': 'f1',
+        'farmerName': 'Farmer',
+        'cropType': cropType,
+        'woreda': 'Adama',
+        'quantityKg': 10,
+        'pricePerKg': 100.0,
+        'status': 'available',
+        'createdAt': '2026-06-15T08:00:00Z',
+        'latitude': 8.54,
+        'longitude': 39.27,
+        'score': score,
+        'isSubstitute': isSubstitute,
+      };
 
-  void stubMatch(List<Map<String, dynamic>> matches) {
+  void stubMatch(List<Map<String, dynamic>> matches, {int? totalMatches}) {
     when(
       () => api.get<Map<String, dynamic>>(
         '/match',
         queryParameters: any(named: 'queryParameters'),
       ),
-    ).thenAnswer((_) async => {'matches': matches, 'count': matches.length});
+    ).thenAnswer(
+      (_) async => {
+        'matches': matches,
+        'count': matches.length,
+        if (totalMatches != null) 'totalMatches': totalMatches,
+      },
+    );
   }
 
   void stubNoTrips() {
@@ -113,7 +121,8 @@ void main() {
     );
   });
 
-  test('resolves a known delivery woreda to coordinates in the request', () async {
+  test('resolves a known delivery woreda to coordinates in the request',
+      () async {
     stubMatch([matchDto(cropId: 'wheat-1')]);
     stubNoTrips();
 
@@ -125,18 +134,21 @@ void main() {
     expect(params['longitude'], isNotNull);
   });
 
-  test('omits coordinates for an unknown woreda (proxy fallback on server)', () async {
+  test('omits coordinates for an unknown woreda (proxy fallback on server)',
+      () async {
     stubMatch([matchDto(cropId: 'wheat-1')]);
     stubNoTrips();
 
-    await service.matchListingsForIntent(intent(deliveryWoreda: 'Nowhereville'));
+    await service
+        .matchListingsForIntent(intent(deliveryWoreda: 'Nowhereville'));
 
     final params = capturedMatchParams();
     expect(params.containsKey('latitude'), isFalse);
     expect(params.containsKey('longitude'), isFalse);
   });
 
-  test('empty match result returns nothing and skips the trips fetch', () async {
+  test('empty match result returns nothing and skips the trips fetch',
+      () async {
     stubMatch([]);
 
     final results = await service.matchListingsForIntent(intent());
@@ -148,5 +160,51 @@ void main() {
         queryParameters: any(named: 'queryParameters'),
       ),
     );
+  });
+
+  test('refreshMatchCounts persists the server total, not the capped page',
+      () async {
+    // Server returns a 2-item page but reports 7 eligible matches — the badge
+    // must show 7, not saturate at the returned page size.
+    stubMatch(
+      [matchDto(cropId: 'wheat-1'), matchDto(cropId: 'wheat-2')],
+      totalMatches: 7,
+    );
+    stubNoTrips();
+
+    final repo = WebBuyerIntentRepository();
+    final created = await repo.createIntent(
+      buyerId: 'b1',
+      cropType: 'wheat',
+      quantityNeeded: 5,
+      maxPricePerKg: 150,
+      deliveryWoreda: 'Adama',
+    );
+
+    await service.refreshMatchCounts('b1', repo);
+
+    final persisted = await repo.getIntentById(created.intentId);
+    expect(persisted?.matchCount, 7);
+  });
+
+  test('refreshMatchCounts falls back to page size when total is omitted',
+      () async {
+    // Older server without totalMatches → badge uses the returned page length.
+    stubMatch([matchDto(cropId: 'wheat-1'), matchDto(cropId: 'wheat-2')]);
+    stubNoTrips();
+
+    final repo = WebBuyerIntentRepository();
+    final created = await repo.createIntent(
+      buyerId: 'b1',
+      cropType: 'wheat',
+      quantityNeeded: 5,
+      maxPricePerKg: 150,
+      deliveryWoreda: 'Adama',
+    );
+
+    await service.refreshMatchCounts('b1', repo);
+
+    final persisted = await repo.getIntentById(created.intentId);
+    expect(persisted?.matchCount, 2);
   });
 }

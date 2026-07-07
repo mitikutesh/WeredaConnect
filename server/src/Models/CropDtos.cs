@@ -135,4 +135,11 @@ public sealed record CropDto
     /// ISO 8601 UTC timestamp of when this listing was soft-deleted (if status = "deleted").
     /// </summary>
     public string? DeletedAt { get; init; }
+
+    /// <summary>
+    /// Farmer's reliability in [0, 1] (listing-conversion track record),
+    /// server-injected at create time. Absent for farmers with no history; the
+    /// on-device matcher defaults it to a neutral value.
+    /// </summary>
+    public double? FarmerReliability { get; init; }
 }

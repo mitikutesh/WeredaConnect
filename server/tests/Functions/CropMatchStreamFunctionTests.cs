@@ -34,8 +34,14 @@ public class CropMatchStreamFunctionTests
         double pricePerKg = 100,
         double quantity = 10,
         string woreda = "Adama",
-        string sequenceNumber = "seq-1")
+        string sequenceNumber = "seq-1",
+        double? latitude = null,
+        double? longitude = null)
     {
+        var gps = latitude.HasValue && longitude.HasValue
+            ? "\"latitude\": { \"N\": \"" + latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\" },"
+              + "\"longitude\": { \"N\": \"" + longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\" },"
+            : "";
         var json = $$"""
         {
           "Records": [
@@ -49,6 +55,7 @@ public class CropMatchStreamFunctionTests
                   "status": { "S": "{{status}}" },
                   "pricePerKg": { "N": "{{pricePerKg}}" },
                   "quantity": { "N": "{{quantity}}" },
+                  {{gps}}
                   "woreda": { "S": "{{woreda}}" },
                   "locationName": { "S": "{{woreda}}" },
                   "createdAt": { "S": "2026-06-19T00:00:00Z" }
@@ -67,15 +74,29 @@ public class CropMatchStreamFunctionTests
         string cropType = "wheat",
         string maxPricePerKg = "150",
         string quantityNeeded = "5",
-        string deliveryWoreda = "Adama") => new()
+        string deliveryWoreda = "Adama",
+        string? deliveryLatitude = null,
+        string? deliveryLongitude = null)
     {
-        { "intentId", intentId },
-        { "buyerId", buyerId },
-        { "cropType", cropType },
-        { "maxPricePerKg", maxPricePerKg },
-        { "quantityNeeded", quantityNeeded },
-        { "deliveryWoreda", deliveryWoreda },
-    };
+        var item = new Dictionary<string, object>
+        {
+            { "intentId", intentId },
+            { "buyerId", buyerId },
+            { "cropType", cropType },
+            { "maxPricePerKg", maxPricePerKg },
+            { "quantityNeeded", quantityNeeded },
+            { "deliveryWoreda", deliveryWoreda },
+        };
+        if (deliveryLatitude != null)
+        {
+            item["deliveryLatitude"] = deliveryLatitude;
+        }
+        if (deliveryLongitude != null)
+        {
+            item["deliveryLongitude"] = deliveryLongitude;
+        }
+        return item;
+    }
 
     [Fact]
     public async Task MatchingIntent_WithEndpoint_PublishesPush()
@@ -143,10 +164,11 @@ public class CropMatchStreamFunctionTests
     }
 
     [Fact]
-    public async Task TwoIntentsSameBuyer_PublishPerIntent_QueryEndpointsOnce()
+    public async Task TwoIntentsSameBuyer_OnePushPerCrop()
     {
-        // Endpoint-cache + dedupe: two distinct matching intents for one buyer
-        // each get a push, but device tokens are queried only once.
+        // One push per buyer per crop: two distinct matching intents for one
+        // buyer collapse into a single alert (less notification noise, fewer
+        // SNS publishes), and device tokens are queried only once.
         _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
         {
             Intent(intentId: "i1"),
@@ -156,8 +178,68 @@ public class CropMatchStreamFunctionTests
 
         await _fn.ProcessStreamAsync(StreamEvent(), _ctx);
 
-        await _sns.Received(2).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+        await _sns.Received(1).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
         await _devices.Received(1).GetEndpointArnsByUserAsync("b1");
+    }
+
+    [Fact]
+    public async Task TwoIntentsDifferentBuyers_EachBuyerGetsAPush()
+    {
+        _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
+        {
+            Intent(intentId: "i1", buyerId: "b1"),
+            Intent(intentId: "i2", buyerId: "b2"),
+        });
+        _devices.GetEndpointArnsByUserAsync(Arg.Any<string>())
+            .Returns(new List<string> { "arn:endpoint:1" });
+
+        await _fn.ProcessStreamAsync(StreamEvent(), _ctx);
+
+        await _sns.Received(2).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IntentWithCoords_FarCrop_GeoDropsAlertBelowThreshold()
+    {
+        // Marginal match (substitute type + near-miss price + partial quantity):
+        // the geo signal decides the alert. Crop GPS ~550 km from the delivery
+        // point (Adama→Mekelle) → score falls below the 0.5 threshold → no push.
+        // Pins the haversine path over intent deliveryLatitude/Longitude.
+        _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
+        {
+            Intent(cropType: "wheat", maxPricePerKg: "100", quantityNeeded: "5",
+                deliveryWoreda: "Adama", deliveryLatitude: "8.54", deliveryLongitude: "39.27"),
+        });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+
+        await _fn.ProcessStreamAsync(
+            StreamEvent(cropType: "barley", pricePerKg: 114, quantity: 3,
+                woreda: "Mekelle", latitude: 13.49, longitude: 39.47),
+            _ctx);
+
+        await _sns.DidNotReceive().PublishAsync(
+            Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IntentWithCoords_NearCrop_GeoLiftsAlertAboveThreshold()
+    {
+        // Same marginal match as above but the crop sits on the delivery point
+        // → geo ≈ 1.0 lifts the score above the threshold → push.
+        _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
+        {
+            Intent(cropType: "wheat", maxPricePerKg: "100", quantityNeeded: "5",
+                deliveryWoreda: "Adama", deliveryLatitude: "8.54", deliveryLongitude: "39.27"),
+        });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+
+        await _fn.ProcessStreamAsync(
+            StreamEvent(cropType: "barley", pricePerKg: 114, quantity: 3,
+                woreda: "Mekelle", latitude: 8.54, longitude: 39.27),
+            _ctx);
+
+        await _sns.Received(1).PublishAsync(
+            Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

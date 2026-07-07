@@ -55,6 +55,12 @@ class CropListing {
   /// Supports Amharic, Afan Oromo, and English
   late String description;
 
+  /// Farmer's reliability score in [0, 1] (listing-conversion track record),
+  /// server-injected and denormalized onto the listing. Null when the server
+  /// hasn't supplied it (old listings / farmers with no history); the matcher
+  /// treats null as a neutral default. Never client-set.
+  double? farmerReliability;
+
   /// Reference to local audio file (voice note)
   /// Format: 'audio/{userId}/{listingId}.m4a'
   /// Null if farmer didn't record voice note

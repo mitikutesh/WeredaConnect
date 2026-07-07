@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -175,6 +177,46 @@ class _MyRequestsTab extends StatelessWidget {
     required this.onRefreshMatches,
   });
 
+  /// Mark a request fulfilled (the buyer's need is met): it drops out of the
+  /// active list and stops generating match badges and push alerts.
+  void _fulfillIntent(BuildContext context, BuyerIntent intent) {
+    final l10n = AppLocalizations.of(context)!;
+    context.read<BuyerIntentBloc>().add(
+          FulfillIntent(intentId: intent.intentId, buyerId: intent.buyerId),
+        );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.requestFulfilled)),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, BuyerIntent intent) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<BuyerIntentBloc>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.deleteRequest),
+        content: Text(l10n.deleteRequestConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(l10n.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    bloc.add(
+      DeleteIntent(intentId: intent.intentId, buyerId: intent.buyerId),
+    );
+    messenger.showSnackBar(SnackBar(content: Text(l10n.requestDeleted)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -190,20 +232,21 @@ class _MyRequestsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Error with retry
+        // Error with retry — a real failure must look like a failure, not
+        // like an empty "no matches yet" state, or buyers never retry.
         if (state is BuyerIntentError) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  Icons.search_off,
+                  Icons.error_outline,
                   size: 56,
                   color: AppTheme.textMuted.withAlpha(150),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  l10n.noMatchesYet,
+                  l10n.somethingWentWrong,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -212,7 +255,7 @@ class _MyRequestsTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  l10n.whatDoYouNeedSubtitle,
+                  localizeErrorCode(state.code, l10n),
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppTheme.textMuted,
@@ -294,6 +337,8 @@ class _MyRequestsTab extends StatelessWidget {
                           );
                           onRefresh();
                         },
+                        onFulfill: () => _fulfillIntent(context, intent),
+                        onDelete: () => _confirmDelete(context, intent),
                       );
                     },
                   ),

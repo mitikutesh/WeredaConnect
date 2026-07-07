@@ -2107,6 +2107,80 @@ class AppLocalizationsEn extends AppLocalizations {
   String get intentSaved => 'Saved! We\'ll notify you of new matches';
 
   @override
+  String get intentSaveHint =>
+      'Saving this request lets us alert you when new matches arrive';
+
+  @override
+  String get selectCropTypeError => 'Select a crop type';
+
+  @override
+  String get enterQuantityError => 'Enter the quantity you need';
+
+  @override
+  String get enterValidPriceError => 'Enter a valid price or leave it empty';
+
+  @override
+  String get enterDeliveryWoredaError => 'Enter your delivery woreda';
+
+  @override
+  String get maxPriceOptionalHint => 'Optional — leave empty to see all prices';
+
+  @override
+  String get anyPrice => 'Any price';
+
+  @override
+  String get similarCrop => 'Similar crop';
+
+  @override
+  String get withinBudget => 'Within budget';
+
+  @override
+  String get slightlyOverBudget => 'Slightly over budget';
+
+  @override
+  String get coversFullQuantity => 'Covers full quantity';
+
+  @override
+  String get partialQuantity => 'Partial quantity';
+
+  @override
+  String get nearYou => 'Near you';
+
+  @override
+  String get deleteRequest => 'Delete Request';
+
+  @override
+  String get deleteRequestConfirm =>
+      'Delete this buying request? You will stop receiving match alerts for it.';
+
+  @override
+  String get requestDeleted => 'Request deleted';
+
+  @override
+  String get markFulfilled => 'Mark as Fulfilled';
+
+  @override
+  String get requestFulfilled => 'Request marked as fulfilled';
+
+  @override
+  String quintalEquivalent(String count) {
+    return '= $count quintals';
+  }
+
+  @override
+  String get neededByDate => 'Needed by (optional)';
+
+  @override
+  String get neededByDateHint =>
+      'We\'ll prefer transport that can deliver in time';
+
+  @override
+  String get selectDate => 'Select date';
+
+  @override
+  String get clearDate => 'Clear';
+
+  @override
   String get newMatchesAvailable => 'New matches available!';
 
   @override

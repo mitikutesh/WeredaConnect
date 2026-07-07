@@ -90,7 +90,8 @@ public class MatchFunctionTests
                 Arg.Is<string?>(t => t == cropType),
                 Arg.Any<string?>(),
                 Arg.Any<int>(),
-                Arg.Any<Dictionary<string, AttributeValue>?>())
+                Arg.Any<Dictionary<string, AttributeValue>?>(),
+                Arg.Any<double?>())
             .Returns((items.ToList(), (Dictionary<string, AttributeValue>?)null));
     }
 
@@ -279,11 +280,73 @@ public class MatchFunctionTests
     }
 
     [Fact]
+    public async Task Match_PushesPriceCeilingIntoQuery()
+    {
+        StubType("wheat", CropItem("crop-1"));
+        StubType("barley");
+
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+            { "maxPricePerKg", "100" },
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        // Budget 100 + 15% near-miss band → ceiling 115 pushed into the repo
+        // query so over-budget crops never consume the candidate page cap.
+        await _mockCropRepo.Received().QueryCropsAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Is<string?>(t => t == "wheat"),
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(),
+            Arg.Is<double?>(p => p.HasValue && Math.Abs(p.Value - 115.0) < 1e-9));
+    }
+
+    [Fact]
+    public async Task Match_NoBudget_PassesNoPriceCeiling()
+    {
+        StubType("wheat", CropItem("crop-1"));
+        StubType("barley");
+
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+        });
+
+        await _function.FunctionHandler(request, _context);
+
+        await _mockCropRepo.Received().QueryCropsAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Is<string?>(t => t == "wheat"),
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(),
+            Arg.Is<double?>(p => p == null));
+    }
+
+    [Fact]
+    public async Task Match_TotalMatches_CountsBeyondTheLimit()
+    {
+        StubType("wheat",
+            CropItem("crop-1"), CropItem("crop-2"), CropItem("crop-3"));
+        StubType("barley");
+
+        var request = MakeRequest(queryParams: new Dictionary<string, string>
+        {
+            { "cropType", "wheat" },
+            { "limit", "2" },
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        var root = JsonDocument.Parse(response.Body).RootElement;
+        Assert.Equal(2, root.GetProperty("count").GetInt32());
+        Assert.Equal(3, root.GetProperty("totalMatches").GetInt32());
+    }
+
+    [Fact]
     public async Task Match_RepoThrows_Returns500()
     {
         _mockCropRepo.QueryCropsAsync(
                 Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+                Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(),
+                Arg.Any<double?>())
             .ThrowsAsync(new Exception("dynamo down"));
 
         var request = MakeRequest(queryParams: new Dictionary<string, string>

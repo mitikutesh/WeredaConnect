@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
+
 /// Base class for buyer intent events.
 abstract class BuyerIntentEvent extends Equatable {
   const BuyerIntentEvent();
@@ -20,6 +23,9 @@ class CreateBuyerIntent extends BuyerIntentEvent {
   /// selector; null for free-text entries. Stored locally only.
   final String? placeId;
 
+  /// Optional delivery deadline; drives trip date-fit. Null = no deadline.
+  final DateTime? neededByDate;
+
   const CreateBuyerIntent({
     required this.buyerId,
     required this.cropType,
@@ -27,6 +33,7 @@ class CreateBuyerIntent extends BuyerIntentEvent {
     required this.maxPricePerKg,
     required this.deliveryWoreda,
     this.placeId,
+    this.neededByDate,
   });
 
   @override
@@ -37,6 +44,7 @@ class CreateBuyerIntent extends BuyerIntentEvent {
         maxPricePerKg,
         deliveryWoreda,
         placeId,
+        neededByDate,
       ];
 }
 
@@ -93,4 +101,33 @@ class RefreshAllMatches extends BuyerIntentEvent {
 
   @override
   List<Object?> get props => [buyerId];
+}
+
+/// Telemetry: the buyer opened the match at [rank] (0-based). Handled as a
+/// pure side effect — no state is emitted. See MatchEventLogger.
+class LogMatchOpened extends BuyerIntentEvent {
+  final BuyerIntent intent;
+  final CropMatchResult result;
+  final int rank;
+
+  const LogMatchOpened({
+    required this.intent,
+    required this.result,
+    required this.rank,
+  });
+
+  @override
+  List<Object?> get props => [intent.intentId, result.listing.listingId, rank];
+}
+
+/// Telemetry: an order was created for [listingId] from this intent's
+/// matches. Handled as a pure side effect — no state is emitted.
+class LogMatchOrderCreated extends BuyerIntentEvent {
+  final BuyerIntent intent;
+  final String listingId;
+
+  const LogMatchOrderCreated({required this.intent, required this.listingId});
+
+  @override
+  List<Object?> get props => [intent.intentId, listingId];
 }

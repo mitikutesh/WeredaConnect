@@ -9,6 +9,7 @@ class BuyerIntent {
   late double maxPricePerKg;
   late String deliveryWoreda;
   String? placeId;
+  DateTime? neededByDate;
   late BuyerIntentStatus status;
   late DateTime createdAt;
   late DateTime updatedAt;

@@ -45,6 +45,12 @@ public interface ICropRepository
     /// <param name="status">Filter by status.</param>
     /// <param name="limit">Maximum number of results to return (1-100).</param>
     /// <param name="exclusiveStartKey">Pagination token (DynamoDB exclusive start key).</param>
+    /// <param name="maxPricePerKg">
+    /// Price ceiling pushed into the crop-type GSI query (pricePerKg is in the
+    /// index projection), so over-budget crops are skipped before the full-item
+    /// fetch and each candidate page holds only price-eligible listings. Only
+    /// honoured on the cropType query path (the matching path).
+    /// </param>
     /// <returns>List of crop listings and optional pagination token.</returns>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
         string? farmerId = null,
@@ -52,5 +58,6 @@ public interface ICropRepository
         string? cropType = null,
         string? status = null,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        double? maxPricePerKg = null);
 }
