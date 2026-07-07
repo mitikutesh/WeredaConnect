@@ -14,6 +14,7 @@ public class EscrowServiceTests
     private readonly IEscrowAuditRepository _mockAuditRepo;
     private readonly IEscrowIdempotencyRepository _mockIdempotencyRepo;
     private readonly ITelebirrGateway _mockTelebirrGateway;
+    private readonly IUserRepository _mockUserRepo;
     private readonly EscrowService _service;
 
     private const string BuyerId = "buyer-456";
@@ -39,8 +40,45 @@ public class EscrowServiceTests
         _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 
-        _service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        // Default users: valid, phone-verified, Fayda-verified buyer + farmer so the standard
+        // (high-value) initiate flow passes user + Fayda validation. Individual tests override
+        // by constructing their own service via CreateServiceWithUserRepo.
+        _mockUserRepo = Substitute.For<IUserRepository>();
+        _mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
+        _mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+
+        _service = new EscrowService(
+            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, _mockUserRepo);
     }
+
+    /// <summary>Build a phone- and Fayda-verified user with the given role.</summary>
+    private static UserDto MakeVerifiedUser(string userId, string role) => new()
+    {
+        UserId = userId,
+        PhoneNumber = "+251900000000",
+        Role = role,
+        Woreda = "test-woreda",
+        IsPhoneVerified = true,
+        FaydaVerified = true,
+        FaydaId = $"FAYDA-{userId}",
+        CreatedAt = "2026-02-17T10:00:00.0000000Z",
+        UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+        Version = 1
+    };
+
+    /// <summary>Build a phone-verified but NOT Fayda-verified user with the given role.</summary>
+    private static UserDto MakeUnverifiedFaydaUser(string userId, string role) => new()
+    {
+        UserId = userId,
+        PhoneNumber = "+251900000000",
+        Role = role,
+        Woreda = "test-woreda",
+        IsPhoneVerified = true,
+        FaydaVerified = false,
+        CreatedAt = "2026-02-17T10:00:00.0000000Z",
+        UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+        Version = 1
+    };
 
     /// <summary>
     /// Helper to create an EscrowService with IUserRepository for Fayda and role-verification tests.
@@ -1120,7 +1158,7 @@ public class EscrowServiceTests
         var result = await _service.ReleaseAsync(request, BuyerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_015", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
@@ -1160,7 +1198,7 @@ public class EscrowServiceTests
         var result = await _service.RefundAsync(request, BuyerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_021", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
@@ -1177,7 +1215,7 @@ public class EscrowServiceTests
         var result = await _service.RefundAsync(request, FarmerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_021", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
@@ -1209,7 +1247,7 @@ public class EscrowServiceTests
         var result = await service.ReleaseAsync(request, "fake-admin", role: "admin");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_015", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
@@ -1231,14 +1269,16 @@ public class EscrowServiceTests
         var result = await service.ReleaseAsync(request, "ghost-admin", role: "admin");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_015", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
     [Fact]
     public async Task ReleaseAsync_NoUserRepoInjected_AdminReturns403()
     {
-        // _service has no IUserRepository (null), so admin verification must fail-closed
+        // A service with no IUserRepository (null) must fail-closed on admin verification.
+        var noRepoService = new EscrowService(
+            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -1247,10 +1287,10 @@ public class EscrowServiceTests
             IdempotencyKey = $"admin:escrow-001:release:1708171200000"
         };
 
-        var result = await _service.ReleaseAsync(request, "admin-user", role: "admin");
+        var result = await noRepoService.ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_015", result.Error!.Code);
         Assert.Equal(403, result.Error.HttpStatus);
     }
 
@@ -1381,9 +1421,12 @@ public class EscrowServiceTests
     }
 
     [Fact]
-    public async Task InitiateAsync_BelowFaydaThreshold_SkipsFaydaCheck()
+    public async Task InitiateAsync_BelowFaydaThreshold_DoesNotRequireFayda()
     {
+        // Below the 10,000 ETB threshold, an unverified (non-Fayda) buyer is still allowed.
         var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeUnverifiedFaydaUser(BuyerId, "buyer"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
 
         var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
         var request = MakeInitiateRequest(amount: 5_000m); // Below 10,000 threshold
@@ -1391,15 +1434,15 @@ public class EscrowServiceTests
         var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
 
         Assert.True(result.IsSuccess);
-        // User repo should NOT be called for amounts <= 10,000
-        await mockUserRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
     }
 
     [Fact]
-    public async Task InitiateAsync_ExactFaydaThreshold_SkipsFaydaCheck()
+    public async Task InitiateAsync_ExactFaydaThreshold_DoesNotRequireFayda()
     {
         // amount == 10,000 should NOT trigger Fayda check (it's > 10,000, not >=)
         var mockUserRepo = Substitute.For<IUserRepository>();
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeUnverifiedFaydaUser(BuyerId, "buyer"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
 
         var serviceWithUserRepo = CreateServiceWithUserRepo(mockUserRepo);
         var request = MakeInitiateRequest(amount: 10_000m);
@@ -1407,7 +1450,6 @@ public class EscrowServiceTests
         var result = await serviceWithUserRepo.InitiateAsync(request, BuyerId);
 
         Assert.True(result.IsSuccess);
-        await mockUserRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
     }
 
     // ──────────────────────────────────────────────
@@ -1704,10 +1746,226 @@ public class EscrowServiceTests
     [Fact]
     public async Task InitiateAsync_Amount500000ETB_Succeeds()
     {
-        // No userRepo so Fayda check is skipped
+        // High-value txn with a fully verified buyer + farmer (default _service user repo).
         var request = MakeInitiateRequest(amount: 500_000m);
 
         var result = await _service.InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_HighValue_NoUserRepo_FailsClosed()
+    {
+        // Fayda is mandatory above 10,000 ETB. With no verification source available, the
+        // service MUST fail closed rather than silently skip the regulatory check (B4/A6).
+        var noRepoService = new EscrowService(
+            _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var request = MakeInitiateRequest(amount: 500_000m);
+
+        var result = await noRepoService.InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_007", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    // ──────────────────────────────────────────────
+    // Review fixes: duplicate-delivery, precision, rounding, delivery/farmer
+    // validation, order-split reconciliation, triggers, concurrency
+    // ──────────────────────────────────────────────
+
+    private EscrowService CreateServiceWithDeliveryRepo(IDeliveryRepository deliveryRepo)
+        => new(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, null, deliveryRepo);
+
+    private EscrowService CreateServiceWithOrderRepo(IOrderRepository orderRepo)
+        => new(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, orderRepo);
+
+    [Fact]
+    public async Task InitiateAsync_ActiveEscrowExistsForDelivery_ReturnsEscrow009()
+    {
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-existing" }, { "status", "escrowed" }
+        });
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_009", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_AmountWithThreeDecimals_ReturnsEscrow001()
+    {
+        var result = await _service.InitiateAsync(MakeInitiateRequest(amount: 100.999m), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_001", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OddAmount_RoundsCommissionToSantim()
+    {
+        // 10,001 * 0.025 = 250.025 → rounds away-from-zero to 250.03 (santim precision).
+        var result = await _service.InitiateAsync(MakeInitiateRequest(amount: 10_001m), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(250.03m, result.Value!.Commission);
+        Assert.Equal(10_001m - 250.03m, result.Value.FarmerPayout);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_DeliveryNotFound_ReturnsEscrow008()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns((Dictionary<string, object>?)null);
+
+        var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_008", result.Error!.Code);
+        Assert.Equal(404, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_DeliveryWrongState_ReturnsEscrow010()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "status", "delivered" }
+        });
+
+        var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_010", result.Error!.Code);
+        Assert.Equal(422, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_DeliveryPending_Succeeds()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "status", "pending" }
+        });
+
+        var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_RecipientNotFarmer_ReturnsEscrow006()
+    {
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "buyer")); // wrong role
+
+        var result = await CreateServiceWithUserRepo(userRepo)
+            .InitiateAsync(MakeInitiateRequest(amount: 5_000m), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderSplitDoesNotReconcile_ReturnsEscrow001()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId },
+            { "cropCost", 14_000m }, { "transportCost", 3_000m },
+            { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
+        });
+        // Held amount 15,000 but split sums to 17,500 → must be rejected.
+        var request = new InitiateEscrowRequest
+        {
+            DeliveryId = DeliveryId, BuyerId = BuyerId, FarmerId = FarmerId, Amount = 15_000m,
+            Currency = "ETB", OrderId = "order-1",
+            IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
+        };
+
+        var result = await CreateServiceWithOrderRepo(orderRepo).InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_001", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderSplitReconciles_Succeeds()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
+        {
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId },
+            { "cropCost", 11_500m }, { "transportCost", 3_000m },
+            { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
+        });
+        var request = new InitiateEscrowRequest
+        {
+            DeliveryId = DeliveryId, BuyerId = BuyerId, FarmerId = FarmerId, Amount = 15_000m,
+            Currency = "ETB", OrderId = "order-1",
+            IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
+        };
+
+        var result = await CreateServiceWithOrderRepo(orderRepo).InitiateAsync(request, BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(11_500m, result.Value!.FarmerPayout);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_InvalidTrigger_ReturnsValidationError()
+    {
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001", Trigger = "bogus", DeliveryId = DeliveryId,
+            IdempotencyKey = "admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await CreateServiceWithUserRepo(userRepo)
+            .ReleaseAsync(request, "admin-user", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_VALIDATION", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ConcurrentTransition_ReturnsSettledWithoutError()
+    {
+        // Simulate a lost optimistic-concurrency race: the escrowed→released write throws
+        // ConditionalCheckFailedException because another release already advanced the state.
+        // Telebirr dedupes on the stable transactionRef, so this must resolve to success, not 500.
+        _mockEscrowRepo.GetByIdAsync("escrow-001")
+            .Returns(MakeEscrowItem(status: "escrowed"), MakeEscrowItem(status: "completed"));
+        _mockEscrowRepo.When(x => x.UpdateStatusAsync(
+                "escrow-001", Arg.Any<string>(), "released", Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>?>()))
+            .Do(_ => throw new ConditionalCheckFailedException("lost race"));
+
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001", Trigger = "admin_override", DeliveryId = DeliveryId,
+            IdempotencyKey = "admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await CreateServiceWithUserRepo(userRepo)
+            .ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.True(result.IsSuccess);
     }

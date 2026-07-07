@@ -78,6 +78,9 @@ public class EscrowFlowIntegrationTests
             UpdatedAt = "2026-02-17T10:00:00.0000000Z",
             Version = 1
         });
+        // Verified, phone- and Fayda-verified buyer + farmer so initiate passes user validation.
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
 
         var service = new EscrowService(
             _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, mockUserRepo);
@@ -85,6 +88,21 @@ public class EscrowFlowIntegrationTests
         _cronFunction = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
         _context = new TestLambdaContext();
     }
+
+    /// <summary>Build a phone- and Fayda-verified user with the given role.</summary>
+    private static UserDto MakeVerifiedUser(string userId, string role) => new()
+    {
+        UserId = userId,
+        PhoneNumber = "+251900000000",
+        Role = role,
+        Woreda = "test-woreda",
+        IsPhoneVerified = true,
+        FaydaVerified = true,
+        FaydaId = $"FAYDA-{userId}",
+        CreatedAt = "2026-02-17T10:00:00.0000000Z",
+        UpdatedAt = "2026-02-17T10:00:00.0000000Z",
+        Version = 1
+    };
 
     // ──────────────────────────────────────────────
     // Request / response helpers
@@ -546,7 +564,7 @@ public class EscrowFlowIntegrationTests
             MakePostRequest("/escrow/release", releaseBody, BuyerId), _context);
 
         Assert.Equal(403, releaseResponse.StatusCode);
-        Assert.Contains("ESCROW_006", releaseResponse.Body);
+        Assert.Contains("ESCROW_015", releaseResponse.Body);
 
         // Telebirr release must NOT have been called
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
@@ -587,7 +605,7 @@ public class EscrowFlowIntegrationTests
             MakePostRequest("/escrow/refund", refundBody, FarmerId), _context);
 
         Assert.Equal(403, refundResponse.StatusCode);
-        Assert.Contains("ESCROW_006", refundResponse.Body);
+        Assert.Contains("ESCROW_021", refundResponse.Body);
 
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }

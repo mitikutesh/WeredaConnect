@@ -61,7 +61,15 @@ public class EscrowFunction
             orderRepo = new OrderRepository(dynamoDb, ordersTable);
         }
 
-        _escrowService = new EscrowService(escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo);
+        var deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE");
+        IDeliveryRepository? deliveryRepo = null;
+        if (!string.IsNullOrEmpty(deliveriesTable))
+        {
+            deliveryRepo = new DeliveryRepository(dynamoDb, deliveriesTable);
+        }
+
+        _escrowService = new EscrowService(
+            escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo);
 
         // Fraud detection (F-14)
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
@@ -150,7 +158,10 @@ public class EscrowFunction
             var fraudCheck = await _fraudService.CheckPaymentVelocityAsync(userId);
             if (!fraudCheck.IsAllowed)
             {
-                return LambdaResponse.Error(429, fraudCheck.ErrorCode!, fraudCheck.Message!);
+                // Contract maps rate-limit rejection to ESCROW_011 (429); the mobile client keys
+                // on this code. The fraud service's internal code is preserved in the log context.
+                return LambdaResponse.Error(429, "ESCROW_011",
+                    fraudCheck.Message ?? "Payment rate limit exceeded. Please try again later.");
             }
         }
 
