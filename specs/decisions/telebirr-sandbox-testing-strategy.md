@@ -167,5 +167,18 @@ Rollback is always `TELEBIRR_MOCK=true` (no code change).
   and portal docs before Tier 3 (SDK is our best reference until then).
 - Trucker payout leg (3-way split) uses the same C2B-collect + platform-disburse
   model; B2B disbursement remains a logged intent in Tiers 1–2.
+- **Mobile async-payment UI (follow-up).** The mobile+web `InitiateEscrowResponse`
+  model now parses `toPayUrl` (contract-aligned), but the UI does not yet open it.
+  When the real gateway is enabled, the escrow flow must: open `toPayUrl` in an
+  in-app browser / Telebirr deep link, handle the `returnUrl` redirect, then poll
+  `GET /escrow/{id}` until `escrowed`. This threads `toPayUrl` from
+  `EscrowSuccess` → `PaymentInitiated` state → the initiate screen. Scoped in
+  `telebirr-sandbox-architecture.md` §14.
+- **Reconciliation vs async webhook (RESOLVED).** `EscrowCronFunction` uses a
+  `NoRefCancelGraceMinutes = 150` grace (120m Telebirr `timeout_express` + 30m
+  buffer) so a no-`telebirrRef` `initiated` escrow is not cancelled while the
+  buyer may still be paying — preventing a valid payment being stranded in
+  `cancelled`. Covered by `EscrowCronFunctionTests` (within-window skip) and
+  `EscrowFlowIntegrationTests` (post-window cancel).
 </content>
 </invoke>
