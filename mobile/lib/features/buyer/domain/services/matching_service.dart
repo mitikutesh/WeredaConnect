@@ -36,7 +36,9 @@ class MatchingService extends BaseMatchingService {
   /// available trips and computes the estimated total.
   ///
   /// Results are ranked by relevance score DESC (best match first), with
-  /// cheaper landed cost breaking ties.
+  /// cheaper crop price breaking ties — the same tie-break as the server's
+  /// GET /match (see specs/contracts/match-api.md), so online and offline
+  /// rankings agree.
   @override
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
@@ -61,11 +63,13 @@ class MatchingService extends BaseMatchingService {
       // Drop listings outside the near-miss tolerance bands.
       if (!_scorer.isCandidate(intent, listing)) continue;
 
-      // Find trips for this listing → buyer's delivery destination
+      // Find trips for this listing → buyer's delivery destination, honouring
+      // the buyer's delivery deadline (trips that depart too late are dropped).
       final trips = await findTripsForListing(
         listing,
         intent.deliveryWoreda,
         intent.quantityNeeded,
+        neededByDate: intent.neededByDate,
       );
 
       // Compute estimated total with cheapest trip
@@ -87,12 +91,14 @@ class MatchingService extends BaseMatchingService {
       );
     }
 
-    // Rank by relevance (highest score first); tie-break by cheaper total.
+    // Rank by relevance (highest score first); tie-break by cheaper crop
+    // price — identical to the server ranking so results don't reorder when
+    // the buyer goes online/offline.
     results.sort((a, b) {
       final byScore = b.matchScore.compareTo(a.matchScore);
       return byScore != 0
           ? byScore
-          : a.estimatedTotalMin.compareTo(b.estimatedTotalMin);
+          : a.listing.pricePerKg.compareTo(b.listing.pricePerKg);
     });
 
     return results;
@@ -105,17 +111,20 @@ class MatchingService extends BaseMatchingService {
   /// - fromWoreda contains listing's locationName (case-insensitive)
   /// - toWoreda contains buyer's deliveryWoreda (case-insensitive)
   /// - departureDate is in the future
+  /// - departureDate is on/before [neededByDate] when the buyer set a deadline
   /// - capacity >= quantityNeeded
   ///
   /// Results sorted by pricePerQuintal ASC (cheapest first).
   Future<List<Trip>> findTripsForListing(
     CropListing listing,
     String deliveryWoreda,
-    double quantityNeeded,
-  ) async {
+    double quantityNeeded, {
+    DateTime? neededByDate,
+  }) async {
     final now = DateTime.now().toUtc();
     final fromLower = listing.locationName.toLowerCase();
     final toLower = deliveryWoreda.toLowerCase();
+    final deadline = neededByDate?.toUtc();
 
     // Isar string filter is case-sensitive, so we query all open trips
     // with future departure and sufficient capacity, then filter in memory
@@ -132,6 +141,12 @@ class MatchingService extends BaseMatchingService {
       // Guard against empty needles: String.contains('') is always true,
       // which would drop the woreda filter and match every open trip.
       if (fromLower.isEmpty || toLower.isEmpty) return false;
+      // Date-fit: drop trips departing after the buyer's deadline. This
+      // compares DEPARTURE (not arrival) to the deadline — a proxy, since
+      // trips carry no transit-time estimate; refine if one is added.
+      if (deadline != null && trip.departureDate.isAfter(deadline)) {
+        return false;
+      }
       return trip.fromWoreda.toLowerCase().contains(fromLower) &&
           trip.toWoreda.toLowerCase().contains(toLower);
     }).toList();

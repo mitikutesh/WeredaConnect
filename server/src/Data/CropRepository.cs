@@ -271,7 +271,8 @@ public sealed class CropRepository : ICropRepository
         string? cropType = null,
         string? status = null,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        double? maxPricePerKg = null)
     {
         // Validate limit
         if (limit < 1 || limit > 100)
@@ -295,7 +296,7 @@ public sealed class CropRepository : ICropRepository
 
         if (!string.IsNullOrEmpty(cropType))
         {
-            return await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey);
+            return await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey, maxPricePerKg);
         }
 
         // Fallback: unfiltered browse — SCAN (unchanged)
@@ -498,13 +499,17 @@ public sealed class CropRepository : ICropRepository
     /// Query CropTypeCreatedAtIndex GSI: PK=cropType, SK=createdAt (descending).
     /// GSI uses INCLUDE projection (only pricePerKg, deletedAt), so we do a
     /// two-step query: GSI for keys → BatchGetItem for full items.
+    /// The price ceiling (when given) is filtered on the projected pricePerKg
+    /// BEFORE the full-item fetch, so over-budget crops cost no BatchGet reads
+    /// and candidate pages contain only price-eligible listings.
     /// Remaining filter (woreda) applied post-fetch on full items.
     /// </summary>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByCropTypeAsync(
         string cropType,
         string? woreda,
         int limit,
-        Dictionary<string, AttributeValue>? exclusiveStartKey)
+        Dictionary<string, AttributeValue>? exclusiveStartKey,
+        double? maxPricePerKg = null)
     {
         var filterParts = new List<string>();
         var attrNames = new Dictionary<string, string>();
@@ -516,6 +521,16 @@ public sealed class CropRepository : ICropRepository
         // Always exclude soft-deleted items
         filterParts.Add("attribute_not_exists(#deletedAt)");
         attrNames["#deletedAt"] = "deletedAt";
+
+        if (maxPricePerKg is double maxPrice && maxPrice > 0)
+        {
+            filterParts.Add("#pricePerKg <= :maxPrice");
+            attrNames["#pricePerKg"] = "pricePerKg";
+            attrValues[":maxPrice"] = new AttributeValue
+            {
+                N = maxPrice.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            };
+        }
 
         var request = new QueryRequest
         {

@@ -51,6 +51,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
     required double maxPricePerKg,
     required String deliveryWoreda,
     String? placeId,
+    DateTime? neededByDate,
   }) async {
     final intentId = _uuid.v4();
     final now = DateTime.now().toUtc();
@@ -63,6 +64,7 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
       ..maxPricePerKg = maxPricePerKg
       ..deliveryWoreda = deliveryWoreda
       ..placeId = placeId
+      ..neededByDate = neededByDate
       ..status = BuyerIntentStatus.active
       ..createdAt = now
       ..updatedAt = now
@@ -86,6 +88,8 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
       'deliveryWoreda': deliveryWoreda,
       if (coord != null) 'deliveryLatitude': coord.latitude,
       if (coord != null) 'deliveryLongitude': coord.longitude,
+      if (neededByDate != null)
+        'neededByDate': neededByDate.toUtc().toIso8601String(),
       'status': 'active',
       'version': 1,
     });

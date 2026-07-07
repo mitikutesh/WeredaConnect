@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -35,6 +36,9 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
   /// The place chosen from the selector, if any. Null for free-text entries.
   Place? _selectedDeliveryPlace;
 
+  /// Optional delivery deadline; null means no deadline.
+  DateTime? _neededByDate;
+
   @override
   void initState() {
     super.initState();
@@ -62,29 +66,65 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
     super.dispose();
   }
 
-  bool get _isFormValid {
-    return _selectedCropType != null &&
-        (double.tryParse(_quantityController.text) ?? 0) > 0 &&
-        (double.tryParse(_maxPriceController.text) ?? 0) > 0 &&
-        _woredaController.text.trim().isNotEmpty;
+  /// Whether the user has attempted to submit — inline field errors only show
+  /// after the first attempt so a fresh form isn't covered in red.
+  bool _showErrors = false;
+
+  bool get _isQuantityValid =>
+      (double.tryParse(_quantityController.text) ?? 0) > 0;
+
+  /// Max price is OPTIONAL: empty means "no budget" (stored as 0, which both
+  /// scorers treat as unconstrained). Non-empty input must be a positive number.
+  bool get _isMaxPriceValid {
+    final text = _maxPriceController.text.trim();
+    if (text.isEmpty) return true;
+    return (double.tryParse(text) ?? 0) > 0;
   }
 
+  bool get _isWoredaValid => _woredaController.text.trim().isNotEmpty;
+
+  bool get _isFormValid =>
+      _selectedCropType != null &&
+      _isQuantityValid &&
+      _isMaxPriceValid &&
+      _isWoredaValid;
+
   void _onFindMatches() {
-    if (!_isFormValid) return;
+    // Instead of a silently-disabled button, validate on tap and show inline
+    // errors under the offending fields so the user knows what's missing.
+    if (!_isFormValid) {
+      setState(() => _showErrors = true);
+      return;
+    }
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
 
+    final maxPriceText = _maxPriceController.text.trim();
     context.read<BuyerIntentBloc>().add(
           CreateBuyerIntent(
             buyerId: authState.userId,
             cropType: _selectedCropType!,
             quantityNeeded: double.parse(_quantityController.text),
-            maxPricePerKg: double.parse(_maxPriceController.text),
+            // 0 = no budget (optional field left empty).
+            maxPricePerKg:
+                maxPriceText.isEmpty ? 0 : double.parse(maxPriceText),
             deliveryWoreda: _woredaController.text.trim(),
             placeId: _selectedDeliveryPlace?.id,
+            neededByDate: _neededByDate,
           ),
         );
+  }
+
+  Future<void> _pickNeededByDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _neededByDate ?? now.add(const Duration(days: 7)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _neededByDate = picked);
   }
 
   @override
@@ -158,6 +198,17 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                     setState(() => _selectedCropType = type);
                   },
                 ),
+                if (_showErrors && _selectedCropType == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l10n.selectCropTypeError,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 24),
 
                 // Quantity input
@@ -177,6 +228,9 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                     suffixText: l10n.quintals,
                     border: const OutlineInputBorder(),
                     hintText: '5',
+                    errorText: _showErrors && !_isQuantityValid
+                        ? l10n.enterQuantityError
+                        : null,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -199,6 +253,10 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                     suffixText: l10n.etbPerKg,
                     border: const OutlineInputBorder(),
                     hintText: '45',
+                    helperText: l10n.maxPriceOptionalHint,
+                    errorText: _showErrors && !_isMaxPriceValid
+                        ? l10n.enterValidPriceError
+                        : null,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -220,6 +278,59 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                       setState(() => _selectedDeliveryPlace = place),
                   onChanged: (_) => setState(() {}),
                 ),
+                if (_showErrors && !_isWoredaValid)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l10n.enterDeliveryWoredaError,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 24),
+
+                // Needed-by date (optional)
+                Text(
+                  l10n.neededByDate,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _pickNeededByDate,
+                  icon: const Icon(Icons.calendar_today, size: 18),
+                  label: Text(
+                    _neededByDate == null
+                        ? l10n.selectDate
+                        : DateFormat.yMMMd().format(_neededByDate!),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    alignment: Alignment.centerLeft,
+                  ),
+                ),
+                if (_neededByDate != null)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => setState(() => _neededByDate = null),
+                      child: Text(l10n.clearDate),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    l10n.neededByDateHint,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 32),
 
                 // Find Matches button
@@ -229,8 +340,9 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                     return SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed:
-                            isLoading || !_isFormValid ? null : _onFindMatches,
+                        // Kept enabled when the form is invalid so tapping
+                        // surfaces inline errors instead of doing nothing.
+                        onPressed: isLoading ? null : _onFindMatches,
                         icon: isLoading
                             ? const SizedBox(
                                 height: 18,
@@ -253,7 +365,10 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                 const SizedBox(height: 12),
                 Center(
                   child: Text(
-                    l10n.intentSaved,
+                    // Future-tense hint — the "Saved!" confirmation only fires
+                    // as a snackbar after the intent is actually saved.
+                    l10n.intentSaveHint,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppTheme.textMuted,

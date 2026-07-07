@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -42,6 +43,7 @@ public partial class SyncFunction
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
     private readonly IIntentRepository? _intentRepo;
+    private readonly IMatchEventRepository? _matchEventRepo;
 
     // SSM commission rate cache (15-min TTL)
     private static double _cachedCommissionRate;
@@ -59,13 +61,29 @@ public partial class SyncFunction
     private static readonly HashSet<string> AllowedIntentFields = new()
     {
         "intentId", "buyerId", "cropType", "quantityNeeded", "maxPricePerKg",
-        "deliveryWoreda", "deliveryLatitude", "deliveryLongitude", "status", "createdAt"
+        "deliveryWoreda", "deliveryLatitude", "deliveryLongitude", "neededByDate",
+        "status", "createdAt"
     };
 
     private static readonly HashSet<string> AllowedIntentStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "active", "fulfilled", "expired"
     };
+
+    private static readonly HashSet<string> AllowedMatchEventFields = new()
+    {
+        "eventId", "intentId", "buyerId", "eventType", "listingId",
+        "score", "rank", "isSubstitute", "matchCount", "impressions",
+        "occurredAt", "policyTag"
+    };
+
+    private static readonly HashSet<string> AllowedMatchEventTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "shown", "opened", "order_created"
+    };
+
+    /// <summary>Upper bound for the JSON-string `impressions` payload (bytes-ish).</summary>
+    private const int MaxImpressionsLength = 8192;
 
     private static readonly HashSet<string> AllowedTripFields = new()
     {
@@ -213,6 +231,13 @@ public partial class SyncFunction
         _intentRepo = intentsTable != null
             ? new IntentRepository(_dynamoDb, intentsTable)
             : null;
+
+        // Match-event logging is optional in the same way: the match_event sync
+        // handler is only reachable once the match-events table is provisioned.
+        var matchEventsTable = Environment.GetEnvironmentVariable("MATCH_EVENTS_TABLE");
+        _matchEventRepo = matchEventsTable != null
+            ? new MatchEventRepository(_dynamoDb, matchEventsTable)
+            : null;
     }
 
     /// <summary>
@@ -224,7 +249,8 @@ public partial class SyncFunction
         IFraudDetectionService? fraudService = null,
         IUserRepository? userRepo = null,
         IOrderRepository? orderRepo = null,
-        IIntentRepository? intentRepo = null)
+        IIntentRepository? intentRepo = null,
+        IMatchEventRepository? matchEventRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -236,6 +262,7 @@ public partial class SyncFunction
         _fraudService = fraudService;
         _userRepo = userRepo;
         _intentRepo = intentRepo;
+        _matchEventRepo = matchEventRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -392,6 +419,7 @@ public partial class SyncFunction
             {
                 "crop_listing" => await ProcessCropListingAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "buyer_intent" => await ProcessBuyerIntentAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "match_event" => await ProcessMatchEventAsync(operation, authenticatedUserId, authenticatedRole),
                 "trip" => await ProcessTripAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
@@ -522,16 +550,23 @@ public partial class SyncFunction
             }
         }
 
+        // Parse invariantly: client numbers are JSON (period decimal), so a
+        // fractional quantity/price must not be rejected on a comma-decimal
+        // server locale.
         if (data.TryGetValue("quantityNeeded", out var qObj)
-            && (!double.TryParse(qObj?.ToString(), out var q) || q <= 0))
+            && (!double.TryParse(qObj?.ToString(), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out var q) || q <= 0))
         {
             errors.Add("quantityNeeded must be a positive number.");
         }
 
+        // 0 is a valid value: it means "no budget set" (the max-price field is
+        // optional on the client) and scores as unconstrained in MatchScoring.
         if (data.TryGetValue("maxPricePerKg", out var pObj)
-            && (!double.TryParse(pObj?.ToString(), out var p) || p <= 0))
+            && (!double.TryParse(pObj?.ToString(), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out var p) || p < 0))
         {
-            errors.Add("maxPricePerKg must be a positive number.");
+            errors.Add("maxPricePerKg must be a non-negative number.");
         }
 
         if (data.TryGetValue("status", out var sObj))
@@ -541,6 +576,15 @@ public partial class SyncFunction
             {
                 errors.Add("Invalid status.");
             }
+        }
+
+        // Optional delivery deadline — must be a parseable ISO 8601 date when present.
+        if (data.TryGetValue("neededByDate", out var nObj)
+            && !string.IsNullOrWhiteSpace(nObj?.ToString())
+            && !DateTime.TryParse(nObj!.ToString(), CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out _))
+        {
+            errors.Add("neededByDate must be an ISO 8601 date.");
         }
 
         return errors;
@@ -698,6 +742,258 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// Process a match_event sync operation. Append-only telemetry: only
+    /// `create` is supported, only by the buyer whose intent the event belongs
+    /// to. Events feed the future learned ranker (specs/contracts/match-events.md);
+    /// a failure to log must never block the marketplace flow, so clients treat
+    /// errors here as non-fatal.
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessMatchEventAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        string? authenticatedRole)
+    {
+        if (_matchEventRepo == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "MATCH_EVENT_UNAVAILABLE: Match-event logging is not enabled on this environment."
+            };
+        }
+
+        if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "MATCH_EVENT_UNAUTHORIZED: Only buyers can log match events."
+            };
+        }
+
+        if (operation.Action != "create")
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "MATCH_EVENT_VALIDATION: Match events are append-only (create only)."
+            };
+        }
+
+        if (operation.Data == null || operation.Data.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "Operation requires data payload."
+            };
+        }
+
+        if (!operation.Data.TryGetValue("buyerId", out var buyerIdObj)
+            || buyerIdObj?.ToString() != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "MATCH_EVENT_UNAUTHORIZED: buyerId must match authenticated user."
+            };
+        }
+
+        var unknownFields = operation.Data.Keys
+            .Where(k => !AllowedMatchEventFields.Contains(k))
+            .ToList();
+        if (unknownFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"MATCH_EVENT_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+            };
+        }
+
+        var errors = ValidateMatchEventFields(operation.Data);
+        if (errors.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"MATCH_EVENT_VALIDATION: {string.Join(" ", errors)}"
+            };
+        }
+
+        var intentId = operation.Data.GetValueOrDefault("intentId")?.ToString() ?? "";
+        await _matchEventRepo.CreateAsync(
+            operation.EntityId, intentId, authenticatedUserId!, operation.Data);
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = 1,
+        };
+    }
+
+    /// <summary>Validate match-event field values (see AllowedMatchEventFields).</summary>
+    private static List<string> ValidateMatchEventFields(Dictionary<string, object> data)
+    {
+        var errors = new List<string>();
+
+        var eventType = data.GetValueOrDefault("eventType")?.ToString() ?? "";
+        if (!AllowedMatchEventTypes.Contains(eventType))
+        {
+            errors.Add("eventType must be one of: shown, opened, order_created.");
+        }
+
+        if (string.IsNullOrWhiteSpace(data.GetValueOrDefault("intentId")?.ToString()))
+        {
+            errors.Add("intentId is required.");
+        }
+
+        // Interaction events must say WHICH listing was interacted with.
+        if (eventType is "opened" or "order_created"
+            && string.IsNullOrWhiteSpace(data.GetValueOrDefault("listingId")?.ToString()))
+        {
+            errors.Add("listingId is required for opened/order_created events.");
+        }
+
+        // Parse invariantly: client numbers are JSON (period decimal), so a
+        // comma-decimal server locale must not reject a fractional score.
+        if (data.TryGetValue("score", out var sObj)
+            && (!double.TryParse(sObj?.ToString(), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out var s)
+                || s < 0 || s > 1))
+        {
+            errors.Add("score must be a number in [0, 1].");
+        }
+
+        if (data.TryGetValue("rank", out var rObj)
+            && (!int.TryParse(rObj?.ToString(), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out var r)
+                || r < 0))
+        {
+            errors.Add("rank must be a non-negative integer.");
+        }
+
+        if (data.TryGetValue("impressions", out var iObj))
+        {
+            var impressions = iObj?.ToString() ?? "";
+            if (impressions.Length > MaxImpressionsLength)
+            {
+                errors.Add($"impressions must not exceed {MaxImpressionsLength} characters.");
+            }
+            else if (impressions.Length > 0 && !IsValidJson(impressions))
+            {
+                // Contract: impressions is a JSON string. Guard it so the
+                // training corpus stays parseable.
+                errors.Add("impressions must be a valid JSON string.");
+            }
+        }
+
+        if (data.TryGetValue("matchCount", out var mcObj)
+            && (!int.TryParse(mcObj?.ToString(), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out var mc)
+                || mc < 0))
+        {
+            errors.Add("matchCount must be a non-negative integer.");
+        }
+
+        if (data.TryGetValue("occurredAt", out var oObj)
+            && !string.IsNullOrWhiteSpace(oObj?.ToString())
+            && !DateTime.TryParse(oObj!.ToString(), CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out _))
+        {
+            errors.Add("occurredAt must be an ISO 8601 date.");
+        }
+
+        return errors;
+    }
+
+    /// <summary>Whether <paramref name="value"/> parses as a JSON document.</summary>
+    private static bool IsValidJson(string value)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(value);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
+    private const int MinListingsForReliability = 3;
+
+    /// <summary>Candidate pages walked when computing farmer reliability.</summary>
+    private const int ReliabilityMaxPages = 3;
+
+    /// <summary>
+    /// Farmer reliability = fraction of the farmer's prior listings that reached
+    /// <c>sold</c>, over all resolved listings (sold or expired). Returns null
+    /// when the farmer has fewer than <see cref="MinListingsForReliability"/>
+    /// resolved listings (→ neutral default in scoring) or on any read failure
+    /// (best-effort: reliability must never block crop creation).
+    ///
+    /// Escrow-free and cheap: one bounded query over the farmer's own crops at
+    /// create time, no per-match reads and no order/escrow coupling.
+    /// </summary>
+    private async Task<double?> ComputeFarmerReliabilityAsync(
+        string farmerId, ILambdaContext context)
+    {
+        try
+        {
+            var sold = 0;
+            var resolved = 0;
+            Dictionary<string, AttributeValue>? startKey = null;
+            var pages = 0;
+
+            do
+            {
+                var (items, lastKey) = await _cropRepo.QueryCropsAsync(
+                    farmerId: farmerId, limit: 100, exclusiveStartKey: startKey);
+
+                foreach (var item in items)
+                {
+                    var status = (item.TryGetValue("status", out var s) ? s?.ToString() : null)
+                        ?? "";
+                    if (string.Equals(status, "sold", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sold++;
+                        resolved++;
+                    }
+                    else if (string.Equals(status, "expired", StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolved++;
+                    }
+                }
+
+                startKey = lastKey;
+            }
+            while (startKey != null && ++pages < ReliabilityMaxPages);
+
+            if (resolved < MinListingsForReliability)
+            {
+                return null;
+            }
+
+            return Math.Clamp((double)sold / resolved, 0.0, 1.0);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Reliability compute skipped: [{ex.GetType().Name}]");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Process a crop_listing sync operation (create, update, delete).
     /// Uses version-based conflict detection per sync-protocol.md.
     /// </summary>
@@ -804,6 +1100,17 @@ public partial class SyncFunction
 
                     // FIX-010: Force initial status to "available" on create
                     operation.Data["status"] = "available";
+
+                    // Denormalize the farmer's reliability (listing-conversion
+                    // track record) onto the new listing so the matcher can
+                    // fold it into ranking without a per-candidate read.
+                    // Best-effort: a failure just leaves it unset (neutral).
+                    var reliability = await ComputeFarmerReliabilityAsync(
+                        authenticatedUserId!, context);
+                    if (reliability is double rel)
+                    {
+                        operation.Data["farmerReliability"] = rel;
+                    }
 
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 

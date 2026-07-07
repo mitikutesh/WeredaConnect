@@ -247,7 +247,29 @@ public class CropFunction
             Version = GetInt(item, "version"),
             Description = GetStringOrNull(item, "description"),
             Location = GetStringOrNull(item, "location"),
-            DeletedAt = GetStringOrNull(item, "deletedAt")
+            DeletedAt = GetStringOrNull(item, "deletedAt"),
+            FarmerReliability = GetDoubleOrNull(item, "farmerReliability")
+        };
+    }
+
+    /// <summary>Get an optional double value from the item dictionary.</summary>
+    private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            double d => d,
+            decimal m => (double)m,
+            int i => i,
+            long l => l,
+            _ => double.TryParse(value.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var r)
+                ? r
+                : null,
         };
     }
 

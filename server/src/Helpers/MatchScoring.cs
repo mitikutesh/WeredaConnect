@@ -27,6 +27,12 @@ public sealed record CropCandidate
     public double? Latitude { get; init; }
     public double? Longitude { get; init; }
     public required DateTime CreatedAt { get; init; }
+
+    /// <summary>
+    /// Farmer's reliability in [0, 1] (listing-conversion track record),
+    /// denormalized onto the crop. Null when unknown → neutral default.
+    /// </summary>
+    public double? FarmerReliability { get; init; }
 }
 
 /// <summary>
@@ -40,17 +46,18 @@ public sealed record CropCandidate
 ///
 /// A transparent weighted sum of independent signals (NOT a learned model):
 /// type(+substitutes), price near-miss, geo (haversine when coordinates are
-/// available, else woreda-string proxy), partial-fill quantity, and freshness.
-/// AOT-safe: pure arithmetic, no reflection.
+/// available, else woreda-string proxy), partial-fill quantity, freshness, and
+/// farmer reliability. AOT-safe: pure arithmetic, no reflection.
 /// </summary>
 public static class MatchScoring
 {
     // Weights (sum = 1.0). Keep identical to the Dart scorer.
-    public const double WType = 0.35;
+    public const double WType = 0.30;
     public const double WPrice = 0.20;
-    public const double WGeo = 0.20;
-    public const double WQuantity = 0.15;
+    public const double WGeo = 0.18;
+    public const double WQuantity = 0.12;
     public const double WFreshness = 0.10;
+    public const double WReliability = 0.10;
 
     public const double PriceTolerance = 0.15; // +15% near-miss band
     public const double MinQuantityFraction = 0.5;
@@ -61,6 +68,9 @@ public static class MatchScoring
     public const double FreshFloor = 0.3;
     public const double GeoNeutral = 0.3;
     public const double GeoHalfScoreKm = 50.0;
+
+    /// <summary>Reliability assumed for a farmer with no track record.</summary>
+    public const double ReliabilityNeutral = 0.7;
 
     private const double EarthRadiusKm = 6371.0;
 
@@ -126,8 +136,8 @@ public static class MatchScoring
 
     public static double PriceScore(MatchCriteria criteria, CropCandidate crop)
     {
-        // No budget given → price is unconstrained (server-only extension; the
-        // Dart scorer always has a budget).
+        // No budget given → price is unconstrained. The Dart scorer applies the
+        // same rule for a non-positive budget (the max-price field is optional).
         if (criteria.MaxPricePerKg is not double max || max <= 0)
         {
             return 1.0;
@@ -189,13 +199,22 @@ public static class MatchScoring
         return Math.Clamp(decayed, FreshFloor, 1.0);
     }
 
+    /// <summary>
+    /// Farmer reliability signal: the crop's denormalized
+    /// <see cref="CropCandidate.FarmerReliability"/>, or the neutral default
+    /// when unknown.
+    /// </summary>
+    public static double ReliabilityScore(CropCandidate crop)
+        => Math.Clamp(crop.FarmerReliability ?? ReliabilityNeutral, 0.0, 1.0);
+
     /// <summary>Overall 0..1 relevance score for a crop against the criteria.</summary>
     public static double ScoreListing(MatchCriteria criteria, CropCandidate crop)
         => WType * TypeScore(criteria, crop)
          + WPrice * PriceScore(criteria, crop)
          + WGeo * GeoScore(criteria, crop)
          + WQuantity * QuantityScore(criteria, crop)
-         + WFreshness * FreshnessScore(criteria, crop);
+         + WFreshness * FreshnessScore(criteria, crop)
+         + WReliability * ReliabilityScore(crop);
 
     private static bool HasRealFix(double? lat, double? lon)
     {

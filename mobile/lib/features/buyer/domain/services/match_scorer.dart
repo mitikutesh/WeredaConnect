@@ -24,15 +24,24 @@ import 'package:wereda_connect/features/delivery_verification/data/services/gps_
 ///   intents carry coordinates / a woreda-centroid table exists)
 /// - **quantity**: partial-fill ratio (listing covers what fraction of need)
 /// - **freshness**: listing recency (newer = fresher), decaying to a floor
+/// - **reliability**: farmer's listing-conversion track record (server-injected
+///   onto the listing); unknown farmers score a neutral default so they're
+///   neither rewarded nor punished until they have a history
 class MatchScorer {
   const MatchScorer();
 
   // --- Tunable weights (sum = 1.0). Tune empirically against real usage. ---
-  static const double wType = 0.35;
+  static const double wType = 0.30;
   static const double wPrice = 0.20;
-  static const double wGeo = 0.20;
-  static const double wQuantity = 0.15;
+  static const double wGeo = 0.18;
+  static const double wQuantity = 0.12;
   static const double wFreshness = 0.10;
+  static const double wReliability = 0.10;
+
+  /// Reliability score assumed for a farmer with no track record (or a listing
+  /// that predates reliability injection). Neutral — mildly below a proven
+  /// farmer, mildly above a flaky one — so new farmers aren't shut out.
+  static const double reliabilityNeutral = 0.7;
 
   /// A crop slightly over budget is still shown (with a decayed price score)
   /// up to this fraction over the buyer's max — the price near-miss band.
@@ -99,8 +108,11 @@ class MatchScorer {
   bool isCandidate(BuyerIntent intent, CropListing listing) {
     final types = candidateCropTypes(intent.cropType);
     if (!types.contains(listing.cropType.toLowerCase())) return false;
-    // Price: within budget, or within the near-miss tolerance band.
-    if (listing.pricePerKg > intent.maxPricePerKg * (1 + priceTolerance)) {
+    // Price: within budget, or within the near-miss tolerance band. A
+    // non-positive budget means "no budget set" — price is unconstrained,
+    // mirroring the server's IsCandidate guard.
+    if (intent.maxPricePerKg > 0 &&
+        listing.pricePerKg > intent.maxPricePerKg * (1 + priceTolerance)) {
       return false;
     }
     // Quantity: must cover at least the minimum fraction of what's needed.
@@ -115,12 +127,10 @@ class MatchScorer {
 
   double priceScore(BuyerIntent intent, CropListing listing) {
     final max = intent.maxPricePerKg;
-    // Mobile intents always carry a positive budget, so a non-positive budget
-    // is a degenerate/draft case and scores at the floor. NOTE: the server
-    // scorer (MatchScoring.PriceScore) deliberately diverges here — it treats
-    // an absent budget as "unconstrained" and returns 1.0, because GET /match
-    // allows budget-less queries. Keep this divergence intentional, not a bug.
-    if (max <= 0) return 0;
+    // A non-positive budget means "no budget set" (the max-price field is
+    // optional): price is unconstrained and scores 1.0, identical to the
+    // server scorer (MatchScoring.PriceScore) so rankings stay in parity.
+    if (max <= 0) return 1.0;
     if (listing.pricePerKg <= max) return 1.0;
     // Linear decay across the tolerance band: at +0% over → 1.0, at +tol → 0.
     final over = (listing.pricePerKg - max) / max;
@@ -182,12 +192,18 @@ class MatchScorer {
     return decayed.clamp(freshFloor, 1.0);
   }
 
+  /// Farmer reliability signal: the listing's server-injected
+  /// [CropListing.farmerReliability], or [reliabilityNeutral] when absent.
+  double reliabilityScore(CropListing listing) =>
+      (listing.farmerReliability ?? reliabilityNeutral).clamp(0.0, 1.0);
+
   /// Overall 0..1 relevance score for [listing] against [intent] at [now].
   double scoreListing(BuyerIntent intent, CropListing listing, DateTime now) {
     return wType * typeScore(intent, listing) +
         wPrice * priceScore(intent, listing) +
         wGeo * geoScore(intent, listing) +
         wQuantity * quantityScore(intent, listing) +
-        wFreshness * freshnessScore(listing, now);
+        wFreshness * freshnessScore(listing, now) +
+        wReliability * reliabilityScore(listing);
   }
 }

@@ -156,6 +156,7 @@ public class CropMatchStreamFunction
             LocationName = AttrS(image, "locationName") ?? AttrS(image, "woreda"),
             Latitude = AttrN(image, "latitude"),
             Longitude = AttrN(image, "longitude"),
+            FarmerReliability = AttrN(image, "farmerReliability"),
             // A stream INSERT is a brand-new crop, so freshness is max by
             // definition; using "now" keeps the alert score from being penalised
             // for parse/clock skew (it differs from GET /match, which scores the
@@ -170,6 +171,11 @@ public class CropMatchStreamFunction
         // which X is an accepted substitute (the substitute map is symmetric).
         var seenIntents = new HashSet<string>();
 
+        // One push per buyer per crop: a buyer with several matching intents
+        // for the same new crop gets a single alert, not one per intent —
+        // less notification noise and fewer SNS publishes.
+        var notifiedBuyers = new HashSet<string>();
+
         foreach (var wantedType in MatchScoring.CandidateCropTypes(cropType))
         {
             var intents = await _intentRepo.QueryActiveByCropTypeAsync(wantedType);
@@ -178,6 +184,11 @@ public class CropMatchStreamFunction
                 var intentId = GetItemString(intent, "intentId");
                 var buyerId = GetItemString(intent, "buyerId");
                 if (intentId.Length == 0 || buyerId.Length == 0 || !seenIntents.Add(intentId))
+                {
+                    continue;
+                }
+
+                if (notifiedBuyers.Contains(buyerId))
                 {
                     continue;
                 }
@@ -199,6 +210,7 @@ public class CropMatchStreamFunction
                     continue;
                 }
 
+                notifiedBuyers.Add(buyerId);
                 await NotifyBuyerAsync(buyerId, intentId, cropId, cropType, woreda,
                     endpointsByBuyer, context);
             }

@@ -118,6 +118,45 @@ public class SyncFunctionIntentTests
     }
 
     [Fact]
+    public async Task ZeroMaxPrice_MeansNoBudget_IsAccepted()
+    {
+        var op = IntentOp(data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" },
+            { "buyerId", "buyer-1" },
+            { "cropType", "wheat" },
+            { "quantityNeeded", 10 },
+            { "maxPricePerKg", 0 },
+            { "deliveryWoreda", "Adama" },
+        });
+        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await _intents.Received(1).CreateAsync("intent-1", "buyer-1",
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task NegativeMaxPrice_IsRejected()
+    {
+        var op = IntentOp(data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" },
+            { "buyerId", "buyer-1" },
+            { "cropType", "wheat" },
+            { "quantityNeeded", 10 },
+            { "maxPricePerKg", -5 },
+            { "deliveryWoreda", "Adama" },
+        });
+        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("maxPricePerKg must be a non-negative number", response.Body);
+        await _intents.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
     public async Task UnknownFieldIsRejected()
     {
         var op = IntentOp(data: new Dictionary<string, object>

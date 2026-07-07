@@ -17,6 +17,7 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
     required double maxPricePerKg,
     required String deliveryWoreda,
     String? placeId,
+    DateTime? neededByDate,
   }) async {
     final intentId =
         'int_${DateTime.now().millisecondsSinceEpoch}_${buyerId.hashCode.abs()}';
@@ -29,6 +30,7 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
       ..maxPricePerKg = maxPricePerKg
       ..deliveryWoreda = deliveryWoreda
       ..placeId = placeId
+      ..neededByDate = neededByDate
       ..status = BuyerIntentStatus.active
       ..createdAt = now
       ..updatedAt = now

@@ -3970,6 +3970,144 @@ abstract class AppLocalizations {
   /// **'Saved! We\'ll notify you of new matches'**
   String get intentSaved;
 
+  /// Caption under the Find Matches button before the intent is saved
+  ///
+  /// In en, this message translates to:
+  /// **'Saving this request lets us alert you when new matches arrive'**
+  String get intentSaveHint;
+
+  /// Inline validation when no crop type is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Select a crop type'**
+  String get selectCropTypeError;
+
+  /// Inline validation for missing/invalid quantity
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the quantity you need'**
+  String get enterQuantityError;
+
+  /// Inline validation for an invalid max price
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid price or leave it empty'**
+  String get enterValidPriceError;
+
+  /// Inline validation for missing delivery woreda
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your delivery woreda'**
+  String get enterDeliveryWoredaError;
+
+  /// Helper under the max price field explaining it is optional
+  ///
+  /// In en, this message translates to:
+  /// **'Optional — leave empty to see all prices'**
+  String get maxPriceOptionalHint;
+
+  /// Shown instead of a max price when the request has no budget
+  ///
+  /// In en, this message translates to:
+  /// **'Any price'**
+  String get anyPrice;
+
+  /// Chip on a match that was found via a substitute crop type
+  ///
+  /// In en, this message translates to:
+  /// **'Similar crop'**
+  String get similarCrop;
+
+  /// Chip on a match priced within the buyer's budget
+  ///
+  /// In en, this message translates to:
+  /// **'Within budget'**
+  String get withinBudget;
+
+  /// Chip on a match priced in the near-miss band over budget
+  ///
+  /// In en, this message translates to:
+  /// **'Slightly over budget'**
+  String get slightlyOverBudget;
+
+  /// Chip on a match whose listing covers the full quantity needed
+  ///
+  /// In en, this message translates to:
+  /// **'Covers full quantity'**
+  String get coversFullQuantity;
+
+  /// Chip on a match whose listing covers only part of the quantity needed
+  ///
+  /// In en, this message translates to:
+  /// **'Partial quantity'**
+  String get partialQuantity;
+
+  /// Chip on a match close to the buyer's delivery destination
+  ///
+  /// In en, this message translates to:
+  /// **'Near you'**
+  String get nearYou;
+
+  /// Menu action to delete a buying request
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Request'**
+  String get deleteRequest;
+
+  /// Confirmation dialog before deleting a buying request
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this buying request? You will stop receiving match alerts for it.'**
+  String get deleteRequestConfirm;
+
+  /// Snackbar after a buying request is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Request deleted'**
+  String get requestDeleted;
+
+  /// Menu action to mark a buying request as fulfilled
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as Fulfilled'**
+  String get markFulfilled;
+
+  /// Snackbar after a buying request is marked fulfilled
+  ///
+  /// In en, this message translates to:
+  /// **'Request marked as fulfilled'**
+  String get requestFulfilled;
+
+  /// Helper showing the quintal equivalent of a kg quantity
+  ///
+  /// In en, this message translates to:
+  /// **'= {count} quintals'**
+  String quintalEquivalent(String count);
+
+  /// Label for the optional delivery-deadline field on the create-intent screen
+  ///
+  /// In en, this message translates to:
+  /// **'Needed by (optional)'**
+  String get neededByDate;
+
+  /// Helper under the needed-by-date field
+  ///
+  /// In en, this message translates to:
+  /// **'We\'ll prefer transport that can deliver in time'**
+  String get neededByDateHint;
+
+  /// Placeholder for an unset date field
+  ///
+  /// In en, this message translates to:
+  /// **'Select date'**
+  String get selectDate;
+
+  /// Button to clear the selected needed-by date
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get clearDate;
+
   /// Badge text for new matches
   ///
   /// In en, this message translates to:

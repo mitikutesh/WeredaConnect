@@ -2122,6 +2122,82 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kuufame! Yoo walsimatu haaraan jiraate isin beeksifna';
 
   @override
+  String get intentSaveHint =>
+      'Gaaffii kana olkaa\'uun yommuu walsimannaan haaraan dhufu si beeksifna';
+
+  @override
+  String get selectCropTypeError => 'Gosa midhaanii filadhu';
+
+  @override
+  String get enterQuantityError => 'Hamma barbaaddu galchi';
+
+  @override
+  String get enterValidPriceError =>
+      'Gatii sirrii galchi yookiin duwwaa dhiisi';
+
+  @override
+  String get enterDeliveryWoredaError => 'Aanaa itti geeffamu galchi';
+
+  @override
+  String get maxPriceOptionalHint =>
+      'Filannoo — gatii hunda arguuf duwwaa dhiisi';
+
+  @override
+  String get anyPrice => 'Gatii kamiyyuu';
+
+  @override
+  String get similarCrop => 'Midhaan walfakkaatu';
+
+  @override
+  String get withinBudget => 'Baajata keessa';
+
+  @override
+  String get slightlyOverBudget => 'Baajataa xiqqoo ol';
+
+  @override
+  String get coversFullQuantity => 'Hamma guutuu ni uwwisa';
+
+  @override
+  String get partialQuantity => 'Hamma gartokkee';
+
+  @override
+  String get nearYou => 'Sitti dhiyoo';
+
+  @override
+  String get deleteRequest => 'Gaaffii Haqi';
+
+  @override
+  String get deleteRequestConfirm =>
+      'Gaaffii bittaa kana haquu? Beeksisa walsimannaa isaaf hin argattu.';
+
+  @override
+  String get requestDeleted => 'Gaaffiin haqameera';
+
+  @override
+  String get markFulfilled => 'Akka guutametti mallatteessi';
+
+  @override
+  String get requestFulfilled => 'Gaaffiin akka guutametti mallatteeffameera';
+
+  @override
+  String quintalEquivalent(String count) {
+    return '= kuntaala $count';
+  }
+
+  @override
+  String get neededByDate => 'Guyyaa barbaachisu (filannoo)';
+
+  @override
+  String get neededByDateHint =>
+      'Geejjiba yeroodhaan geessuu danda\'u ni filanna';
+
+  @override
+  String get selectDate => 'Guyyaa filadhu';
+
+  @override
+  String get clearDate => 'Haqi';
+
+  @override
   String get newMatchesAvailable => 'Walsimatu haaraa argameera!';
 
   @override

@@ -69,6 +69,13 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
               matches: widget.initialMatches!,
             )
           : BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
+              // Ignore states meant for other screens (e.g. the
+              // ActiveIntentsLoaded emitted when an order fulfills this
+              // intent) so the results stay on screen instead of a spinner.
+              buildWhen: (previous, current) =>
+                  current is BuyerIntentLoading ||
+                  current is MatchResultsLoaded ||
+                  current is BuyerIntentError,
               builder: (context, state) {
                 if (state is BuyerIntentLoading) {
                   return const Center(child: CircularProgressIndicator());
@@ -175,7 +182,8 @@ class _MatchResultsBody extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${cropType.displayName(l10n)} · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · ≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}',
+                  // 0 budget = "no budget set" — show "any price", not "≤0".
+                  '${cropType.displayName(l10n)} · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · ${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice}',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -222,18 +230,34 @@ class _MatchResultsBody extends StatelessWidget {
                     itemCount: matches.length,
                     itemBuilder: (context, index) {
                       final match = matches[index];
+                      final intentBloc = context.read<BuyerIntentBloc>();
                       return MatchResultCard(
                         result: match,
+                        intent: intent,
                         onTap: () {
+                          intentBloc.add(
+                            LogMatchOpened(
+                              intent: intent,
+                              result: match,
+                              rank: index,
+                            ),
+                          );
                           Navigator.push(
                             context,
                             MaterialPageRoute<void>(
-                              builder: (_) => CropListingDetailScreen(
-                                listing: match.listing,
-                                currentUserId: userId,
-                                currentUserRole: userRole,
-                                deliveryWoreda: intent.deliveryWoreda,
-                                quantityNeeded: intent.quantityNeeded,
+                              // Carry the BLoC + intent so an order placed
+                              // from the detail screen can fulfill this
+                              // intent too.
+                              builder: (_) => BlocProvider.value(
+                                value: intentBloc,
+                                child: CropListingDetailScreen(
+                                  listing: match.listing,
+                                  currentUserId: userId,
+                                  currentUserRole: userRole,
+                                  deliveryWoreda: intent.deliveryWoreda,
+                                  quantityNeeded: intent.quantityNeeded,
+                                  intent: intent,
+                                ),
                               ),
                             ),
                           );
@@ -241,18 +265,29 @@ class _MatchResultsBody extends StatelessWidget {
                         // One tap from match to order — the matcher's best
                         // trip suggestion comes along preselected.
                         onOrder: () async {
+                          intentBloc.add(
+                            LogMatchOpened(
+                              intent: intent,
+                              result: match,
+                              rank: index,
+                            ),
+                          );
                           final farmerName =
                               await _lookupFarmerName(match.listing);
                           if (!context.mounted) return;
                           await Navigator.push(
                             context,
                             MaterialPageRoute<void>(
-                              builder: (_) => PlaceOrderScreen(
-                                listing: match.listing,
-                                farmerName: farmerName,
-                                selectedTrip: match.suggestedTrips.isNotEmpty
-                                    ? match.suggestedTrips.first
-                                    : null,
+                              builder: (_) => BlocProvider.value(
+                                value: intentBloc,
+                                child: PlaceOrderScreen(
+                                  listing: match.listing,
+                                  farmerName: farmerName,
+                                  selectedTrip: match.suggestedTrips.isNotEmpty
+                                      ? match.suggestedTrips.first
+                                      : null,
+                                  intent: intent,
+                                ),
                               ),
                             ),
                           );

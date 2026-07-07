@@ -28,6 +28,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly fraudSignalsTable: dynamodb.Table;
   public readonly intentsTable: dynamodb.Table;
   public readonly deviceTokensTable: dynamodb.Table;
+  public readonly matchEventsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -432,6 +433,20 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.deviceTokensTable = deviceTokens.table;
+
+    // ─── Match Events Table (append-only ranking telemetry) ────────
+    // Buyer match interactions (shown/opened/order_created) synced from
+    // clients — the training corpus for a future learned ranker. Rolling
+    // 90-day window enforced by the item-level `ttl` attribute (epoch secs),
+    // so storage stays bounded at no extra cost.
+    const matchEvents = new WeredaDynamoTable(this, "MatchEventsTable", {
+      tableName: `${prefix}-match-events`,
+      partitionKey: { name: "intentId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "eventId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "ttl",
+    });
+    this.matchEventsTable = matchEvents.table;
 
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {

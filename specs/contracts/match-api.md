@@ -99,8 +99,12 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 
 **Response Fields**:
 - `matches` — Array of scored crop matches, **ranked by `score` descending**
-  (ties broken by lower `pricePerKg`).
+  (ties broken by lower `pricePerKg`; the mobile on-device ranker applies the
+  same tie-break so online/offline orderings agree).
 - `count` — Number of matches returned (== `matches.length`).
+- `totalMatches` — Total eligible matches BEFORE the `limit` cut. Clients
+  derive match-count badges from this so counts don't saturate at the page
+  limit.
 
 **Error Codes**:
 - `400 MATCH_VALIDATION` — Missing `cropType`, or a non-numeric
@@ -130,6 +134,7 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 | `longitude` | number | No | Crop GPS longitude |
 | `score` | number | Yes | Relevance score in `[0, 1]` (higher = better match) |
 | `isSubstitute` | boolean | Yes | `true` when matched via a substitute crop type, not the exact ask |
+| `farmerReliability` | number | No | Farmer's listing-conversion track record in `[0, 1]`; absent when the server has no history (clients default to the neutral 0.7 in scoring) |
 
 ---
 
@@ -141,18 +146,20 @@ identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 
 | Signal | Weight | Definition |
 |--------|--------|------------|
-| Type | 0.35 | Exact crop = 1.0; accepted substitute = 0.6 |
+| Type | 0.30 | Exact crop = 1.0; accepted substitute = 0.6 |
 | Price | 0.20 | ≤ budget = 1.0; linear decay across the +15% near-miss band; 0 beyond |
-| Geo | 0.20 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy (same = 1.0, substring = 0.6, otherwise 0.3) |
-| Quantity | 0.15 | `min(listingQuantity / quantityNeeded, 1)`; partial fills score lower |
+| Geo | 0.18 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy (same = 1.0, substring = 0.6, otherwise 0.3) |
+| Quantity | 0.12 | `min(listingQuantity / quantityNeeded, 1)`; partial fills score lower |
 | Freshness | 0.10 | 1.0 for listings ≤ 7 days old, decaying to a 0.3 floor by 30 days |
+| Reliability | 0.10 | Farmer's listing-conversion track record in [0,1] (server-injected `farmerReliability` on the crop); unknown farmers use the neutral default 0.7 |
 
 **Candidate eligibility** (before scoring): crop type ∈ {requested type +
 substitutes}, price ≤ budget × 1.15, and quantity ≥ 50% of `quantityNeeded`.
 Listings failing any of these are excluded entirely.
 
-**Accepted substitutes** (lowercase): `wheat↔barley`, `maize↔sorghum`,
-`chickpea→{lentil, fababean}`, `lentil→chickpea`. `teff` has no substitute.
+**Accepted substitutes** (lowercase, matching the stored `CropType` enum
+names): `wheat↔barley`, `maize↔sorghum`, `chickpea↔lentils`. `teff` has no
+substitute.
 
 ---
 
@@ -160,9 +167,13 @@ Listings failing any of these are excluded entirely.
 
 - **Candidate generation**: For the requested type and each accepted substitute,
   the server queries `CropTypeCreatedAtIndex` (PK=`cropType`) and fetches full
-  items (the index uses an INCLUDE projection + BatchGetItem). Up to 100
-  candidates per type are fetched, then de-duplicated by `cropId`, filtered to
-  `status == "available"` and eligibility, scored, and ranked in-Lambda.
+  items (the index uses an INCLUDE projection + BatchGetItem). When the caller
+  has a budget, the price ceiling (budget × 1.15 near-miss band) is pushed into
+  the GSI query on the projected `pricePerKg`, so over-budget crops are skipped
+  before the full-item fetch and candidate pages contain only price-eligible
+  listings. Up to 100 candidates per page × 20 pages per type are walked
+  (truncation beyond that is logged), then de-duplicated by `cropId`, filtered
+  to `status == "available"` and eligibility, scored, and ranked in-Lambda.
 - **No new index required**: crop `latitude`/`longitude` are already persisted by
   the sync ingestion path, so haversine geo needs no schema change. A geohash GSI
   is intentionally **not** used — it serves area-browse ("crops near a point, any

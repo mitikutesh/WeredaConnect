@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
+import 'package:wereda_connect/features/buyer/domain/services/base_match_event_logger.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 
@@ -22,13 +23,20 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
   /// the API directly. See [MarketplaceSync].
   final MarketplaceSync? _marketplaceSync;
 
+  /// Optional match-interaction telemetry (shown/opened/order_created). Null
+  /// disables logging entirely (web, tests). Best-effort by contract — the
+  /// logger swallows its own failures.
+  final BaseMatchEventLogger? _eventLogger;
+
   BuyerIntentBloc({
     required BaseBuyerIntentRepository repository,
     required BaseMatchingService matchingService,
     MarketplaceSync? marketplaceSync,
+    BaseMatchEventLogger? eventLogger,
   })  : _repository = repository,
         _matchingService = matchingService,
         _marketplaceSync = marketplaceSync,
+        _eventLogger = eventLogger,
         super(const BuyerIntentInitial()) {
     on<CreateBuyerIntent>(_onCreateBuyerIntent);
     on<LoadActiveIntents>(_onLoadActiveIntents);
@@ -36,6 +44,8 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     on<FulfillIntent>(_onFulfillIntent);
     on<DeleteIntent>(_onDeleteIntent);
     on<RefreshAllMatches>(_onRefreshAllMatches);
+    on<LogMatchOpened>(_onLogMatchOpened);
+    on<LogMatchOrderCreated>(_onLogMatchOrderCreated);
   }
 
   Future<void> _onCreateBuyerIntent(
@@ -55,6 +65,7 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         maxPricePerKg: event.maxPricePerKg,
         deliveryWoreda: event.deliveryWoreda,
         placeId: event.placeId,
+        neededByDate: event.neededByDate,
       );
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
@@ -84,6 +95,9 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         );
         await _repository.updateLastViewed(intent.intentId);
       }
+
+      // Telemetry: the buyer is about to see these matches (best-effort).
+      await _eventLogger?.logShown(intent, matches);
 
       emit(
         BuyerIntentCreated(
@@ -150,6 +164,9 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         await _repository.updateLastViewed(intent.intentId);
       }
 
+      // Telemetry: the buyer is about to see these matches (best-effort).
+      await _eventLogger?.logShown(intent, matches);
+
       emit(
         MatchResultsLoaded(
           intent: intent,
@@ -213,6 +230,22 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     } on Object catch (e) {
       emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
     }
+  }
+
+  /// Telemetry side effects — deliberately no state emission, so dispatching
+  /// them can never disturb whatever screen is currently built.
+  Future<void> _onLogMatchOpened(
+    LogMatchOpened event,
+    Emitter<BuyerIntentState> emit,
+  ) async {
+    await _eventLogger?.logOpened(event.intent, event.result, event.rank);
+  }
+
+  Future<void> _onLogMatchOrderCreated(
+    LogMatchOrderCreated event,
+    Emitter<BuyerIntentState> emit,
+  ) async {
+    await _eventLogger?.logOrderCreated(event.intent, event.listingId);
   }
 
   /// Pull the latest marketplace (all crops + trips) into local storage so the

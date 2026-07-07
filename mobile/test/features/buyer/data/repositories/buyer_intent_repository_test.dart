@@ -68,7 +68,8 @@ void main() {
       expect(newMatchCount(fresh!), 2);
     });
 
-    test('re-sync with an unchanged count produces no new-match badge', () async {
+    test('re-sync with an unchanged count produces no new-match badge',
+        () async {
       // This is the original bug: the time-based badge flagged "new" on every
       // re-sync. The count-delta badge must not.
       final intent = await seedIntent();
@@ -104,7 +105,8 @@ void main() {
         ),
       ).thenAnswer((_) async => SyncOperation());
 
-      final syncingRepo = BuyerIntentRepository(isar: isar, syncQueue: mockQueue);
+      final syncingRepo =
+          BuyerIntentRepository(isar: isar, syncQueue: mockQueue);
       await syncingRepo.createIntent(
         buyerId: 'b1',
         cropType: 'wheat',

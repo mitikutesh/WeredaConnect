@@ -2,13 +2,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/domain/services/matching_service.dart'
     if (dart.library.html) 'package:wereda_connect/features/buyer/domain/services/matching_service_web.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
@@ -31,12 +33,18 @@ class CropListingDetailScreen extends StatefulWidget {
   final String? deliveryWoreda;
   final double? quantityNeeded;
 
+  /// The buying request that led here, when opened from match results. When
+  /// set, a [BuyerIntentBloc] must be provided above this screen; it is
+  /// forwarded to [PlaceOrderScreen] so a covering order fulfills the request.
+  final BuyerIntent? intent;
+
   const CropListingDetailScreen({
     required this.listing,
     required this.currentUserId,
     required this.currentUserRole,
     this.deliveryWoreda,
     this.quantityNeeded,
+    this.intent,
     super.key,
   });
 
@@ -114,6 +122,32 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     } on ProviderNotFoundException {
       return null;
     }
+  }
+
+  /// Open [PlaceOrderScreen], forwarding the buying request + its BLoC when
+  /// this screen was reached from match results so a covering order marks the
+  /// request fulfilled.
+  Future<void> _openPlaceOrder({Trip? trip}) async {
+    final farmerName = await _lookupFarmerName(widget.listing.farmerId);
+    if (!mounted) return;
+    final intent = widget.intent;
+    final intentBloc = intent != null ? context.read<BuyerIntentBloc>() : null;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) {
+          final screen = PlaceOrderScreen(
+            listing: widget.listing,
+            farmerName: farmerName,
+            selectedTrip: trip,
+            intent: intent,
+          );
+          return intentBloc == null
+              ? screen
+              : BlocProvider.value(value: intentBloc, child: screen);
+        },
+      ),
+    );
   }
 
   double get _quantity => widget.quantityNeeded ?? widget.listing.quantity;
@@ -324,21 +358,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () async {
-                  final farmerName =
-                      await _lookupFarmerName(widget.listing.farmerId);
-                  if (!context.mounted) return;
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => PlaceOrderScreen(
-                        listing: widget.listing,
-                        farmerName: farmerName,
-                        selectedTrip: _selectedTrip,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => _openPlaceOrder(trip: _selectedTrip),
                 icon: const Icon(Icons.shopping_cart),
                 label: Text(l10n.placeOrderWithTransport),
                 style: FilledButton.styleFrom(
@@ -356,20 +376,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             width: double.infinity,
             child: widget.deliveryWoreda != null && _selectedTrip != null
                 ? OutlinedButton.icon(
-                    onPressed: () async {
-                      final farmerName =
-                          await _lookupFarmerName(widget.listing.farmerId);
-                      if (!context.mounted) return;
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => PlaceOrderScreen(
-                            listing: widget.listing,
-                            farmerName: farmerName,
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: () => _openPlaceOrder(),
                     icon: const Icon(Icons.shopping_cart_outlined),
                     label: Text(l10n.placeOrderNoTransport),
                     style: OutlinedButton.styleFrom(
@@ -377,21 +384,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     ),
                   )
                 : FilledButton.icon(
-                    onPressed: () async {
-                      final farmerName =
-                          await _lookupFarmerName(widget.listing.farmerId);
-                      if (!context.mounted) return;
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => PlaceOrderScreen(
-                            listing: widget.listing,
-                            farmerName: farmerName,
-                            selectedTrip: _selectedTrip,
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: () => _openPlaceOrder(trip: _selectedTrip),
                     icon: const Icon(Icons.shopping_cart),
                     label: Text(l10n.placeOrder),
                     style: FilledButton.styleFrom(

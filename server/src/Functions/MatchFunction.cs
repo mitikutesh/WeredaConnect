@@ -46,10 +46,12 @@ public class MatchFunction
     /// <summary>
     /// Safety cap on pages walked per crop type. Without paginating, only the
     /// first page of candidates is ever scored, silently hiding cheaper/closer
-    /// matches once a crop type is popular. 10 pages (~1000 candidates/type) is
-    /// ample for ranking; truncation beyond it is logged, not silent.
+    /// matches once a crop type is popular. The buyer's price ceiling (+near-miss
+    /// band) is pushed into the GSI query, so pages contain only price-eligible
+    /// candidates — 20 pages (~2000 eligible/type) is ample for ranking;
+    /// truncation beyond it is logged, not silent.
     /// </summary>
-    private const int MaxCandidatePages = 10;
+    private const int MaxCandidatePages = 20;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public MatchFunction()
@@ -140,6 +142,13 @@ public class MatchFunction
             var seen = new HashSet<string>();
             var scored = new List<MatchDto>();
 
+            // Push the price ceiling (budget + near-miss band) into the GSI
+            // query: over-budget crops are skipped before the full-item fetch
+            // and can never crowd price-eligible ones out of the page cap.
+            double? priceCeiling = maxPricePerKg is double budget && budget > 0
+                ? budget * (1 + MatchScoring.PriceTolerance)
+                : null;
+
             foreach (var type in MatchScoring.CandidateCropTypes(cropType))
             {
                 // Walk all candidate pages for this type (bounded) so a popular
@@ -150,7 +159,8 @@ public class MatchFunction
                 do
                 {
                     var (items, lastKey) = await _cropRepo.QueryCropsAsync(
-                        cropType: type, limit: CandidateLimitPerType, exclusiveStartKey: startKey);
+                        cropType: type, limit: CandidateLimitPerType, exclusiveStartKey: startKey,
+                        maxPricePerKg: priceCeiling);
 
                     foreach (var item in items)
                     {
@@ -201,7 +211,14 @@ public class MatchFunction
             });
 
             var matches = scored.Take(limit).ToList();
-            var response = new GetMatchesResponse { Matches = matches, Count = matches.Count };
+            var response = new GetMatchesResponse
+            {
+                Matches = matches,
+                Count = matches.Count,
+                // Total eligible matches BEFORE the limit cut — clients use this
+                // for match-count badges so counts don't saturate at `limit`.
+                TotalMatches = scored.Count,
+            };
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetMatchesResponse);
         }
         catch (Exception ex)
@@ -222,6 +239,7 @@ public class MatchFunction
             Latitude = GetDouble(item, "latitude"),
             Longitude = GetDouble(item, "longitude"),
             CreatedAt = ParseDate(GetStringOrNull(item, "createdAt"), nowUtc),
+            FarmerReliability = GetDouble(item, "farmerReliability"),
         };
     }
 
@@ -243,6 +261,7 @@ public class MatchFunction
             Longitude = candidate.Longitude,
             Score = score,
             IsSubstitute = isSubstitute,
+            FarmerReliability = candidate.FarmerReliability,
         };
     }
 

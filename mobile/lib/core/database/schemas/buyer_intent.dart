@@ -41,6 +41,11 @@ class BuyerIntent {
   /// the source of truth for matching. Null for free-text / off-list entries.
   String? placeId;
 
+  /// Optional date by which the buyer needs delivery. Drives trip date-fit:
+  /// trips departing after this date are dropped from the suggested-trip
+  /// pairing. Null = no deadline (any trip qualifies).
+  DateTime? neededByDate;
+
   /// Current status of the intent
   @Index()
   @Enumerated(EnumType.name)
