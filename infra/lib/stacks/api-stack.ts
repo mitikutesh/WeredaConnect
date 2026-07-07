@@ -695,8 +695,11 @@ export class ApiStack extends cdk.Stack {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [
         new targets.LambdaFunction(escrowCronFn.function, {
+          // The handler reads `action` from APIGatewayProxyRequest.Body, so the payload MUST be
+          // wrapped as `body` (a JSON string). Sending `{action}` at the event root left Body null
+          // and the cron returned 400 on every trigger — a silent no-op. (Review C3.)
           event: events.RuleTargetInput.fromObject({
-            action: "auto_release_and_refund",
+            body: JSON.stringify({ action: "auto_release_and_refund" }),
           }),
         }),
       ],
@@ -709,8 +712,9 @@ export class ApiStack extends cdk.Stack {
       schedule: events.Schedule.rate(cdk.Duration.hours(6)),
       targets: [
         new targets.LambdaFunction(escrowCronFn.function, {
+          // Payload wrapped as `body` so it deserializes into APIGatewayProxyRequest.Body (Review C3).
           event: events.RuleTargetInput.fromObject({
-            action: "reconciliation",
+            body: JSON.stringify({ action: "reconciliation" }),
           }),
         }),
       ],
@@ -756,8 +760,10 @@ export class ApiStack extends cdk.Stack {
       schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       targets: [
         new targets.LambdaFunction(orderCronFn.function, {
+          // Payload wrapped as `body` so it deserializes into APIGatewayProxyRequest.Body — same
+          // silent-no-op bug as the escrow cron (Review C3).
           event: events.RuleTargetInput.fromObject({
-            action: "auto_cancel_expired",
+            body: JSON.stringify({ action: "auto_cancel_expired" }),
           }),
         }),
       ],

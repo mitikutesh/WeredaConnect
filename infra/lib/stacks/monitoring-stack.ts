@@ -441,14 +441,16 @@ export class MonitoringStack extends cdk.Stack {
     api5xxAlarm.addOkAction(snsAction);
 
     // Alarm 2: Lambda Errors — critical function errors > 3 in 5 minutes
-    // CloudWatch math expressions limited to 10 metrics — monitor the 9 most
-    // critical functions (auth, sync, escrow, crops, trips, orders, deliveries, admin)
+    // CloudWatch math expressions limited to 10 metrics — monitor the 10 most critical
+    // functions. escrow-cron is included because it auto-moves money on a schedule and
+    // must never fail silently (Review: escrow-cron unmonitored).
     const alarmLambdaFunctions: LambdaFunctionDef[] = [
       { label: 'Auth Login', nameSuffix: 'auth-login' },
       { label: 'Auth Register', nameSuffix: 'auth-register' },
       { label: 'Auth Password Reset', nameSuffix: 'auth-password-reset' },
       { label: 'Sync', nameSuffix: 'sync' },
       { label: 'Escrow', nameSuffix: 'escrow' },
+      { label: 'Escrow Cron', nameSuffix: 'escrow-cron' },
       { label: 'Crops', nameSuffix: 'crops' },
       { label: 'Trips', nameSuffix: 'trips' },
       { label: 'Orders', nameSuffix: 'orders' },
