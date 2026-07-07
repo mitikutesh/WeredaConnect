@@ -63,6 +63,7 @@ class EscrowSyncService {
     // Drain the queue once at startup. onConnectivityChanged only emits on
     // *transitions*, so a device that reopens the app already-online would
     // otherwise never fire — leaving a queued payment stuck forever (Review H1).
+    // processQueuedIntents() self-guards on connectivity, so this is a no-op offline.
     processQueuedIntents();
   }
 
@@ -84,11 +85,19 @@ class EscrowSyncService {
   /// 3. On success: mark completed, cache Payment
   /// 4. On failure: increment retry, apply backoff, mark failed after max
   Future<void> processQueuedIntents() async {
-    // MH4: Prevent concurrent processing (connectivity flap protection)
+    // MH4: Prevent concurrent processing (connectivity flap protection). Set the lock
+    // synchronously (before any await) so a startup call and a connectivity event can't
+    // both enter.
     if (_isProcessing) return;
     _isProcessing = true;
 
     try {
+      // Only attempt sync when actually online. The startup drain and the connectivity
+      // listener both funnel through here, so guarding once prevents an offline app launch
+      // from POSTing, failing, and burning retries into a permanently-`failed` intent that
+      // never auto-retries (Review H1 regression fix).
+      if (!await _connectivityMonitor.isConnected()) return;
+
       // Query only pendingSync intents
       final intents = await _isar.paymentIntents
           .filter()

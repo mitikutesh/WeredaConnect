@@ -209,22 +209,25 @@ class EscrowDetailResponse {
 
   factory EscrowDetailResponse.fromJson(Map<String, dynamic> json) {
     return EscrowDetailResponse(
+      // Parse defensively (mirrors the web _parsePaymentMap): the contract's GET
+      // examples show partial bodies, so optional/omitted fields must not throw a
+      // TypeError that bubbles past the ApiException handlers into a generic error
+      // (Review M5 + parity). escrowId/status are the only truly-required fields.
       escrowId: json['escrowId'] as String,
-      deliveryId: json['deliveryId'] as String,
-      buyerId: json['buyerId'] as String,
-      farmerId: json['farmerId'] as String,
-      amount: (json['amount'] as num).toDouble(),
-      commission: (json['commission'] as num).toDouble(),
-      // commissionRate/version are omitted in the contract's GET example body, so
-      // parse them defensively with defaults rather than throwing a TypeError that
-      // bubbles past the ApiException handlers into a generic error (Review M5).
+      deliveryId: json['deliveryId'] as String? ?? '',
+      buyerId: json['buyerId'] as String? ?? '',
+      farmerId: json['farmerId'] as String? ?? '',
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      commission: (json['commission'] as num?)?.toDouble() ?? 0,
       commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 0.025,
-      farmerPayout: (json['farmerPayout'] as num).toDouble(),
+      farmerPayout: (json['farmerPayout'] as num?)?.toDouble() ?? 0,
       currency: json['currency'] as String? ?? 'ETB',
       status: json['status'] as String,
-      createdAt: json['createdAt'] as String,
-      updatedAt: json['updatedAt'] as String? ?? json['createdAt'] as String,
-      expiresAt: json['expiresAt'] as String,
+      createdAt: json['createdAt'] as String? ?? '',
+      updatedAt: json['updatedAt'] as String? ??
+          json['createdAt'] as String? ??
+          '',
+      expiresAt: json['expiresAt'] as String? ?? '',
       version: (json['version'] as num?)?.toInt() ?? 1,
       telebirrRef: json['telebirrRef'] as String?,
       dispute: json['dispute'] as Map<String, dynamic>?,
