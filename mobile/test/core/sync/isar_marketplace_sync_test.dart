@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -62,6 +63,49 @@ Map<String, dynamic> _tripJson({
       'version': 1,
     };
 
+Map<String, dynamic> _deliveryJson({
+  String deliveryId = 'del-1',
+  String status = 'pickedUp',
+  int version = 2,
+}) =>
+    {
+      'deliveryId': deliveryId,
+      'tripId': 'trip-1',
+      'listingId': 'crop-1',
+      'farmerId': 'farmer-1',
+      'farmerName': 'Abebe',
+      'truckerId': 'trucker-1',
+      'truckerName': 'Geleta',
+      'buyerId': 'buyer-1',
+      'buyerName': 'Mekonnen',
+      'qrToken': '',
+      'status': status,
+      'createdAt': '2026-06-18T09:42:06.000Z',
+      'updatedAt': '2026-06-18T10:00:00.000Z',
+      'version': version,
+    };
+
+Delivery _localDelivery({
+  String deliveryId = 'del-1',
+  DeliveryStatus status = DeliveryStatus.pending,
+  int version = 1,
+}) =>
+    Delivery()
+      ..deliveryId = deliveryId
+      ..tripId = 'trip-1'
+      ..listingId = 'crop-1'
+      ..farmerId = 'farmer-1'
+      ..farmerName = 'Abebe'
+      ..truckerId = 'trucker-1'
+      ..truckerName = 'Geleta'
+      ..buyerId = 'buyer-1'
+      ..buyerName = 'Mekonnen'
+      ..qrToken = ''
+      ..status = status
+      ..createdAt = DateTime.now().toUtc()
+      ..updatedAt = DateTime.now().toUtc()
+      ..version = version;
+
 void main() {
   group('IsarMarketplaceSync', () {
     late Isar isar;
@@ -75,7 +119,7 @@ void main() {
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('marketplace_sync_test_');
       isar = await Isar.open(
-        [CropListingSchema, TripSchema, SyncOperationSchema],
+        [CropListingSchema, TripSchema, DeliverySchema, SyncOperationSchema],
         directory: tempDir.path,
         name: 'test_marketplace_${DateTime.now().microsecondsSinceEpoch}',
       );
@@ -91,6 +135,7 @@ void main() {
     void stubApi({
       List<Map<String, dynamic>> crops = const [],
       List<Map<String, dynamic>> trips = const [],
+      List<Map<String, dynamic>> deliveries = const [],
     }) {
       when(
         () => api.get<Map<String, dynamic>>(
@@ -101,18 +146,22 @@ void main() {
         final path = inv.positionalArguments.first as String;
         if (path.contains('/crops')) return {'crops': crops};
         if (path.contains('/trips')) return {'trips': trips};
+        if (path.contains('/deliveries')) return {'deliveries': deliveries};
         return <String, dynamic>{};
       });
     }
 
-    IsarMarketplaceSync buildSync({Future<String?> Function()? currentUserId}) =>
+    IsarMarketplaceSync buildSync({
+      Future<String?> Function()? currentUserId,
+    }) =>
         IsarMarketplaceSync(
           api: api,
           isar: isar,
           getCurrentUserId: currentUserId,
         );
 
-    test('pullCrops stores crops with quantity (quintals) taken verbatim from '
+    test(
+        'pullCrops stores crops with quantity (quintals) taken verbatim from '
         'quantityKg and status mapped available -> active', () async {
       stubApi(crops: [_cropJson()]); // defaults: quantityKg 10, pricePerKg 100
 
@@ -142,7 +191,8 @@ void main() {
       expect(stored.single.status, TripStatus.open);
     });
 
-    test('pullCrops replaces a previously-cached marketplace crop that is no '
+    test(
+        'pullCrops replaces a previously-cached marketplace crop that is no '
         'longer returned (sold/withdrawn crops disappear)', () async {
       // Seed a stale marketplace crop from a prior pull.
       await isar.writeTxn(() async {
@@ -174,7 +224,8 @@ void main() {
       expect(ids, isNot(contains('old-crop')));
     });
 
-    test('skips the stale-delete entirely when the current user is unknown '
+    test(
+        'skips the stale-delete entirely when the current user is unknown '
         '(no unscoped delete-everything)', () async {
       await isar.writeTxn(() async {
         await isar.cropListings.put(
@@ -204,7 +255,8 @@ void main() {
       expect(ids, containsAll(<String>['kept-crop', 'new-crop']));
     });
 
-    test('never deletes a crop that still has an un-synced local write '
+    test(
+        'never deletes a crop that still has an un-synced local write '
         '(shared-device offline data is not lost)', () async {
       await isar.writeTxn(() async {
         await isar.cropListings.put(
@@ -304,6 +356,74 @@ void main() {
 
       expect(await isar.cropListings.count(), 1);
       expect(await isar.trips.count(), 1);
+    });
+
+    test('pullDeliveries stores the buyer\'s deliveries from the API',
+        () async {
+      stubApi(deliveries: [_deliveryJson()]);
+
+      await buildSync(currentUserId: () async => 'buyer-1').pullDeliveries();
+
+      final stored = await isar.deliverys.where().findAll();
+      expect(stored, hasLength(1));
+      expect(stored.single.deliveryId, 'del-1');
+      expect(stored.single.status, DeliveryStatus.pickedUp);
+    });
+
+    test(
+        'pullDeliveries upserts a newer server status onto an existing '
+        'local delivery (no duplicate)', () async {
+      // Local: pending, version 1 (helper defaults).
+      await isar.writeTxn(() async {
+        await isar.deliverys.put(_localDelivery());
+      });
+
+      // Server: newer view — pickedUp, version 2 (helper defaults).
+      stubApi(deliveries: [_deliveryJson()]);
+      await buildSync(currentUserId: () async => 'buyer-1').pullDeliveries();
+
+      final stored = await isar.deliverys.where().findAll();
+      expect(
+        stored,
+        hasLength(1),
+        reason: 'upsert by deliveryId, not duplicate',
+      );
+      expect(stored.single.status, DeliveryStatus.pickedUp);
+      expect(stored.single.version, 2);
+    });
+
+    test(
+        'pullDeliveries never clobbers a delivery with an un-synced local '
+        'write (offline buyer confirmation is preserved)', () async {
+      await isar.writeTxn(() async {
+        // Buyer confirmed delivery offline (version bumped locally, not synced).
+        await isar.deliverys
+            .put(_localDelivery(status: DeliveryStatus.delivered, version: 3));
+        await isar.syncOperations.put(
+          SyncOperation()
+            ..operationId = 'op-d1'
+            ..idempotencyKey = 'buyer-1:delivery:del-1:update:1'
+            ..entityType = 'delivery'
+            ..entityId = 'del-1'
+            ..action = 'update'
+            ..data = '{}'
+            ..status = SyncStatus.pending
+            ..retryCount = 0
+            ..createdAt = DateTime.now(),
+        );
+      });
+
+      // Server still shows the older pre-confirmation view (pickedUp, v2).
+      stubApi(deliveries: [_deliveryJson()]);
+      await buildSync(currentUserId: () async => 'buyer-1').pullDeliveries();
+
+      final stored = await isar.deliverys.where().findAll();
+      expect(
+        stored.single.status,
+        DeliveryStatus.delivered,
+        reason: 'pending local confirmation must survive the pull',
+      );
+      expect(stored.single.version, 3);
     });
   });
 }

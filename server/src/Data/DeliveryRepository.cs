@@ -132,6 +132,46 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByParticipantAsync(
+        string participantId,
+        int limit = 50,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 50;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "ParticipantIndex",
+            KeyConditionExpression = "#pid = :pid",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#pid", "participantId" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pid", new AttributeValue { S = participantId } }
+            },
+            FilterExpression = "attribute_not_exists(#deletedAt)",
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId)
     {
         var item = await GetItemAsync(deliveryId);

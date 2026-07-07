@@ -412,8 +412,12 @@ class DeliveryDetailScreen extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Buyer + inTransit → Scan QR (Delivery)
-    if (isBuyer && delivery.status == DeliveryStatus.inTransit) {
+    // Buyer + pickedUp/inTransit → Scan QR (Delivery). The trucker's separate
+    // "mark in transit" step is optional, so the buyer can confirm the handoff
+    // directly after pickup as well (server allows pickedUp -> delivered).
+    if (isBuyer &&
+        (delivery.status == DeliveryStatus.pickedUp ||
+            delivery.status == DeliveryStatus.inTransit)) {
       widgets.add(
         SizedBox(
           width: double.infinity,

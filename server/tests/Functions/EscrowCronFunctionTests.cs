@@ -213,6 +213,49 @@ public class EscrowCronFunctionTests
     }
 
     [Fact]
+    public async Task AutoRefund_DeliveredButUnstampedEscrow_IsNotRefunded_AndGetsStamped()
+    {
+        // Money-safety (review B): if the inline escrow stamp at delivery
+        // confirmation failed transiently, an escrow can reach expiry with an
+        // empty deliveryConfirmedAt even though the delivery WAS confirmed. The
+        // refund sweep must verify the delivery's real status and NEVER refund a
+        // delivered order — instead it stamps the escrow so the release cron pays
+        // the farmer.
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeEscrowItem("refund-safety-001", expiresAt: expiredAt); // no deliveryConfirmedAt
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        // The linked delivery was actually confirmed (delivered).
+        var mockDeliveryRepo = Substitute.For<IDeliveryRepository>();
+        mockDeliveryRepo.GetByIdAsync("del-refund-safety-001").Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-refund-safety-001" },
+            { "status", "delivered" },
+            { "confirmedAt", DateTime.UtcNow.AddHours(-1).ToString("o") }
+        });
+
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowCronFunction(
+            service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway, mockDeliveryRepo);
+
+        var request = MakeCronRequest("auto_release_and_refund");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // No money returned to the buyer for a delivered order.
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        // Escrow stamped so the auto-release cron will pay the farmer.
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "refund-safety-001", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.ContainsKey("deliveryConfirmedAt") && f.ContainsKey("disputeWindowEndsAt")));
+    }
+
+    [Fact]
     public async Task AutoRefund_NoExpiredEscrows_NoOp()
     {
         _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())

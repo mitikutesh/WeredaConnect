@@ -99,9 +99,16 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       'truckerId': truckerId,
     };
     if (gpsPickup != null) {
-      data['gpsPickup'] = '${gpsPickup.latitude},${gpsPickup.longitude}';
+      // Server expects a {latitude, longitude} object (not a "lat,lng" string),
+      // matching the mobile payload — otherwise GPS is mis-stored and the
+      // proximity/fraud checks silently skip.
+      data['gpsPickup'] = {
+        'latitude': gpsPickup.latitude,
+        'longitude': gpsPickup.longitude,
+      };
     }
     if (photoRef != null) data['pickupPhotoRef'] = photoRef;
+    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     await _api.post<dynamic>(
       '/sync',
@@ -137,9 +144,14 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       'buyerId': buyerId,
     };
     if (gpsDropoff != null) {
-      data['gpsDropoff'] = '${gpsDropoff.latitude},${gpsDropoff.longitude}';
+      // Server expects a {latitude, longitude} object (see confirmPickup).
+      data['gpsDropoff'] = {
+        'latitude': gpsDropoff.latitude,
+        'longitude': gpsDropoff.longitude,
+      };
     }
     if (photoRef != null) data['dropoffPhotoRef'] = photoRef;
+    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     await _api.post<dynamic>(
       '/sync',
@@ -275,8 +287,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     try {
       final data =
           await _api.get<Map<String, dynamic>>('/deliveries/$deliveryId');
+      // Server wraps the single-GET response as {"delivery": {...}}.
+      if (data['delivery'] is Map<String, dynamic>) {
+        return _parseDeliveryMap(data['delivery'] as Map<String, dynamic>);
+      }
       if (data.containsKey('deliveryId')) return _parseDeliveryMap(data);
-      if (data.containsKey('item')) {
+      if (data['item'] is Map<String, dynamic>) {
         return _parseDeliveryMap(data['item'] as Map<String, dynamic>);
       }
       return null;
@@ -291,22 +307,33 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     String? role,
     String? statusFilter,
   }) async {
+    // Buyer (and default): use the participant-scoped "mine" query so ALL
+    // statuses are returned. The server derives the buyer from the JWT via
+    // ParticipantIndex. Farmer/trucker participant queries are a server
+    // follow-up (ParticipantIndex is buyer-keyed), so they keep the existing
+    // filter path.
     final params = <String, dynamic>{};
+    var mine = false;
     if (role == 'farmer') {
       params['farmerId'] = userId;
     } else if (role == 'trucker') {
       params['truckerId'] = userId;
-    } else if (role == 'buyer') {
-      params['buyerId'] = userId;
     } else {
-      params['buyerId'] = userId;
+      params['mine'] = 'true';
+      mine = true;
     }
     if (statusFilter != null) params['status'] = statusFilter;
     final data = await _api.get<Map<String, dynamic>>(
       '/deliveries',
       queryParameters: params,
     );
-    return _parseDeliveries(data);
+    final all = _parseDeliveries(data);
+    // The mine=true query ignores the status GSI, so apply the UI status filter
+    // client-side to keep behaviour consistent with a status-scoped query.
+    if (mine && statusFilter != null) {
+      return all.where((d) => d.status.name == statusFilter).toList();
+    }
+    return all;
   }
 
   List<Delivery> _parseDeliveries(Map<String, dynamic> data) {

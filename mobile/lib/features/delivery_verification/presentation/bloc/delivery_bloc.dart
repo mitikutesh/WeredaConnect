@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -13,12 +14,21 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   final BaseDeliveryRepository _repository;
 
+  /// Optional server->local pull. Null on web (which reads the API directly)
+  /// and in tests. When present, [LoadUserDeliveries] pulls the caller's
+  /// deliveries into local Isar first so a buyer sees trucker-driven status
+  /// changes they did not author.
+  final MarketplaceSync? _marketplaceSync;
+
   /// Exposed for sub-screens that need to call repository methods directly
   /// (e.g., QrGenerateScreen persisting nonces).
   BaseDeliveryRepository get repository => _repository;
 
-  DeliveryBloc({required BaseDeliveryRepository repository})
-      : _repository = repository,
+  DeliveryBloc({
+    required BaseDeliveryRepository repository,
+    MarketplaceSync? marketplaceSync,
+  })  : _repository = repository,
+        _marketplaceSync = marketplaceSync,
         super(const DeliveryInitial()) {
     on<LoadDeliveries>(_onLoadDeliveries);
     on<CreateDelivery>(_onCreateDelivery);
@@ -230,6 +240,17 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   ) async {
     emit(const DeliveryLoading());
     try {
+      // Pull server-side status changes into local Isar first, so a buyer sees
+      // trucker-driven updates they didn't author. Best-effort: offline or a
+      // failed pull falls back to whatever is already cached locally.
+      final sync = _marketplaceSync;
+      if (sync != null) {
+        try {
+          await sync.pullDeliveries();
+        } on Object {
+          // Offline-first: ignore and read the local cache below.
+        }
+      }
       final deliveries = await _repository.getDeliveriesByUser(
         event.userId,
         role: event.role,

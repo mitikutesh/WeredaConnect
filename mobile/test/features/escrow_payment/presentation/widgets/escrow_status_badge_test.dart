@@ -88,7 +88,8 @@ void main() {
         expect(icon.color, AppTheme.onStatusSuccessContainer);
       });
 
-      testWidgets('cancelled shows neutral cancel', (WidgetTester tester) async {
+      testWidgets('cancelled shows neutral cancel',
+          (WidgetTester tester) async {
         await tester.pumpWidget(
           _wrapWithL10n(
             const EscrowStatusBadge(status: PaymentStatus.cancelled),

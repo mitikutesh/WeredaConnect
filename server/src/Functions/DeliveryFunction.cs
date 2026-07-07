@@ -101,6 +101,12 @@ public class DeliveryFunction
         queryParams.TryGetValue("status", out var status);
         queryParams.TryGetValue("tripId", out var tripId);
         queryParams.TryGetValue("listingId", out var listingId);
+        // mine=true returns the caller's own deliveries across all statuses via the
+        // ParticipantIndex (keyed on buyerId). Used by the mobile pull so a buyer's
+        // device receives trucker-driven status changes. (Farmer/trucker pull is a
+        // follow-up: ParticipantIndex is single-keyed, so it resolves the buyer.)
+        var mine = queryParams.TryGetValue("mine", out var mineStr)
+            && mineStr.Equals("true", StringComparison.OrdinalIgnoreCase);
 
         // Parse limit (default 20, max 50)
         var limit = 20;
@@ -126,14 +132,16 @@ public class DeliveryFunction
 
         try
         {
-            // Query deliveries
-            var queryResult = await _deliveryRepo.QueryDeliveriesAsync(
-                status, tripId, listingId, limit, exclusiveStartKey);
+            var userId = GetAuthenticatedUserId(request);
+
+            // Query deliveries: participant-scoped when mine=true, else by status/trip.
+            var queryResult = mine
+                ? await _deliveryRepo.QueryByParticipantAsync(userId ?? string.Empty, limit, exclusiveStartKey)
+                : await _deliveryRepo.QueryDeliveriesAsync(status, tripId, listingId, limit, exclusiveStartKey);
             var items = queryResult.Items;
             var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 
             // Security: filter to only show deliveries where the user is a participant
-            var userId = GetAuthenticatedUserId(request);
             var filteredItems = items.Where(i => IsParticipant(i, userId)).ToList();
 
             // Map to DTOs (hide phone numbers and QR tokens in list view)

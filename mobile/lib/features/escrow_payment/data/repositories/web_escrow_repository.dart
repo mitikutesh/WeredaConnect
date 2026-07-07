@@ -80,8 +80,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
     // network failures propagate as ApiException so the BLoC surfaces a
     // distinct, retryable error rather than a misleading "payment not found".
     try {
-      final data = await _api
-          .get<Map<String, dynamic>>('/escrow/${Uri.encodeComponent(escrowId)}');
+      final data = await _api.get<Map<String, dynamic>>(
+        '/escrow/${Uri.encodeComponent(escrowId)}',
+      );
       return _parsePayment(data);
     } on NotFoundException {
       return null;

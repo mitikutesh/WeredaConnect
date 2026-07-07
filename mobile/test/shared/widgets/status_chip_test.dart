@@ -53,8 +53,7 @@ void main() {
   });
 
   group('StatusChip', () {
-    testWidgets('renders label, default icon, and pair colors',
-        (tester) async {
+    testWidgets('renders label, default icon, and pair colors', (tester) async {
       await _pump(
         tester,
         const StatusChip(label: 'In transit', kind: StatusKind.transit),

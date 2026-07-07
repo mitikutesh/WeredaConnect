@@ -46,10 +46,12 @@ Future<void> _type(WidgetTester tester, String text) async {
 void main() {
   testWidgets('shows matching options with Amharic name beneath',
       (tester) async {
-    await tester.pumpWidget(_harness(
-      controller: TextEditingController(),
-      repo: _loadRepo(),
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+      ),
+    );
 
     await _type(tester, 'Adama');
 
@@ -61,11 +63,13 @@ void main() {
       (tester) async {
     final controller = TextEditingController();
     Place? selected;
-    await tester.pumpWidget(_harness(
-      controller: controller,
-      repo: _loadRepo(),
-      onSelected: (p) => selected = p,
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+      ),
+    );
 
     await _type(tester, 'Adam');
     await tester.tap(find.text('አዳማ'));
@@ -78,11 +82,13 @@ void main() {
 
   testWidgets('reports raw text via onChanged while typing', (tester) async {
     final changes = <String>[];
-    await tester.pumpWidget(_harness(
-      controller: TextEditingController(),
-      repo: _loadRepo(),
-      onChanged: changes.add,
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+        onChanged: changes.add,
+      ),
+    );
 
     await _type(tester, 'Gamb');
 
@@ -90,10 +96,12 @@ void main() {
   });
 
   testWidgets('escape dismisses the options', (tester) async {
-    await tester.pumpWidget(_harness(
-      controller: TextEditingController(),
-      repo: _loadRepo(),
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+      ),
+    );
 
     await _type(tester, 'Adama');
     expect(find.text('አዳማ'), findsOneWidget);
@@ -108,11 +116,13 @@ void main() {
       (tester) async {
     final controller = TextEditingController();
     Place? selected;
-    await tester.pumpWidget(_harness(
-      controller: controller,
-      repo: _loadRepo(),
-      onSelected: (p) => selected = p,
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+      ),
+    );
 
     await _type(tester, 'adama'); // single match
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
@@ -129,11 +139,13 @@ void main() {
       (tester) async {
     final controller = TextEditingController();
     var selectedCalls = 0;
-    await tester.pumpWidget(_harness(
-      controller: controller,
-      repo: _loadRepo(),
-      onSelected: (_) => selectedCalls++,
-    ),);
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (_) => selectedCalls++,
+      ),
+    );
 
     await _type(tester, 'Nowhereville');
 
@@ -143,11 +155,14 @@ void main() {
     expect(selectedCalls, 0);
   });
 
-  testWidgets('renders an option that has no Amharic/Oromo name', (tester) async {
-    await tester.pumpWidget(_harness(
-      controller: TextEditingController(),
-      repo: _loadRepo(),
-    ),);
+  testWidgets('renders an option that has no Amharic/Oromo name',
+      (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+      ),
+    );
 
     await _type(tester, 'Mertule');
 

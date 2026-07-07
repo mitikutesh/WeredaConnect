@@ -37,6 +37,9 @@ class _FakeMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullTrips() async {}
 
+  @override
+  Future<void> pullDeliveries() async {}
+
   Future<void> _seed() async {
     await _isar.writeTxn(() async {
       await _isar.cropListings.putByListingId(
@@ -95,6 +98,9 @@ class _FailingMarketplaceSync implements MarketplaceSync {
 
   @override
   Future<void> pullTrips() async => throw Exception('offline');
+
+  @override
+  Future<void> pullDeliveries() async => throw Exception('offline');
 }
 
 /// Fake [BaseMatchingService] whose match call always throws — stands in for the
