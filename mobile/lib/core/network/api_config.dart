@@ -80,6 +80,9 @@ class ApiConfig {
   /// GET /escrow/{id} - Get escrow status (append /{id})
   static const String escrowStatus = '/escrow';
 
+  /// GET /escrow/by-delivery/{deliveryId} - Get the escrow for a delivery (append /{deliveryId})
+  static const String escrowByDelivery = '/escrow/by-delivery';
+
   /// GET /escrow/history - Get payment history
   static const String escrowHistory = '/escrow/history';
 }

@@ -59,6 +59,11 @@ class EscrowSyncService {
         processQueuedIntents();
       }
     });
+
+    // Drain the queue once at startup. onConnectivityChanged only emits on
+    // *transitions*, so a device that reopens the app already-online would
+    // otherwise never fire — leaving a queued payment stuck forever (Review H1).
+    processQueuedIntents();
   }
 
   /// Stop listening and release resources.
@@ -241,6 +246,18 @@ class EscrowSyncService {
           payment.id = existing.id;
         }
         await _isar.payments.put(payment);
+      });
+    } on ConflictException {
+      // 409 (ESCROW_009): an escrow already exists for this delivery — the payment
+      // effectively went through. Mark the intent completed rather than burning
+      // retries and landing in "failed", which would show a false failure to a
+      // buyer who was actually charged (Review M4).
+      await _isar.writeTxn(() async {
+        final current = await _isar.paymentIntents.get(syncing.id);
+        if (current != null) {
+          current.status = IntentStatus.completed;
+          await _isar.paymentIntents.put(current);
+        }
       });
     } on ApiException catch (e) {
       await _handleIntentFailure(syncing, e.message);

@@ -423,9 +423,38 @@ void main() {
         expect(payment!.paymentId, 'esc-cached');
       });
 
-      test('returns null when not in cache', () async {
+      test('returns null when not in cache and offline', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => false);
         final payment = await repository.getEscrow('esc-nonexistent');
         expect(payment, isNull);
+      });
+
+      test('falls through to server on cache miss when online (H2)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(() => apiClient.get<Map<String, dynamic>>(any())).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-net',
+            'deliveryId': 'del-net',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'amount': 15000.0,
+            'commission': 375.0,
+            'commissionRate': 0.025,
+            'farmerPayout': 14625.0,
+            'currency': 'ETB',
+            'status': 'escrowed',
+            'createdAt': '2026-02-17T10:00:00Z',
+            'updatedAt': '2026-02-17T10:00:00Z',
+            'expiresAt': '2026-02-24T10:00:00Z',
+            'version': 1,
+          },
+        );
+
+        final payment = await repository.getEscrow('esc-net');
+        expect(payment, isNotNull);
+        expect(payment!.paymentId, 'esc-net');
       });
     });
 
