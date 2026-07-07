@@ -81,7 +81,8 @@ class WebEscrowRepository extends BaseEscrowRepository {
     // distinct, retryable error rather than a misleading "payment not found".
     try {
       final data = await _api.get<Map<String, dynamic>>(
-          '/escrow/${Uri.encodeComponent(escrowId)}');
+        '/escrow/${Uri.encodeComponent(escrowId)}',
+      );
       return _parsePayment(data);
     } on NotFoundException {
       return null;

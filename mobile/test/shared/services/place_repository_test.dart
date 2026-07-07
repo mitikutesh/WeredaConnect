@@ -49,7 +49,9 @@ void main() {
     test('matches alternate spellings', () {
       expect(repo.search('Nazret').map((p) => p.id), contains('gn-adama'));
       expect(
-          repo.search('Debre Zeit').map((p) => p.id), contains('gn-bishoftu'));
+        repo.search('Debre Zeit').map((p) => p.id),
+        contains('gn-bishoftu'),
+      );
     });
 
     test('matches accented Latin alternates after folding', () {
