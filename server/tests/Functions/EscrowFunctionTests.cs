@@ -40,6 +40,9 @@ public class EscrowFunctionTests
             .Returns(new RefundFundsResponse { Success = true, TelebirrRef = "MOCK-REFUND-REF" });
 
         // Default: idempotency store succeeds (no duplicate)
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
         _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 

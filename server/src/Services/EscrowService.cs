@@ -22,10 +22,15 @@ public sealed class EscrowService
     private readonly IOrderRepository? _orderRepo;
     private readonly IDeliveryRepository? _deliveryRepo;
 
-    /// <summary>Delivery states in which a new escrow may be initiated (contract §Delivery State Validation).</summary>
+    /// <summary>
+    /// Delivery states in which a new escrow may be initiated (contract §Delivery State
+    /// Validation: "must be pending or pickedUp"). `inTransit` is intentionally excluded —
+    /// the contract only permits it when an escrow pre-dated transit, which cannot be true
+    /// at initiation.
+    /// </summary>
     private static readonly HashSet<string> EscrowableDeliveryStates = new()
     {
-        "pending", "pickedUp", "inTransit"
+        "pending", "pickedUp"
     };
 
     private const decimal DefaultCommissionRate = 0.025m;
@@ -154,7 +159,7 @@ public sealed class EscrowService
                 "farmerId");
         }
 
-        // 6b. Check for existing active escrow on this delivery → ESCROW_025
+        // 6b. Check for existing active escrow on this delivery → ESCROW_009
         var existingEscrowForDelivery = await _escrowRepo.GetByDeliveryIdAsync(request.DeliveryId);
         if (existingEscrowForDelivery != null)
         {
@@ -218,23 +223,26 @@ public sealed class EscrowService
             var buyer = await _userRepo.GetUserByIdAsync(request.BuyerId);
             var farmer = await _userRepo.GetUserByIdAsync(request.FarmerId);
 
-            // Farmer must exist, have the farmer role, and be phone-verified (contract §User Validation).
+            // Farmer must exist, have the farmer role, and be phone-verified (contract §User
+            // Validation). These use ESCROW_VALIDATION (not ESCROW_008/006, which carry
+            // "delivery not found" / "buyerId mismatch" messages) to avoid misleading the client.
             if (farmer == null)
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
-                    404, "ESCROW_008", "Farmer account not found.", "farmerId");
+                    404, "ESCROW_VALIDATION", "Farmer account not found.", "farmerId");
             }
 
             if (!string.Equals(farmer.Role, "farmer", StringComparison.OrdinalIgnoreCase))
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
-                    403, "ESCROW_006", "Recipient is not a registered farmer.", "farmerId");
+                    403, "ESCROW_VALIDATION", "Recipient is not a registered farmer.", "farmerId");
             }
 
-            if (!farmer.IsPhoneVerified || (buyer != null && !buyer.IsPhoneVerified))
+            // Fail closed: a missing buyer record means we cannot confirm phone verification.
+            if (!farmer.IsPhoneVerified || buyer == null || !buyer.IsPhoneVerified)
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
-                    403, "ESCROW_006", "Both buyer and farmer must be phone-verified.", "farmerId");
+                    403, "ESCROW_VALIDATION", "Both buyer and farmer must be phone-verified.", "farmerId");
             }
 
             buyerFaydaVerified = buyer?.FaydaVerified == true;
@@ -282,13 +290,13 @@ public sealed class EscrowService
                     && !string.Equals(obs, request.BuyerId, StringComparison.Ordinal))
                 {
                     return EscrowResult<InitiateEscrowResponse>.Failure(
-                        403, "ESCROW_006", "Referenced order does not belong to this buyer.", "orderId");
+                        403, "ESCROW_VALIDATION", "Referenced order does not belong to this buyer.", "orderId");
                 }
                 if (order.TryGetValue("deliveryId", out var od) && od?.ToString() is string ods
                     && !string.Equals(ods, request.DeliveryId, StringComparison.Ordinal))
                 {
                     return EscrowResult<InitiateEscrowResponse>.Failure(
-                        400, "ESCROW_002", "Referenced order is for a different delivery.", "orderId");
+                        400, "ESCROW_VALIDATION", "Referenced order is for a different delivery.", "orderId");
                 }
 
                 if (order.TryGetValue("cropCost", out var cc))
@@ -302,13 +310,15 @@ public sealed class EscrowService
             }
         }
 
-        // When order provides 3-way split amounts, use those instead of the default calculation,
-        // but ONLY if the split reconciles to the held amount — the platform must never release
-        // more (or less) than was escrowed (C2/C3 payout-integrity fix).
+        // When an order supplies split amounts, use them instead of the default calculation —
+        // but ALWAYS reconcile the full split to the held amount so the platform never releases
+        // more (or less) than was escrowed. The reconciliation must run whenever ANY split
+        // component is present (not just cropCost); a transport-only order previously skipped
+        // this and over-released by the transport cost (C2/C3 payout-integrity fix).
         decimal truckerPayout = RoundMoney(orderTransportCost ?? 0m);
-        if (orderCropCost.HasValue)
+        if (orderCropCost.HasValue || orderTransportCost.HasValue || orderCommissionAmount.HasValue)
         {
-            farmerPayout = RoundMoney(orderCropCost.Value);
+            farmerPayout = RoundMoney(orderCropCost ?? 0m);
             commission = RoundMoney(orderCommissionAmount ?? commission);
 
             if (farmerPayout + truckerPayout + commission != RoundMoney(request.Amount))
@@ -362,12 +372,17 @@ public sealed class EscrowService
         // 11. Audit log: "" → "initiated"
         await AppendAuditAsync(escrowId, "initiate", "", "initiated", authenticatedUserId);
 
-        // 12. Call Telebirr HoldFunds
+        // 12. Call Telebirr HoldFunds.
+        //     transactionRef = the per-attempt idempotency key (contract §Telebirr: the ref maps
+        //     to the escrow idempotencyKey). It is unique per attempt, so a legitimate
+        //     re-initiation after a terminal escrow on the same delivery does NOT dedupe to a
+        //     stale hold (a per-delivery ref would — that was a phantom-hold bug).
+        //     NOTE: a truly-concurrent double-initiation with DISTINCT keys is still guarded only
+        //     by the (non-atomic) active-escrow check above; an atomic delivery-uniqueness write
+        //     (TransactWriteItems) is tracked as follow-up.
         var holdResponse = await _telebirrGateway.HoldFundsAsync(new HoldFundsRequest
         {
-            // Stable per-delivery ref so Telebirr dedupes concurrent/retried holds for the
-            // same delivery → buyer is charged at most once even under distinct idempotency keys.
-            TransactionRef = $"hold:{request.DeliveryId}",
+            TransactionRef = request.IdempotencyKey,
             BuyerPhone = request.BuyerId, // Real impl resolves phone from user profile
             Amount = request.Amount,
             Description = $"WeredaConnect escrow for delivery {request.DeliveryId}"
@@ -492,17 +507,34 @@ public sealed class EscrowService
         var createdAt = GetString(escrowItem, "createdAt");
         var currentVersion = GetInt(escrowItem, "version");
 
-        // Store idempotency before Telebirr call (conditional write prevents races)
-        var stored = await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
-        if (!stored)
+        // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
+        //    atomic mutual-exclusion guard: at most ONE settlement (release OR refund, across
+        //    any idempotency keys) may move funds for this escrow. A caller that loses the race
+        //    NEVER calls Telebirr, so a release-vs-refund or release-vs-release race cannot
+        //    double-settle. (Fixes the earlier design where funds moved before the state CAS.)
+        var lockAcquired = await _escrowRepo.TryAcquireSettlementLockAsync(
+            request.EscrowId, createdAt, "release");
+        if (!lockAcquired)
         {
+            var latest = await _escrowRepo.GetByIdAsync(request.EscrowId);
+            var latestStatus = latest != null ? GetString(latest, "status") : "";
+            if (latest != null && latestStatus is "released" or "completed")
+            {
+                // A prior release already settled this escrow — safe to return the result.
+                return EscrowResult<ReleaseEscrowResponse>.Duplicate(BuildReleaseResponse(latest));
+            }
+            // A settlement (possibly a refund) is in progress or the escrow moved on.
+            // Do NOT call Telebirr.
             return EscrowResult<ReleaseEscrowResponse>.Failure(
-                409, "ESCROW_003", "Duplicate request detected. Processing in progress.", "idempotencyKey");
+                409, "ESCROW_INVALID_TRANSITION",
+                "A settlement is already in progress or completed for this escrow.");
         }
 
-        // 5. Call Telebirr ReleaseFunds with farmer payout amount.
-        //    Stable per-escrow transactionRef so Telebirr dedupes retries/concurrent releases
-        //    → the farmer is never paid twice even under distinct idempotency keys (C1/C2).
+        // Record idempotency for the cached-duplicate return on a same-key replay
+        // (best-effort; the settlement lock — not this write — is the concurrency guard).
+        await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
+
+        // 6. Call Telebirr ReleaseFunds with the farmer payout amount (only the lock winner reaches here).
         var releaseResponse = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
         {
             TransactionRef = $"release:{request.EscrowId}",
@@ -516,9 +548,8 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: releaseResponse.ErrorCode);
-            // Delete (not mark "failed") the idempotency record: a transient Telebirr
-            // failure must be retryable. Leaving a "failed"/"processing" record makes the
-            // conditional StoreAsync on retry return false → permanent ESCROW_003 (409).
+            // Release the lock + idempotency record so a transient Telebirr failure is retryable.
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 502, "ESCROW_013",
@@ -572,22 +603,12 @@ public sealed class EscrowService
         if (truckerReleasePending)
             releaseFields["truckerPayoutPending"] = true;
 
-        try
-        {
-            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
-                releaseFields);
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            // A concurrent release already advanced this escrow. Telebirr dedupes on the stable
-            // transactionRef, so no double-payout occurred — return the settled state.
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
-            var settled = await _escrowRepo.GetByIdAsync(request.EscrowId);
-            return settled != null
-                ? EscrowResult<ReleaseEscrowResponse>.Duplicate(BuildReleaseResponse(settled))
-                : EscrowResult<ReleaseEscrowResponse>.Failure(
-                    422, "ESCROW_INVALID_TRANSITION", "Escrow already released.");
-        }
+        // We hold the settlement lock, so the status is still `currentStatus`; this CAS
+        // therefore succeeds. A genuine failure here is an anomaly and is allowed to surface
+        // (500) rather than being masked as success — funds were NOT double-moved because the
+        // lock guaranteed exclusivity before Telebirr.
+        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
+            releaseFields);
 
         // 7. Audit log
         await AppendAuditAsync(request.EscrowId, "release", currentStatus, "released",
@@ -880,16 +901,31 @@ public sealed class EscrowService
         var createdAt = GetString(escrowItem, "createdAt");
         var currentVersion = GetInt(escrowItem, "version");
 
-        // Store idempotency before Telebirr call (conditional write prevents races)
-        var stored = await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
-        if (!stored)
+        // Acquire the settlement lock BEFORE the irreversible Telebirr call. Mutual exclusion
+        // across release/refund and across idempotency keys: a refund that loses the race to a
+        // release (or another refund) NEVER calls Telebirr, so funds cannot be double-moved.
+        var lockAcquired = await _escrowRepo.TryAcquireSettlementLockAsync(
+            request.EscrowId, createdAt, "refund");
+        if (!lockAcquired)
         {
+            var latest = await _escrowRepo.GetByIdAsync(request.EscrowId);
+            var latestStatus = latest != null ? GetString(latest, "status") : "";
+            if (latest != null && latestStatus == "refunded")
+            {
+                // A prior refund already settled this escrow — safe to return the result.
+                return EscrowResult<RefundEscrowResponse>.Duplicate(BuildRefundResponse(latest));
+            }
+            // A settlement (possibly a release) is in progress or already completed.
+            // Do NOT call Telebirr.
             return EscrowResult<RefundEscrowResponse>.Failure(
-                409, "ESCROW_003", "Duplicate request detected. Processing in progress.", "idempotencyKey");
+                409, "ESCROW_INVALID_TRANSITION",
+                "A settlement is already in progress or completed for this escrow.");
         }
 
-        // 4. Call Telebirr RefundFunds with full amount (no commission deducted).
-        //    Stable per-escrow ref so Telebirr dedupes retries/concurrent refunds (C1/C2).
+        // Record idempotency for the cached-duplicate return (best-effort; the lock is the guard).
+        await _idempotencyRepo.StoreAsync(request.IdempotencyKey, request.EscrowId, "processing");
+
+        // 5. Call Telebirr RefundFunds with the full amount (only the lock winner reaches here).
         var refundResponse = await _telebirrGateway.RefundFundsAsync(new RefundFundsRequest
         {
             TransactionRef = $"refund:{request.EscrowId}",
@@ -902,9 +938,8 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
                 authenticatedUserId, metadata: refundResponse.ErrorCode);
-            // Delete (not mark "failed") so a transient Telebirr refund failure stays
-            // retryable; a lingering record makes StoreAsync on retry return false →
-            // permanent ESCROW_003 (409).
+            // Release the lock + idempotency record so a transient failure is retryable.
+            await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<RefundEscrowResponse>.Failure(
                 502, "ESCROW_013",
@@ -913,28 +948,16 @@ public sealed class EscrowService
 
         var now = DateTime.UtcNow.ToString("o");
 
-        // 6. Transition to "refunded" (optimistic concurrency on current status)
-        try
-        {
-            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
-                new Dictionary<string, object>
-                {
-                    { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
-                    { "refundedAt", now },
-                    { "version", currentVersion + 1 }
-                });
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            // A concurrent refund/release already advanced this escrow. Telebirr dedupes on the
-            // stable transactionRef, so no double-movement occurred — return the settled state.
-            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
-            var settled = await _escrowRepo.GetByIdAsync(request.EscrowId);
-            return settled != null
-                ? EscrowResult<RefundEscrowResponse>.Duplicate(BuildRefundResponse(settled))
-                : EscrowResult<RefundEscrowResponse>.Failure(
-                    422, "ESCROW_INVALID_TRANSITION", "Escrow already settled.");
-        }
+        // 6. Transition to "refunded". We hold the settlement lock so status is still
+        //    `currentStatus`; a genuine CAS failure here is an anomaly and surfaces (500)
+        //    rather than being masked — no funds were double-moved (lock guaranteed exclusivity).
+        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
+            new Dictionary<string, object>
+            {
+                { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
+                { "refundedAt", now },
+                { "version", currentVersion + 1 }
+            });
 
         // 6. Audit log
         await AppendAuditAsync(request.EscrowId, "refund", currentStatus, "refunded",

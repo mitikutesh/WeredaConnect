@@ -40,6 +40,11 @@ public class EscrowServiceTests
         _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 
+        // Default: settlement lock is acquired (the release/refund happy path).
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
         // Default users: valid, phone-verified, Fayda-verified buyer + farmer so the standard
         // (high-value) initiate flow passes user + Fayda validation. Individual tests override
         // by constructing their own service via CreateServiceWithUserRepo.
@@ -1069,29 +1074,10 @@ public class EscrowServiceTests
         Assert.Equal(409, result.Error.HttpStatus);
     }
 
-    [Fact]
-    public async Task ReleaseAsync_ConcurrentIdempotencyStore_Returns409()
-    {
-        var escrowItem = MakeEscrowItem(status: "escrowed");
-        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
-
-        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
-            .Returns(false);
-
-        var request = new ReleaseEscrowRequest
-        {
-            EscrowId = "escrow-001",
-            Trigger = "delivery_confirmed",
-            DeliveryId = DeliveryId,
-            IdempotencyKey = $"system:escrow-001:release:1708171200000"
-        };
-
-        var result = await _service.ReleaseAsync(request, "system");
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_003", result.Error!.Code);
-        Assert.Equal(409, result.Error.HttpStatus);
-    }
+    // NOTE: Release/Refund concurrency is now guarded by the settlement lock (see
+    // ReleaseAsync_LosesSettlementLock_* tests), not the idempotency StoreAsync — so the
+    // old ReleaseAsync/RefundAsync ConcurrentIdempotencyStore tests were removed. Dispute
+    // still uses the StoreAsync guard, so its test remains below.
 
     [Fact]
     public async Task DisputeAsync_ConcurrentIdempotencyStore_Returns409()
@@ -1111,29 +1097,6 @@ public class EscrowServiceTests
         };
 
         var result = await _service.DisputeAsync(request, BuyerId);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_003", result.Error!.Code);
-        Assert.Equal(409, result.Error.HttpStatus);
-    }
-
-    [Fact]
-    public async Task RefundAsync_ConcurrentIdempotencyStore_Returns409()
-    {
-        var escrowItem = MakeEscrowItem(status: "escrowed");
-        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
-
-        _mockIdempotencyRepo.StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
-            .Returns(false);
-
-        var request = new RefundEscrowRequest
-        {
-            EscrowId = "escrow-001",
-            Trigger = "delivery_timeout",
-            IdempotencyKey = $"system:escrow-001:refund:1708257600000"
-        };
-
-        var result = await _service.RefundAsync(request, "system");
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_003", result.Error!.Code);
@@ -1875,7 +1838,7 @@ public class EscrowServiceTests
             .InitiateAsync(MakeInitiateRequest(amount: 5_000m), BuyerId);
 
         Assert.False(result.IsSuccess);
-        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal("ESCROW_VALIDATION", result.Error!.Code);
     }
 
     [Fact]
@@ -1944,17 +1907,65 @@ public class EscrowServiceTests
     }
 
     [Fact]
-    public async Task ReleaseAsync_ConcurrentTransition_ReturnsSettledWithoutError()
+    public async Task ReleaseAsync_LosesSettlementLock_DoesNotCallTelebirr()
     {
-        // Simulate a lost optimistic-concurrency race: the escrowed→released write throws
-        // ConditionalCheckFailedException because another release already advanced the state.
-        // Telebirr dedupes on the stable transactionRef, so this must resolve to success, not 500.
+        // A concurrent settlement already holds the lock. This release must NOT call Telebirr
+        // (no double-payout) and must return a conflict, not a masked success.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release")
+            .Returns(false);
+
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001", Trigger = "admin_override", DeliveryId = DeliveryId,
+            IdempotencyKey = "admin:escrow-001:release:1708171200000"
+        };
+
+        var result = await CreateServiceWithUserRepo(userRepo)
+            .ReleaseAsync(request, "admin-user", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task RefundAsync_LosesSettlementLockToRelease_DoesNotRefund()
+    {
+        // Cross-operation race: a release already holds the lock; a concurrent refund must NOT
+        // call Telebirr, so funds cannot be released AND refunded from the same hold.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "refund")
+            .Returns(false);
+
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        var request = new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001", Trigger = "admin_override",
+            IdempotencyKey = "admin:escrow-001:refund:1708171200000"
+        };
+
+        var result = await CreateServiceWithUserRepo(userRepo)
+            .RefundAsync(request, "admin-user", role: "admin");
+
+        Assert.False(result.IsSuccess);
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_LockLostButAlreadyReleased_ReturnsDuplicate()
+    {
+        // Lock unavailable because a prior release already settled it → return the settled result.
         _mockEscrowRepo.GetByIdAsync("escrow-001")
             .Returns(MakeEscrowItem(status: "escrowed"), MakeEscrowItem(status: "completed"));
-        _mockEscrowRepo.When(x => x.UpdateStatusAsync(
-                "escrow-001", Arg.Any<string>(), "released", Arg.Any<string>(),
-                Arg.Any<Dictionary<string, object>?>()))
-            .Do(_ => throw new ConditionalCheckFailedException("lost race"));
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync("escrow-001", Arg.Any<string>(), "release")
+            .Returns(false);
 
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
@@ -1968,6 +1979,7 @@ public class EscrowServiceTests
             .ReleaseAsync(request, "admin-user", role: "admin");
 
         Assert.True(result.IsSuccess);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
     }
 
     // ──────────────────────────────────────────────

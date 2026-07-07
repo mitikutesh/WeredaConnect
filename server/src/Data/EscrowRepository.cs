@@ -123,6 +123,75 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = escrowId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            UpdateExpression = "SET settlementLock = :op, #updated = :now",
+            // Acquire only if no settlement is already in progress AND the escrow is
+            // still in a settleable state. This is the atomic guard that runs BEFORE
+            // any Telebirr call, so only the winner ever moves funds.
+            ConditionExpression =
+                "attribute_not_exists(settlementLock) AND (#status = :escrowed OR #status = :disputed)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#updated", "updatedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":op", new AttributeValue { S = op } },
+                { ":now", new AttributeValue { S = now } },
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":disputed", new AttributeValue { S = "disputed" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ReleaseSettlementLockAsync(string escrowId, string createdAt)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = escrowId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            UpdateExpression = "REMOVE settlementLock SET #updated = :now",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#updated", "updatedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":now", new AttributeValue { S = now } }
+            }
+        };
+
+        await _dynamoDb.UpdateItemAsync(request);
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId)
     {
         var request = new QueryRequest

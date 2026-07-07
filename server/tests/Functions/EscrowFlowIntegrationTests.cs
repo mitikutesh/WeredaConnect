@@ -66,6 +66,11 @@ public class EscrowFlowIntegrationTests
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(true);
 
+        // Default: settlement lock is acquired (the release/refund happy path).
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
         var mockUserRepo = Substitute.For<IUserRepository>();
         mockUserRepo.GetUserByIdAsync("resolver").Returns(new UserDto
         {

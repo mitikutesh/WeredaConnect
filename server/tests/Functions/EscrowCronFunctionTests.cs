@@ -27,6 +27,11 @@ public class EscrowCronFunctionTests
         _mockIdempotencyRepo = Substitute.For<IEscrowIdempotencyRepository>();
         _mockTelebirrGateway = Substitute.For<ITelebirrGateway>();
 
+        // Settlement lock acquired by default so the cron's release/refund path proceeds.
+        _mockEscrowRepo
+            .TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(true);
+
         _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
             .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "MOCK-RELEASE-REF" });
         _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
@@ -104,6 +109,35 @@ public class EscrowCronFunctionTests
     }
 
     // ──────────────────────────────────────────────
+    // EventBridge payload shape (regression guard for the cron silent no-op, Review C3)
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task FunctionHandler_EventBridgePayloadShape_DispatchesAction()
+    {
+        // EventBridge sends {"body":"{...action...}"}. Verify that exact shape deserializes into
+        // APIGatewayProxyRequest.Body via the Lambda source-gen serializer AND that the handler
+        // reads the action and dispatches (returns 200, not a 400 no-op). Prior to the fix the
+        // action sat at the event root, Body was null, and every trigger silently 400'd.
+        _mockEscrowRepo
+            .QueryByStatusForCronAsync(
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+
+        const string eventJson =
+            "{\"body\":\"{\\\"action\\\":\\\"auto_release_and_refund\\\"}\"}";
+        var request = JsonSerializer.Deserialize(
+            eventJson, WeredaConnect.Server.AppJsonContext.Default.APIGatewayProxyRequest);
+
+        Assert.NotNull(request);
+        Assert.False(string.IsNullOrEmpty(request!.Body));
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
     // Auto-Release
     // ──────────────────────────────────────────────
 
@@ -127,7 +161,8 @@ public class EscrowCronFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("\"released\"", response.Body);
+        // Assert the escrow was actually released (count = 1), not just that the key exists.
+        Assert.Contains("\"released\":\"1\"", response.Body);
     }
 
     [Fact]
