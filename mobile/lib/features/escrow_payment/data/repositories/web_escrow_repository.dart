@@ -29,8 +29,11 @@ class WebEscrowRepository extends BaseEscrowRepository {
           'buyerId': buyerId,
           'farmerId': farmerId,
           'amount': amount,
+          // currency is required by the contract (fixed "ETB"); omitting it made the
+          // server reject web initiations with ESCROW_004 (Review H3).
+          'currency': 'ETB',
           'idempotencyKey':
-              '$buyerId:$deliveryId:initiate:${DateTime.now().millisecondsSinceEpoch}',
+              '$buyerId:$deliveryId:initiate:${DateTime.now().toUtc().millisecondsSinceEpoch}',
         },
       );
       return EscrowSuccess(_parsePayment(data));

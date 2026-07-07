@@ -74,12 +74,25 @@ class EscrowRepository extends BaseEscrowRepository {
       return EscrowError('ESCROW_001', amountError);
     }
 
-    // MH2: Generate idempotency key ONCE, persist BEFORE any API call
-    final idempotencyKey = _generateIdempotencyKey(
-      buyerId,
-      deliveryId,
-      'initiate',
-    );
+    // MH2 / Review M3: reuse an existing non-terminal intent's key for this
+    // delivery so repeated "Pay" taps collapse to ONE idempotency key instead
+    // of generating a fresh timestamped key each time. (The server also dedupes
+    // the Telebirr hold per delivery, but a stable client key avoids spurious
+    // duplicate intents and the 409 churn that follows.)
+    final existingIntent = await _isar.paymentIntents
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .buyerIdEqualTo(buyerId)
+        .group(
+          (q) => q
+              .statusEqualTo(IntentStatus.pendingSync)
+              .or()
+              .statusEqualTo(IntentStatus.syncing),
+        )
+        .findFirst();
+
+    final idempotencyKey = existingIntent?.idempotencyKey ??
+        _generateIdempotencyKey(buyerId, deliveryId, 'initiate');
 
     // Check connectivity
     final isOnline = await _connectivityMonitor.isConnected();
@@ -194,16 +207,50 @@ class EscrowRepository extends BaseEscrowRepository {
 
   // ── Reads (local cache with remote refresh) ────────────────────────
 
-  /// Get single escrow by ID. Local first, remote refresh if online.
+  /// Get single escrow by ID. Local first, then remote when online (Review H2).
+  ///
+  /// Previously cache-only, so an escrow that existed server-side but wasn't yet
+  /// cached (fresh install, push/deep-link) surfaced as "not found".
   @override
   Future<Payment?> getEscrow(String escrowId) async {
-    return _isar.payments.filter().paymentIdEqualTo(escrowId).findFirst();
+    final cached =
+        await _isar.payments.filter().paymentIdEqualTo(escrowId).findFirst();
+    if (cached != null) return cached;
+
+    // Cache miss: fall through to the server when online (refreshEscrow upserts).
+    if (await _connectivityMonitor.isConnected()) {
+      return refreshEscrow(escrowId);
+    }
+    return null;
   }
 
-  /// Get escrow by delivery ID (1:1 relationship).
+  /// Get escrow by delivery ID (1:1). Local first, then remote when online (Review H2).
   @override
   Future<Payment?> getEscrowByDelivery(String deliveryId) async {
-    return _isar.payments.filter().deliveryIdEqualTo(deliveryId).findFirst();
+    final cached =
+        await _isar.payments.filter().deliveryIdEqualTo(deliveryId).findFirst();
+    if (cached != null) return cached;
+
+    if (await _connectivityMonitor.isConnected()) {
+      return _fetchEscrowByDelivery(deliveryId);
+    }
+    return null;
+  }
+
+  /// Fetch the escrow for a delivery from GET /escrow/by-delivery/{deliveryId}
+  /// and upsert it into the local cache. Returns null on any API error.
+  Future<Payment?> _fetchEscrowByDelivery(String deliveryId) async {
+    try {
+      final json = await _apiClient.get<Map<String, dynamic>>(
+        '${ApiConfig.escrowByDelivery}/$deliveryId',
+      );
+      final response = EscrowDetailResponse.fromJson(json);
+      final payment = _mapDetailResponse(response);
+      await _upsertPayment(payment);
+      return payment;
+    } on ApiException {
+      return null;
+    }
   }
 
   /// Get payment history from local cache, scoped by userId.
@@ -234,7 +281,9 @@ class EscrowRepository extends BaseEscrowRepository {
   @override
   Future<Payment?> refreshEscrow(String escrowId) async {
     final isOnline = await _connectivityMonitor.isConnected();
-    if (!isOnline) return getEscrow(escrowId);
+    // Read cache DIRECTLY here (not via getEscrow) — getEscrow now falls through
+    // to refreshEscrow on a cache miss, so calling it here would recurse on a 404.
+    if (!isOnline) return _cachedById(escrowId);
 
     try {
       final json = await _apiClient.get<Map<String, dynamic>>(
@@ -250,9 +299,13 @@ class EscrowRepository extends BaseEscrowRepository {
       return payment;
     } on ApiException {
       // Silently fall back to cache on refresh failure
-      return getEscrow(escrowId);
+      return _cachedById(escrowId);
     }
   }
+
+  /// Direct local-cache read by escrow ID (no network fall-through).
+  Future<Payment?> _cachedById(String escrowId) =>
+      _isar.payments.filter().paymentIdEqualTo(escrowId).findFirst();
 
   /// Refresh payment history from server. Updates local cache.
   @override

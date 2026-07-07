@@ -214,6 +214,24 @@ void main() {
         expect(intent.retryCount, 1);
       });
 
+      test('marks intent completed on 409 conflict, not failed (M4)', () async {
+        await _insertTestIntent(isar);
+
+        // 409 means the escrow already exists server-side — the payment went
+        // through. The intent must be completed, not retried into failed.
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const ConflictException('Escrow already exists'));
+
+        await syncService.processQueuedIntents();
+
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.completed);
+      });
+
       test('uses persisted idempotency key on retry (MH2)', () async {
         const persistedKey = 'buyer-001:del-001:initiate:1708300000000';
         await _insertTestIntent(isar);

@@ -284,6 +284,10 @@ void main() {
       });
 
       test('emits [Loading, EscrowError] when not found', () async {
+        // Offline + not in cache → getEscrow returns null (no server fall-through).
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => false);
+
         final bloc = EscrowBloc(repository: repository);
         final states = <EscrowState>[];
         final subscription = bloc.stream.listen(states.add);

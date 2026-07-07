@@ -215,14 +215,17 @@ class EscrowDetailResponse {
       farmerId: json['farmerId'] as String,
       amount: (json['amount'] as num).toDouble(),
       commission: (json['commission'] as num).toDouble(),
-      commissionRate: (json['commissionRate'] as num).toDouble(),
+      // commissionRate/version are omitted in the contract's GET example body, so
+      // parse them defensively with defaults rather than throwing a TypeError that
+      // bubbles past the ApiException handlers into a generic error (Review M5).
+      commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 0.025,
       farmerPayout: (json['farmerPayout'] as num).toDouble(),
-      currency: json['currency'] as String,
+      currency: json['currency'] as String? ?? 'ETB',
       status: json['status'] as String,
       createdAt: json['createdAt'] as String,
-      updatedAt: json['updatedAt'] as String,
+      updatedAt: json['updatedAt'] as String? ?? json['createdAt'] as String,
       expiresAt: json['expiresAt'] as String,
-      version: json['version'] as int,
+      version: (json['version'] as num?)?.toInt() ?? 1,
       telebirrRef: json['telebirrRef'] as String?,
       dispute: json['dispute'] as Map<String, dynamic>?,
       disputeWindowEndsAt: json['disputeWindowEndsAt'] as String?,
