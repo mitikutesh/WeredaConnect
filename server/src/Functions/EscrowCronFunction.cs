@@ -26,6 +26,9 @@ public class EscrowCronFunction
     private readonly IEscrowRepository _escrowRepo;
     private readonly IEscrowAuditRepository _auditRepo;
     private readonly ITelebirrGateway _telebirrGateway;
+    // Optional: lets the auto-refund sweep verify a delivery's real status so a
+    // confirmed-but-unstamped escrow is never refunded to the buyer.
+    private readonly IDeliveryRepository? _deliveryRepo;
 
     private const int ReconciliationStaleMinutes = 30;
 
@@ -48,6 +51,13 @@ public class EscrowCronFunction
         var idempotencyRepo = new EscrowIdempotencyRepository(dynamoDb, idempotencyTable);
         _telebirrGateway = CreateTelebirrGateway();
 
+        // Optional: only wired when the deliveries table is provisioned for this
+        // Lambda. Enables the refund-safety check below.
+        var deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE");
+        _deliveryRepo = deliveriesTable != null
+            ? new DeliveryRepository(dynamoDb, deliveriesTable)
+            : null;
+
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway);
     }
 
@@ -58,12 +68,14 @@ public class EscrowCronFunction
         EscrowService escrowService,
         IEscrowRepository escrowRepo,
         IEscrowAuditRepository auditRepo,
-        ITelebirrGateway telebirrGateway)
+        ITelebirrGateway telebirrGateway,
+        IDeliveryRepository? deliveryRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
         _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
+        _deliveryRepo = deliveryRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -249,6 +261,17 @@ public class EscrowCronFunction
                 // Skip items that have a confirmed delivery (those should be auto-released, not refunded)
                 var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
                 if (!string.IsNullOrEmpty(deliveryConfirmedAt))
+                {
+                    continue;
+                }
+
+                // Safety net: never refund a buyer whose delivery was actually
+                // confirmed. If deliveryConfirmedAt was never stamped (e.g. the
+                // inline stamp during confirmation failed transiently), verify the
+                // delivery's real status. If it is "delivered", stamp the escrow now
+                // so the auto-release cron pays the farmer, and skip the refund.
+                if (_deliveryRepo != null
+                    && await IsDeliveryConfirmedAndStampAsync(escrow, context))
                 {
                     continue;
                 }
@@ -492,6 +515,63 @@ public class EscrowCronFunction
 
     private static string? GetStringOrNull(Dictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) ? value.ToString() : null;
+
+    /// <summary>
+    /// Money-safety backstop for auto-refund: if this escrow's linked delivery is
+    /// actually "delivered" but the escrow was never stamped (e.g. the inline stamp
+    /// at confirmation time failed transiently), stamp deliveryConfirmedAt +
+    /// disputeWindowEndsAt now so the auto-release cron pays the farmer, and return
+    /// true so the caller SKIPS the refund. Returns false when the delivery is not
+    /// confirmed (a genuine timeout → refund proceeds). Best-effort: a stamp failure
+    /// still returns true so we never refund a delivered order.
+    /// </summary>
+    private async Task<bool> IsDeliveryConfirmedAndStampAsync(
+        Dictionary<string, object> escrow, ILambdaContext context)
+    {
+        var deliveryId = GetStringOrNull(escrow, "deliveryId");
+        if (_deliveryRepo == null || string.IsNullOrEmpty(deliveryId))
+        {
+            return false;
+        }
+
+        var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+        var deliveryStatus = delivery != null && delivery.TryGetValue("status", out var ds)
+            ? ds?.ToString()
+            : null;
+        if (deliveryStatus != "delivered")
+        {
+            return false; // not confirmed — a real timeout, let the refund proceed
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        try
+        {
+            var confirmedAt = (delivery!.TryGetValue("confirmedAt", out var ca) ? ca?.ToString() : null)
+                ?? DateTime.UtcNow.ToString("o");
+            var windowEnd = (DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out var cdt) ? cdt : DateTime.UtcNow).AddHours(48).ToString("o");
+            await _escrowRepo.UpdateStatusAsync(
+                escrowId,
+                GetString(escrow, "createdAt"),
+                newStatus: "escrowed",
+                expectedCurrentStatus: "escrowed",
+                additionalFields: new Dictionary<string, object>
+                {
+                    { "deliveryConfirmedAt", confirmedAt },
+                    { "disputeWindowEndsAt", windowEnd }
+                });
+            context.Logger.LogWarning(
+                $"Escrow {escrowId}: delivery {deliveryId} was delivered but escrow was unstamped; "
+                + "stamped now to trigger auto-release (refund averted).");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"Escrow {escrowId}: failed to stamp a delivered-but-unstamped escrow: [{ex.GetType().Name}]. "
+                + "Skipping refund anyway to avoid refunding a delivered order.");
+        }
+        return true; // delivery was confirmed → never refund
+    }
 
     /// <summary>
     /// Create the Telebirr gateway based on the TELEBIRR_MOCK environment variable.

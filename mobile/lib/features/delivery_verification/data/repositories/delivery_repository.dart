@@ -8,7 +8,6 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
-import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Offline-first repository for delivery CRUD operations.
@@ -156,26 +155,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
     }
   }
 
-  /// Check GPS proximity and return true if distance exceeds threshold.
-  ///
-  /// This is a WARNING-ONLY check. It never blocks the operation because
-  /// GPS accuracy is unreliable in rural Ethiopian areas with poor
-  /// satellite coverage. The flag is included in sync data so the server
-  /// can flag the transaction for review.
-  ///
-  /// Returns `true` if a warning should be added (distance > 5 km), or
-  /// `false` if coordinates are missing or within the threshold.
-  bool _shouldWarnGpsDistance(LatLng? capturedGps, LatLng? referenceGps) {
-    if (capturedGps == null || referenceGps == null) return false;
-    final distanceMeters = GpsDistanceService.haversineDistance(
-      capturedGps.latitude,
-      capturedGps.longitude,
-      referenceGps.latitude,
-      referenceGps.longitude,
-    );
-    return distanceMeters > DeliveryConstants.gpsProximityThresholdKm * 1000;
-  }
-
   /// Update the status of a crop listing and enqueue a sync operation.
   ///
   /// Called as a side-effect of delivery lifecycle transitions so the
@@ -252,8 +231,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
       await _isar.deliverys.put(delivery);
     });
 
+    // Send only fields the server accepts (server whitelist). deliveryId is the
+    // operation entityId; createdAt/updatedAt are server-managed timestamps.
     final data = jsonEncode({
-      'deliveryId': deliveryId,
       'tripId': tripId,
       'listingId': listingId,
       'farmerId': farmerId,
@@ -264,7 +244,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
       'buyerName': buyerName,
       'qrToken': qrToken,
       'status': DeliveryStatus.pending.name,
-      'createdAt': now.toIso8601String(),
       'version': 1,
     });
 
@@ -318,9 +297,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       entityId: deliveryId,
       action: 'update',
       data: jsonEncode({
-        'deliveryId': deliveryId,
         'qrNonce': qrNonce,
-        'updatedAt': delivery.updatedAt.toIso8601String(),
         'version': delivery.version,
       }),
       operationId: _uuid.v4(),
@@ -346,19 +323,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateDeliveryOperation(delivery, 'confirmPickup', truckerId);
     _validateGpsCoordinates(gpsPickup?.latitude, gpsPickup?.longitude);
 
-    // GPS proximity warning: compare pickup GPS against listing location.
-    // Non-blocking -- only flags the sync payload for server review.
-    LatLng? listingLocation;
-    if (gpsPickup != null) {
-      final listing = await _isar.cropListings
-          .filter()
-          .listingIdEqualTo(delivery.listingId)
-          .findFirst();
-      listingLocation = listing?.location;
-    }
-    final gpsDistanceWarning =
-        _shouldWarnGpsDistance(gpsPickup, listingLocation);
-
     final now = DateTime.now().toUtc();
 
     await _isar.writeTxn(() async {
@@ -371,11 +335,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
       await _isar.deliverys.put(delivery);
     });
 
+    // Server whitelist: only these fields are accepted on a delivery update.
+    // pickedUpAt/updatedAt are stamped server-side; deliveryId is the entityId.
     final syncData = <String, dynamic>{
-      'deliveryId': deliveryId,
       'status': DeliveryStatus.pickedUp.name,
-      'pickedUpAt': now.toIso8601String(),
-      'updatedAt': now.toIso8601String(),
       'version': delivery.version,
     };
 
@@ -392,10 +355,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
-    }
-
-    if (gpsDistanceWarning) {
-      syncData['gpsDistanceWarning'] = true;
     }
 
     await _syncQueue.enqueue(
@@ -427,22 +386,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateDeliveryOperation(delivery, 'confirmDelivery', buyerId);
     _validateGpsCoordinates(gpsDropoff?.latitude, gpsDropoff?.longitude);
 
-    // GPS proximity warning: compare dropoff GPS against listing location.
-    // NOTE: The listing location is the farm (origin), not the buyer's
-    // destination. When a destination GPS field is added to Trip or
-    // Delivery, update this to use that instead. For now the server
-    // performs the authoritative check; this flags obvious outliers.
-    LatLng? destinationRef;
-    if (gpsDropoff != null) {
-      final listing = await _isar.cropListings
-          .filter()
-          .listingIdEqualTo(delivery.listingId)
-          .findFirst();
-      destinationRef = listing?.location;
-    }
-    final gpsDistanceWarning =
-        _shouldWarnGpsDistance(gpsDropoff, destinationRef);
-
     final now = DateTime.now().toUtc();
 
     await _isar.writeTxn(() async {
@@ -455,11 +398,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
       await _isar.deliverys.put(delivery);
     });
 
+    // Server whitelist: only these fields are accepted on a delivery update.
+    // confirmedAt/updatedAt are stamped server-side; deliveryId is the entityId.
     final syncData = <String, dynamic>{
-      'deliveryId': deliveryId,
       'status': DeliveryStatus.delivered.name,
-      'confirmedAt': now.toIso8601String(),
-      'updatedAt': now.toIso8601String(),
       'version': delivery.version,
     };
 
@@ -476,10 +418,6 @@ class DeliveryRepository extends BaseDeliveryRepository {
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
-    }
-
-    if (gpsDistanceWarning) {
-      syncData['gpsDistanceWarning'] = true;
     }
 
     await _syncQueue.enqueue(
@@ -524,9 +462,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       entityId: deliveryId,
       action: 'update',
       data: jsonEncode({
-        'deliveryId': deliveryId,
         'status': DeliveryStatus.inTransit.name,
-        'updatedAt': now.toIso8601String(),
         'version': delivery.version,
       }),
       operationId: _uuid.v4(),

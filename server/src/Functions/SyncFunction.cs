@@ -44,6 +44,9 @@ public partial class SyncFunction
     private readonly IUserRepository? _userRepo;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
+    // Optional: when the escrows table is provisioned, confirming a delivery
+    // stamps the linked escrow so the auto-release cron can pay the farmer.
+    private readonly IEscrowRepository? _escrowRepo;
 
     // SSM commission rate cache (15-min TTL)
     private static double _cachedCommissionRate;
@@ -97,7 +100,7 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "disputeReason",
-        "qrToken", "gpsAnomalyFlag"
+        "qrToken", "gpsAnomalyFlag", "qrNonce"
     };
 
     private static readonly HashSet<string> AllowedOrderFields = new()
@@ -157,7 +160,9 @@ public partial class SyncFunction
     private static readonly Dictionary<string, HashSet<string>> DeliveryTransitions = new()
     {
         { "pending", new HashSet<string> { "pickedUp", "cancelled" } },
-        { "pickedUp", new HashSet<string> { "inTransit", "cancelled" } },
+        // "delivered" allowed directly from pickedUp: the buyer confirms handoff
+        // right after pickup in the capture flow; marking in-transit is optional.
+        { "pickedUp", new HashSet<string> { "inTransit", "delivered", "cancelled" } },
         { "inTransit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disputed" } },
     };
@@ -238,6 +243,14 @@ public partial class SyncFunction
         _matchEventRepo = matchEventsTable != null
             ? new MatchEventRepository(_dynamoDb, matchEventsTable)
             : null;
+
+        // Escrow bridge is optional: confirming a delivery stamps deliveryConfirmedAt
+        // on the linked escrow so the auto-release cron can settle. Absent env → null
+        // (delivery still transitions; escrow simply isn't stamped from here).
+        var escrowsTable = Environment.GetEnvironmentVariable("ESCROWS_TABLE");
+        _escrowRepo = escrowsTable != null
+            ? new EscrowRepository(_dynamoDb, escrowsTable)
+            : null;
     }
 
     /// <summary>
@@ -250,7 +263,8 @@ public partial class SyncFunction
         IUserRepository? userRepo = null,
         IOrderRepository? orderRepo = null,
         IIntentRepository? intentRepo = null,
-        IMatchEventRepository? matchEventRepo = null)
+        IMatchEventRepository? matchEventRepo = null,
+        IEscrowRepository? escrowRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -263,6 +277,7 @@ public partial class SyncFunction
         _userRepo = userRepo;
         _intentRepo = intentRepo;
         _matchEventRepo = matchEventRepo;
+        _escrowRepo = escrowRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -2418,8 +2433,19 @@ public partial class SyncFunction
                     // Force status to "pending" for create
                     item["status"] = new AttributeValue { S = "pending" };
 
-                    // FIX-005: Generate qrNonce server-side (not client-writable)
-                    item["qrNonce"] = new AttributeValue { S = Guid.NewGuid().ToString("N") };
+                    // Participant index key: the buyer is the party that must receive
+                    // status updates (pull-based), so ParticipantIndex is keyed on buyerId.
+                    if (item.TryGetValue("buyerId", out var buyerIdForIndex)
+                        && !string.IsNullOrEmpty(buyerIdForIndex.S))
+                    {
+                        item["participantId"] = new AttributeValue { S = buyerIdForIndex.S };
+                    }
+
+                    // QR nonce is NOT set at create. The delivery generator (farmer)
+                    // persists a nonce via an update after generating the QR the trucker
+                    // scans; that farmer-authored nonce is authoritative and is what the
+                    // scanner must echo back. Until it is persisted, qrNonce is empty and
+                    // the pickup/delivery nonce check is skipped (offline-first).
 
                     var request = new PutItemRequest
                     {
@@ -2618,9 +2644,16 @@ public partial class SyncFunction
                     }
                     else
                     {
-                        // Non-status updates: trucker must own the delivery
+                        // Non-status updates: the trucker owns generic updates.
+                        // Additionally the FARMER — who generates the pickup QR —
+                        // may persist the qrNonce so the scanner's nonce can be
+                        // verified against it. (The farmer cannot drive any status
+                        // transition, so this grants no extra transition power.)
                         var existingTruckerId = existing.TryGetValue("truckerId", out var tid2) ? tid2.S : null;
-                        if (authenticatedUserId != existingTruckerId)
+                        var existingFarmerIdForNonce = existing.TryGetValue("farmerId", out var fid2) ? fid2.S : null;
+                        var isFarmerNoncePersist = operation.Data.ContainsKey("qrNonce")
+                            && authenticatedUserId == existingFarmerIdForNonce;
+                        if (authenticatedUserId != existingTruckerId && !isFarmerNoncePersist)
                         {
                             return new SyncOperationResult
                             {
@@ -3020,6 +3053,22 @@ public partial class SyncFunction
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = CropRepository.FromItem(response.Attributes);
+
+                        // Bridge delivery confirmation -> escrow release. When the buyer
+                        // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
+                        // disputeWindowEndsAt so the auto-release cron settles to the farmer
+                        // (and the auto-refund cron skips it). Without this, a delivered order
+                        // was never paid out and the buyer was refunded after 7 days.
+                        // Non-fatal: a confirmed delivery must still succeed even if the
+                        // escrow can't be stamped here (reconciliation cron is the backstop).
+                        if (_escrowRepo != null
+                            && operation.Data != null
+                            && operation.Data.TryGetValue("status", out var confirmedStatusObj)
+                            && confirmedStatusObj?.ToString() == "delivered")
+                        {
+                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now, context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -3211,6 +3260,77 @@ public partial class SyncFunction
 
         var response = await _dynamoDb.QueryAsync(request);
         return response.Items.Count > 0 ? response.Items[0] : null;
+    }
+
+    /// <summary>
+    /// Stamp the escrow linked to a confirmed delivery with deliveryConfirmedAt +
+    /// disputeWindowEndsAt (now + 48h) so the auto-release cron settles to the
+    /// farmer and the auto-refund cron skips it. Idempotent: only stamps an
+    /// "escrowed" escrow that has not already been confirmed. Best-effort — errors
+    /// are logged, never thrown, so a confirmed delivery is never rolled back.
+    /// </summary>
+    private async Task StampEscrowDeliveryConfirmedAsync(
+        string deliveryId, string confirmedAt, ILambdaContext context)
+    {
+        if (_escrowRepo == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+            if (escrow == null)
+            {
+                return; // no escrow linked to this delivery (e.g. cash order)
+            }
+
+            var status = escrow.TryGetValue("status", out var st) ? st?.ToString() : null;
+            var alreadyConfirmed = escrow.TryGetValue("deliveryConfirmedAt", out var dc)
+                && !string.IsNullOrEmpty(dc?.ToString());
+            if (status != "escrowed" || alreadyConfirmed)
+            {
+                return; // not settleable, or already stamped (idempotent replay)
+            }
+
+            var escrowId = escrow.TryGetValue("escrowId", out var eid) ? eid?.ToString() ?? "" : "";
+            var createdAt = escrow.TryGetValue("createdAt", out var ca) ? ca?.ToString() ?? "" : "";
+            if (string.IsNullOrEmpty(escrowId) || string.IsNullOrEmpty(createdAt))
+            {
+                return;
+            }
+
+            // Base the dispute window on the same confirmation timestamp so the two
+            // fields are consistent (not skewed by a fresh UtcNow read).
+            var windowBase = DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out var confirmedDt)
+                ? confirmedDt
+                : DateTime.UtcNow;
+            var disputeWindowEndsAt = windowBase.AddHours(48).ToString("o");
+
+            await _escrowRepo.UpdateStatusAsync(
+                escrowId,
+                createdAt,
+                newStatus: "escrowed",
+                expectedCurrentStatus: "escrowed",
+                additionalFields: new Dictionary<string, object>
+                {
+                    { "deliveryConfirmedAt", confirmedAt },
+                    { "disputeWindowEndsAt", disputeWindowEndsAt }
+                });
+
+            context.Logger.LogInformation(
+                $"Escrow {escrowId} stamped for delivery {deliveryId}; auto-release scheduled after 48h dispute window.");
+        }
+        catch (Exception ex)
+        {
+            // A confirmed delivery must not be rolled back. Log loudly: until the
+            // escrow is stamped, the 7-day auto-refund is NOT blocked, so this needs
+            // an ops alert / reconciliation follow-up.
+            context.Logger.LogError(
+                $"Delivery {deliveryId} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
+                + "Escrow not yet marked delivery-confirmed — requires reconciliation.");
+        }
     }
 
     // ─── Order Processing ─────────────────────────────────────────────────

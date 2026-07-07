@@ -1507,6 +1507,192 @@ public class SyncFunctionTests
         Assert.Contains("success", response.Body);
     }
 
+    [Fact]
+    public async Task DeliveryUpdate_FarmerPersistsQrNonce_Succeeds()
+    {
+        // Regression (review A): the FARMER generates the pickup QR and persists
+        // its nonce via a status-less update. Previously the non-status update
+        // branch required the trucker, so the farmer's persist was rejected and
+        // the nonce was never stored (verification silently failed open).
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var persistOp = new SyncOperationRequest
+        {
+            OperationId = "op-nonce-persist",
+            IdempotencyKey = "farmer-001:delivery:del-001:update:nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "qrNonce", "farmer-generated-nonce-xyz" },
+                { "version", 1 }
+            }
+        };
+
+        // farmer-001 is the delivery's farmer (see SetupExistingDelivery).
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(persistOp), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_BuyerPersistsQrNonce_IsRejected()
+    {
+        // The nonce-persist exception is farmer-only; a buyer (non-generator)
+        // status-less qrNonce write must still be rejected.
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var persistOp = new SyncOperationRequest
+        {
+            OperationId = "op-nonce-buyer",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "qrNonce", "buyer-tries-to-set-nonce" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(persistOp), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+    }
+
+    // ===== Delivery confirmation → escrow + transition regression tests =====
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUpToDelivered_ByBuyer_WithCleanPayload_Succeeds()
+    {
+        // Regression: the buyer confirms delivery straight from pickedUp (no
+        // separate in-transit step), sending the exact payload the mobile client
+        // now emits — status + version only (deliveryId/timestamps stripped).
+        // Previously this failed both as DELIVERY_INVALID_TRANSITION and, when the
+        // client still sent deliveryId/confirmedAt/updatedAt, as "Unknown fields".
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-deliver",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+        Assert.DoesNotContain("INVALID_TRANSITION", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_StampsLinkedEscrowForAutoRelease()
+    {
+        // Regression: confirming delivery must stamp the linked escrow's
+        // deliveryConfirmedAt + disputeWindowEndsAt so the auto-release cron pays
+        // the farmer (and the auto-refund cron skips it). Previously nothing wrote
+        // deliveryConfirmedAt, so a delivered order was refunded after 7 days.
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "esc-001" },
+            { "createdAt", "2026-02-16T10:00:00Z" },
+            { "status", "escrowed" }
+        });
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-deliver-escrow",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-escrow",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await mockEscrow.Received(1).UpdateStatusAsync(
+            "esc-001",
+            Arg.Any<string>(),
+            "escrowed",
+            "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.ContainsKey("deliveryConfirmedAt") && f.ContainsKey("disputeWindowEndsAt")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_AlreadyStampedEscrow_DoesNotReStamp()
+    {
+        // Idempotent replay: an escrow already carrying deliveryConfirmedAt must
+        // not be stamped again (avoids resetting the dispute window).
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "esc-001" },
+            { "createdAt", "2026-02-16T10:00:00Z" },
+            { "status", "escrowed" },
+            { "deliveryConfirmedAt", "2026-02-18T09:00:00Z" }
+        });
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-deliver-replay",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-replay",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await mockEscrow.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     private void SetupExistingDeliveryWithQrNonce(
         string deliveryId, string truckerId, string status, int version, string qrNonce)
     {

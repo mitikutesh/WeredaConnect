@@ -23,6 +23,7 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   int crops = 0;
   int trips = 0;
   int all = 0;
+  int deliveries = 0;
 
   @override
   Future<void> pullCrops() async => crops++;
@@ -31,10 +32,14 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   Future<void> pullTrips() async => trips++;
 
   @override
+  Future<void> pullDeliveries() async => deliveries++;
+
+  @override
   Future<void> pullAll() async => all++;
 }
 
-Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 80));
+Future<void> _settle() =>
+    Future<void>.delayed(const Duration(milliseconds: 80));
 
 void main() {
   late Isar isar;

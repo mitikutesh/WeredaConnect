@@ -19,6 +19,15 @@ abstract class MarketplaceSync {
   /// Fetch all open trips from the server into local storage.
   Future<void> pullTrips();
 
+  /// Fetch the current user's deliveries from the server into local storage.
+  ///
+  /// Deliveries are created/updated by whichever party acts (trucker confirms
+  /// pickup, buyer confirms delivery). The offline sync engine only *uploads* a
+  /// device's own writes, so without this pull a buyer never sees the
+  /// trucker-driven status changes on their own device. Scoped server-side to
+  /// deliveries the caller participates in (`GET /deliveries?mine=true`).
+  Future<void> pullDeliveries();
+
   /// Convenience: pull both crops and trips.
   Future<void> pullAll();
 }

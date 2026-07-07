@@ -1,5 +1,6 @@
 import 'package:isar/isar.dart';
 
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -31,6 +32,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   static const _minRefreshInterval = Duration(seconds: 30);
   DateTime? _lastCropPull;
   DateTime? _lastTripPull;
+  DateTime? _lastDeliveryPull;
 
   IsarMarketplaceSync({
     required ApiClient api,
@@ -70,6 +72,33 @@ class IsarMarketplaceSync implements MarketplaceSync {
       await _isar.trips.putAllByTripId(trips);
     });
     _lastTripPull = DateTime.now();
+  }
+
+  @override
+  Future<void> pullDeliveries() async {
+    if (_isFresh(_lastDeliveryPull)) return;
+    final deliveries = await _fetchDeliveries();
+    // entityIds of local delivery writes not yet confirmed synced. A buyer who
+    // just confirmed delivery offline must not have that overwritten by an older
+    // server view before the queued upload lands.
+    final pendingIds = await _entityIdsWithPendingUploads();
+
+    await _isar.writeTxn(() async {
+      for (final d in deliveries) {
+        if (pendingIds.contains(d.deliveryId)) continue;
+        final existing = await _isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(d.deliveryId)
+            .findFirst();
+        if (existing != null) {
+          // Never regress to an older server version than what we already hold.
+          if (d.version < existing.version) continue;
+          d.id = existing.id;
+        }
+        await _isar.deliverys.put(d);
+      }
+    });
+    _lastDeliveryPull = DateTime.now();
   }
 
   bool _isFresh(DateTime? last) =>
@@ -249,5 +278,78 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..updatedAt =
           DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
       ..version = (m['version'] as num?)?.toInt() ?? 1;
+  }
+
+  Future<List<Delivery>> _fetchDeliveries() async {
+    final results = <Delivery>[];
+    String? nextToken;
+    do {
+      final params = <String, dynamic>{'mine': 'true', 'limit': '50'};
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/deliveries',
+        queryParameters: params,
+      );
+      final items = data['deliveries'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          const <dynamic>[];
+      for (final item in items) {
+        results.add(_parseDelivery(item as Map<String, dynamic>));
+      }
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null);
+    return results;
+  }
+
+  Delivery _parseDelivery(Map<String, dynamic> m) {
+    final d = Delivery()
+      ..deliveryId = m['deliveryId'] as String? ?? ''
+      ..tripId = m['tripId'] as String? ?? ''
+      ..listingId = m['listingId'] as String? ?? ''
+      ..farmerId = m['farmerId'] as String? ?? ''
+      ..farmerName = m['farmerName'] as String? ?? ''
+      ..truckerId = m['truckerId'] as String? ?? ''
+      ..truckerName = m['truckerName'] as String? ?? ''
+      ..buyerId = m['buyerId'] as String? ?? ''
+      ..buyerName = m['buyerName'] as String? ?? ''
+      ..qrToken = m['qrToken'] as String? ?? ''
+      ..qrNonce = m['qrNonce'] as String?
+      ..status = _parseDeliveryStatus(m['status'] as String?)
+      ..pickupPhotoRef = m['pickupPhotoRef'] as String?
+      ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?
+      ..disputeReason = m['disputeReason'] as String?
+      ..pickedUpAt = _tryParseUtc(m['pickedUpAt'] as String?)
+      ..confirmedAt = _tryParseUtc(m['confirmedAt'] as String?)
+      ..createdAt =
+          _tryParseUtc(m['createdAt'] as String?) ?? DateTime.now().toUtc()
+      ..updatedAt =
+          _tryParseUtc(m['updatedAt'] as String?) ?? DateTime.now().toUtc()
+      ..version = (m['version'] as num?)?.toInt() ?? 1;
+
+    final gp = m['gpsPickup'];
+    if (gp is Map<String, dynamic>) {
+      d.gpsPickup = LatLng()
+        ..latitude = (gp['latitude'] as num?)?.toDouble() ?? 0
+        ..longitude = (gp['longitude'] as num?)?.toDouble() ?? 0;
+    }
+    final gd = m['gpsDropoff'];
+    if (gd is Map<String, dynamic>) {
+      d.gpsDropoff = LatLng()
+        ..latitude = (gd['latitude'] as num?)?.toDouble() ?? 0
+        ..longitude = (gd['longitude'] as num?)?.toDouble() ?? 0;
+    }
+    return d;
+  }
+
+  DeliveryStatus _parseDeliveryStatus(String? s) {
+    return DeliveryStatus.values.firstWhere(
+      (e) => e.name == s,
+      orElse: () => DeliveryStatus.pending,
+    );
+  }
+
+  DateTime? _tryParseUtc(String? s) {
+    if (s == null || s.isEmpty) return null;
+    return DateTime.tryParse(s)?.toUtc();
   }
 }

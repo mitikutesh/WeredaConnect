@@ -26,6 +26,18 @@ public interface IDeliveryRepository
         Dictionary<string, AttributeValue>? exclusiveStartKey = null);
 
     /// <summary>
+    /// Query all deliveries for a participant across every status (newest first),
+    /// via the ParticipantIndex GSI. The index is keyed on <c>participantId</c>,
+    /// which is populated with the delivery's buyerId, so this returns the buyer's
+    /// deliveries. Used by the mobile pull so a buyer's device receives
+    /// trucker-driven status changes it did not author.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByParticipantAsync(
+        string participantId,
+        int limit = 50,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+
+    /// <summary>
     /// Get a delivery by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId);
