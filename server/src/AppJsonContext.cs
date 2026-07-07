@@ -89,6 +89,12 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RefundFundsRequest))]
 [JsonSerializable(typeof(RefundFundsResponse))]
 [JsonSerializable(typeof(TransactionStatusResponse))]
+// Telebirr H5/C2B wire DTOs (sandbox + live gateway)
+[JsonSerializable(typeof(TelebirrTokenRequest))]
+[JsonSerializable(typeof(TelebirrTokenResponse))]
+[JsonSerializable(typeof(TelebirrPreOrderRequest))]
+[JsonSerializable(typeof(TelebirrPreOrderResponse))]
+[JsonSerializable(typeof(TelebirrWebhookNotification))]
 // Escrow error DTOs
 [JsonSerializable(typeof(EscrowErrorResponse))]
 [JsonSerializable(typeof(EscrowError))]

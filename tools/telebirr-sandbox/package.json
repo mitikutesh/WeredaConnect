@@ -1,0 +1,14 @@
+{
+  "name": "weredaconnect-telebirr-sandbox",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Telebirr H5/C2B gateway simulator for end-to-end escrow testing (no real merchant account).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "selftest": "node selftest.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

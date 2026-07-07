@@ -1,0 +1,251 @@
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using WeredaConnect.Server.Models;
+
+namespace WeredaConnect.Server.Services;
+
+/// <summary>
+/// Real Telebirr gateway for the H5/C2B "web checkout" flow, per the verified
+/// protocol (fabric-token auth + SHA256WithRSA signing + preOrder + built H5
+/// URL + async webhook). Works against BOTH the local sandbox simulator
+/// (tools/telebirr-sandbox) and the live developerportal.ethiotelebirr.et
+/// sandbox — only TelebirrConfig differs.
+///
+/// C2B is asynchronous: HoldFundsAsync returns a ToPayUrl for the buyer to pay;
+/// the escrow only becomes 'escrowed' when TelebirrWebhookFunction receives the
+/// signed notification. Release/Refund (B2B disbursement) remain logged intents
+/// in this phase (SANDBOX-SIM- refs).
+///
+/// AOT-safe: System.Text.Json source-gen + System.Security.Cryptography only.
+/// </summary>
+public sealed class TelebirrSandboxGateway : ITelebirrGateway
+{
+    // Endpoint paths (match the simulator; confirm against the portal for Tier 3).
+    private const string TokenPath = "/apply/fabric-token";
+    private const string PreOrderPath = "/payment/v1/merchant/preOrder";
+
+    private readonly HttpClient _http;
+    private readonly ITelebirrSignatureService _signer;
+    private readonly TelebirrConfig _config;
+
+    private string? _cachedToken;
+    private DateTimeOffset _tokenExpiry = DateTimeOffset.MinValue;
+
+    public TelebirrSandboxGateway(
+        HttpClient http, ITelebirrSignatureService signer, TelebirrConfig config)
+    {
+        _http = http ?? throw new ArgumentNullException(nameof(http));
+        _signer = signer ?? throw new ArgumentNullException(nameof(signer));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+    }
+
+    /// <summary>
+    /// "Hold" = create a C2B preOrder and return the H5 checkout URL. Funds are
+    /// NOT confirmed here — the webhook flips the escrow to 'escrowed' later.
+    /// </summary>
+    public async Task<HoldFundsResponse> HoldFundsAsync(HoldFundsRequest request)
+    {
+        try
+        {
+            var token = await AcquireTokenAsync();
+            var nonce = GenerateNonce();
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+
+            // Build the signable view (top-level + biz_content) then sign it.
+            var signable = new Dictionary<string, object?>
+            {
+                ["nonce_str"] = nonce,
+                ["method"] = "payment.preorder",
+                ["timestamp"] = timestamp,
+                ["version"] = "1.0",
+                ["biz_content"] = new Dictionary<string, object?>
+                {
+                    ["notify_url"] = _config.NotifyUrl,
+                    ["appid"] = _config.MerchantAppId,
+                    ["merch_code"] = _config.MerchantCode,
+                    ["merch_order_id"] = request.TransactionRef,
+                    ["trade_type"] = "Checkout",
+                    ["title"] = Truncate(request.Description, 120),
+                    ["total_amount"] = request.Amount.ToString("F2"),
+                    ["trans_currency"] = "ETB",
+                    ["timeout_express"] = "120m",
+                    ["business_type"] = "BuyGoods",
+                    ["callback_info"] = "From web",
+                    ["redirect_url"] = _config.ReturnUrl,
+                },
+            };
+            var sign = _signer.SignObject(signable);
+
+            var preOrder = new TelebirrPreOrderRequest
+            {
+                NonceStr = nonce,
+                Method = "payment.preorder",
+                Timestamp = timestamp,
+                Version = "1.0",
+                BizContent = new TelebirrPreOrderBiz
+                {
+                    NotifyUrl = _config.NotifyUrl,
+                    AppId = _config.MerchantAppId,
+                    MerchCode = _config.MerchantCode,
+                    MerchOrderId = request.TransactionRef,
+                    TradeType = "Checkout",
+                    Title = Truncate(request.Description, 120),
+                    TotalAmount = request.Amount.ToString("F2"),
+                    TransCurrency = "ETB",
+                    TimeoutExpress = "120m",
+                    BusinessType = "BuyGoods",
+                    CallbackInfo = "From web",
+                    RedirectUrl = _config.ReturnUrl,
+                },
+                SignType = "SHA256WithRSA",
+                Sign = sign,
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, AbsoluteUrl(PreOrderPath))
+            {
+                Content = JsonContent.Create(preOrder, AppJsonContext.Default.TelebirrPreOrderRequest),
+            };
+            req.Headers.TryAddWithoutValidation("Authorization", token);
+            req.Headers.TryAddWithoutValidation("X-APP-Key", _config.FabricAppId);
+
+            using var resp = await _http.SendAsync(req);
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+            {
+                return Fail("TELEBIRR_PREORDER", $"preOrder HTTP {(int)resp.StatusCode}");
+            }
+
+            var parsed = JsonSerializer.Deserialize(body, AppJsonContext.Default.TelebirrPreOrderResponse);
+            var prepayId = parsed?.BizContent?.PrepayId;
+            if (parsed == null || !string.Equals(parsed.Result, "SUCCESS", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrEmpty(prepayId))
+            {
+                return Fail($"TELEBIRR_{parsed?.Code ?? "ERR"}", parsed?.Msg ?? "preOrder failed");
+            }
+
+            var toPayUrl = BuildH5Url(nonce, timestamp, prepayId);
+            return new HoldFundsResponse
+            {
+                Success = true,
+                TelebirrRef = $"PENDING-WEBHOOK-{ShortHash(request.TransactionRef)}",
+                ToPayUrl = toPayUrl,
+            };
+        }
+        catch (HttpRequestException ex)
+        {
+            return Fail("TELEBIRR_NETWORK", $"Network error contacting Telebirr: {ex.Message}");
+        }
+        catch (TaskCanceledException)
+        {
+            return Fail("TELEBIRR_TIMEOUT", "Telebirr request timed out.");
+        }
+    }
+
+    /// <summary>Release (B2B disbursement) — logged intent this phase.</summary>
+    public Task<ReleaseFundsResponse> ReleaseFundsAsync(ReleaseFundsRequest request)
+        => Task.FromResult(new ReleaseFundsResponse
+        {
+            Success = true,
+            TelebirrRef = $"SANDBOX-SIM-PAYOUT-{ShortHash(request.TransactionRef)}",
+        });
+
+    /// <summary>Refund (B2B reverse) — logged intent this phase.</summary>
+    public Task<RefundFundsResponse> RefundFundsAsync(RefundFundsRequest request)
+        => Task.FromResult(new RefundFundsResponse
+        {
+            Success = true,
+            TelebirrRef = $"SANDBOX-SIM-REFUND-{ShortHash(request.TransactionRef)}",
+        });
+
+    /// <summary>No status-polling endpoint in H5 C2B; reconciliation relies on webhooks.</summary>
+    public Task<TransactionStatusResponse> GetTransactionStatusAsync(string transactionRef)
+        => Task.FromResult(new TransactionStatusResponse
+        {
+            TransactionRef = transactionRef,
+            Status = "unknown",
+            Amount = 0,
+            UpdatedAt = DateTime.UtcNow.ToString("o"),
+        });
+
+    // ── Internals ──────────────────────────────────────────────────────────
+
+    private async Task<string> AcquireTokenAsync()
+    {
+        if (_cachedToken != null && DateTimeOffset.UtcNow < _tokenExpiry)
+        {
+            return _cachedToken;
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, AbsoluteUrl(TokenPath))
+        {
+            Content = JsonContent.Create(
+                new TelebirrTokenRequest { AppSecret = _config.AppSecret },
+                AppJsonContext.Default.TelebirrTokenRequest),
+        };
+        req.Headers.TryAddWithoutValidation("X-APP-Key", _config.FabricAppId);
+
+        using var resp = await _http.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        var parsed = JsonSerializer.Deserialize(body, AppJsonContext.Default.TelebirrTokenResponse);
+        if (parsed?.Token is not { Length: > 0 } token)
+        {
+            throw new HttpRequestException("Telebirr fabric-token response missing token.");
+        }
+
+        _cachedToken = token;
+        var ttl = parsed.ExpiresIn is > 120 ? parsed.ExpiresIn.Value - 60 : 300;
+        _tokenExpiry = DateTimeOffset.UtcNow.AddSeconds(ttl);
+        return token;
+    }
+
+    /// <summary>
+    /// Build the H5 checkout URL: sign exactly the 5 fields, then append the
+    /// unsigned fields (version/trade_type/sign_type/sign), URL-encoding values.
+    /// </summary>
+    private string BuildH5Url(string nonce, string timestamp, string prepayId)
+    {
+        var signed = new Dictionary<string, object?>
+        {
+            ["appid"] = _config.MerchantAppId,
+            ["merch_code"] = _config.MerchantCode,
+            ["nonce_str"] = nonce,
+            ["prepay_id"] = prepayId,
+            ["timestamp"] = timestamp,
+        };
+        var sign = _signer.SignObject(signed);
+
+        var ordered = new (string Key, string Value)[]
+        {
+            ("appid", _config.MerchantAppId),
+            ("merch_code", _config.MerchantCode),
+            ("nonce_str", nonce),
+            ("prepay_id", prepayId),
+            ("timestamp", timestamp),
+            ("sign_type", "SHA256WithRSA"),
+            ("version", "1.0"),
+            ("trade_type", "Checkout"),
+            ("sign", sign),
+        };
+        var query = string.Join("&", ordered.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
+        var web = _config.WebUrl.TrimEnd('/');
+        return $"{web}?{query}";
+    }
+
+    private string AbsoluteUrl(string path)
+        => $"{_config.BaseUrl.TrimEnd('/')}{path}";
+
+    private static HoldFundsResponse Fail(string code, string message)
+        => new() { Success = false, ErrorCode = code, ErrorMessage = message };
+
+    private static string GenerateNonce()
+        => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+
+    private static string ShortHash(string input)
+        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..12];
+
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..max];
+}

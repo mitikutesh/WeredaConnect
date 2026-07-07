@@ -99,6 +99,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("TelebirrWebhookFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new TelebirrWebhookFunction().FunctionHandler, serializer),
+
             var h when h.Contains("EscrowFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new EscrowFunction().FunctionHandler, serializer),

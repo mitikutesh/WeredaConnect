@@ -33,6 +33,16 @@ public class EscrowCronFunction
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
+    /// Grace period before a still-"initiated" escrow with NO Telebirr reference is
+    /// cancelled. In the async H5/C2B flow such an escrow is normally just awaiting the
+    /// buyer's payment — the webhook stamps the ref and flips it to "escrowed". The buyer
+    /// has up to the preOrder timeout (timeout_express = 120m) to pay, so cancelling
+    /// earlier could strand a real payment: the webhook's initiated→escrowed CAS would
+    /// fail against a "cancelled" record. 150m = the 120m window + a 30m safety buffer.
+    /// </summary>
+    private const int NoRefCancelGraceMinutes = 150;
+
+    /// <summary>
     /// Default constructor for Lambda runtime.
     /// Reads table names from environment variables.
     /// </summary>
@@ -395,17 +405,27 @@ public class EscrowCronFunction
             var escrowId = GetString(escrow, "escrowId");
             var telebirrRef = GetStringOrNull(escrow, "telebirrRef");
 
-            // If no Telebirr ref, the hold call never returned — cancel
+            // No Telebirr ref: either the async buyer hasn't paid yet (normal — the
+            // webhook will stamp the ref + flip to escrowed) or the hold never returned.
+            // Do NOT cancel inside the payment window: cancelling and then receiving the
+            // webhook would strand a real payment in "cancelled" (the webhook's
+            // initiated→escrowed CAS would fail). Only cancel once the window has closed.
             if (string.IsNullOrEmpty(telebirrRef))
             {
+                if (now - createdAt < TimeSpan.FromMinutes(NoRefCancelGraceMinutes))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 context.Logger.LogInformation(
-                    $"Reconciliation: cancelling {escrowId} (no Telebirr ref, stuck in initiated).");
+                    $"Reconciliation: cancelling {escrowId} (no Telebirr ref, payment window elapsed).");
 
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAtStr, "cancelled", "initiated",
                     new Dictionary<string, object> { { "cancelledAt", now.ToString("o") } });
 
                 await AppendAuditAsync(escrowId, "reconcile_cancel", "initiated", "cancelled",
-                    "system", metadata: "No Telebirr reference found after 30 minutes.");
+                    "system", metadata: "No Telebirr reference; payment window elapsed with no completion.");
 
                 reconciledToCancelled++;
                 continue;
@@ -591,9 +611,8 @@ public class EscrowCronFunction
             return new MockTelebirrGateway();
         }
 
-        throw new InvalidOperationException(
-            "Real Telebirr gateway is not yet implemented. " +
-            "Set TELEBIRR_MOCK=true for development/staging environments. " +
-            "Do NOT deploy to production until a real ITelebirrGateway is wired here.");
+        // Real gateway: local sandbox simulator or the live Telebirr sandbox,
+        // selected purely by config (TELEBIRR_LOCAL_CREDENTIALS_FILE / TELEBIRR_SECRET_ARN).
+        return TelebirrGatewayFactory.CreateGateway(TelebirrGatewayFactory.LoadConfigOrThrow());
     }
 }
