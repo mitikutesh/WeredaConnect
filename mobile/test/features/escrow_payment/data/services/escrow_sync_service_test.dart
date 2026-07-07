@@ -84,7 +84,8 @@ void main() {
       connectivityMonitor = MockConnectivityMonitor();
       // Default: online, so processQueuedIntents proceeds. Offline behavior is
       // covered by its own test.
-      when(() => connectivityMonitor.isConnected()).thenAnswer((_) async => true);
+      when(() => connectivityMonitor.isConnected())
+          .thenAnswer((_) async => true);
       syncService = EscrowSyncService(
         isar: isar,
         apiClient: apiClient,

@@ -76,7 +76,8 @@ void main() {
         decoration.border,
         equals(
           const Border(
-            left: BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
+            left:
+                BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
           ),
         ),
       );

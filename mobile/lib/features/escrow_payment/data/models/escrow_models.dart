@@ -224,9 +224,8 @@ class EscrowDetailResponse {
       currency: json['currency'] as String? ?? 'ETB',
       status: json['status'] as String,
       createdAt: json['createdAt'] as String? ?? '',
-      updatedAt: json['updatedAt'] as String? ??
-          json['createdAt'] as String? ??
-          '',
+      updatedAt:
+          json['updatedAt'] as String? ?? json['createdAt'] as String? ?? '',
       expiresAt: json['expiresAt'] as String? ?? '',
       version: (json['version'] as num?)?.toInt() ?? 1,
       telebirrRef: json['telebirrRef'] as String?,
