@@ -217,11 +217,30 @@ class EscrowRepository extends BaseEscrowRepository {
         await _isar.payments.filter().paymentIdEqualTo(escrowId).findFirst();
     if (cached != null) return cached;
 
-    // Cache miss: fall through to the server when online (refreshEscrow upserts).
+    // Cache miss: fall through to the server when online. Use a dedicated fetch (not
+    // refreshEscrow) that maps ONLY a genuine 404 to null and lets auth/server/network
+    // errors propagate, so the BLoC shows a distinct retryable error instead of a
+    // misleading "payment not found" — matching the web repository's behavior.
     if (await _connectivityMonitor.isConnected()) {
-      return refreshEscrow(escrowId);
+      return _fetchEscrowById(escrowId);
     }
     return null;
+  }
+
+  /// Fetch a single escrow from GET /escrow/{id} and upsert it. Only a genuine 404
+  /// maps to null; all other API errors propagate to the caller.
+  Future<Payment?> _fetchEscrowById(String escrowId) async {
+    try {
+      final json = await _apiClient.get<Map<String, dynamic>>(
+        '${ApiConfig.escrowStatus}/$escrowId',
+      );
+      final response = EscrowDetailResponse.fromJson(json);
+      final payment = _mapDetailResponse(response);
+      await _upsertPayment(payment);
+      return payment;
+    } on NotFoundException {
+      return null;
+    }
   }
 
   /// Get escrow by delivery ID (1:1). Local first, then remote when online (Review H2).
@@ -238,7 +257,9 @@ class EscrowRepository extends BaseEscrowRepository {
   }
 
   /// Fetch the escrow for a delivery from GET /escrow/by-delivery/{deliveryId}
-  /// and upsert it into the local cache. Returns null on any API error.
+  /// and upsert it into the local cache. Only a genuine 404 maps to null; auth
+  /// (401/403), server (5xx), and network errors propagate so the caller can
+  /// distinguish "no escrow" from "request failed" (matches the web repository).
   Future<Payment?> _fetchEscrowByDelivery(String deliveryId) async {
     try {
       final json = await _apiClient.get<Map<String, dynamic>>(
@@ -248,7 +269,7 @@ class EscrowRepository extends BaseEscrowRepository {
       final payment = _mapDetailResponse(response);
       await _upsertPayment(payment);
       return payment;
-    } on ApiException {
+    } on NotFoundException {
       return null;
     }
   }

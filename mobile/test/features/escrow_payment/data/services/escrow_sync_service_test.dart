@@ -82,6 +82,9 @@ void main() {
       );
       apiClient = MockApiClient();
       connectivityMonitor = MockConnectivityMonitor();
+      // Default: online, so processQueuedIntents proceeds. Offline behavior is
+      // covered by its own test.
+      when(() => connectivityMonitor.isConnected()).thenAnswer((_) async => true);
       syncService = EscrowSyncService(
         isar: isar,
         apiClient: apiClient,
@@ -100,6 +103,25 @@ void main() {
     // ── processQueuedIntents tests ──
 
     group('processQueuedIntents', () {
+      test('does nothing when offline — never burns retries (H1)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => false);
+        await _insertTestIntent(isar);
+
+        await syncService.processQueuedIntents();
+
+        // Intent stays queued for a later online attempt; no POST, no retry burn.
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.pendingSync);
+        expect(intent.retryCount, 0);
+        verifyNever(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        );
+      });
+
       test('processes pending intent successfully', () async {
         await _insertTestIntent(isar);
 
