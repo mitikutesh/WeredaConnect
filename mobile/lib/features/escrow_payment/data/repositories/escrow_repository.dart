@@ -232,7 +232,7 @@ class EscrowRepository extends BaseEscrowRepository {
   Future<Payment?> _fetchEscrowById(String escrowId) async {
     try {
       final json = await _apiClient.get<Map<String, dynamic>>(
-        '${ApiConfig.escrowStatus}/$escrowId',
+        '${ApiConfig.escrowStatus}/${Uri.encodeComponent(escrowId)}',
       );
       final response = EscrowDetailResponse.fromJson(json);
       final payment = _mapDetailResponse(response);
@@ -263,7 +263,7 @@ class EscrowRepository extends BaseEscrowRepository {
   Future<Payment?> _fetchEscrowByDelivery(String deliveryId) async {
     try {
       final json = await _apiClient.get<Map<String, dynamic>>(
-        '${ApiConfig.escrowByDelivery}/$deliveryId',
+        '${ApiConfig.escrowByDelivery}/${Uri.encodeComponent(deliveryId)}',
       );
       final response = EscrowDetailResponse.fromJson(json);
       final payment = _mapDetailResponse(response);
@@ -308,7 +308,7 @@ class EscrowRepository extends BaseEscrowRepository {
 
     try {
       final json = await _apiClient.get<Map<String, dynamic>>(
-        '${ApiConfig.escrowStatus}/$escrowId',
+        '${ApiConfig.escrowStatus}/${Uri.encodeComponent(escrowId)}',
       );
 
       final response = EscrowDetailResponse.fromJson(json);
