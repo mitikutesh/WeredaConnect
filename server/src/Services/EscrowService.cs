@@ -110,6 +110,16 @@ public sealed class EscrowService
                 var cachedEscrow = await _escrowRepo.GetByIdAsync(existingEscrowId);
                 if (cachedEscrow != null)
                 {
+                    // Ownership check: an idempotency key must NEVER disclose another user's
+                    // escrow. The key is client-supplied, so a caller could present a victim's
+                    // key; only return the cached escrow to its own buyer (A01 IDOR fix).
+                    if (!string.Equals(
+                            GetString(cachedEscrow, "buyerId"), authenticatedUserId, StringComparison.Ordinal))
+                    {
+                        return EscrowResult<InitiateEscrowResponse>.Failure(
+                            403, "ESCROW_006", "buyerId does not match authenticated user.", "buyerId");
+                    }
+
                     return EscrowResult<InitiateEscrowResponse>.Duplicate(
                         BuildInitiateResponse(cachedEscrow, isDuplicate: true));
                 }

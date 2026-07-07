@@ -1762,6 +1762,42 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task InitiateAsync_DuplicateKeyForAnotherBuyersEscrow_Returns403()
+    {
+        // Attacker presents a victim's idempotency key; the cached escrow belongs to a
+        // different buyer and must NOT be disclosed (A01 IDOR).
+        _mockIdempotencyRepo.GetAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-victim" }, { "status", "completed" }
+        });
+        _mockEscrowRepo.GetByIdAsync("escrow-victim")
+            .Returns(MakeEscrowItem(escrowId: "escrow-victim", buyerId: "victim-buyer"));
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_006", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_DuplicateKeyForOwnEscrow_ReturnsCached()
+    {
+        // A genuine same-buyer retry still returns the cached escrow.
+        _mockIdempotencyRepo.GetAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-own" }, { "status", "completed" }
+        });
+        _mockEscrowRepo.GetByIdAsync("escrow-own")
+            .Returns(MakeEscrowItem(escrowId: "escrow-own", buyerId: BuyerId));
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.IsDuplicate);
+    }
+
+    [Fact]
     public async Task InitiateAsync_AmountWithThreeDecimals_ReturnsEscrow001()
     {
         var result = await _service.InitiateAsync(MakeInitiateRequest(amount: 100.999m), BuyerId);
