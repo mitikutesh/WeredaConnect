@@ -166,50 +166,63 @@ public class EscrowCronFunction
         var releaseCount = 0;
         foreach (var escrow in escrows)
         {
-            var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
-            if (string.IsNullOrEmpty(deliveryConfirmedAt))
+            // Per-item isolation: a single poison escrow (throttle, transient error) must not
+            // abort the whole batch and starve every other releasable escrow.
+            try
             {
-                continue; // delivery not yet confirmed
-            }
-
-            var disputeWindowEndsAt = GetStringOrNull(escrow, "disputeWindowEndsAt");
-            if (string.IsNullOrEmpty(disputeWindowEndsAt))
-            {
-                continue; // no dispute window set
-            }
-
-            // Check if dispute window has passed
-            if (!DateTime.TryParse(disputeWindowEndsAt, CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind, out var windowEnd) || now <= windowEnd)
-            {
-                continue; // dispute window still open
-            }
-
-            var escrowId = GetString(escrow, "escrowId");
-            var deliveryId = GetString(escrow, "deliveryId");
-            // Use hourly bucket for stable idempotency (prevents duplicate EventBridge triggers)
-            var hourBucket = now.ToString("yyyyMMddHH");
-
-            context.Logger.LogInformation($"Auto-releasing escrow {escrowId} (dispute window ended).");
-
-            var result = await _escrowService.ReleaseAsync(
-                new ReleaseEscrowRequest
+                var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
+                if (string.IsNullOrEmpty(deliveryConfirmedAt))
                 {
-                    EscrowId = escrowId,
-                    Trigger = "delivery_confirmed",
-                    DeliveryId = deliveryId,
-                    IdempotencyKey = $"system:{escrowId}:auto_release:{hourBucket}"
-                },
-                authenticatedUserId: "system");
+                    continue; // delivery not yet confirmed
+                }
 
-            if (result.IsSuccess)
-            {
-                releaseCount++;
+                var disputeWindowEndsAt = GetStringOrNull(escrow, "disputeWindowEndsAt");
+                if (string.IsNullOrEmpty(disputeWindowEndsAt))
+                {
+                    continue; // no dispute window set
+                }
+
+                // Check if dispute window has passed
+                if (!DateTime.TryParse(disputeWindowEndsAt, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out var windowEnd) || now <= windowEnd)
+                {
+                    continue; // dispute window still open
+                }
+
+                var escrowId = GetString(escrow, "escrowId");
+                var deliveryId = GetString(escrow, "deliveryId");
+                // Hourly-bucketed idempotency key allows a crashed run to safely re-drive the next
+                // hour; Telebirr dedupes on the stable per-escrow transactionRef (release:{id}), so
+                // re-driving never double-pays. (Review C1/C2: the rotating key no longer risks a
+                // double payout now that the Telebirr ref is stable.)
+                var hourBucket = now.ToString("yyyyMMddHH");
+
+                context.Logger.LogInformation($"Auto-releasing escrow {escrowId} (dispute window ended).");
+
+                var result = await _escrowService.ReleaseAsync(
+                    new ReleaseEscrowRequest
+                    {
+                        EscrowId = escrowId,
+                        Trigger = "delivery_confirmed",
+                        DeliveryId = deliveryId,
+                        IdempotencyKey = $"system:{escrowId}:auto_release:{hourBucket}"
+                    },
+                    authenticatedUserId: "system");
+
+                if (result.IsSuccess)
+                {
+                    releaseCount++;
+                }
+                else
+                {
+                    context.Logger.LogError(
+                        $"Auto-release failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                }
             }
-            else
+            catch (Exception ex)
             {
                 context.Logger.LogError(
-                    $"Auto-release failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                    $"Auto-release: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
             }
         }
 
@@ -230,37 +243,47 @@ public class EscrowCronFunction
         var refundCount = 0;
         foreach (var escrow in escrows)
         {
-            // Skip items that have a confirmed delivery (those should be auto-released, not refunded)
-            var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
-            if (!string.IsNullOrEmpty(deliveryConfirmedAt))
+            // Per-item isolation: one failing refund must not abort the whole batch.
+            try
             {
-                continue;
-            }
-
-            var escrowId = GetString(escrow, "escrowId");
-            // Use hourly bucket for stable idempotency (prevents duplicate EventBridge triggers)
-            var hourBucket = now.ToString("yyyyMMddHH");
-
-            context.Logger.LogInformation($"Auto-refunding expired escrow {escrowId}.");
-
-            var result = await _escrowService.RefundAsync(
-                new RefundEscrowRequest
+                // Skip items that have a confirmed delivery (those should be auto-released, not refunded)
+                var deliveryConfirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
+                if (!string.IsNullOrEmpty(deliveryConfirmedAt))
                 {
-                    EscrowId = escrowId,
-                    Trigger = "delivery_timeout",
-                    Reason = "Escrow expired: delivery not completed within 7 days.",
-                    IdempotencyKey = $"system:{escrowId}:auto_refund:{hourBucket}"
-                },
-                authenticatedUserId: "system");
+                    continue;
+                }
 
-            if (result.IsSuccess)
-            {
-                refundCount++;
+                var escrowId = GetString(escrow, "escrowId");
+                // Hourly-bucketed key allows safe re-drive after a crash; Telebirr dedupes on the
+                // stable per-escrow ref (refund:{id}), so re-driving never double-refunds.
+                var hourBucket = now.ToString("yyyyMMddHH");
+
+                context.Logger.LogInformation($"Auto-refunding expired escrow {escrowId}.");
+
+                var result = await _escrowService.RefundAsync(
+                    new RefundEscrowRequest
+                    {
+                        EscrowId = escrowId,
+                        Trigger = "delivery_timeout",
+                        Reason = "Escrow expired: delivery not completed within 7 days.",
+                        IdempotencyKey = $"system:{escrowId}:auto_refund:{hourBucket}"
+                    },
+                    authenticatedUserId: "system");
+
+                if (result.IsSuccess)
+                {
+                    refundCount++;
+                }
+                else
+                {
+                    context.Logger.LogError(
+                        $"Auto-refund failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                }
             }
-            else
+            catch (Exception ex)
             {
                 context.Logger.LogError(
-                    $"Auto-refund failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                    $"Auto-refund: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
             }
         }
 

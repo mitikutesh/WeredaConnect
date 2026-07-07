@@ -20,6 +20,13 @@ public sealed class EscrowService
     private readonly ITelebirrGateway _telebirrGateway;
     private readonly IUserRepository? _userRepo;
     private readonly IOrderRepository? _orderRepo;
+    private readonly IDeliveryRepository? _deliveryRepo;
+
+    /// <summary>Delivery states in which a new escrow may be initiated (contract §Delivery State Validation).</summary>
+    private static readonly HashSet<string> EscrowableDeliveryStates = new()
+    {
+        "pending", "pickedUp", "inTransit"
+    };
 
     private const decimal DefaultCommissionRate = 0.025m;
     private const decimal MinCommission = 5.0m;
@@ -43,13 +50,24 @@ public sealed class EscrowService
         "not_delivered", "quality_mismatch", "other"
     };
 
+    private static readonly HashSet<string> ValidReleaseTriggers = new()
+    {
+        "delivery_confirmed", "dispute_resolved", "admin_override"
+    };
+
+    private static readonly HashSet<string> ValidRefundTriggers = new()
+    {
+        "dispute_resolved", "delivery_timeout", "admin_override"
+    };
+
     public EscrowService(
         IEscrowRepository escrowRepo,
         IEscrowAuditRepository auditRepo,
         IEscrowIdempotencyRepository idempotencyRepo,
         ITelebirrGateway telebirrGateway,
         IUserRepository? userRepo = null,
-        IOrderRepository? orderRepo = null)
+        IOrderRepository? orderRepo = null,
+        IDeliveryRepository? deliveryRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
@@ -57,6 +75,7 @@ public sealed class EscrowService
         _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
         _userRepo = userRepo;
         _orderRepo = orderRepo;
+        _deliveryRepo = deliveryRepo;
     }
 
     // ──────────────────────────────────────────────
@@ -101,6 +120,15 @@ public sealed class EscrowService
                 "amount");
         }
 
+        // 3b. Validate 2-decimal (santim) precision — Telebirr cannot move fractional santim.
+        if (decimal.Round(request.Amount, 2) != request.Amount)
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                400, "ESCROW_001",
+                "Invalid amount. ETB supports at most 2 decimal places (santim).",
+                "amount");
+        }
+
         // 4. Validate currency is ETB → ESCROW_004
         if (!string.Equals(request.Currency, "ETB", StringComparison.Ordinal))
         {
@@ -136,24 +164,83 @@ public sealed class EscrowService
             if (existingStatus is "initiated" or "escrowed" or "released" or "disputed")
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
-                    409, "ESCROW_025",
+                    409, "ESCROW_009",
                     "An active escrow already exists for this delivery.",
                     "deliveryId");
             }
         }
 
-        // 7. Fayda ID verification for high-value transactions → ESCROW_007
+        // 6c. Validate deliveryId is present → ESCROW_002
+        if (string.IsNullOrWhiteSpace(request.DeliveryId))
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                400, "ESCROW_002", "Missing or invalid deliveryId.", "deliveryId");
+        }
+
+        // 6d. Validate the delivery exists and is in an escrowable state.
+        //     ESCROW_008 (404) if not found, ESCROW_010 (422) if wrong state.
+        if (_deliveryRepo != null)
+        {
+            var delivery = await _deliveryRepo.GetByIdAsync(request.DeliveryId);
+            if (delivery == null)
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    404, "ESCROW_008", "Delivery not found.", "deliveryId");
+            }
+
+            var deliveryStatus = delivery.TryGetValue("status", out var ds) ? ds?.ToString() : null;
+            if (deliveryStatus == null || !EscrowableDeliveryStates.Contains(deliveryStatus))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    422, "ESCROW_010",
+                    $"Delivery is not in a valid state for payment (was '{deliveryStatus}').",
+                    "deliveryId");
+            }
+        }
+
+        // 7. User validation + Fayda ID verification for high-value transactions → ESCROW_007
         var buyerFaydaVerified = false;
         var farmerFaydaVerified = false;
-        if (request.Amount > FaydaThreshold && _userRepo != null)
+        var requiresFayda = request.Amount > FaydaThreshold;
+
+        // Fail closed: a high-value transaction MUST have a verification source.
+        if (requiresFayda && _userRepo == null)
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                403, "ESCROW_007",
+                "Fayda ID verification is required for transactions above 10,000 ETB, "
+                + "but the verification service is unavailable.",
+                "buyerId");
+        }
+
+        if (_userRepo != null)
         {
             var buyer = await _userRepo.GetUserByIdAsync(request.BuyerId);
             var farmer = await _userRepo.GetUserByIdAsync(request.FarmerId);
 
-            buyerFaydaVerified = buyer?.FaydaVerified == true;
-            farmerFaydaVerified = farmer?.FaydaVerified == true;
+            // Farmer must exist, have the farmer role, and be phone-verified (contract §User Validation).
+            if (farmer == null)
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    404, "ESCROW_008", "Farmer account not found.", "farmerId");
+            }
 
-            if (!buyerFaydaVerified)
+            if (!string.Equals(farmer.Role, "farmer", StringComparison.OrdinalIgnoreCase))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    403, "ESCROW_006", "Recipient is not a registered farmer.", "farmerId");
+            }
+
+            if (!farmer.IsPhoneVerified || (buyer != null && !buyer.IsPhoneVerified))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    403, "ESCROW_006", "Both buyer and farmer must be phone-verified.", "farmerId");
+            }
+
+            buyerFaydaVerified = buyer?.FaydaVerified == true;
+            farmerFaydaVerified = farmer.FaydaVerified;
+
+            if (requiresFayda && !buyerFaydaVerified)
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
                     403, "ESCROW_007",
@@ -161,7 +248,7 @@ public sealed class EscrowService
                     "buyerId");
             }
 
-            if (!farmerFaydaVerified)
+            if (requiresFayda && !farmerFaydaVerified)
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
                     403, "ESCROW_007",
@@ -170,8 +257,8 @@ public sealed class EscrowService
             }
         }
 
-        // 8. Calculate commission: max(amount * 0.025, 5.00 ETB)
-        var commission = Math.Max(request.Amount * DefaultCommissionRate, MinCommission);
+        // 8. Calculate commission: round(max(amount * 0.025, 5.00 ETB)) to 2 dp (santim).
+        var commission = RoundMoney(Math.Max(request.Amount * DefaultCommissionRate, MinCommission));
         var farmerPayout = request.Amount - commission;
 
         // 9. Create escrow record with status "initiated"
@@ -190,6 +277,20 @@ public sealed class EscrowService
             var order = await _orderRepo.GetByIdAsync(request.OrderId);
             if (order != null)
             {
+                // Ownership binding: the referenced order must belong to this buyer and delivery.
+                if (order.TryGetValue("buyerId", out var ob) && ob?.ToString() is string obs
+                    && !string.Equals(obs, request.BuyerId, StringComparison.Ordinal))
+                {
+                    return EscrowResult<InitiateEscrowResponse>.Failure(
+                        403, "ESCROW_006", "Referenced order does not belong to this buyer.", "orderId");
+                }
+                if (order.TryGetValue("deliveryId", out var od) && od?.ToString() is string ods
+                    && !string.Equals(ods, request.DeliveryId, StringComparison.Ordinal))
+                {
+                    return EscrowResult<InitiateEscrowResponse>.Failure(
+                        400, "ESCROW_002", "Referenced order is for a different delivery.", "orderId");
+                }
+
                 if (order.TryGetValue("cropCost", out var cc))
                     orderCropCost = decimal.TryParse(cc?.ToString(), out var ccVal) ? ccVal : null;
                 if (order.TryGetValue("transportCost", out var tc))
@@ -201,11 +302,22 @@ public sealed class EscrowService
             }
         }
 
-        // When order provides 3-way split amounts, use those instead of default calculation
+        // When order provides 3-way split amounts, use those instead of the default calculation,
+        // but ONLY if the split reconciles to the held amount — the platform must never release
+        // more (or less) than was escrowed (C2/C3 payout-integrity fix).
+        decimal truckerPayout = RoundMoney(orderTransportCost ?? 0m);
         if (orderCropCost.HasValue)
         {
-            farmerPayout = orderCropCost.Value;
-            commission = orderCommissionAmount ?? commission;
+            farmerPayout = RoundMoney(orderCropCost.Value);
+            commission = RoundMoney(orderCommissionAmount ?? commission);
+
+            if (farmerPayout + truckerPayout + commission != RoundMoney(request.Amount))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    400, "ESCROW_001",
+                    "Order split (farmer + trucker + commission) does not reconcile to the escrow amount.",
+                    "amount");
+            }
         }
 
         var escrowRecord = new Dictionary<string, object>
@@ -230,8 +342,8 @@ public sealed class EscrowService
 
         if (!string.IsNullOrEmpty(request.OrderId))
             escrowRecord["orderId"] = request.OrderId;
-        if (orderTransportCost.HasValue)
-            escrowRecord["truckerPayout"] = orderTransportCost.Value;
+        if (truckerPayout > 0)
+            escrowRecord["truckerPayout"] = truckerPayout;
         if (!string.IsNullOrEmpty(truckerId))
             escrowRecord["truckerId"] = truckerId;
 
@@ -253,7 +365,9 @@ public sealed class EscrowService
         // 12. Call Telebirr HoldFunds
         var holdResponse = await _telebirrGateway.HoldFundsAsync(new HoldFundsRequest
         {
-            TransactionRef = request.IdempotencyKey,
+            // Stable per-delivery ref so Telebirr dedupes concurrent/retried holds for the
+            // same delivery → buyer is charged at most once even under distinct idempotency keys.
+            TransactionRef = $"hold:{request.DeliveryId}",
             BuyerPhone = request.BuyerId, // Real impl resolves phone from user profile
             Amount = request.Amount,
             Description = $"WeredaConnect escrow for delivery {request.DeliveryId}"
@@ -315,11 +429,27 @@ public sealed class EscrowService
     public async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseAsync(
         ReleaseEscrowRequest request, string authenticatedUserId, string? role = null)
     {
-        // 1. Authorization: only system or admin can release funds
+        // 1. Authorization: only system or admin can release funds → ESCROW_015
         if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
-                403, "ESCROW_006", "Only system or admin can release escrow funds.");
+                403, "ESCROW_015", "Only system or admin can release escrow funds.");
+        }
+
+        // 1b. Validate idempotency key format → ESCROW_003
+        if (!IsValidIdempotencyKey(request.IdempotencyKey))
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                400, "ESCROW_003", "Invalid idempotency key format.", "idempotencyKey");
+        }
+
+        // 1c. Validate trigger enum
+        if (!ValidReleaseTriggers.Contains(request.Trigger))
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                400, "ESCROW_VALIDATION",
+                $"Invalid release trigger. Must be one of: {string.Join(", ", ValidReleaseTriggers)}",
+                "trigger");
         }
 
         // 2. Check idempotency
@@ -370,10 +500,12 @@ public sealed class EscrowService
                 409, "ESCROW_003", "Duplicate request detected. Processing in progress.", "idempotencyKey");
         }
 
-        // 5. Call Telebirr ReleaseFunds with farmer payout amount
+        // 5. Call Telebirr ReleaseFunds with farmer payout amount.
+        //    Stable per-escrow transactionRef so Telebirr dedupes retries/concurrent releases
+        //    → the farmer is never paid twice even under distinct idempotency keys (C1/C2).
         var releaseResponse = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
         {
-            TransactionRef = request.IdempotencyKey,
+            TransactionRef = $"release:{request.EscrowId}",
             HoldRef = holdRef,
             FarmerPhone = GetString(escrowItem, "farmerId"), // Real impl resolves phone
             Amount = farmerPayout,
@@ -393,15 +525,17 @@ public sealed class EscrowService
                 releaseResponse.ErrorMessage ?? "Telebirr gateway error during fund release.");
         }
 
-        // 5b. 3-way split: If trucker payout exists, release transport cost to trucker
+        // 5b. 3-way split: If trucker payout exists, release transport cost to trucker.
+        //     Stable per-escrow ref so Telebirr dedupes the trucker leg on retry.
         var truckerPayout = GetDecimalOrNull(escrowItem, "truckerPayout");
         string? truckerReleaseRef = null;
+        var truckerReleasePending = false;
         if (truckerPayout.HasValue && truckerPayout.Value > 0)
         {
             var truckerIdValue = GetStringOrNull(escrowItem, "truckerId") ?? "";
             var truckerRelease = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
             {
-                TransactionRef = $"{request.IdempotencyKey}:trucker",
+                TransactionRef = $"release:{request.EscrowId}:trucker",
                 HoldRef = holdRef,
                 FarmerPhone = truckerIdValue, // Real impl resolves phone from truckerId
                 Amount = truckerPayout.Value,
@@ -414,7 +548,14 @@ public sealed class EscrowService
                 await AppendAuditAsync(request.EscrowId, "trucker_release", currentStatus, currentStatus,
                     "system", truckerRelease.TelebirrRef);
             }
-            // Best-effort: trucker payment failure doesn't block farmer payment
+            else
+            {
+                // Do NOT silently swallow: audit the failure and mark the payout as owed so
+                // reconciliation/admin can retry. The farmer leg still succeeds (funds already moved).
+                truckerReleasePending = true;
+                await AppendAuditAsync(request.EscrowId, "trucker_release_failed", currentStatus, currentStatus,
+                    "system", metadata: truckerRelease.ErrorCode);
+            }
         }
 
         var now = DateTime.UtcNow.ToString("o");
@@ -428,9 +569,25 @@ public sealed class EscrowService
         };
         if (!string.IsNullOrEmpty(truckerReleaseRef))
             releaseFields["truckerTelebirrRef"] = truckerReleaseRef;
+        if (truckerReleasePending)
+            releaseFields["truckerPayoutPending"] = true;
 
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
-            releaseFields);
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
+                releaseFields);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // A concurrent release already advanced this escrow. Telebirr dedupes on the stable
+            // transactionRef, so no double-payout occurred — return the settled state.
+            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
+            var settled = await _escrowRepo.GetByIdAsync(request.EscrowId);
+            return settled != null
+                ? EscrowResult<ReleaseEscrowResponse>.Duplicate(BuildReleaseResponse(settled))
+                : EscrowResult<ReleaseEscrowResponse>.Failure(
+                    422, "ESCROW_INVALID_TRANSITION", "Escrow already released.");
+        }
 
         // 7. Audit log
         await AppendAuditAsync(request.EscrowId, "release", currentStatus, "released",
@@ -472,6 +629,13 @@ public sealed class EscrowService
     public async Task<EscrowResult<DisputeEscrowResponse>> DisputeAsync(
         DisputeEscrowRequest request, string authenticatedUserId)
     {
+        // 0. Validate idempotency key format → ESCROW_003
+        if (!IsValidIdempotencyKey(request.IdempotencyKey))
+        {
+            return EscrowResult<DisputeEscrowResponse>.Failure(
+                400, "ESCROW_003", "Invalid idempotency key format.", "idempotencyKey");
+        }
+
         // 1. Check idempotency
         var existing = await _idempotencyRepo.GetAsync(request.IdempotencyKey);
         if (existing != null)
@@ -654,11 +818,27 @@ public sealed class EscrowService
     public async Task<EscrowResult<RefundEscrowResponse>> RefundAsync(
         RefundEscrowRequest request, string authenticatedUserId, string? role = null)
     {
-        // 1. Authorization: only system or admin can refund
+        // 1. Authorization: only system or admin can refund → ESCROW_021
         if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
-                403, "ESCROW_006", "Only system or admin can refund escrow funds.");
+                403, "ESCROW_021", "Only system or admin can refund escrow funds.");
+        }
+
+        // 1b. Validate idempotency key format → ESCROW_003
+        if (!IsValidIdempotencyKey(request.IdempotencyKey))
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(
+                400, "ESCROW_003", "Invalid idempotency key format.", "idempotencyKey");
+        }
+
+        // 1c. Validate trigger enum
+        if (!ValidRefundTriggers.Contains(request.Trigger))
+        {
+            return EscrowResult<RefundEscrowResponse>.Failure(
+                400, "ESCROW_VALIDATION",
+                $"Invalid refund trigger. Must be one of: {string.Join(", ", ValidRefundTriggers)}",
+                "trigger");
         }
 
         // 2. Check idempotency
@@ -708,10 +888,11 @@ public sealed class EscrowService
                 409, "ESCROW_003", "Duplicate request detected. Processing in progress.", "idempotencyKey");
         }
 
-        // 4. Call Telebirr RefundFunds with full amount (no commission deducted)
+        // 4. Call Telebirr RefundFunds with full amount (no commission deducted).
+        //    Stable per-escrow ref so Telebirr dedupes retries/concurrent refunds (C1/C2).
         var refundResponse = await _telebirrGateway.RefundFundsAsync(new RefundFundsRequest
         {
-            TransactionRef = request.IdempotencyKey,
+            TransactionRef = $"refund:{request.EscrowId}",
             HoldRef = holdRef,
             BuyerPhone = GetString(escrowItem, "buyerId"), // Real impl resolves phone
             Amount = amount
@@ -733,13 +914,27 @@ public sealed class EscrowService
         var now = DateTime.UtcNow.ToString("o");
 
         // 6. Transition to "refunded" (optimistic concurrency on current status)
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
-            new Dictionary<string, object>
-            {
-                { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
-                { "refundedAt", now },
-                { "version", currentVersion + 1 }
-            });
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "refunded", currentStatus,
+                new Dictionary<string, object>
+                {
+                    { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
+                    { "refundedAt", now },
+                    { "version", currentVersion + 1 }
+                });
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // A concurrent refund/release already advanced this escrow. Telebirr dedupes on the
+            // stable transactionRef, so no double-movement occurred — return the settled state.
+            await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
+            var settled = await _escrowRepo.GetByIdAsync(request.EscrowId);
+            return settled != null
+                ? EscrowResult<RefundEscrowResponse>.Duplicate(BuildRefundResponse(settled))
+                : EscrowResult<RefundEscrowResponse>.Failure(
+                    422, "ESCROW_INVALID_TRANSITION", "Escrow already settled.");
+        }
 
         // 6. Audit log
         await AppendAuditAsync(request.EscrowId, "refund", currentStatus, "refunded",
@@ -1121,6 +1316,10 @@ public sealed class EscrowService
     // ──────────────────────────────────────────────
     // Validation helpers
     // ──────────────────────────────────────────────
+
+    /// <summary>Round a monetary amount to 2 decimal places (santim), away from zero.</summary>
+    private static decimal RoundMoney(decimal value)
+        => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
     private static bool IsValidIdempotencyKey(string key)
     {
