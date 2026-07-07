@@ -30,6 +30,24 @@ public interface IEscrowRepository
     Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null);
 
     /// <summary>
+    /// Atomically claim settlement (release or refund) for an escrow BEFORE any
+    /// irreversible Telebirr call. Sets a <c>settlementLock</c> attribute conditional
+    /// on no lock already existing AND the escrow being in a settleable state
+    /// (escrowed/disputed). Returns false if another settlement already holds the
+    /// lock or the escrow is no longer settleable — in which case the caller MUST NOT
+    /// call Telebirr. This is the mutual-exclusion guard that prevents a release and a
+    /// refund (or two releases) from both moving funds for the same escrow.
+    /// </summary>
+    /// <param name="op">The operation claiming the lock ("release" or "refund").</param>
+    Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op);
+
+    /// <summary>
+    /// Release a previously-acquired settlement lock so a transient failure can be
+    /// retried. Called after a failed Telebirr call. No-op if the lock is absent.
+    /// </summary>
+    Task ReleaseSettlementLockAsync(string escrowId, string createdAt);
+
+    /// <summary>
     /// Get an escrow by its associated delivery ID using the DeliveryIndex GSI.
     /// </summary>
     Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId);
