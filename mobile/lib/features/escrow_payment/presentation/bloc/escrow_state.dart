@@ -54,10 +54,16 @@ class PaymentHistoryLoaded extends EscrowState {
 class PaymentInitiated extends EscrowState {
   final Payment payment;
 
-  const PaymentInitiated({required this.payment});
+  /// Async gateways only: the Telebirr H5 checkout URL to open so the buyer can
+  /// pay. Present when [payment] status is `initiated` (real gateway); null for
+  /// the mock gateway (already `escrowed`). Consumed once by the initiate
+  /// screen's listener to launch Telebirr, then the buyer is sent to polling.
+  final String? toPayUrl;
+
+  const PaymentInitiated({required this.payment, this.toPayUrl});
 
   @override
-  List<Object?> get props => [payment];
+  List<Object?> get props => [payment, toPayUrl];
 }
 
 /// Payment intent queued (offline, will sync later).

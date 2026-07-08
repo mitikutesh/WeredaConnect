@@ -45,18 +45,35 @@ class InitiatePaymentScreen extends StatelessWidget {
     return BlocListener<EscrowBloc, EscrowState>(
       listener: (context, state) {
         if (state is PaymentInitiated) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l10n.escrowPaymentSuccess),
-            ),
-          );
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute<void>(
-              builder: (_) => EscrowStatusScreen(
-                escrowId: state.payment.paymentId,
+          final toPayUrl = state.toPayUrl;
+          if (toPayUrl != null && toPayUrl.isNotEmpty) {
+            // Async (real Telebirr) gateway: hand off to the status screen,
+            // which opens the Telebirr H5 checkout and polls GET /escrow/{id}
+            // until the webhook flips it to `escrowed`.
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute<void>(
+                builder: (_) => EscrowStatusScreen(
+                  escrowId: state.payment.paymentId,
+                  awaitingPayment: true,
+                  toPayUrl: toPayUrl,
+                ),
               ),
-            ),
-          );
+            );
+          } else {
+            // Mock/sync gateway: funds already held (`escrowed`).
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.escrowPaymentSuccess),
+              ),
+            );
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute<void>(
+                builder: (_) => EscrowStatusScreen(
+                  escrowId: state.payment.paymentId,
+                ),
+              ),
+            );
+          }
         } else if (state is PaymentQueued) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

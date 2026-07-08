@@ -948,6 +948,24 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowPaymentSuccess => 'Kaffaltiin milkaa\'inaan jalqabame.';
 
   @override
+  String get escrowPaymentOpening => 'Telebirr banaa jira…';
+
+  @override
+  String get escrowPaymentOpenFailed =>
+      'Fuula kaffaltii banuun hin danda\'amne. Telebirr ykn barbaadaan (browser) akka jiraatu mirkaneeffadhu.';
+
+  @override
+  String get escrowPaymentConfirmed =>
+      'Kaffaltiin mirkanaa\'e. Maallaqni nagaan qabameera.';
+
+  @override
+  String get escrowAwaitingPayment =>
+      'Kaffaltiin Telebirr keessan akka mirkanaa\'u eegaa jira…';
+
+  @override
+  String get escrowOpenPaymentAgain => 'Kaffaltii Telebirr bani';
+
+  @override
   String get escrowDeliveryLabel => 'Geejjiba';
 
   @override

@@ -46,7 +46,12 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
         amount: event.amount,
       );
       if (result is repo.EscrowSuccess) {
-        emit(PaymentInitiated(payment: result.payment));
+        emit(
+          PaymentInitiated(
+            payment: result.payment,
+            toPayUrl: result.toPayUrl,
+          ),
+        );
       } else if (result is repo.EscrowQueued) {
         emit(PaymentQueued(intent: result.intent));
       } else if (result is repo.EscrowError) {

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
@@ -163,6 +164,55 @@ void main() {
           .thenThrow(const ServerException('Server error', 500));
 
       expect(await repo.refreshEscrow('esc-500'), isNull);
+    });
+  });
+
+  group('WebEscrowRepository.initiatePayment', () {
+    test('surfaces toPayUrl from an async (real) gateway response', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          ...escrowDto(escrowId: 'esc-async'),
+          'status': 'initiated',
+          'toPayUrl': 'https://pay.example/paygate?prepay_id=XYZ',
+        },
+      );
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect(result, isA<EscrowSuccess>());
+      expect(
+        (result as EscrowSuccess).toPayUrl,
+        'https://pay.example/paygate?prepay_id=XYZ',
+      );
+    });
+
+    test('toPayUrl is null for a mock/sync gateway response', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((_) async => escrowDto());
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect(result, isA<EscrowSuccess>());
+      expect((result as EscrowSuccess).toPayUrl, isNull);
     });
   });
 }

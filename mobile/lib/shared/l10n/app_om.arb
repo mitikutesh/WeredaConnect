@@ -1236,6 +1236,26 @@
   "@escrowPaymentSuccess": {
     "description": "Success message after payment is initiated"
   },
+  "escrowPaymentOpening": "Telebirr banaa jira…",
+  "@escrowPaymentOpening": {
+    "description": "Shown when the Telebirr payment page is being opened"
+  },
+  "escrowPaymentOpenFailed": "Fuula kaffaltii banuun hin danda'amne. Telebirr ykn barbaadaan (browser) akka jiraatu mirkaneeffadhu.",
+  "@escrowPaymentOpenFailed": {
+    "description": "Shown when the Telebirr H5 checkout URL could not be launched"
+  },
+  "escrowPaymentConfirmed": "Kaffaltiin mirkanaa'e. Maallaqni nagaan qabameera.",
+  "@escrowPaymentConfirmed": {
+    "description": "Shown when an awaited Telebirr payment is confirmed (escrowed)"
+  },
+  "escrowAwaitingPayment": "Kaffaltiin Telebirr keessan akka mirkanaa'u eegaa jira…",
+  "@escrowAwaitingPayment": {
+    "description": "Banner shown while polling for async Telebirr payment confirmation"
+  },
+  "escrowOpenPaymentAgain": "Kaffaltii Telebirr bani",
+  "@escrowOpenPaymentAgain": {
+    "description": "Button to re-open the Telebirr checkout while awaiting payment"
+  },
 
   "escrowDeliveryLabel": "Geejjiba",
   "@escrowDeliveryLabel": {

@@ -1239,6 +1239,26 @@
   "@escrowPaymentSuccess": {
     "description": "Success message after payment is initiated"
   },
+  "escrowPaymentOpening": "Opening Telebirr…",
+  "@escrowPaymentOpening": {
+    "description": "Shown when the Telebirr payment page is being opened"
+  },
+  "escrowPaymentOpenFailed": "Could not open the payment page. Make sure Telebirr or a browser is installed.",
+  "@escrowPaymentOpenFailed": {
+    "description": "Shown when the Telebirr H5 checkout URL could not be launched"
+  },
+  "escrowPaymentConfirmed": "Payment confirmed. Funds are held safely.",
+  "@escrowPaymentConfirmed": {
+    "description": "Shown when an awaited Telebirr payment is confirmed (escrowed)"
+  },
+  "escrowAwaitingPayment": "Waiting for your Telebirr payment to be confirmed…",
+  "@escrowAwaitingPayment": {
+    "description": "Banner shown while polling for async Telebirr payment confirmation"
+  },
+  "escrowOpenPaymentAgain": "Open Telebirr payment",
+  "@escrowOpenPaymentAgain": {
+    "description": "Button to re-open the Telebirr checkout while awaiting payment"
+  },
 
   "escrowDeliveryLabel": "Delivery",
   "@escrowDeliveryLabel": {

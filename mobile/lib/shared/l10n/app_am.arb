@@ -1242,6 +1242,26 @@
   "@escrowPaymentSuccess": {
     "description": "Success message after payment is initiated"
   },
+  "escrowPaymentOpening": "ቴሌብር በመክፈት ላይ…",
+  "@escrowPaymentOpening": {
+    "description": "Shown when the Telebirr payment page is being opened"
+  },
+  "escrowPaymentOpenFailed": "የክፍያ ገጹን መክፈት አልተቻለም። ቴሌብር ወይም አሳሽ መጫኑን ያረጋግጡ።",
+  "@escrowPaymentOpenFailed": {
+    "description": "Shown when the Telebirr H5 checkout URL could not be launched"
+  },
+  "escrowPaymentConfirmed": "ክፍያ ተረጋግጧል። ገንዘቡ በአስተማማኝ ሁኔታ ተይዟል።",
+  "@escrowPaymentConfirmed": {
+    "description": "Shown when an awaited Telebirr payment is confirmed (escrowed)"
+  },
+  "escrowAwaitingPayment": "የቴሌብር ክፍያዎ እስኪረጋገጥ በመጠበቅ ላይ…",
+  "@escrowAwaitingPayment": {
+    "description": "Banner shown while polling for async Telebirr payment confirmation"
+  },
+  "escrowOpenPaymentAgain": "የቴሌብር ክፍያ ክፈት",
+  "@escrowOpenPaymentAgain": {
+    "description": "Button to re-open the Telebirr checkout while awaiting payment"
+  },
   "escrowDeliveryLabel": "ማድረሻ",
   "@escrowDeliveryLabel": {
     "description": "Label for delivery reference on escrow status screen"

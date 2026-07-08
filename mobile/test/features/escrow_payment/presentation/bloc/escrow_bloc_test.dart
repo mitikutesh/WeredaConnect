@@ -179,6 +179,59 @@ void main() {
           (states[1] as PaymentInitiated).payment.paymentId,
           'esc-001',
         );
+        // Mock/sync gateway: no toPayUrl.
+        expect((states[1] as PaymentInitiated).toPayUrl, isNull);
+
+        await subscription.cancel();
+        await bloc.close();
+      });
+
+      test('surfaces toPayUrl on async gateway (status initiated)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-002',
+            'deliveryId': 'del-002',
+            'buyerId': 'buyer-001',
+            'farmerId': 'farmer-001',
+            'amount': 15000.0,
+            'commission': 375.0,
+            'farmerPayout': 14625.0,
+            'currency': 'ETB',
+            'status': 'initiated',
+            'createdAt': '2026-02-19T10:00:00Z',
+            'expiresAt': '2026-02-26T10:00:00Z',
+            'telebirrRef': 'PENDING-WEBHOOK-abc',
+            'toPayUrl': 'https://pay.example/paygate?prepay_id=XYZ',
+          },
+        );
+
+        final bloc = EscrowBloc(repository: repository);
+        final states = <EscrowState>[];
+        final subscription = bloc.stream.listen(states.add);
+
+        bloc.add(
+          const InitiatePayment(
+            deliveryId: 'del-002',
+            buyerId: 'buyer-001',
+            farmerId: 'farmer-001',
+            amount: 15000.0,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(states.length, 2);
+        expect(states[1], isA<PaymentInitiated>());
+        expect(
+          (states[1] as PaymentInitiated).toPayUrl,
+          'https://pay.example/paygate?prepay_id=XYZ',
+        );
 
         await subscription.cancel();
         await bloc.close();

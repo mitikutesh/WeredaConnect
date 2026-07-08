@@ -1864,6 +1864,36 @@ abstract class AppLocalizations {
   /// **'Payment initiated successfully.'**
   String get escrowPaymentSuccess;
 
+  /// Shown when the Telebirr payment page is being opened
+  ///
+  /// In en, this message translates to:
+  /// **'Opening Telebirr…'**
+  String get escrowPaymentOpening;
+
+  /// Shown when the Telebirr H5 checkout URL could not be launched
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the payment page. Make sure Telebirr or a browser is installed.'**
+  String get escrowPaymentOpenFailed;
+
+  /// Shown when an awaited Telebirr payment is confirmed (escrowed)
+  ///
+  /// In en, this message translates to:
+  /// **'Payment confirmed. Funds are held safely.'**
+  String get escrowPaymentConfirmed;
+
+  /// Banner shown while polling for async Telebirr payment confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for your Telebirr payment to be confirmed…'**
+  String get escrowAwaitingPayment;
+
+  /// Button to re-open the Telebirr checkout while awaiting payment
+  ///
+  /// In en, this message translates to:
+  /// **'Open Telebirr payment'**
+  String get escrowOpenPaymentAgain;
+
   /// Label for delivery reference on escrow status screen
   ///
   /// In en, this message translates to:

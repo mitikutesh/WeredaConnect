@@ -442,7 +442,9 @@ class EscrowRepository extends BaseEscrowRepository {
       // Cache the payment locally
       await _upsertPayment(payment);
 
-      return EscrowSuccess(payment);
+      // toPayUrl is transient (async gateway only) — surface it for the UI to
+      // open Telebirr; it is intentionally not persisted on [payment].
+      return EscrowSuccess(payment, toPayUrl: response.toPayUrl);
     } on NetworkException {
       // Network error — fall back to intent queue
       return _queueIntent(
