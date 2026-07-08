@@ -945,6 +945,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get escrowPaymentSuccess => 'Payment initiated successfully.';
 
   @override
+  String get escrowPaymentOpening => 'Opening Telebirr…';
+
+  @override
+  String get escrowPaymentOpenFailed =>
+      'Could not open the payment page. Make sure Telebirr or a browser is installed.';
+
+  @override
+  String get escrowPaymentConfirmed =>
+      'Payment confirmed. Funds are held safely.';
+
+  @override
+  String get escrowAwaitingPayment =>
+      'Waiting for your Telebirr payment to be confirmed…';
+
+  @override
+  String get escrowOpenPaymentAgain => 'Open Telebirr payment';
+
+  @override
   String get escrowDeliveryLabel => 'Delivery';
 
   @override

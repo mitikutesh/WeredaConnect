@@ -142,6 +142,29 @@ void main() {
       expect(response.telebirrRef, isNull);
       expect(response.message, isNull);
       expect(response.isDuplicate, false);
+      expect(response.toPayUrl, isNull);
+    });
+
+    test('fromJson parses toPayUrl for async (real gateway) initiate', () {
+      final json = <String, dynamic>{
+        'escrowId': 'esc-001',
+        'deliveryId': 'del-001',
+        'buyerId': 'buyer-001',
+        'farmerId': 'farmer-001',
+        'amount': 15000,
+        'commission': 375.0,
+        'farmerPayout': 14625.0,
+        'currency': 'ETB',
+        'status': 'initiated',
+        'createdAt': '2026-02-19T10:00:00Z',
+        'expiresAt': '2026-02-26T10:00:00Z',
+        'toPayUrl':
+            'https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?prepay_id=P1&sign=x',
+      };
+
+      final response = InitiateEscrowResponse.fromJson(json);
+      expect(response.status, 'initiated');
+      expect(response.toPayUrl, contains('prepay_id=P1'));
     });
 
     test('fromJson handles integer amounts', () {

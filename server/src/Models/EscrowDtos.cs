@@ -67,6 +67,13 @@ public sealed record InitiateEscrowResponse
     public required string ExpiresAt { get; init; }
     public string? Message { get; init; }
     public bool IsDuplicate { get; init; }
+
+    /// <summary>
+    /// Transient H5 checkout URL the buyer must open to complete payment (async
+    /// C2B). Present only when the real gateway is used and status is 'initiated';
+    /// null for the synchronous mock. NEVER persisted / never in GET /escrow/{id}.
+    /// </summary>
+    public string? ToPayUrl { get; init; }
 }
 
 /// <summary>
@@ -307,6 +314,14 @@ public sealed record HoldFundsResponse
     public string? TelebirrRef { get; init; }
     public string? ErrorCode { get; init; }
     public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// Transient H5 checkout URL for the buyer to complete payment (async C2B).
+    /// Set only by the real gateway. When present, escrow stays 'initiated' and
+    /// the webhook later transitions it to 'escrowed'. NEVER persisted (SEC-05).
+    /// Null for the synchronous mock gateway (behavior unchanged).
+    /// </summary>
+    public string? ToPayUrl { get; init; }
 }
 
 /// <summary>

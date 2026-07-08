@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
@@ -21,9 +25,19 @@ class EscrowStatusScreen extends StatefulWidget {
   final String? escrowId;
   final String? deliveryId;
 
+  /// When true (buyer just initiated an async Telebirr payment), auto-open the
+  /// Telebirr H5 checkout and poll GET /escrow/{id} until it leaves `initiated`.
+  final bool awaitingPayment;
+
+  /// Telebirr H5 checkout URL to (re)open while awaiting payment. Only set on
+  /// the buyer's post-initiate hand-off for a real (async) gateway.
+  final String? toPayUrl;
+
   const EscrowStatusScreen({
     this.escrowId,
     this.deliveryId,
+    this.awaitingPayment = false,
+    this.toPayUrl,
     super.key,
   }) : assert(escrowId != null || deliveryId != null);
 
@@ -31,14 +45,118 @@ class EscrowStatusScreen extends StatefulWidget {
   State<EscrowStatusScreen> createState() => _EscrowStatusScreenState();
 }
 
-class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
+class _EscrowStatusScreenState extends State<EscrowStatusScreen>
+    with WidgetsBindingObserver {
   static final _dateFormat = DateFormat.yMMMd().add_jm();
   static final _amountFormat = NumberFormat('#,##0.00', 'en_US');
+
+  // Poll the escrow while the buyer completes payment in Telebirr. The webhook
+  // (server-side) is the source of truth; polling just surfaces the flip to the
+  // buyer. Bounded so a never-completed payment doesn't poll forever.
+  static const _pollInterval = Duration(seconds: 4);
+  static const _pollMaxDuration = Duration(minutes: 3);
+
+  Timer? _pollTimer;
+  DateTime? _pollStartedAt;
+  StreamSubscription<Uri>? _linkSub;
+  // Set once the escrow leaves `initiated`; stops any further polling/refresh.
+  bool _resolved = false;
 
   @override
   void initState() {
     super.initState();
     _loadEscrow();
+    if (widget.awaitingPayment && widget.escrowId != null) {
+      // Open Telebirr after first frame (needs a valid context for messenger).
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _launchTelebirr());
+      _startPolling();
+      // Refresh immediately when the buyer returns — via the deep-link
+      // (weredaconnect://payment/complete) or app resume — instead of waiting
+      // for the next poll tick.
+      WidgetsBinding.instance.addObserver(this);
+      _linkSub = AppLinks().uriLinkStream.listen(
+        (uri) {
+          if (uri.scheme == 'weredaconnect' && uri.host == 'payment') {
+            _refreshNow();
+          }
+        },
+        onError: (Object _) {},
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _linkSub?.cancel();
+    if (widget.awaitingPayment) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Returning from the Telebirr browser/app — check status right away.
+    if (state == AppLifecycleState.resumed && widget.awaitingPayment) {
+      _refreshNow();
+    }
+  }
+
+  /// Fire an immediate silent refresh and make sure polling is running.
+  void _refreshNow() {
+    if (!mounted || _resolved || widget.escrowId == null) return;
+    if (_pollTimer == null || !_pollTimer!.isActive) {
+      _startPolling();
+    }
+    context.read<EscrowBloc>().add(RefreshEscrow(escrowId: widget.escrowId!));
+  }
+
+  void _startPolling() {
+    _pollStartedAt = DateTime.now();
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(_pollInterval, (timer) {
+      if (!mounted || _resolved || widget.escrowId == null) {
+        timer.cancel();
+        return;
+      }
+      // Give up after the cap; the buyer can still pull-to-refresh.
+      if (_pollStartedAt != null &&
+          DateTime.now().difference(_pollStartedAt!) > _pollMaxDuration) {
+        timer.cancel();
+        return;
+      }
+      context.read<EscrowBloc>().add(
+            RefreshEscrow(escrowId: widget.escrowId!),
+          );
+    });
+  }
+
+  /// Open the Telebirr H5 checkout in the external browser / Telebirr app.
+  Future<void> _launchTelebirr() async {
+    final url = widget.toPayUrl;
+    if (url == null || url.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final uri = Uri.tryParse(url);
+    var launched = false;
+    if (uri != null) {
+      try {
+        launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } on Object {
+        launched = false;
+      }
+    }
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          launched ? l10n.escrowPaymentOpening : l10n.escrowPaymentOpenFailed,
+        ),
+        backgroundColor: launched ? null : AppTheme.statusError,
+      ),
+    );
   }
 
   void _loadEscrow() {
@@ -67,7 +185,26 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
           ),
         ],
       ),
-      body: BlocBuilder<EscrowBloc, EscrowState>(
+      body: BlocConsumer<EscrowBloc, EscrowState>(
+        listener: (context, state) {
+          // Stop polling once the escrow resolves; confirm to the buyer when
+          // the payment is captured (initiated → escrowed).
+          if (state is EscrowDetailLoaded &&
+              state.payment.status != PaymentStatus.initiated) {
+            _pollTimer?.cancel();
+            _resolved = true;
+            if (widget.awaitingPayment &&
+                state.payment.status == PaymentStatus.escrowed) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    AppLocalizations.of(context)!.escrowPaymentConfirmed,
+                  ),
+                ),
+              );
+            }
+          }
+        },
         builder: (context, state) {
           if (state is EscrowLoading) {
             return const Center(child: CircularProgressIndicator());
@@ -136,6 +273,16 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Awaiting-payment banner: buyer initiated an async Telebirr payment
+            // and it hasn't been confirmed yet. Offers a re-open action.
+            if (widget.awaitingPayment &&
+                payment.status == PaymentStatus.initiated) ...[
+              _AwaitingPaymentBanner(
+                onOpenAgain: widget.toPayUrl != null ? _launchTelebirr : null,
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Status badge (large)
             EscrowStatusBadge(status: payment.status, large: true),
             const SizedBox(height: 24),
@@ -291,6 +438,61 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen> {
     if (payment.status != PaymentStatus.escrowed) return false;
     if (payment.disputeWindowEndsAt == null) return false;
     return DateTime.now().toUtc().isBefore(payment.disputeWindowEndsAt!);
+  }
+}
+
+/// Banner shown while the buyer's async Telebirr payment is pending
+/// confirmation. Shows a spinner + explanation and a re-open action.
+class _AwaitingPaymentBanner extends StatelessWidget {
+  final Future<void> Function()? onOpenAgain;
+
+  const _AwaitingPaymentBanner({this.onOpenAgain});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  l10n.escrowAwaitingPayment,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+          if (onOpenAgain != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () {
+                  onOpenAgain!();
+                },
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: Text(l10n.escrowOpenPaymentAgain),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 

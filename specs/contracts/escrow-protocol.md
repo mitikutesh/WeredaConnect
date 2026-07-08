@@ -149,11 +149,36 @@ Buyer initiates escrow payment for a delivery. Queues a Telebirr HoldFunds call.
   "currency": "ETB",
   "status": "initiated",
   "telebirrRef": null,
+  "toPayUrl": null,
   "createdAt": "2026-02-17T10:00:00Z",
   "expiresAt": "2026-02-24T10:00:00Z",
   "message": "Escrow initiated. Waiting for Telebirr confirmation."
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `toPayUrl` | string \| null | **Async gateways only.** The Telebirr H5 checkout URL the buyer opens to complete payment. Present when the real gateway is used; `null` for the synchronous mock (which returns `status: "escrowed"` directly). **Transient — never persisted; never returned by `GET /escrow/{id}`.** |
+
+#### Asynchronous Payment (real Telebirr gateway)
+
+With the real Telebirr gateway, fund collection is **asynchronous** (C2B H5 checkout):
+
+1. `POST /escrow/initiate` creates the escrow in `initiated` and returns a
+   `toPayUrl` (funds are **not** yet held; `telebirrRef` stays `null`).
+2. The client opens `toPayUrl`; the buyer pays in Telebirr.
+3. Telebirr calls the server webhook (`POST /webhooks/telebirr`), which — after
+   signature + timestamp + replay + amount checks — transitions the escrow
+   `initiated → escrowed` and stamps the real `telebirrRef`.
+4. The client polls `GET /escrow/{id}` until `status` is `escrowed`.
+
+If the buyer never completes payment, the escrow stays `initiated` and the
+reconciliation cron cancels it only **after** the Telebirr payment window
+(`timeout_express`, 120m) plus a safety buffer has elapsed — so a slow-but-valid
+payment is never stranded in `cancelled`.
+
+With the **mock** gateway (`TELEBIRR_MOCK=true`), `HoldFunds` is synchronous:
+`initiate` returns `status: "escrowed"` immediately and no `toPayUrl`.
 
 #### Idempotent Duplicate Response
 

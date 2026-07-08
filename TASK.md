@@ -113,7 +113,7 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 | ID | Task | Effort | Status |
 |----|------|--------|--------|
-| S3-01 | Replace mock Telebirr with real API | TBD | Pending |
+| S3-01 | Replace mock Telebirr with real API | TBD | 🟡 In progress — offline prep done on `feat/telebirr-sandbox-e2e` (gated `enableTelebirrLive` infra: VPC+t4g.nano NAT instance+EIP, public webhook route, creds secret; mobile opens `toPayUrl`+polls+deep-link). **Blocked** on: Telebirr RSA public key + source-IP allow-list confirmation (sandbox `196.188.120.3:38443` unreachable from abroad), server deploy (DEPLOY-01), and the payout/refund disbursement leg. Runbook: `.ai/telebirr-testing.md` Tier 3. |
 | S3-02 | Wire real Cognito auth | 1-2 weeks | Pending |
 | S3-03 | Reduce offline session TTL to 48h | 1h | Pending |
 | S3-04 | Implement Isar field-level encryption | **expanded — see Isar Hardening roadmap** | Pending |

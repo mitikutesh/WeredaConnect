@@ -14,7 +14,14 @@ sealed class EscrowResult {
 /// Server confirmed the escrow operation.
 class EscrowSuccess extends EscrowResult {
   final Payment payment;
-  const EscrowSuccess(this.payment);
+
+  /// Async gateways only: the Telebirr H5 checkout URL the buyer must open to
+  /// pay. Present when the escrow is `initiated` (real gateway); null for the
+  /// mock (which returns `escrowed` directly) and for non-initiate operations.
+  /// Transient — never persisted on [Payment].
+  final String? toPayUrl;
+
+  const EscrowSuccess(this.payment, {this.toPayUrl});
 }
 
 /// Payment intent queued locally (offline, will sync when online).

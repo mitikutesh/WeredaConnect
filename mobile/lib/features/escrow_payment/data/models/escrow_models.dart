@@ -88,6 +88,11 @@ class InitiateEscrowResponse {
   final String? message;
   final bool isDuplicate;
 
+  /// Async gateways only: the Telebirr H5 checkout URL the buyer opens to pay.
+  /// Present when [status] is `initiated` (real gateway); null for the mock
+  /// (which returns `escrowed` directly). Transient — never persisted.
+  final String? toPayUrl;
+
   const InitiateEscrowResponse({
     required this.escrowId,
     required this.deliveryId,
@@ -103,6 +108,7 @@ class InitiateEscrowResponse {
     this.telebirrRef,
     this.message,
     this.isDuplicate = false,
+    this.toPayUrl,
   });
 
   factory InitiateEscrowResponse.fromJson(Map<String, dynamic> json) {
@@ -121,6 +127,7 @@ class InitiateEscrowResponse {
       telebirrRef: json['telebirrRef'] as String?,
       message: json['message'] as String?,
       isDuplicate: json['isDuplicate'] as bool? ?? false,
+      toPayUrl: json['toPayUrl'] as String?,
     );
   }
 }

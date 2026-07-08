@@ -21,9 +21,10 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates fourteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    // 12 core tables + intents (buyer-intent matching) + device_tokens (push alerts).
-    template.resourceCountIs('AWS::DynamoDB::Table', 14);
+  test('creates fifteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    // 12 core tables + intents (buyer-intent matching) + device_tokens (push
+    // alerts) + match_events (matching telemetry).
+    template.resourceCountIs('AWS::DynamoDB::Table', 15);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -68,6 +69,7 @@ describe('ApiStack', () => {
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -121,6 +123,100 @@ describe('ApiStack', () => {
   });
 });
 
+describe('ApiStack (Telebirr live gateway, gated)', () => {
+  function buildTemplate(
+    enableTelebirrLive: boolean,
+    extra: Partial<typeof devConfig> = {},
+  ): Template {
+    const app = new cdk.App();
+    const dbStack = new DatabaseStack(app, 'TbDb', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: devConfig,
+    });
+    const apiStack = new ApiStack(app, 'TbApi', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: { ...devConfig, enableTelebirrLive, ...extra },
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    return Template.fromStack(apiStack);
+  }
+
+  test('OFF by default: no VPC / NAT / EIP provisioned', () => {
+    const t = buildTemplate(false);
+    t.resourceCountIs('AWS::EC2::VPC', 0);
+    t.resourceCountIs('AWS::EC2::Instance', 0);
+    t.resourceCountIs('AWS::EC2::EIP', 0);
+  });
+
+  test('ON: provisions VPC + t4g.nano NAT instance + EIP + 2 gateway endpoints', () => {
+    const t = buildTemplate(true);
+    t.resourceCountIs('AWS::EC2::VPC', 1);
+    t.resourceCountIs('AWS::EC2::EIP', 1);
+    t.resourceCountIs('AWS::EC2::EIPAssociation', 1);
+    // NAT INSTANCE (not a NAT Gateway — see the "Never NAT Gateways" rule).
+    t.resourceCountIs('AWS::EC2::NatGateway', 0);
+    t.hasResourceProperties('AWS::EC2::Instance', { InstanceType: 't4g.nano' });
+    t.resourceCountIs('AWS::EC2::VPCEndpoint', 2); // DynamoDB + S3 (free, off-NAT)
+  });
+
+  test('ON with a pre-allocated EIP: reuses it, creates no new EIP', () => {
+    const t = buildTemplate(true, {
+      telebirrNatEipAllocationId: 'eipalloc-0abc123def456',
+    });
+    t.resourceCountIs('AWS::EC2::EIP', 0);
+    t.hasResourceProperties('AWS::EC2::EIPAssociation', {
+      AllocationId: 'eipalloc-0abc123def456',
+    });
+  });
+
+  test('ON: creates the Telebirr credentials secret', () => {
+    buildTemplate(true).hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: '/wereda-connect-dev/telebirr/credentials',
+    });
+  });
+
+  test('ON: public webhook route has NO authorizer; escrow routes stay JWT', () => {
+    const t = buildTemplate(true);
+    t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /webhooks/telebirr',
+      AuthorizationType: 'NONE',
+      AuthorizerId: Match.absent(),
+    });
+    t.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /escrow/initiate',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('ON: escrow Lambda drops TELEBIRR_MOCK and gets the secret + notify URL', () => {
+    buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow',
+      Environment: {
+        Variables: Match.objectLike({
+          TELEBIRR_MOCK: Match.absent(),
+          TELEBIRR_SECRET_ARN: Match.anyValue(),
+          TELEBIRR_NOTIFY_URL: Match.anyValue(),
+        }),
+      },
+    });
+  });
+});
+
 describe('ApiStack (prod security)', () => {
   let template: Template;
 
@@ -147,6 +243,7 @@ describe('ApiStack (prod security)', () => {
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);

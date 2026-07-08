@@ -398,7 +398,37 @@ public sealed class EscrowService
             Description = $"WeredaConnect escrow for delivery {request.DeliveryId}"
         });
 
-        // 13. If hold succeeds: transition to "escrowed", audit log, update idempotency
+        // 12b. Asynchronous C2B (real gateway): a ToPayUrl means funds are NOT yet
+        //      confirmed — the buyer must complete payment in Telebirr, and the
+        //      webhook (TelebirrWebhookFunction) later transitions initiated→escrowed.
+        //      Keep status "initiated", leave the idempotency record "processing"
+        //      (reconciliation/expiry handle a webhook that never arrives), and return
+        //      the ToPayUrl transiently. The ToPayUrl is NEVER persisted (SEC-05).
+        if (holdResponse.Success && holdResponse.ToPayUrl != null)
+        {
+            await AppendAuditAsync(escrowId, "hold_pending", "initiated", "initiated",
+                "system", holdResponse.TelebirrRef);
+
+            return EscrowResult<InitiateEscrowResponse>.Success(new InitiateEscrowResponse
+            {
+                EscrowId = escrowId,
+                DeliveryId = request.DeliveryId,
+                BuyerId = request.BuyerId,
+                FarmerId = request.FarmerId,
+                Amount = request.Amount,
+                Commission = commission,
+                FarmerPayout = farmerPayout,
+                Currency = "ETB",
+                Status = "initiated",
+                TelebirrRef = holdResponse.TelebirrRef,
+                CreatedAt = createdAt,
+                ExpiresAt = expiresAt,
+                Message = "Escrow initiated. Complete payment in Telebirr to hold funds.",
+                ToPayUrl = holdResponse.ToPayUrl
+            });
+        }
+
+        // 13. If hold succeeds synchronously (mock): transition to "escrowed", audit, update idempotency
         if (holdResponse.Success)
         {
             var holdRef = holdResponse.TelebirrRef ?? "";

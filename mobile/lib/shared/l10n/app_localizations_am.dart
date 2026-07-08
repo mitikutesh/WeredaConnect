@@ -922,6 +922,22 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowPaymentSuccess => 'ክፍያ በተሳካ ሁኔታ ተጀምሯል።';
 
   @override
+  String get escrowPaymentOpening => 'ቴሌብር በመክፈት ላይ…';
+
+  @override
+  String get escrowPaymentOpenFailed =>
+      'የክፍያ ገጹን መክፈት አልተቻለም። ቴሌብር ወይም አሳሽ መጫኑን ያረጋግጡ።';
+
+  @override
+  String get escrowPaymentConfirmed => 'ክፍያ ተረጋግጧል። ገንዘቡ በአስተማማኝ ሁኔታ ተይዟል።';
+
+  @override
+  String get escrowAwaitingPayment => 'የቴሌብር ክፍያዎ እስኪረጋገጥ በመጠበቅ ላይ…';
+
+  @override
+  String get escrowOpenPaymentAgain => 'የቴሌብር ክፍያ ክፈት';
+
+  @override
   String get escrowDeliveryLabel => 'ማድረሻ';
 
   @override

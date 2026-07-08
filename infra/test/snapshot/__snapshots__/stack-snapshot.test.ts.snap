@@ -311,6 +311,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
         },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_IMAGE",
+        },
         "TableName": "wereda-connect-dev-crops",
       },
       "Type": "AWS::DynamoDB::Table",
@@ -502,6 +505,38 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-deliveries",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "DeviceTokensTableCECEFE14": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "endpointArn",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "endpointArn",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-device-tokens",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -714,6 +749,96 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "TableName": "wereda-connect-dev-fraud-signals",
         "TimeToLiveSpecification": {
           "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "IntentsTableEE106865": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "buyerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "intentId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "cropType",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "CropTypeStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "cropType",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "intentId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "buyerId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "intentId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-intents",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MatchEventsTableB471AF11": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "intentId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "eventId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "intentId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "eventId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-match-events",
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
           "Enabled": true,
         },
       },

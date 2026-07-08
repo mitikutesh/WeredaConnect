@@ -43,10 +43,16 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="weredaconnect" android:host="fayda-callback"/>
             </intent-filter>
+            <!-- Telebirr payment return (weredaconnect://payment/complete) -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="weredaconnect" android:host="payment"/>
+            </intent-filter>
         </activity>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 </manifest>
-

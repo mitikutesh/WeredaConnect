@@ -584,10 +584,9 @@ public class EscrowFunction
             return new MockTelebirrGateway();
         }
 
-        throw new InvalidOperationException(
-            "Real Telebirr gateway is not yet implemented. " +
-            "Set TELEBIRR_MOCK=true for development/staging environments. " +
-            "Do NOT deploy to production until a real ITelebirrGateway is wired here.");
+        // Real gateway: local sandbox simulator or the live Telebirr sandbox,
+        // selected purely by config (TELEBIRR_LOCAL_CREDENTIALS_FILE / TELEBIRR_SECRET_ARN).
+        return TelebirrGatewayFactory.CreateGateway(TelebirrGatewayFactory.LoadConfigOrThrow());
     }
 
     // ──────────────────────────────────────────────

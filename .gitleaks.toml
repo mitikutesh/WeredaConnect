@@ -23,6 +23,7 @@ paths = [
     '''__snapshots__/''',
     '''mobile/integration_test/.*_test\.dart''',  # Allow test fixtures in integration tests
     '''mobile/test/.*_test\.dart''',              # Allow test fixtures in unit tests
+    '''server/tests/.*Telebirr.*Tests\.cs''',     # Throwaway RSA test keypair for Telebirr signing interop tests
 ]
 
 # Allow test fixtures and documentation examples

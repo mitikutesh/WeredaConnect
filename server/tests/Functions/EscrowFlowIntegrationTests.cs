@@ -281,6 +281,50 @@ public class EscrowFlowIntegrationTests
     }
 
     // ──────────────────────────────────────────────
+    // Flow 1b: Async initiate (real gateway) — stays 'initiated' + returns toPayUrl
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Flow_AsyncInitiate_StaysInitiated_ReturnsToPayUrl_NotEscrowed()
+    {
+        // A real (async C2B) gateway returns a ToPayUrl; funds aren't held yet.
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>())
+            .Returns(new HoldFundsResponse
+            {
+                Success = true,
+                TelebirrRef = "PENDING-WEBHOOK-abc123",
+                ToPayUrl = "http://telebirr.local/payment/web/paygate?prepay_id=P1&sign=x",
+            });
+
+        var body = JsonSerializer.Serialize(new InitiateEscrowRequest
+        {
+            DeliveryId = DeliveryId,
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 5_000m,
+            Currency = "ETB",
+            IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800099"
+        }, AppJsonContext.Default.InitiateEscrowRequest);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", body, BuyerId), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        Assert.Equal("initiated", GetStr(response.Body, "status"));
+        Assert.Equal(
+            "http://telebirr.local/payment/web/paygate?prepay_id=P1&sign=x",
+            GetStr(response.Body, "toPayUrl"));
+
+        // Must NOT transition to escrowed here — the webhook does that later.
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "escrowed", Arg.Any<string?>(),
+            Arg.Any<Dictionary<string, object>?>());
+        // Idempotency stays 'processing' (not marked completed).
+        await _mockIdempotencyRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), "completed", Arg.Any<string?>());
+    }
+
+    // ──────────────────────────────────────────────
     // Flow 2: Initiate → Dispute (buyer) → Refund (buyer wins)
     // ──────────────────────────────────────────────
 
@@ -1193,7 +1237,10 @@ public class EscrowFlowIntegrationTests
     [Fact]
     public async Task Flow_CronReconciliation_NoTelebirrRef_CancelsEscrow()
     {
-        var staleCreatedAt = DateTime.UtcNow.AddHours(-1).ToString("o");
+        // Older than the no-ref grace window (150m): the buyer never completed the
+        // async payment, so reconciliation cancels it (within-window is covered by
+        // EscrowCronFunctionTests).
+        var staleCreatedAt = DateTime.UtcNow.AddHours(-3).ToString("o");
         var escrowId = "escrow-cron-recon-int-002";
 
         var stuckEscrow = new Dictionary<string, object>

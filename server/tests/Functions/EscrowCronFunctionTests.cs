@@ -364,9 +364,11 @@ public class EscrowCronFunctionTests
     }
 
     [Fact]
-    public async Task Reconciliation_StuckInitiated_NoTelebirrRef_CancelsEscrow()
+    public async Task Reconciliation_StuckInitiated_NoTelebirrRef_PastPaymentWindow_CancelsEscrow()
     {
-        var staleCreatedAt = DateTime.UtcNow.AddHours(-1).ToString("o");
+        // Older than the no-ref grace window (150m) with no ref → the buyer never
+        // completed payment, so it is safe to cancel.
+        var staleCreatedAt = DateTime.UtcNow.AddHours(-3).ToString("o");
         var escrow = MakeEscrowItem("escrow-recon-002", status: "initiated");
         escrow["createdAt"] = staleCreatedAt;
         // No telebirrRef → should be cancelled
@@ -382,6 +384,33 @@ public class EscrowCronFunctionTests
 
         await _mockEscrowRepo.Received(1).UpdateStatusAsync(
             "escrow-recon-002", staleCreatedAt, "cancelled", "initiated", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Reconciliation_StuckInitiated_NoTelebirrRef_WithinPaymentWindow_Skips()
+    {
+        // Async H5/C2B: a no-ref escrow inside the payment window (120m timeout) is
+        // simply awaiting the buyer's payment — the webhook will flip it to escrowed.
+        // Reconciliation must NOT cancel it: cancelling here and then receiving the
+        // webhook would strand a real payment in "cancelled" (webhook CAS fails).
+        var recentCreatedAt = DateTime.UtcNow.AddHours(-1).ToString("o"); // 60m < 150m grace
+        var escrow = MakeEscrowItem("escrow-recon-006", status: "initiated");
+        escrow["createdAt"] = recentCreatedAt;
+        // No telebirrRef (payment not completed yet).
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("initiated", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var request = MakeCronRequest("reconciliation");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"skipped\":\"1\"", response.Body);
+        Assert.Contains("\"reconciledToCancelled\":\"0\"", response.Body);
+
+        // Must NOT cancel — the buyer may still be paying.
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            "escrow-recon-006", Arg.Any<string>(), "cancelled", "initiated", Arg.Any<Dictionary<string, object>?>());
     }
 
     [Fact]

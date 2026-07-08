@@ -36,7 +36,12 @@ class WebEscrowRepository extends BaseEscrowRepository {
               '$buyerId:$deliveryId:initiate:${DateTime.now().toUtc().millisecondsSinceEpoch}',
         },
       );
-      return EscrowSuccess(_parsePayment(data));
+      // toPayUrl is transient (async gateway only); read it straight off the
+      // response so the UI can open Telebirr. Mirrors EscrowRepository.
+      return EscrowSuccess(
+        _parsePayment(data),
+        toPayUrl: data['toPayUrl'] as String?,
+      );
     } on Exception catch (e) {
       return EscrowError('ESCROW_CLIENT', e.toString());
     }
