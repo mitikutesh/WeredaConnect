@@ -137,34 +137,166 @@ component tests avoid this entirely.
 
 ## Tier 3 — Live developer.ethiotelebirr.et sandbox (needs registration)
 
-Same gateway code; only config differs.
+Same gateway code; only config + a gated infra flag differ. **All the AWS wiring
+is already built and gated OFF** behind `enableTelebirrLive` (default false), so
+dev/staging keep the mock at zero extra cost until you deliberately flip it.
 
-1. **Register** at <https://developer.ethiotelecom.et/> and obtain the merchant
-   sandbox credentials: `fabricAppId`, `appSecret`, `merchantAppId`,
-   `merchantCode`/`shortCode`, and **Telebirr's RSA public key**.
-2. **Generate our RSA keypair** and share the public key with Telebirr during
-   onboarding (used to verify our request signatures):
+### ⚠️ Hard prerequisite: network reachability (source-IP allow-list)
+
+Telebirr is **geo-restricted to Ethiopia**. The developer portal
+(`developer.ethiotelecom.et`) requires an **Ethiopian proxy/VPN** to even browse,
+and the sandbox gateway (`developerportal.ethiotelebirr.et` → `196.188.120.3:38443`)
+is **unreachable from a non-Ethiopian IP** — TCP to `:38443` times out (verified
+2026-07-07 from a European IP). This means:
+
+- You **cannot** run the live fabric-token/preOrder from your laptop, even with
+  valid credentials. Tier 2 (local simulator) is the only from-laptop live-code path.
+- **Your backend's OUTBOUND calls to Telebirr must exit through an Ethiopian
+  egress.** A registered AWS NAT IP in me-south-1/eu-north-1 is *not* Ethiopian,
+  so an allow-list alone likely won't pass the geo-fence. Two options:
+  1. **Ethiopian egress proxy (recommended, supported):** set `httpProxy` in the
+     credentials secret (or `TELEBIRR_HTTP_PROXY` env) to an Ethiopian
+     HTTP(S) proxy — `http[s]://[user:pass@]host:port`. The escrow/cron Lambdas
+     then route Telebirr calls through it so Telebirr sees an Ethiopian source IP.
+     The proxy must be publicly reachable from the Lambda (via the NAT) and exit
+     in Ethiopia (commercial residential ET proxy, or a squid/tinyproxy on an
+     Ethiopian VPS). Register the **proxy's** IP with Telebirr if they still
+     require an allow-list.
+  2. **Allow-list the NAT IP** — only if your Telebirr contact confirms they
+     allow-list foreign IPs (i.e. the restriction is a per-IP allow-list, not a
+     hard Ethiopia geo-fence). Then no proxy is needed.
+- The **inbound webhook is unaffected** — Telebirr POSTs to your public HTTPS
+  URL (outbound from Telebirr), which reaches any public endpoint regardless of
+  geo-fencing. Only your outbound calls need the Ethiopian egress.
+
+**Determine which path applies — `scripts/telebirr_reachability.sh`:** run it from
+your laptop (expect unreachable), from your Ethiopian VPN (reachable → geo-fenced,
+use `httpProxy`), or with `--proxy <candidate>` to validate an Ethiopian proxy
+before putting it in the secret. Exit 0 = reachable, 1 = not.
+
+### 📧 Onboarding request to send Telebirr (resolves both blockers)
+
+The one external step that code can't do: send this to your Telebirr merchant
+contact. Their answers resolve blocker #1 (their public key) and blocker #2 (the
+allow-list / geo-fence question) in one round-trip.
+
+> Subject: WeredaConnect (merchant 1658586294374402 / short code 200574) — sandbox integration questions
+>
+> Hello, we're integrating C2B H5 payments for the sandbox and need the following:
+>
+> 1. **Your RSA public key** for the sandbox, so we can verify your payment
+>    notification (webhook) signatures.
+> 2. **Source-IP policy for the payment gateway** (`developerportal.ethiotelebirr.et:38443`):
+>    can you **allow-list a specific non-Ethiopian server IP** (our cloud egress),
+>    or is the gateway reachable **only from Ethiopian networks**? If Ethiopia-only,
+>    please confirm so — we'll route via an Ethiopian egress.
+> 3. If you can allow-list: please allow-list our outbound IP **<EIP — from the
+>    allocate-address step>**.
+> 4. **The source IP(s) your notification service sends webhooks from**, so we can
+>    allow-list your callbacks.
+> 5. Confirmation of the exact **fabric-token and preOrder endpoint paths** and the
+>    **signature padding** (PKCS#1 vs PSS) the sandbox expects.
+>
+> Our merchant public key (for you to register) is attached.
+
+Attach the merchant public key (`openssl rsa -in merchant_private.pem -pubout`).
+Their answers → drop their public key + `signPadding` into the secret; set
+`telebirrAllowedIps`; and either register the NAT EIP (if #2 = allow-list) or set
+`httpProxy` to an Ethiopian egress (if #2 = Ethiopia-only).
+
+### What's already built (this branch)
+
+- **`enableTelebirrLive` flag** (`infra/lib/config/environments.ts`; also
+  `-c enableTelebirrLive=true` at deploy). When on, `infra/lib/stacks/api-stack.ts`
+  provisions:
+  - a **VPC + single t4g.nano NAT *instance* + Elastic IP** (NOT a NAT Gateway —
+    per the "Never NAT Gateways" rule) giving the escrow Lambdas a stable outbound
+    IP; free DynamoDB/S3 gateway endpoints keep that traffic off the NAT. The EIP
+    is emitted as the `TelebirrNatEipOut` stack output.
+  - the **public `POST /webhooks/telebirr` route** (no authorizer) + its Lambda.
+  - the **`/wereda-connect-<env>/telebirr/credentials` secret** (placeholder
+    values seeded so Lambdas cold-start; real values set out-of-band). Optional
+    `telebirrNatEipAllocationId` reuses a pre-allocated EIP so you can register a
+    stable IP with Telebirr before deploying.
+  - `TELEBIRR_SECRET_ARN` / `TELEBIRR_NOTIFY_URL` (+ optional `TELEBIRR_ALLOWED_IPS`)
+    on escrow + cron + webhook; `TELEBIRR_MOCK` is dropped so the real gateway runs.
+- **Server**: the gateway routes OUTBOUND Telebirr calls through an optional
+  **Ethiopian egress proxy** (`httpProxy` in the secret, or `TELEBIRR_HTTP_PROXY`
+  env) — `TelebirrGatewayFactory.BuildHandler` (AOT-safe `SocketsHttpHandler` +
+  `WebProxy`). Direct connection when unset.
+- **Mobile**: the buyer flow opens the returned `toPayUrl` (Telebirr H5) via
+  `url_launcher`, then polls `GET /escrow/{id}` (+ `weredaconnect://payment/complete`
+  deep link / app-resume) until the webhook flips it to `escrowed`.
+
+### Go-live sequence
+
+1. **Register** at <https://developer.ethiotelecom.et/> and obtain: `fabricAppId`,
+   `appSecret`, `merchantAppId`, `merchantCode`/`shortCode`, **Telebirr's RSA
+   public key**, and their **notification source IPs**. Share YOUR merchant public
+   key with Telebirr during onboarding — derive it from the private key:
    ```bash
-   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out merchant_private.pem
-   openssl rsa -pubout -in merchant_private.pem -out merchant_public.pem
+   openssl rsa -in merchant_private.pem -pubout -out merchant_public.pem
    ```
-3. **Store credentials** in AWS Secrets Manager (`/wereda-connect-<env>/telebirr-credentials`)
-   using the same JSON shape as `credentials.local.json`, with
-   `baseUrl=https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway`
-   and `webUrl=…/payment/web/paygate`.
-4. **Deploy infra**: add the webhook route `POST /webhooks/telebirr` (no
-   authorizer) + a NAT Gateway so the escrow Lambdas have a static outbound IP,
-   and register that IP with Telebirr (source-IP allow-list).
-5. **Set env**: `TELEBIRR_MOCK=false`, `TELEBIRR_SECRET_ARN=<arn>`,
-   `TELEBIRR_NOTIFY_URL=<api>/webhooks/telebirr`, `TELEBIRR_ALLOWED_IPS=<telebirr IPs>`.
-6. **Confirm the exact wire details** against the `Demo_Project` sample and the
-   portal docs before go-live — specifically the fabric-token/preOrder **paths**
-   and any field-casing quirks. The signing scheme (`SHA256WithRSA`, PSS default,
-   canonical string) matches the OgBek SDK; verify it against the sandbox and
-   flip `signPadding` if the portal requires PKCS1.
-7. Test payment with a Telebirr **test account** on the sandbox, confirm the
-   webhook flips the escrow to `escrowed`, then switch base URLs to
-   `https://app.ethiotelebirr.et:38443/…` for production.
+2. **Allocate the outbound Elastic IP FIRST and give it to Telebirr** — so the
+   allow-list request is in flight before you deploy (the sandbox is only
+   reachable from the allow-listed IP, see above):
+   ```bash
+   aws ec2 allocate-address --domain vpc --region <region>
+   #   → note "PublicIp" (give to Telebirr) and "AllocationId" (eipalloc-…)
+   ```
+   Then pin the NAT instance to that EIP at deploy via `telebirrNatEipAllocationId`
+   (env config) or `-c telebirrNatEipAllocationId=eipalloc-…`. If you skip this,
+   CDK allocates a fresh EIP on deploy and emits it as the `TelebirrNatEipOut`
+   output — but then you must register it with Telebirr *after* the deploy.
+3. **Deploy with the flag on** (staging first — me-south-1 is closest to Ethiopia;
+   any region works once the IP is allow-listed):
+   ```bash
+   cdk deploy WeredaConnect-<env>-API \
+     -c enableTelebirrLive=true \
+     -c telebirrNatEipAllocationId=eipalloc-…   # from step 2 (omit to auto-create)
+   ```
+   Provisions the VPC + t4g.nano NAT instance (bound to your EIP) + public webhook
+   route + credentials secret; escrow/cron switch off the mock. Confirm the
+   `TelebirrNatEipOut` output matches the IP you gave Telebirr.
+4. **Populate the secret** with real values (JSON shape below). Use `pkcs1` for
+   `signPadding` — real Telebirr's `SHA256WithRSA` is PKCS#1, not the code default PSS:
+   ```bash
+   aws secretsmanager put-secret-value \
+     --secret-id /wereda-connect-<env>/telebirr/credentials \
+     --secret-string file://telebirr-credentials.<env>.json \
+     --region <region>
+   ```
+   ```json
+   {
+     "fabricAppId": "...", "appSecret": "...", "merchantAppId": "...",
+     "merchantCode": "...", "shortCode": "...",
+     "baseUrl": "https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway",
+     "webUrl":  "https://developerportal.ethiotelebirr.et:38443/payment/web/paygate",
+     "merchantPrivateKeyPem": "<your merchant private key, PKCS#8 PEM, newlines as \\n>",
+     "telebirrPublicKeyPem":  "<Telebirr's sandbox public key, PEM, newlines as \\n>",
+     "returnUrl": "weredaconnect://payment/complete",
+     "signPadding": "pkcs1",
+     "httpProxy": "http://user:pass@et-proxy.example:8080"
+   }
+   ```
+   `httpProxy` is the **Ethiopian egress** for outbound Telebirr calls (see the
+   reachability note); leave it `""` if Telebirr allow-lists your NAT IP directly.
+   It can also be supplied via the `TELEBIRR_HTTP_PROXY` env var (env wins).
+   The `notify_url` is injected from `TELEBIRR_NOTIFY_URL` (the deployed webhook
+   URL), so it need not be in the secret. Set `TELEBIRR_ALLOWED_IPS` (env config
+   `telebirrAllowedIps`) to Telebirr's notification IPs to enable the webhook
+   IP allow-list (signature verification is enforced regardless).
+5. **Confirm the exact wire details** against the `Demo_Project` sample and the
+   portal docs — the fabric-token/preOrder **paths** and any field-casing quirks.
+   Flip `signPadding` back to `pss` only if the portal rejects PKCS#1.
+6. Pay with a Telebirr **test account**, confirm the webhook flips the escrow to
+   `escrowed`, then switch base URLs to `https://app.ethiotelebirr.et:38443/…`
+   for production.
+
+> **Still not built** (out of scope for this prep): the payout/refund
+> disbursement leg (release/refund return `SANDBOX-SIM-…` logged intents only —
+> `TelebirrSandboxGateway.cs:146-160`). Real B2B disbursement is required before
+> a farmer can actually be paid on a live payment.
 
 > `Demo_Project` lives under `~/Downloads`, which macOS privacy protection blocks
 > from the CLI. Copy it into the repo (or grant the terminal Full-Disk / Downloads
