@@ -34,6 +34,12 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullDeliveries() async => deliveries++;
 
+  int orders = 0;
+
+  @override
+  Future<void> pullOrders({required String userId, String? role}) async =>
+      orders++;
+
   @override
   Future<void> pullAll() async => all++;
 }

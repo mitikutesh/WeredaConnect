@@ -106,7 +106,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       return;
     }
 
-    _isSubmitting = true;
+    setState(() => _isSubmitting = true);
 
     context.read<CropListingBloc>().add(
           CreateCropListing(
@@ -134,12 +134,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     return BlocListener<CropListingBloc, CropListingState>(
       listener: (context, state) {
         if (state is CropListingCreated) {
+          _isSubmitting = false;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(l10n.listingSaved)),
           );
           Navigator.of(context).pop();
         } else if (state is CropListingError) {
-          _isSubmitting = false;
+          setState(() => _isSubmitting = false);
           if (state.message.contains('FRAUD_DUPLICATE_LISTING')) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -176,7 +177,12 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
               key: _formKey,
               child: BlocBuilder<CropListingBloc, CropListingState>(
                 builder: (context, state) {
-                  final isLoading = state is CropListingLoading;
+                  // Drive the Save button from THIS screen's own submission,
+                  // not the shared bloc's CropListingLoading: the still-mounted
+                  // "My Crops" list re-dispatches LoadCropListings on
+                  // CropListingCreated, which would otherwise push the shared
+                  // bloc back into Loading and re-gray this button around the pop.
+                  final isLoading = _isSubmitting;
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

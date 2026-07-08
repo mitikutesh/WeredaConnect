@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -13,8 +14,16 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 class OrderBloc extends Bloc<OrderEvent, OrderState> {
   final BaseOrderRepository _repository;
 
-  OrderBloc({required BaseOrderRepository repository})
-      : _repository = repository,
+  /// Mobile-only: pulls the user's orders from the server into Isar before the
+  /// offline-first local read below, so a farmer sees incoming buyer orders (the
+  /// sync engine only uploads own writes). Null on web (API-backed reads).
+  final MarketplaceSync? _marketplaceSync;
+
+  OrderBloc({
+    required BaseOrderRepository repository,
+    MarketplaceSync? marketplaceSync,
+  })  : _repository = repository,
+        _marketplaceSync = marketplaceSync,
         super(const OrderInitial()) {
     on<LoadUserOrders>(_onLoadUserOrders);
     on<FilterOrders>(_onFilterOrders);
@@ -32,6 +41,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
   ) async {
     emit(const OrderLoading());
     try {
+      await _refreshOrders(event.userId, event.role);
       final orders = await _repository.getOrdersByUser(
         event.userId,
         role: event.role,
@@ -48,6 +58,7 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
   ) async {
     emit(const OrderLoading());
     try {
+      await _refreshOrders(event.userId, event.role);
       final orders = await _repository.getOrdersByUser(
         event.userId,
         role: event.role,
@@ -56,6 +67,20 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// Pull the user's orders from the server into local Isar so a farmer sees
+  /// incoming buyer orders they didn't author. Best-effort: offline or a failed
+  /// pull falls back to whatever is already cached locally (offline-first).
+  /// No-op on web (null sync — the web repo reads the API directly).
+  Future<void> _refreshOrders(String userId, String? role) async {
+    final sync = _marketplaceSync;
+    if (sync == null) return;
+    try {
+      await sync.pullOrders(userId: userId, role: role);
+    } on Object {
+      // Offline-first: ignore and read the local cache.
     }
   }
 

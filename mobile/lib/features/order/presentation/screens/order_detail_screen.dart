@@ -384,12 +384,17 @@ class _OrderDetailBody extends StatelessWidget {
     }
 
     if (context.mounted) {
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute<void>(
           builder: (_) => CreateDeliveryScreen(listing: listing),
         ),
       );
+      // Reload so the newly created delivery (and the order's status change) is
+      // reflected instead of leaving the stale pre-delivery order on screen.
+      if (context.mounted) {
+        context.read<OrderBloc>().add(LoadOrderById(orderId: order.orderId));
+      }
     }
   }
 

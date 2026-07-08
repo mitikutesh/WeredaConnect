@@ -248,4 +248,41 @@ void main() {
       expect(find.text('Something went wrong'), findsNothing);
     });
   });
+
+  group('Save button decoupled from shared bloc loading', () {
+    Widget buildStreamWidget(StreamController<CropListingState> controller) {
+      when(() => cropListingBloc.stream).thenAnswer((_) => controller.stream);
+      return MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CreateCropListingScreen(gpsCaptureService: mockGpsService),
+        ),
+      );
+    }
+
+    testWidgets(
+        'stays enabled when the shared bloc emits CropListingLoading from '
+        'a sibling screen (not this submit)', (tester) async {
+      final controller = StreamController<CropListingState>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(buildStreamWidget(controller));
+      await tester.pumpAndSettle();
+
+      // The still-mounted "My Crops" list re-dispatches LoadCropListings after
+      // a create, driving the SHARED bloc into loading. This screen's Save
+      // button must NOT gray out — it tracks only its own submission.
+      controller.add(const CropListingLoading());
+      await tester.pump();
+
+      final save = find.widgetWithText(ElevatedButton, 'Save');
+      expect(save, findsOneWidget);
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNotNull);
+    });
+  });
 }

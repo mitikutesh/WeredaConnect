@@ -28,6 +28,15 @@ abstract class MarketplaceSync {
   /// deliveries the caller participates in (`GET /deliveries?mine=true`).
   Future<void> pullDeliveries();
 
+  /// Fetch the current user's orders from the server into local storage.
+  ///
+  /// An order is created by a buyer but must also appear on the farmer's device
+  /// (so they can accept/reject) and the assigned trucker's device. The offline
+  /// sync engine only *uploads* a device's own writes, so without this pull a
+  /// farmer never sees an incoming buyer order on mobile. Scoped to the caller's
+  /// role-appropriate id (`GET /orders?farmerId=`/`buyerId=`/`truckerId=`).
+  Future<void> pullOrders({required String userId, String? role});
+
   /// Convenience: pull both crops and trips.
   Future<void> pullAll();
 }

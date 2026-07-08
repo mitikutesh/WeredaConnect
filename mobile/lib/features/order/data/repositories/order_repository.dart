@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
@@ -172,38 +173,47 @@ class OrderRepository extends BaseOrderRepository {
       await _isar.orders.put(order);
     });
 
-    await _syncQueue.enqueue(
-      userId: buyerId,
-      entityType: 'order',
-      entityId: orderId,
-      action: 'create',
-      data: jsonEncode({
-        'orderId': orderId,
-        'listingId': listingId,
-        'buyerId': buyerId,
-        'farmerId': farmerId,
-        'buyerName': buyerName,
-        'farmerName': farmerName,
-        'cropType': cropType,
-        'quantity': quantity,
-        'pricePerUnit': pricePerUnit,
-        'totalPrice': totalPrice,
-        'cropCost': cropCost,
-        'transportCost': transportCost,
-        'commissionRate': effectiveCommissionRate,
-        'commissionAmount': commissionAmount,
-        'orderTotal': orderTotal,
-        'paymentMethod': 'cbe_transfer',
-        if (tripId != null) 'tripId': tripId,
-        if (truckerId != null) 'truckerId': truckerId,
-        if (truckerName != null) 'truckerName': truckerName,
-        'status': OrderStatus.created.name,
-        'createdAt': now.toIso8601String(),
-        'updatedAt': now.toIso8601String(),
-        'version': 1,
-      }),
-      operationId: _uuid.v4(),
-    );
+    // The local Isar write above is authoritative (offline-first). Enqueue
+    // failures (queue full / duplicate idempotency key) must NOT surface as a
+    // save failure — the order is persisted; the sync layer reconciles later.
+    try {
+      await _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'create',
+        data: jsonEncode({
+          'orderId': orderId,
+          'listingId': listingId,
+          'buyerId': buyerId,
+          'farmerId': farmerId,
+          'buyerName': buyerName,
+          'farmerName': farmerName,
+          'cropType': cropType,
+          'quantity': quantity,
+          'pricePerUnit': pricePerUnit,
+          'totalPrice': totalPrice,
+          'cropCost': cropCost,
+          'transportCost': transportCost,
+          'commissionRate': effectiveCommissionRate,
+          'commissionAmount': commissionAmount,
+          'orderTotal': orderTotal,
+          'paymentMethod': 'cbe_transfer',
+          if (tripId != null) 'tripId': tripId,
+          if (truckerId != null) 'truckerId': truckerId,
+          if (truckerName != null) 'truckerName': truckerName,
+          'status': OrderStatus.created.name,
+          'createdAt': now.toIso8601String(),
+          'updatedAt': now.toIso8601String(),
+          'version': 1,
+        }),
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint(
+        '[OrderRepository] order saved locally but sync enqueue failed: $e',
+      );
+    }
 
     return order;
   }

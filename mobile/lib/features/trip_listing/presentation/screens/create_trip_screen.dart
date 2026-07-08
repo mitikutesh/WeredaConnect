@@ -79,6 +79,11 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
       List.generate(_stepCount, (_) => GlobalKey<FormState>());
   int _step = 0;
 
+  /// Guards against double-tap submission and drives the Save button's spinner
+  /// from THIS screen's own submit — not the shared bloc's TripListingLoading,
+  /// which the still-mounted "My Trips" list re-triggers on TripCreated.
+  bool _isSubmitting = false;
+
   final _truckerNameController = TextEditingController();
   final _truckerPhoneController = TextEditingController();
   final _vehiclePlateController = TextEditingController();
@@ -213,7 +218,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDepartureDate ?? now.add(const Duration(days: 1)),
-      firstDate: now,
+      // The repository rejects same-day departures (must be strictly future),
+      // so the earliest selectable date is tomorrow.
+      firstDate: DateUtils.dateOnly(now).add(const Duration(days: 1)),
       lastDate: now.add(const Duration(days: 30)),
     );
     if (picked != null) {
@@ -265,6 +272,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   }
 
   void _handleSave() {
+    if (_isSubmitting) return;
     final l10n = AppLocalizations.of(context)!;
 
     final authState = context.read<AuthBloc>().state;
@@ -281,6 +289,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     final normalizedPhone =
         normalizeEthiopianPhone(_truckerPhoneController.text.trim()) ??
             _truckerPhoneController.text.trim();
+    setState(() => _isSubmitting = true);
     context.read<TripListingBloc>().add(
           CreateTrip(
             truckerId: authState.userId,
@@ -307,11 +316,13 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     return BlocListener<TripListingBloc, TripListingState>(
       listener: (context, state) {
         if (state is TripCreated) {
+          _isSubmitting = false;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(l10n.tripCreatedSuccess)),
           );
           Navigator.of(context).pop();
         } else if (state is TripListingError) {
+          setState(() => _isSubmitting = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(localizeErrorCode(state.code, l10n)),

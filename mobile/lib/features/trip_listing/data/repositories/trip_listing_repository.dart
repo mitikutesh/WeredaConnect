@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
@@ -206,14 +208,24 @@ class TripListingRepository extends BaseTripListingRepository {
     }
     final data = jsonEncode(syncData);
 
-    await _syncQueue.enqueue(
-      userId: truckerId,
-      entityType: 'trip',
-      entityId: tripId,
-      action: 'create',
-      data: data,
-      operationId: _uuid.v4(),
-    );
+    // The local Isar write above is authoritative (offline-first). Enqueue
+    // failures (queue full / duplicate idempotency key) must NOT surface as a
+    // save failure — the trip is persisted; the sync layer reconciles later.
+    try {
+      await _syncQueue.enqueue(
+        userId: truckerId,
+        entityType: 'trip',
+        entityId: tripId,
+        action: 'create',
+        data: data,
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint(
+        '[TripListingRepository] trip saved locally but sync enqueue '
+        'failed: $e',
+      );
+    }
 
     return trip;
   }

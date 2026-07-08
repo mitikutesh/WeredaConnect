@@ -267,6 +267,7 @@ class WeredaConnectApp extends StatelessWidget {
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
               ),
+              marketplaceSync: marketplaceSync,
             ),
           ),
           BlocProvider<BuyerIntentBloc>(

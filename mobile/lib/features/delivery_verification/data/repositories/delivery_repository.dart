@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
@@ -247,14 +248,24 @@ class DeliveryRepository extends BaseDeliveryRepository {
       'version': 1,
     });
 
-    await _syncQueue.enqueue(
-      userId: truckerId,
-      entityType: 'delivery',
-      entityId: deliveryId,
-      action: 'create',
-      data: data,
-      operationId: _uuid.v4(),
-    );
+    // The local Isar write above is authoritative (offline-first). Enqueue
+    // failures (queue full / duplicate idempotency key) must NOT surface as a
+    // save failure — the delivery is persisted; the sync layer reconciles later.
+    try {
+      await _syncQueue.enqueue(
+        userId: truckerId,
+        entityType: 'delivery',
+        entityId: deliveryId,
+        action: 'create',
+        data: data,
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint(
+        '[DeliveryRepository] delivery saved locally but sync enqueue '
+        'failed: $e',
+      );
+    }
 
     await _updateListingStatus(listingId, ListingStatus.reserved, truckerId);
 
