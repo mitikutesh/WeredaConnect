@@ -25,12 +25,22 @@ public sealed class TelebirrConfig
     public List<string> AllowedSourceIps { get; init; } = new();
 
     /// <summary>
+    /// Optional outbound HTTP(S) proxy for the gateway's calls to Telebirr
+    /// (fabric-token + preOrder). Telebirr's sandbox is reachable only from an
+    /// Ethiopian egress, so from AWS the backend routes through an Ethiopian
+    /// proxy: `http[s]://[user:pass@]host:port`. Null/empty = direct connection.
+    /// Only affects OUTBOUND calls; the inbound webhook is unaffected.
+    /// </summary>
+    public string? HttpProxy { get; init; }
+
+    /// <summary>
     /// Parse the credentials JSON. <paramref name="notifyUrl"/> and
     /// <paramref name="allowedSourceIps"/> come from the deployment (env/params),
     /// not the credentials blob; pass overrides for local testing.
     /// </summary>
     public static TelebirrConfig FromJson(
-        string json, string? notifyUrl = null, IEnumerable<string>? allowedSourceIps = null)
+        string json, string? notifyUrl = null, IEnumerable<string>? allowedSourceIps = null,
+        string? httpProxy = null)
     {
         var d = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString)
             ?? throw new InvalidOperationException("Telebirr credentials JSON is empty/invalid.");
@@ -65,6 +75,11 @@ public sealed class TelebirrConfig
                 ?? throw new InvalidOperationException("Telebirr notifyUrl not provided (env/param or credentials)."),
             Padding = TelebirrSignatureService.ParsePadding(d.GetValueOrDefault("signPadding")),
             AllowedSourceIps = ips,
+            HttpProxy = FirstNonBlank(httpProxy, d.GetValueOrDefault("httpProxy")),
         };
     }
+
+    /// <summary>First non-blank of the candidates, or null. Env value wins over the blob.</summary>
+    private static string? FirstNonBlank(params string?[] candidates)
+        => candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c))?.Trim();
 }
