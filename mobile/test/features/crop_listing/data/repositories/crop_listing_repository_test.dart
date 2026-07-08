@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -215,11 +216,19 @@ void main() {
           .listingIdEqualTo(listing.listingId)
           .findFirst();
       expect(fromDb!.status, ListingStatus.expired);
+      expect(fromDb.version, 2);
 
       // Should have 2 sync ops: create + delete
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 2);
       expect(pending.last.action, 'delete');
+
+      // The delete op must carry the version the server still holds (1, the
+      // pre-increment value) — NOT the locally-bumped 2. Sending 2 fails the
+      // server's optimistic-concurrency check and the delete silently reverts.
+      final deleteData = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(deleteData['version'], 1);
+      expect(deleteData['status'], ListingStatus.expired.name);
     });
   });
 }

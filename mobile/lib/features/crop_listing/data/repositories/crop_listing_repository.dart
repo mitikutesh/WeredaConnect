@@ -191,10 +191,21 @@ class CropListingRepository extends BaseCropListingRepository {
 
     final now = DateTime.now().toUtc();
 
+    // The server's optimistic-concurrency check (sync-protocol.md) expects the
+    // version the client *had* before the change — the version the server still
+    // holds. Capture it before bumping and send THAT; the server applies the op
+    // when `clientVersion == serverVersion` and stores `clientVersion + 1`.
+    // Sending the already-incremented version instead guarantees a version
+    // conflict, after which the server-wins ConflictResolver reverts the local
+    // status, so the delete silently un-expires the listing.
+    final baseVersion = listing.version;
+
     await _isar.writeTxn(() async {
       listing.status = ListingStatus.expired;
       listing.updatedAt = now;
-      listing.version += 1;
+      // Bump to what the server will store on success, keeping the two in
+      // lockstep so any later transition sends the correct base version.
+      listing.version = baseVersion + 1;
       await _isar.cropListings.put(listing);
     });
 
@@ -207,7 +218,7 @@ class CropListingRepository extends BaseCropListingRepository {
         'listingId': listingId,
         'status': ListingStatus.expired.name,
         'updatedAt': now.toIso8601String(),
-        'version': listing.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
