@@ -21,10 +21,10 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates fifteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates sixteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core tables + intents (buyer-intent matching) + device_tokens (push
-    // alerts) + match_events (matching telemetry).
-    template.resourceCountIs('AWS::DynamoDB::Table', 15);
+    // alerts) + match_events (matching telemetry) + ratings (buyer ratings).
+    template.resourceCountIs('AWS::DynamoDB::Table', 16);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -70,6 +70,7 @@ describe('ApiStack', () => {
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -93,9 +94,10 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates nineteen Lambda functions on ARM64', () => {
-    // 16 core handlers + match (buyer intent), device-token, and crop-match-stream (push alerts).
-    template.resourceCountIs('AWS::Lambda::Function', 19);
+  test('creates twenty Lambda functions on ARM64', () => {
+    // 16 core handlers + match (buyer intent), device-token, crop-match-stream
+    // (push alerts), and ratings (buyer ratings).
+    template.resourceCountIs('AWS::Lambda::Function', 20);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -110,9 +112,10 @@ describe('ApiStack', () => {
     //                 /escrow/initiate, /escrow/release, /escrow/dispute, /escrow/refund, /escrow/{id}, /escrow/history,
     //                 /escrow/by-delivery/{deliveryId} (F-33),
     //                 /auth/forgot-password, /auth/reset-password,
-    //                 /match (buyer intent matching), /device-tokens (push alerts)
+    //                 /match (buyer intent matching), /device-tokens (push alerts),
+    //                 /ratings, /ratings/{id} (buyer ratings)
     // 15 admin routes: 12 GET + 3 POST
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 42);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 44);
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {
@@ -151,6 +154,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     return Template.fromStack(apiStack);
@@ -244,6 +248,7 @@ describe('ApiStack (prod security)', () => {
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);

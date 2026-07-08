@@ -24,7 +24,7 @@ void main() {
     ..pricePerUnit = 100
     ..totalPrice = 1000
     ..status = OrderStatus.created
-    ..createdAt = DateTime.utc(2026, 1, 1)
+    ..createdAt = DateTime.utc(2026)
     ..version = 1;
 
   group('OrderBloc order download', () {
@@ -119,13 +119,17 @@ class _FakeOrderRepository extends BaseOrderRepository {
   }
 
   @override
-  Future<List<Order>> getOrdersByFarmer(String farmerId,
-          {String? statusFilter}) =>
+  Future<List<Order>> getOrdersByFarmer(
+    String farmerId, {
+    String? statusFilter,
+  }) =>
       throw UnimplementedError();
 
   @override
-  Future<List<Order>> getOrdersByBuyer(String buyerId,
-          {String? statusFilter}) =>
+  Future<List<Order>> getOrdersByBuyer(
+    String buyerId, {
+    String? statusFilter,
+  }) =>
       throw UnimplementedError();
 
   @override
