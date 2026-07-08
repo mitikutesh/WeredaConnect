@@ -168,12 +168,16 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
 
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
+| `mine` | boolean | No | Return the caller's own deliveries across all statuses (resolves the buyer via ParticipantIndex) | `mine=true` |
+| `farmerId` | string | No | Return the farmer's deliveries (via FarmerIdCreatedAtIndex). **Must equal the authenticated user** or the request is rejected `403 DELIVERY_UNAUTHORIZED` | `farmerId=farmer-123` |
 | `tripId` | string | No | Filter by trip | `tripId=trip-101` |
 | `listingId` | string | No | Filter by crop listing | `listingId=crop-456` |
-| `status` | string | No | Filter by status | `status=pending` |
+| `status` | string | No | Filter by status (combined with `farmerId`/`tripId` as a filter; used as the index key when alone) | `status=pending` |
 | `role` | string | No | Filter by user's role in delivery (farmer, trucker, buyer) | `role=trucker` |
 | `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
 | `nextToken` | string | No | Pagination token from previous response | `nextToken=base64...` |
+
+> **Scoping note**: A farmer never authors a delivery (the trucker does) and is not the `ParticipantIndex` key (that is the buyer), so a farmer must scope with `farmerId=` to see their deliveries; `mine=true` resolves the buyer. Truckers currently author deliveries locally; a symmetric `truckerId=` scope (needing a `TruckerIdCreatedAtIndex`) is a follow-up.
 
 **Example Request**:
 ```
@@ -621,10 +625,18 @@ When connectivity is available:
   - Sort key: `createdAt`
   - Use case: Query all deliveries for a specific trip
 - **GSI: ParticipantIndex**:
-  - Partition key: `participantId` (composite: userId)
+  - Partition key: `participantId`
   - Sort key: `createdAt`
-  - Use case: Query all deliveries where user is farmer, trucker, or buyer
-  - Note: Each delivery creates 3 entries in this GSI (one per participant)
+  - Use case: Query the BUYER's deliveries. `participantId` is populated with the
+    delivery's `buyerId` at create (a single entry, not one per participant), so
+    this index resolves the buyer only.
+- **GSI: FarmerIdCreatedAtIndex**:
+  - Partition key: `farmerId`
+  - Sort key: `createdAt`
+  - Use case: Query the FARMER's deliveries. A farmer is not the `ParticipantIndex`
+    key and never authors the delivery, so this is the only way to list their own.
+  - Follow-up: a symmetric `TruckerIdCreatedAtIndex` is not yet added (DynamoDB
+    allows only one GSI addition per table update; truckers author locally today).
 
 ### Query Patterns
 
@@ -632,8 +644,8 @@ When connectivity is available:
 |-------|-----------|---------------|--------|
 | All pending deliveries | StatusCreatedAtIndex | PK=`pending` | -- |
 | Deliveries for a trip | TripIdIndex | PK=`trip-101` | -- |
-| My deliveries (as trucker) | ParticipantIndex | PK=`trucker-789` | `role=trucker` |
-| My deliveries (as farmer) | ParticipantIndex | PK=`farmer-123` | `role=farmer` |
+| My deliveries (as buyer) | ParticipantIndex | PK=`buyer-456` (`mine=true`) | -- |
+| My deliveries (as farmer) | FarmerIdCreatedAtIndex | PK=`farmer-123` (`farmerId=`) | optional `status` |
 | Single delivery by ID | Primary Key | PK=`del-101` | -- |
 | Disputed deliveries | StatusCreatedAtIndex | PK=`disputed` | -- |
 

@@ -150,12 +150,12 @@ class WebEscrowRepository extends BaseEscrowRepository {
     int limit = 20,
     String? nextToken,
   }) async {
+    // GET /escrow/history scopes by the caller's JWT + the `role` query param
+    // (see EscrowFunction.HandleHistoryAsync). It does NOT read farmerId/buyerId
+    // — sending those left role null, so the server defaulted to the buyer GSI
+    // and a farmer saw zero payouts. Send `role` to match the server + mobile.
     final params = <String, dynamic>{'limit': '$limit'};
-    if (roleFilter == 'farmer') {
-      params['farmerId'] = userId;
-    } else {
-      params['buyerId'] = userId;
-    }
+    if (roleFilter != null) params['role'] = roleFilter;
     if (statusFilter != null) params['status'] = statusFilter;
     if (nextToken != null) params['nextToken'] = nextToken;
 

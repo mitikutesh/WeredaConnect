@@ -83,7 +83,8 @@ public class DeliveryFunction
     /// <summary>
     /// GET /deliveries - Query deliveries with optional filters.
     /// Authentication required.
-    /// Query parameters: status, tripId, listingId, limit, nextToken
+    /// Query parameters: status, tripId, listingId, farmerId, mine, limit, nextToken
+    /// (farmerId must equal the authenticated user; mine=true resolves the buyer.)
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetDeliveriesAsync(
         APIGatewayProxyRequest request,
@@ -101,10 +102,12 @@ public class DeliveryFunction
         queryParams.TryGetValue("status", out var status);
         queryParams.TryGetValue("tripId", out var tripId);
         queryParams.TryGetValue("listingId", out var listingId);
+        queryParams.TryGetValue("farmerId", out var farmerId);
         // mine=true returns the caller's own deliveries across all statuses via the
-        // ParticipantIndex (keyed on buyerId). Used by the mobile pull so a buyer's
-        // device receives trucker-driven status changes. (Farmer/trucker pull is a
-        // follow-up: ParticipantIndex is single-keyed, so it resolves the buyer.)
+        // ParticipantIndex (keyed on buyerId). Used by the buyer's mobile pull so a
+        // buyer's device receives trucker-driven status changes. A farmer is not the
+        // ParticipantIndex key, so a farmer scopes with farmerId= (FarmerIdCreatedAtIndex)
+        // instead. (Trucker pull is a follow-up: no truckerId GSI yet.)
         var mine = queryParams.TryGetValue("mine", out var mineStr)
             && mineStr.Equals("true", StringComparison.OrdinalIgnoreCase);
 
@@ -134,10 +137,22 @@ public class DeliveryFunction
         {
             var userId = GetAuthenticatedUserId(request);
 
-            // Query deliveries: participant-scoped when mine=true, else by status/trip.
-            var queryResult = mine
-                ? await _deliveryRepo.QueryByParticipantAsync(userId ?? string.Empty, limit, exclusiveStartKey)
-                : await _deliveryRepo.QueryDeliveriesAsync(status, tripId, listingId, limit, exclusiveStartKey);
+            // Security: a farmer may only query their OWN deliveries (mirrors the
+            // orders endpoint). Reject a farmerId that isn't the authenticated user.
+            if (!string.IsNullOrEmpty(farmerId) && farmerId != userId)
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED",
+                    "You can only query your own deliveries.");
+            }
+
+            // Query deliveries: farmer-scoped when farmerId is given (a farmer is not
+            // the ParticipantIndex key), participant-scoped when mine=true, else by
+            // status/trip.
+            var queryResult = !string.IsNullOrEmpty(farmerId)
+                ? await _deliveryRepo.QueryByFarmerAsync(farmerId, status, limit, exclusiveStartKey)
+                : mine
+                    ? await _deliveryRepo.QueryByParticipantAsync(userId ?? string.Empty, limit, exclusiveStartKey)
+                    : await _deliveryRepo.QueryDeliveriesAsync(status, tripId, listingId, limit, exclusiveStartKey);
             var items = queryResult.Items;
             var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 

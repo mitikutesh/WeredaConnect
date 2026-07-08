@@ -119,6 +119,12 @@ class WebTripListingRepository extends BaseTripListingRepository {
     required String tripId,
     required String truckerId,
   }) async {
+    // The server applies a status transition only when the payload's `version`
+    // matches the version it currently holds (optimistic concurrency,
+    // sync-protocol.md). Web keeps no local copy, so read the current version
+    // first — omitting it defaults server-side to 0 and always conflicts,
+    // silently leaving the trip open.
+    final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
     await _api.post<dynamic>(
       '/sync',
@@ -133,7 +139,11 @@ class WebTripListingRepository extends BaseTripListingRepository {
             'entityId': tripId,
             'timestamp': now,
             'idempotencyKey': 'web_cancel_${tripId}_$now',
-            'data': {'status': 'cancelled', 'truckerId': truckerId},
+            'data': {
+              'status': 'cancelled',
+              'truckerId': truckerId,
+              'version': version,
+            },
           },
         ],
       },
@@ -145,6 +155,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
     required String tripId,
     required String truckerId,
   }) async {
+    final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
     await _api.post<dynamic>(
       '/sync',
@@ -159,7 +170,11 @@ class WebTripListingRepository extends BaseTripListingRepository {
             'entityId': tripId,
             'timestamp': now,
             'idempotencyKey': 'web_start_${tripId}_$now',
-            'data': {'status': 'inTransit', 'truckerId': truckerId},
+            'data': {
+              'status': 'inTransit',
+              'truckerId': truckerId,
+              'version': version,
+            },
           },
         ],
       },
@@ -175,6 +190,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
     required String tripId,
     required String truckerId,
   }) async {
+    final version = await _currentTripVersion(tripId);
     final now = DateTime.now().toUtc().toIso8601String();
     await _api.post<dynamic>(
       '/sync',
@@ -189,7 +205,11 @@ class WebTripListingRepository extends BaseTripListingRepository {
             'entityId': tripId,
             'timestamp': now,
             'idempotencyKey': 'web_deliver_${tripId}_$now',
-            'data': {'status': 'delivered', 'truckerId': truckerId},
+            'data': {
+              'status': 'delivered',
+              'truckerId': truckerId,
+              'version': version,
+            },
           },
         ],
       },
@@ -197,6 +217,14 @@ class WebTripListingRepository extends BaseTripListingRepository {
 
     final data = await _api.get<Map<String, dynamic>>('/trips/$tripId');
     return _parseSingleTrip(data);
+  }
+
+  /// Read a trip's current server version so status-transition syncs pass the
+  /// server's optimistic-concurrency check. Falls back to version 1 (the value
+  /// forced on create) if the field is missing.
+  Future<int> _currentTripVersion(String tripId) async {
+    final data = await _api.get<Map<String, dynamic>>('/trips/$tripId');
+    return _parseSingleTrip(data).version;
   }
 
   @override

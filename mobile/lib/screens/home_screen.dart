@@ -540,9 +540,17 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                         ),
                       ),
                       const Spacer(),
-                      // Cloud sync status icon (tappable)
-                      _SyncStatusIcon(isOnline: isOnline),
-                      const SizedBox(width: 14),
+                      // Cloud sync status icon (tappable). Web has no
+                      // SyncExecutor provided and no offline queue, so the icon
+                      // is meaningless there AND its initState read of
+                      // SyncExecutor throws ProviderNotFoundException — which
+                      // crashed the whole Home screen on a narrow (<600px) web
+                      // viewport, since the mobile layout is width- not
+                      // platform-selected. Omit it on web.
+                      if (!kIsWeb) ...[
+                        _SyncStatusIcon(isOnline: isOnline),
+                        const SizedBox(width: 14),
+                      ],
                       // Notification bell (functional)
                       _NotificationIcon(
                         userId: userId,
@@ -1605,16 +1613,14 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       final l10n = widget.l10n;
       final userId = widget.userId;
 
-      // Recent listings
-      final listings = userId.isNotEmpty
-          ? await isar.cropListings
-              .where()
-              .farmerIdEqualTo(userId)
-              .sortByCreatedAtDesc()
-              .limit(3)
-              .findAll()
+      // Recent listings — scoped to this farmer. Never fall back to an
+      // unscoped query: that would surface OTHER farmers' crops in the feed,
+      // violating the role-visibility rule (a farmer must not see others' crops).
+      final listings = userId.isEmpty
+          ? <CropListing>[]
           : await isar.cropListings
               .where()
+              .farmerIdEqualTo(userId)
               .sortByCreatedAtDesc()
               .limit(3)
               .findAll();
@@ -1628,20 +1634,22 @@ class _RecentActivityListState extends State<_RecentActivityList> {
         );
       }
 
-      // Recent deliveries
-      final deliveries =
-          await isar.deliverys.where().sortByCreatedAtDesc().limit(3).findAll();
-      final userDeliveries = userId.isNotEmpty
-          ? deliveries
-              .where(
-                (d) =>
-                    d.farmerId == userId ||
-                    d.buyerId == userId ||
-                    d.truckerId == userId,
-              )
-              .take(3)
-              .toList()
-          : deliveries;
+      // Recent deliveries — filter to this user's participation BEFORE the
+      // limit. The old code took the 3 globally-newest then filtered, so a
+      // device holding any newer non-participant rows would hide this user's
+      // own deliveries (the limit-before-filter bug).
+      final userDeliveries = userId.isEmpty
+          ? <Delivery>[]
+          : await isar.deliverys
+              .filter()
+              .farmerIdEqualTo(userId)
+              .or()
+              .buyerIdEqualTo(userId)
+              .or()
+              .truckerIdEqualTo(userId)
+              .sortByCreatedAtDesc()
+              .limit(3)
+              .findAll();
       for (final d in userDeliveries) {
         items.add(
           _ActivityItem(

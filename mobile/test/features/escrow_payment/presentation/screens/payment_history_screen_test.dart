@@ -201,8 +201,13 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pump();
 
+      // Must forward the caller's role so the server scopes to the farmer GSI
+      // (without it, the server defaults to the buyer query and the farmer sees
+      // zero payouts).
       verify(
-        () => escrowBloc.add(const LoadPaymentHistory(userId: 'farmer-001')),
+        () => escrowBloc.add(
+          const LoadPaymentHistory(userId: 'farmer-001', roleFilter: 'farmer'),
+        ),
       ).called(1);
     });
 
@@ -218,14 +223,15 @@ void main() {
       await tester.pumpAndSettle();
 
       // Find and tap the "Escrowed" chip (from status filter row)
-      // The status filter chips include: All, Escrowed, Released, Disputed, Refunded
-      // We can tap the second "All" to find the status filter "All" chip
+      // The status filter chips include: All, Escrowed, Released, Completed,
+      // Disputed, Refunded
       final allChips = find.byType(FilterChip);
       expect(allChips, findsWidgets);
 
-      // Count chips — status filter: All, Escrowed, Released, Disputed, Refunded = 5
+      // Count chips — status filter: All, Escrowed, Released, Completed,
+      // Disputed, Refunded = 6
       final chipCount = tester.widgetList(allChips).length;
-      expect(chipCount, 5);
+      expect(chipCount, 6);
     });
   });
 }

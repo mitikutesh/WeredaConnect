@@ -543,7 +543,9 @@ public class CropFunctionTests
             { "updatedAt", "2026-02-01T00:00:00Z" },
             { "version", "3" },
             { "description", "Organic teff" },
-            { "location", "Farm 123" }
+            { "location", "Farm 123" },
+            { "latitude", "8.54" },
+            { "longitude", "39.27" }
         };
 
         _mockCropRepo.GetByIdAsync("crop-001").Returns(crop);
@@ -557,6 +559,10 @@ public class CropFunctionTests
         Assert.Contains("\"farmerName\":\"Abebe Kebede\"", response.Body);
         Assert.Contains("\"quantityKg\":150", response.Body);
         Assert.Contains("\"version\":3", response.Body);
+        // GPS coordinates are surfaced so the web client can score true
+        // haversine distance (parity with the mobile on-device matcher).
+        Assert.Contains("\"latitude\":8.54", response.Body);
+        Assert.Contains("\"longitude\":39.27", response.Body);
     }
 
     [Fact]

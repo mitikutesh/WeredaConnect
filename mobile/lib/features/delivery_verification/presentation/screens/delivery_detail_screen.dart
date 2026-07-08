@@ -88,7 +88,11 @@ class DeliveryDetailScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            l10n.deliveryIdLabel(delivery.deliveryId.substring(0, 8)),
+            l10n.deliveryIdLabel(
+              delivery.deliveryId.length > 8
+                  ? delivery.deliveryId.substring(0, 8)
+                  : delivery.deliveryId,
+            ),
           ),
           elevation: 0,
         ),

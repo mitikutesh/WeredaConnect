@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
@@ -66,6 +67,26 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
             statusFilter: status,
           ),
         );
+  }
+
+  /// Opens the delivery detail and reloads the list (preserving the active
+  /// filter) on return. The detail screen mutates the shared app-root
+  /// DeliveryBloc (mark-in-transit / confirm / cancel / dispute) and the tab
+  /// has no BlocListener, so without this the list was left showing the
+  /// detail's terminal/one-trip state — blank or wrongly narrowed — until a
+  /// manual refresh.
+  Future<void> _openDeliveryDetail(Delivery delivery, String userId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => DeliveryDetailScreen(
+          delivery: delivery,
+          currentUserId: userId,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _applyFilter(_selectedStatus);
   }
 
   @override
@@ -259,17 +280,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                   return DeliveryCard(
                     delivery: delivery,
                     currentUserId: userId,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => DeliveryDetailScreen(
-                            delivery: delivery,
-                            currentUserId: userId,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => _openDeliveryDetail(delivery, userId),
                   );
                 },
               ),

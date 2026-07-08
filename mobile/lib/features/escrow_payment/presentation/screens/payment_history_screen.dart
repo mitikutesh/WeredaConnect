@@ -38,12 +38,23 @@ class PaymentHistoryScreen extends StatefulWidget {
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   String? _statusFilter;
 
+  /// The caller's role, forwarded to the server as `?role=`. Without it the
+  /// server's history query defaults to the BUYER GSI, so a farmer/trucker saw
+  /// zero payouts. Mirrors OrdersTabScreen's `_userRole` plumbing.
+  String? _roleFilter;
+
   @override
   void initState() {
     super.initState();
-    final userId = _getUserId();
-    if (userId != null) {
-      context.read<EscrowBloc>().add(LoadPaymentHistory(userId: userId));
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      _roleFilter = authState.role.name;
+      context.read<EscrowBloc>().add(
+            LoadPaymentHistory(
+              userId: authState.userId,
+              roleFilter: _roleFilter,
+            ),
+          );
     }
   }
 
@@ -73,6 +84,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                   LoadPaymentHistory(
                     userId: userId,
                     statusFilter: _statusFilter,
+                    roleFilter: _roleFilter,
                   ),
                 );
           }
@@ -129,6 +141,8 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                                   context.read<EscrowBloc>().add(
                                         LoadPaymentHistory(
                                           userId: authState.userId,
+                                          statusFilter: _statusFilter,
+                                          roleFilter: _roleFilter,
                                         ),
                                       );
                                 }
@@ -159,6 +173,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                 return _HistoryContent(
                   state: state,
                   statusFilter: _statusFilter,
+                  roleFilter: _roleFilter,
                   onCancelIntent: _showCancelConfirmation,
                 );
               },
@@ -184,6 +199,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       (status: null, label: l10n.escrowFilterAll),
       (status: 'escrowed', label: l10n.escrowStatusEscrowed),
       (status: 'released', label: l10n.escrowStatusReleased),
+      // A released payout settles to `completed`; without this chip a farmer
+      // could never filter to their actually-settled payouts.
+      (status: 'completed', label: l10n.escrowStatusCompleted),
       (status: 'disputed', label: l10n.escrowStatusDisputed),
       (status: 'refunded', label: l10n.escrowStatusRefunded),
     ];
@@ -242,6 +260,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           FilterPaymentHistory(
             userId: userId,
             statusFilter: _statusFilter,
+            roleFilter: _roleFilter,
           ),
         );
   }
@@ -280,12 +299,14 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 class _HistoryContent extends StatelessWidget {
   final PaymentHistoryLoaded state;
   final String? statusFilter;
+  final String? roleFilter;
   final void Function(String idempotencyKey) onCancelIntent;
 
   const _HistoryContent({
     required this.state,
     required this.onCancelIntent,
     this.statusFilter,
+    this.roleFilter,
   });
 
   @override
@@ -301,6 +322,7 @@ class _HistoryContent extends StatelessWidget {
                 RefreshPaymentHistory(
                   userId: authState.userId,
                   statusFilter: statusFilter,
+                  roleFilter: roleFilter,
                 ),
               );
         }
@@ -341,15 +363,36 @@ class _HistoryContent extends StatelessWidget {
             for (final payment in state.payments)
               _PaymentCard(
                 payment: payment,
-                onTap: () {
-                  Navigator.push(
+                // Open the detail under its OWN scoped EscrowBloc (reusing the
+                // same repository) so its load lifecycle can't poison this
+                // still-mounted list — the shared-bloc trap that otherwise
+                // left the history stuck on a spinner/error on return. Reload
+                // (preserving filters) when the detail route pops.
+                onTap: () async {
+                  final escrowBloc = context.read<EscrowBloc>();
+                  await Navigator.push(
                     context,
                     MaterialPageRoute<void>(
-                      builder: (_) => EscrowStatusScreen(
-                        escrowId: payment.paymentId,
+                      builder: (_) => BlocProvider<EscrowBloc>(
+                        create: (_) =>
+                            EscrowBloc(repository: escrowBloc.repository),
+                        child: EscrowStatusScreen(
+                          escrowId: payment.paymentId,
+                        ),
                       ),
                     ),
                   );
+                  if (!context.mounted) return;
+                  final authState = context.read<AuthBloc>().state;
+                  if (authState is AuthAuthenticated) {
+                    escrowBloc.add(
+                      FilterPaymentHistory(
+                        userId: authState.userId,
+                        statusFilter: statusFilter,
+                        roleFilter: roleFilter,
+                      ),
+                    );
+                  }
                 },
               ),
           ],

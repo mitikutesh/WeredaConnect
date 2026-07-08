@@ -19,6 +19,16 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
   /// sync engine only uploads own writes). Null on web (API-backed reads).
   final MarketplaceSync? _marketplaceSync;
 
+  /// The repository backing this bloc.
+  ///
+  /// Exposed so a short-lived, route-scoped [OrderBloc] (the order-detail
+  /// screen) can reuse the same repository instance instead of sharing this
+  /// app-root bloc. Loading a single order must NOT drive the shared list bloc
+  /// through Loading/Error/SingleOrderLoaded states — the still-mounted list
+  /// screen renders whatever the shared bloc last emitted, which is why a
+  /// failed detail load previously left the list stuck on an error+retry view.
+  BaseOrderRepository get repository => _repository;
+
   OrderBloc({
     required BaseOrderRepository repository,
     MarketplaceSync? marketplaceSync,

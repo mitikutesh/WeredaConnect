@@ -38,6 +38,22 @@ public interface IDeliveryRepository
         Dictionary<string, AttributeValue>? exclusiveStartKey = null);
 
     /// <summary>
+    /// Query a farmer's deliveries across every status (newest first) via the
+    /// FarmerIdCreatedAtIndex GSI, with an optional status filter.
+    /// </summary>
+    /// <remarks>
+    /// A farmer does not author deliveries (the trucker does) and is not the
+    /// ParticipantIndex key (that is the buyer), so before this index a farmer
+    /// had no way to list their own deliveries and the Deliveries tab was
+    /// permanently empty.
+    /// </remarks>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByFarmerAsync(
+        string farmerId,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+
+    /// <summary>
     /// Get a delivery by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId);

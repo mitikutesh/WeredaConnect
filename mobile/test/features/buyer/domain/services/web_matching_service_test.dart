@@ -19,53 +19,50 @@ void main() {
     service = WebMatchingService(api: api);
   });
 
-  BuyerIntent intent({String deliveryWoreda = 'Adama'}) => BuyerIntent()
-    ..intentId = 'i1'
-    ..buyerId = 'b1'
-    ..cropType = 'wheat'
-    ..quantityNeeded = 5
-    ..maxPricePerKg = 150
-    ..deliveryWoreda = deliveryWoreda
-    ..status = BuyerIntentStatus.active
-    ..createdAt = DateTime.now().toUtc()
-    ..updatedAt = DateTime.now().toUtc()
-    ..version = 1;
+  BuyerIntent intent({
+    String cropType = 'wheat',
+    String deliveryWoreda = 'Adama',
+    double maxPricePerKg = 150,
+    double quantityNeeded = 5,
+  }) =>
+      BuyerIntent()
+        ..intentId = 'i1'
+        ..buyerId = 'b1'
+        ..cropType = cropType
+        ..quantityNeeded = quantityNeeded
+        ..maxPricePerKg = maxPricePerKg
+        ..deliveryWoreda = deliveryWoreda
+        ..status = BuyerIntentStatus.active
+        ..createdAt = DateTime.now().toUtc()
+        ..updatedAt = DateTime.now().toUtc()
+        ..version = 1;
 
-  Map<String, dynamic> matchDto({
+  Map<String, dynamic> cropDto({
     required String cropId,
     String cropType = 'wheat',
-    double score = 0.9,
-    bool isSubstitute = false,
+    String woreda = 'Adama',
+    double quantityKg = 10,
+    double pricePerKg = 100.0,
   }) =>
       {
         'cropId': cropId,
         'farmerId': 'f1',
         'farmerName': 'Farmer',
         'cropType': cropType,
-        'woreda': 'Adama',
-        'quantityKg': 10,
-        'pricePerKg': 100.0,
+        'woreda': woreda,
+        'quantityKg': quantityKg,
+        'pricePerKg': pricePerKg,
         'status': 'available',
         'createdAt': '2026-06-15T08:00:00Z',
-        'latitude': 8.54,
-        'longitude': 39.27,
-        'score': score,
-        'isSubstitute': isSubstitute,
       };
 
-  void stubMatch(List<Map<String, dynamic>> matches, {int? totalMatches}) {
+  void stubCrops(List<Map<String, dynamic>> crops) {
     when(
       () => api.get<Map<String, dynamic>>(
-        '/match',
+        '/crops',
         queryParameters: any(named: 'queryParameters'),
       ),
-    ).thenAnswer(
-      (_) async => {
-        'matches': matches,
-        'count': matches.length,
-        if (totalMatches != null) 'totalMatches': totalMatches,
-      },
-    );
+    ).thenAnswer((_) async => {'crops': crops});
   }
 
   void stubNoTrips() {
@@ -77,24 +74,20 @@ void main() {
     ).thenAnswer((_) async => {'trips': <dynamic>[]});
   }
 
-  Map<String, dynamic> capturedMatchParams() {
+  Map<String, dynamic> capturedCropParams() {
     return verify(
       () => api.get<Map<String, dynamic>>(
-        '/match',
+        '/crops',
         queryParameters: captureAny(named: 'queryParameters'),
       ),
-    ).captured.single as Map<String, dynamic>;
+    ).captured.first as Map<String, dynamic>;
   }
 
-  test('calls GET /match (not /crops) and preserves server ranking', () async {
-    stubMatch([
-      matchDto(cropId: 'wheat-1', score: 0.95),
-      matchDto(
-        cropId: 'barley-1',
-        cropType: 'barley',
-        score: 0.7,
-        isSubstitute: true,
-      ),
+  test('matches over GET /crops (not /match) and ranks by relevance', () async {
+    // Exact-type wheat should outrank a barley substitute.
+    stubCrops([
+      cropDto(cropId: 'barley-1', cropType: 'barley'),
+      cropDto(cropId: 'wheat-1'),
     ]);
     stubNoTrips();
 
@@ -102,54 +95,54 @@ void main() {
 
     expect(results, hasLength(2));
     expect(results[0].listing.listingId, 'wheat-1');
-    expect(results[0].matchScore, 0.95);
     expect(results[0].isSubstitute, isFalse);
     expect(results[1].listing.listingId, 'barley-1');
     expect(results[1].isSubstitute, isTrue);
+    // Score is computed on-device, so it is a real 0..1 relevance value.
+    expect(results[0].matchScore, greaterThan(results[1].matchScore));
 
+    // Uses the browse endpoint; never the (undeployed) /match endpoint.
     verify(
       () => api.get<Map<String, dynamic>>(
-        '/match',
+        '/crops',
         queryParameters: any(named: 'queryParameters'),
       ),
     ).called(1);
     verifyNever(
       () => api.get<Map<String, dynamic>>(
-        '/crops',
+        '/match',
         queryParameters: any(named: 'queryParameters'),
       ),
     );
   });
 
-  test('resolves a known delivery woreda to coordinates in the request',
-      () async {
-    stubMatch([matchDto(cropId: 'wheat-1')]);
+  test('requests only active (available) listings', () async {
+    stubCrops([cropDto(cropId: 'wheat-1')]);
     stubNoTrips();
 
     await service.matchListingsForIntent(intent());
 
-    final params = capturedMatchParams();
-    expect(params['cropType'], 'wheat');
-    expect(params['latitude'], isNotNull); // Adama is in WoredaCentroids
-    expect(params['longitude'], isNotNull);
+    expect(capturedCropParams()['status'], 'available');
   });
 
-  test('omits coordinates for an unknown woreda (proxy fallback on server)',
-      () async {
-    stubMatch([matchDto(cropId: 'wheat-1')]);
+  test('drops listings outside the price near-miss band', () async {
+    // Budget 100; +15% band = 115. The 200/kg listing is excluded.
+    stubCrops([
+      cropDto(cropId: 'cheap', pricePerKg: 90),
+      cropDto(cropId: 'too-expensive', pricePerKg: 200),
+    ]);
     stubNoTrips();
 
-    await service
-        .matchListingsForIntent(intent(deliveryWoreda: 'Nowhereville'));
+    final results = await service.matchListingsForIntent(
+      intent(maxPricePerKg: 100),
+    );
 
-    final params = capturedMatchParams();
-    expect(params.containsKey('latitude'), isFalse);
-    expect(params.containsKey('longitude'), isFalse);
+    expect(results.map((r) => r.listing.listingId), ['cheap']);
   });
 
-  test('empty match result returns nothing and skips the trips fetch',
+  test('empty candidate set returns nothing and skips the trips fetch',
       () async {
-    stubMatch([]);
+    stubCrops([]);
 
     final results = await service.matchListingsForIntent(intent());
 
@@ -162,35 +155,13 @@ void main() {
     );
   });
 
-  test('refreshMatchCounts persists the server total, not the capped page',
-      () async {
-    // Server returns a 2-item page but reports 7 eligible matches — the badge
-    // must show 7, not saturate at the returned page size.
-    stubMatch(
-      [matchDto(cropId: 'wheat-1'), matchDto(cropId: 'wheat-2')],
-      totalMatches: 7,
-    );
-    stubNoTrips();
-
-    final repo = WebBuyerIntentRepository();
-    final created = await repo.createIntent(
-      buyerId: 'b1',
-      cropType: 'wheat',
-      quantityNeeded: 5,
-      maxPricePerKg: 150,
-      deliveryWoreda: 'Adama',
-    );
-
-    await service.refreshMatchCounts('b1', repo);
-
-    final persisted = await repo.getIntentById(created.intentId);
-    expect(persisted?.matchCount, 7);
-  });
-
-  test('refreshMatchCounts falls back to page size when total is omitted',
-      () async {
-    // Older server without totalMatches → badge uses the returned page length.
-    stubMatch([matchDto(cropId: 'wheat-1'), matchDto(cropId: 'wheat-2')]);
+  test('refreshMatchCounts persists the eligible candidate count', () async {
+    // 3 crops available; only 2 are wheat/barley candidates within budget.
+    stubCrops([
+      cropDto(cropId: 'wheat-1'),
+      cropDto(cropId: 'barley-1', cropType: 'barley'),
+      cropDto(cropId: 'coffee-1', cropType: 'coffee'),
+    ]);
     stubNoTrips();
 
     final repo = WebBuyerIntentRepository();

@@ -370,6 +370,27 @@ void main() {
       expect(stored.single.status, DeliveryStatus.pickedUp);
     });
 
+    test('pullDeliveries scopes by farmerId (a farmer is not the buyer key)',
+        () async {
+      stubApi(deliveries: [_deliveryJson()]);
+
+      await buildSync(currentUserId: () async => 'farmer-1').pullDeliveries();
+
+      // A farmer never authors a delivery and is not the ParticipantIndex key,
+      // so the pull must query the farmer GSI (?farmerId=), not only ?mine=true.
+      final queries = verify(
+        () => api.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: captureAny(named: 'queryParameters'),
+        ),
+      ).captured.cast<Map<String, dynamic>>();
+      expect(
+        queries.any((q) => q['farmerId'] == 'farmer-1'),
+        isTrue,
+        reason: 'farmer deliveries are only reachable via ?farmerId=',
+      );
+    });
+
     test(
         'pullDeliveries upserts a newer server status onto an existing '
         'local delivery (no duplicate)', () async {

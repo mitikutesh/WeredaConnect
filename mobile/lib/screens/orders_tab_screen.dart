@@ -90,6 +90,31 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         );
   }
 
+  /// Opens the order-detail screen under its OWN scoped [OrderBloc].
+  ///
+  /// The detail screen loads a single order (LoadOrderById), which would
+  /// otherwise drive this screen's shared app-root [OrderBloc] through
+  /// Loading/Error states and leave the list stuck on an error+retry view when
+  /// the user returns. A route-scoped bloc (reusing the same repository) keeps
+  /// the detail lifecycle isolated. On return we reload so any status change
+  /// made in the detail screen (accept/reject/cancel/pay) is reflected here.
+  Future<void> _openOrderDetail(String orderId) async {
+    final repository = context.read<OrderBloc>().repository;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => BlocProvider<OrderBloc>(
+          create: (_) => OrderBloc(repository: repository),
+          child: OrderDetailScreen(orderId: orderId),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // Preserve the active status tab (mirrors the Retry button) rather than
+    // resetting to "All".
+    _applyFilter(_selectedStatus);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -237,7 +262,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
             }
 
             return RefreshIndicator(
-              onRefresh: () async => _loadOrders(),
+              // Preserve the active status tab (not reset to "All"), and hold
+              // the refresh spinner until the reload actually finishes.
+              onRefresh: () async {
+                _applyFilter(_selectedStatus);
+                await context.read<OrderBloc>().stream.firstWhere(
+                      (s) => s is OrdersLoaded || s is OrderError,
+                    );
+              },
               child: ListView.separated(
                 padding: EdgeInsets.symmetric(
                   horizontal: listHPad,
@@ -251,16 +283,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   return OrderCard(
                     order: order,
                     isFarmerView: isFarmer,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => OrderDetailScreen(
-                            orderId: order.orderId,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => _openOrderDetail(order.orderId),
                     onAccept: isFarmer
                         ? () {
                             context.read<OrderBloc>().add(

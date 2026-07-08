@@ -137,18 +137,33 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
     Emitter<BuyerIntentState> emit,
   ) async {
     emit(const BuyerIntentLoading());
-    try {
-      final intent = await _repository.getIntentById(event.intentId);
-      if (intent == null) {
-        emit(
-          const BuyerIntentError(
-            message: 'Intent not found',
-            code: AppErrorCode.notFound,
-          ),
-        );
-        return;
-      }
 
+    // Step 1: load the intent. Failing to READ the intent the buyer tapped is a
+    // genuine error worth surfacing (not-found / storage failure).
+    final BuyerIntent? intent;
+    try {
+      intent = await _repository.getIntentById(event.intentId);
+    } on Object catch (e) {
+      emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
+      return;
+    }
+    if (intent == null) {
+      emit(
+        const BuyerIntentError(
+          message: 'Intent not found',
+          code: AppErrorCode.notFound,
+        ),
+      );
+      return;
+    }
+
+    // Step 2: refresh + match. The intent already exists, so a network/matching
+    // failure here must NOT be surfaced as a hard error — that would show the
+    // buyer a scary "No internet connection" page for an intent that is safely
+    // saved. Mirror _onCreateBuyerIntent: land on the results screen with
+    // cached/empty matches flagged stale (the UI shows a "cached results"
+    // banner + browse fallbacks) instead of an error.
+    try {
       final refreshed = await _refreshMarketplace();
       final matches = await _matchingService.matchListingsForIntent(intent);
 
@@ -175,7 +190,15 @@ class BuyerIntentBloc extends Bloc<BuyerIntentEvent, BuyerIntentState> {
         ),
       );
     } on Object catch (e) {
-      emit(BuyerIntentError(message: e.toString(), code: mapErrorToCode(e)));
+      debugPrint('[BuyerIntentBloc] match load failed, showing empty/stale '
+          'results: $e');
+      emit(
+        MatchResultsLoaded(
+          intent: intent,
+          matches: const [],
+          isStale: true,
+        ),
+      );
     }
   }
 
