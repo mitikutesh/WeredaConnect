@@ -47,6 +47,10 @@ public partial class SyncFunction
     // Optional: when the escrows table is provisioned, confirming a delivery
     // stamps the linked escrow so the auto-release cron can pay the farmer.
     private readonly IEscrowRepository? _escrowRepo;
+    // Optional: when the ratings table is provisioned, buyers can rate
+    // counterparties after a delivered order. Absent env → null (rating sync
+    // simply returns RATING_UNAVAILABLE).
+    private readonly IRatingRepository? _ratingRepo;
 
     // SSM commission rate cache (15-min TTL)
     private static double _cachedCommissionRate;
@@ -56,7 +60,7 @@ public partial class SyncFunction
 
     private static readonly HashSet<string> AllowedCropFields = new()
     {
-        "farmerId", "farmerName", "cropType", "quantity", "pricePerKg",
+        "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
         "status", "woreda", "listingId", "audioNoteRef", "createdAt"
     };
@@ -66,6 +70,17 @@ public partial class SyncFunction
         "intentId", "buyerId", "cropType", "quantityNeeded", "maxPricePerKg",
         "deliveryWoreda", "deliveryLatitude", "deliveryLongitude", "neededByDate",
         "status", "createdAt"
+    };
+
+    private static readonly HashSet<string> AllowedRatingFields = new()
+    {
+        "ratingId", "orderId", "raterId", "rateeId", "rateeRole", "stars",
+        "comment", "createdAt"
+    };
+
+    private static readonly HashSet<string> AllowedRateeRoles = new(StringComparer.Ordinal)
+    {
+        "farmer", "trucker"
     };
 
     private static readonly HashSet<string> AllowedIntentStatuses = new(StringComparer.OrdinalIgnoreCase)
@@ -251,6 +266,13 @@ public partial class SyncFunction
         _escrowRepo = escrowsTable != null
             ? new EscrowRepository(_dynamoDb, escrowsTable)
             : null;
+
+        // Ratings are optional in the same way: the rating sync handler is only
+        // reachable once the ratings table is provisioned.
+        var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
+        _ratingRepo = ratingsTable != null
+            ? new RatingRepository(_dynamoDb, ratingsTable)
+            : null;
     }
 
     /// <summary>
@@ -264,7 +286,8 @@ public partial class SyncFunction
         IOrderRepository? orderRepo = null,
         IIntentRepository? intentRepo = null,
         IMatchEventRepository? matchEventRepo = null,
-        IEscrowRepository? escrowRepo = null)
+        IEscrowRepository? escrowRepo = null,
+        IRatingRepository? ratingRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -278,6 +301,7 @@ public partial class SyncFunction
         _intentRepo = intentRepo;
         _matchEventRepo = matchEventRepo;
         _escrowRepo = escrowRepo;
+        _ratingRepo = ratingRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -438,6 +462,7 @@ public partial class SyncFunction
                 "trip" => await ProcessTripAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "rating" => await ProcessRatingAsync(operation, authenticatedUserId, authenticatedRole, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -754,6 +779,218 @@ public partial class SyncFunction
                     Message = $"Unsupported action: '{operation.Action}'."
                 };
         }
+    }
+
+    /// <summary>
+    /// Process a rating sync operation. Create-only and immutable: a buyer rates
+    /// a counterparty (farmer or trucker) for a delivered/settled order they own.
+    /// The deterministic ratingId ("{orderId}:{rateeId}") + attribute_not_exists
+    /// create condition guarantee one rating per (order, ratee).
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessRatingAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        string? authenticatedRole,
+        ILambdaContext context)
+    {
+        if (_ratingRepo == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_UNAVAILABLE: Rating sync is not enabled on this environment."
+            };
+        }
+
+        if (!string.Equals(authenticatedRole, "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_UNAUTHORIZED: Only buyers can rate counterparties."
+            };
+        }
+
+        // Ratings are immutable: only `create` is supported.
+        if (!string.Equals(operation.Action, "create", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"RATING_VALIDATION: Unsupported action '{operation.Action}'. Ratings are immutable."
+            };
+        }
+
+        if (operation.Data == null || operation.Data.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "Operation requires data payload."
+            };
+        }
+
+        // raterId in the payload must match the authenticated user.
+        if (!operation.Data.TryGetValue("raterId", out var raterIdObj)
+            || raterIdObj?.ToString() != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_UNAUTHORIZED: raterId must match authenticated user."
+            };
+        }
+
+        var unknownFields = operation.Data.Keys
+            .Where(k => !AllowedRatingFields.Contains(k) && k != "version")
+            .ToList();
+        if (unknownFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"RATING_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+            };
+        }
+
+        var validationErrors = ValidateRatingFields(operation.Data);
+        if (validationErrors.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"RATING_VALIDATION: {string.Join(" ", validationErrors)}"
+            };
+        }
+
+        var orderId = operation.Data["orderId"].ToString()!;
+        var rateeId = operation.Data["rateeId"].ToString()!;
+        var rateeRole = operation.Data["rateeRole"].ToString()!;
+
+        // The rating must be about a delivered/settled order the buyer owns, and
+        // the ratee must be that order's farmer or trucker.
+        var order = await _orderRepo.GetByIdAsync(orderId);
+        if (order == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_VALIDATION: Order not found."
+            };
+        }
+
+        var orderBuyerId = order.TryGetValue("buyerId", out var bObj) ? bObj?.ToString() : null;
+        if (orderBuyerId != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_FORBIDDEN: You can only rate your own orders."
+            };
+        }
+
+        var orderStatus = order.TryGetValue("status", out var sObj) ? sObj?.ToString() : null;
+        if (orderStatus != "delivered" && orderStatus != "settled")
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_FORBIDDEN: You can only rate after the order is delivered."
+            };
+        }
+
+        var orderFarmerId = order.TryGetValue("farmerId", out var fObj) ? fObj?.ToString() : null;
+        var orderTruckerId = order.TryGetValue("truckerId", out var tObj) ? tObj?.ToString() : null;
+        var validRatee = (rateeRole == "farmer" && rateeId == orderFarmerId)
+            || (rateeRole == "trucker" && rateeId == orderTruckerId
+                && !string.IsNullOrEmpty(orderTruckerId));
+        if (!validRatee)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_VALIDATION: ratee must be the order's farmer or trucker."
+            };
+        }
+
+        // Deterministic id enforces one rating per (order, ratee).
+        if (operation.EntityId != $"{orderId}:{rateeId}")
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_VALIDATION: ratingId must equal '{orderId}:{rateeId}'."
+            };
+        }
+
+        var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
+        return createResult.IsSuccess
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = 1,
+                ServerData = createResult.Value
+            }
+            : new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "conflict",
+                Message = createResult.Error?.Message ?? "Rating already exists."
+            };
+    }
+
+    /// <summary>
+    /// Validate rating fields: orderId/rateeId required, rateeRole in
+    /// {farmer, trucker}, stars an integer 1-5, comment ≤ 500 chars.
+    /// </summary>
+    private static List<string> ValidateRatingFields(Dictionary<string, object> data)
+    {
+        var errors = new List<string>();
+
+        if (!data.TryGetValue("orderId", out var orderIdObj)
+            || string.IsNullOrWhiteSpace(orderIdObj?.ToString()))
+        {
+            errors.Add("orderId is required.");
+        }
+
+        if (!data.TryGetValue("rateeId", out var rateeIdObj)
+            || string.IsNullOrWhiteSpace(rateeIdObj?.ToString()))
+        {
+            errors.Add("rateeId is required.");
+        }
+
+        if (!data.TryGetValue("rateeRole", out var roleObj)
+            || !AllowedRateeRoles.Contains(roleObj?.ToString() ?? ""))
+        {
+            errors.Add("rateeRole must be 'farmer' or 'trucker'.");
+        }
+
+        if (!data.TryGetValue("stars", out var starsObj)
+            || !int.TryParse(starsObj?.ToString(), out var stars) || stars < 1 || stars > 5)
+        {
+            errors.Add("stars must be an integer between 1 and 5.");
+        }
+
+        if (data.TryGetValue("comment", out var commentObj) && commentObj != null
+            && commentObj.ToString()!.Length > 500)
+        {
+            errors.Add("comment must be 500 characters or fewer.");
+        }
+
+        return errors;
     }
 
     /// <summary>

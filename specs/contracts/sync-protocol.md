@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "uuid-v4",
-      "entityType": "crop_listing | trip | delivery | order",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,

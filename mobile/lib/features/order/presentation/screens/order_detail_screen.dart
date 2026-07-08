@@ -15,6 +15,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -326,6 +328,16 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
+    // Buyer + delivered/settled → rate the farmer (and trucker if any)
+    if (userRole == UserRole.buyer &&
+        (order.status == OrderStatus.delivered ||
+            order.status == OrderStatus.settled)) {
+      widgets.add(
+        _RateCounterpartiesSection(order: order, buyerId: userId),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
     // Cancellable statuses
     const cancellable = {
       OrderStatus.created,
@@ -444,6 +456,131 @@ class _OrderDetailBody extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Buyer-only section (delivered/settled orders) to rate the farmer and, when
+/// the order was transported, the trucker. Tracks which counterparties have
+/// already been rated (local check) and hides them once done.
+class _RateCounterpartiesSection extends StatefulWidget {
+  final Order order;
+  final String buyerId;
+
+  const _RateCounterpartiesSection({
+    required this.order,
+    required this.buyerId,
+  });
+
+  @override
+  State<_RateCounterpartiesSection> createState() =>
+      _RateCounterpartiesSectionState();
+}
+
+class _RateCounterpartiesSectionState
+    extends State<_RateCounterpartiesSection> {
+  bool _farmerRated = false;
+  bool _truckerRated = false;
+  bool _loading = true;
+
+  bool get _hasTrucker =>
+      widget.order.truckerId != null && widget.order.truckerId!.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final repo = context.read<RatingBloc>().repository;
+    final order = widget.order;
+    final farmerRated = order.farmerId.isEmpty ||
+        await repo.hasRated(orderId: order.orderId, rateeId: order.farmerId);
+    var truckerRated = true;
+    if (_hasTrucker) {
+      truckerRated = await repo.hasRated(
+        orderId: order.orderId,
+        rateeId: order.truckerId!,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _farmerRated = farmerRated;
+      _truckerRated = truckerRated;
+      _loading = false;
+    });
+  }
+
+  Future<void> _rate(String rateeId, String role, String name) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<RatingBloc>(),
+        child: RateCounterpartyDialog(
+          orderId: widget.order.orderId,
+          raterId: widget.buyerId,
+          rateeId: rateeId,
+          rateeRole: role,
+          rateeName: name,
+        ),
+      ),
+    );
+    if (result == true) await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final order = widget.order;
+
+    // Everything already rated → confirmation line.
+    if (_farmerRated && (!_hasTrucker || _truckerRated)) {
+      return Row(
+        children: [
+          const Icon(
+            Icons.check_circle,
+            color: AppTheme.statusSuccess,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(l10n.alreadyRated, style: theme.textTheme.bodyMedium),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!_farmerRated && order.farmerId.isNotEmpty) ...[
+          OutlinedButton.icon(
+            onPressed: () => _rate(order.farmerId, 'farmer', order.farmerName),
+            icon: const Icon(Icons.star_outline),
+            label: Text(l10n.rateFarmer),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (_hasTrucker && !_truckerRated) ...[
+          OutlinedButton.icon(
+            onPressed: () => _rate(
+              order.truckerId!,
+              'trucker',
+              order.truckerName ?? '',
+            ),
+            icon: const Icon(Icons.star_outline),
+            label: Text(l10n.rateTrucker),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
     );
   }
 }

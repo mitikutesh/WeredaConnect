@@ -1308,6 +1308,70 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createDelivery => 'Create Delivery';
 
   @override
+  String get selectPaymentMethod => 'Select payment method';
+
+  @override
+  String get paymentMethodCbe => 'Commercial Bank of Ethiopia (CBE)';
+
+  @override
+  String get paymentMethodTelebirr => 'Telebirr';
+
+  @override
+  String get mockPaymentNotice =>
+      'Demo mode: payments are simulated. No real transfer is made.';
+
+  @override
+  String get telebirrPayInstructions =>
+      'Tap Submit Payment to simulate a Telebirr payment for this order.';
+
+  @override
+  String get transactionIdOptional => 'CBE Transaction ID (optional)';
+
+  @override
+  String get copy => 'Copy';
+
+  @override
+  String get call => 'Call';
+
+  @override
+  String get close => 'Close';
+
+  @override
+  String get farmerPhone => 'Farmer Phone';
+
+  @override
+  String get phoneNotAvailable => 'Phone number not available';
+
+  @override
+  String get rateFarmer => 'Rate Farmer';
+
+  @override
+  String get rateTrucker => 'Rate Trucker';
+
+  @override
+  String get submitRating => 'Submit Rating';
+
+  @override
+  String get ratingCommentHint => 'Add a comment (optional)';
+
+  @override
+  String get ratingThankYou => 'Thank you for your rating!';
+
+  @override
+  String get alreadyRated => 'Rated';
+
+  @override
+  String get noRatingsYet => 'No ratings yet';
+
+  @override
+  String get farmerRating => 'Farmer Rating';
+
+  @override
+  String ratingsCount(int count) {
+    return '$count ratings';
+  }
+
+  @override
   String get contactFarmer => 'Contact Farmer';
 
   @override

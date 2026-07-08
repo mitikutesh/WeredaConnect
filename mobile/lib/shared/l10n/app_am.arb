@@ -1723,6 +1723,33 @@
     "description": "Empty state subtitle on notifications screen"
   },
   "createDelivery": "ማድረስ ፍጠር",
+  "selectPaymentMethod": "የክፍያ ዘዴ ይምረጡ",
+  "paymentMethodCbe": "የኢትዮጵያ ንግድ ባንክ (CBE)",
+  "paymentMethodTelebirr": "ቴሌብር",
+  "mockPaymentNotice": "የማሳያ ሁነታ፡ ክፍያዎች የተመሰሉ ናቸው። ትክክለኛ ዝውውር አይደረግም።",
+  "telebirrPayInstructions": "ለዚህ ትእዛዝ የቴሌብር ክፍያ ለማስመሰል ክፍያ አስገባን ይንኩ።",
+  "transactionIdOptional": "የCBE የግብይት መለያ (አማራጭ)",
+  "copy": "ቅዳ",
+  "call": "ደውል",
+  "close": "ዝጋ",
+  "farmerPhone": "የገበሬ ስልክ",
+  "phoneNotAvailable": "ስልክ ቁጥር አይገኝም",
+  "rateFarmer": "ገበሬውን ደረጃ ይስጡ",
+  "rateTrucker": "አሽከርካሪውን ደረጃ ይስጡ",
+  "submitRating": "ደረጃ አስገባ",
+  "ratingCommentHint": "አስተያየት ያክሉ (አማራጭ)",
+  "ratingThankYou": "ስለ ደረጃዎ እናመሰግናለን!",
+  "alreadyRated": "ደረጃ ተሰጥቷል",
+  "noRatingsYet": "እስካሁን ደረጃ የለም",
+  "farmerRating": "የገበሬ ደረጃ",
+  "ratingsCount": "{count} ደረጃዎች",
+  "@ratingsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "contactFarmer": "ገበሬውን አግኝ",
   "detailQuantity": "መጠን",
   "detailPrice": "ዋጋ",

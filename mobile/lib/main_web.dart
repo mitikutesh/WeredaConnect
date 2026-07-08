@@ -44,6 +44,8 @@ import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
+import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
 
 Future<void> main() async {
@@ -195,6 +197,11 @@ Future<void> main() async {
             create: (_) => BuyerIntentBloc(
               repository: WebBuyerIntentRepository(),
               matchingService: WebMatchingService(api: api),
+            ),
+          ),
+          BlocProvider<RatingBloc>(
+            create: (_) => RatingBloc(
+              repository: WebRatingRepository(api: api),
             ),
           ),
           BlocProvider<ConflictBloc>(

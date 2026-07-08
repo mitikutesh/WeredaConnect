@@ -76,6 +76,12 @@ class ConflictResolver {
       case 'user':
         return _resolveUser(operation, serverData, serverVersion);
 
+      case 'rating':
+        // Ratings are create-only and immutable, so a conflict only means the
+        // server already has this rating. Accept the server copy — there is
+        // nothing to reconcile locally.
+        return serverData;
+
       default:
         throw ConflictResolutionException(
           'Unknown entity type: ${operation.entityType}',

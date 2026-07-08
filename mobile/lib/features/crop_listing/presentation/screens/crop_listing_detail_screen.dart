@@ -17,8 +17,12 @@ import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_tri
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/place_order_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/rating/presentation/widgets/star_rating.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Full detail view for a single crop listing.
 ///
@@ -403,43 +407,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 final farmerName =
                     await _lookupFarmerName(widget.listing.farmerId);
                 if (!context.mounted) return;
-                showModalBottomSheet<void>(
-                  context: context,
-                  builder: (context) {
-                    final l10n = AppLocalizations.of(context)!;
-                    return Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.farmerContactInfo,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 16),
-                          ListTile(
-                            leading: const Icon(Icons.person),
-                            title: Text(farmerName),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.copy),
-                              onPressed: () {
-                                Clipboard.setData(
-                                  ClipboardData(text: farmerName),
-                                );
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(l10n.copiedToClipboard),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                _showContactFarmerSheet(
+                  context,
+                  farmerName,
+                  widget.listing.farmerPhone,
                 );
               },
               icon: const Icon(Icons.chat_outlined),
@@ -453,6 +424,100 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     }
 
     return widgets;
+  }
+
+  /// Bottom sheet showing the farmer's contact details with Call / Copy /
+  /// Close actions. Falls back gracefully when no phone is available (legacy
+  /// listings created before the phone was denormalized onto the listing).
+  void _showContactFarmerSheet(
+    BuildContext context,
+    String farmerName,
+    String farmerPhone,
+  ) {
+    final phone = farmerPhone.trim();
+    final hasPhone = phone.isNotEmpty;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final l10n = AppLocalizations.of(sheetContext)!;
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.farmerContactInfo,
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.person),
+                  title: Text(farmerName),
+                  subtitle: Text(l10n.farmer),
+                ),
+                if (hasPhone)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.phone),
+                    title: Text(phone),
+                    subtitle: Text(l10n.farmerPhone),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.copy),
+                      tooltip: l10n.copy,
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: phone));
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
+                          SnackBar(content: Text(l10n.copiedToClipboard)),
+                        );
+                      },
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      l10n.phoneNotAvailable,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        child: Text(l10n.close),
+                      ),
+                    ),
+                    if (hasPhone) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(sheetContext);
+                            final uri = Uri(scheme: 'tel', path: phone);
+                            await launchUrl(uri);
+                          },
+                          icon: const Icon(Icons.call),
+                          label: Text(l10n.call),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<String> _lookupFarmerName(String farmerId) async {
@@ -642,6 +707,8 @@ class _DetailsCard extends StatelessWidget {
                 value: listing.farmerName,
               ),
             ],
+            const Divider(height: 24),
+            _FarmerRatingRow(farmerId: listing.farmerId),
             if (listing.description.isNotEmpty) ...[
               const Divider(height: 24),
               _DetailRow(
@@ -659,6 +726,77 @@ class _DetailsCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Shows the farmer's aggregate rating (average + count) fetched best-effort
+/// from the server. Falls back to "no ratings yet" while loading or offline.
+class _FarmerRatingRow extends StatefulWidget {
+  final String farmerId;
+
+  const _FarmerRatingRow({required this.farmerId});
+
+  @override
+  State<_FarmerRatingRow> createState() => _FarmerRatingRowState();
+}
+
+class _FarmerRatingRowState extends State<_FarmerRatingRow> {
+  // Fetched once, not on every rebuild (minimise 3G data usage).
+  late final Future<RatingSummary> _summaryFuture =
+      context.read<RatingBloc>().repository.getRatingSummary(widget.farmerId);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    return FutureBuilder<RatingSummary>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        final summary = snapshot.data;
+        Widget valueWidget;
+        if (summary == null || summary.count == 0) {
+          valueWidget = Text(
+            l10n.noRatingsYet,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          );
+        } else {
+          valueWidget = Row(
+            children: [
+              StarRating(rating: summary.average, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                '${summary.average.toStringAsFixed(1)} · '
+                '${l10n.ratingsCount(summary.count)}',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Icon(Icons.star, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.farmerRating,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  valueWidget,
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

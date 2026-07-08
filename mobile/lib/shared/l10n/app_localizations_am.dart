@@ -1270,6 +1270,70 @@ class AppLocalizationsAm extends AppLocalizations {
   String get createDelivery => 'ማድረስ ፍጠር';
 
   @override
+  String get selectPaymentMethod => 'የክፍያ ዘዴ ይምረጡ';
+
+  @override
+  String get paymentMethodCbe => 'የኢትዮጵያ ንግድ ባንክ (CBE)';
+
+  @override
+  String get paymentMethodTelebirr => 'ቴሌብር';
+
+  @override
+  String get mockPaymentNotice =>
+      'የማሳያ ሁነታ፡ ክፍያዎች የተመሰሉ ናቸው። ትክክለኛ ዝውውር አይደረግም።';
+
+  @override
+  String get telebirrPayInstructions =>
+      'ለዚህ ትእዛዝ የቴሌብር ክፍያ ለማስመሰል ክፍያ አስገባን ይንኩ።';
+
+  @override
+  String get transactionIdOptional => 'የCBE የግብይት መለያ (አማራጭ)';
+
+  @override
+  String get copy => 'ቅዳ';
+
+  @override
+  String get call => 'ደውል';
+
+  @override
+  String get close => 'ዝጋ';
+
+  @override
+  String get farmerPhone => 'የገበሬ ስልክ';
+
+  @override
+  String get phoneNotAvailable => 'ስልክ ቁጥር አይገኝም';
+
+  @override
+  String get rateFarmer => 'ገበሬውን ደረጃ ይስጡ';
+
+  @override
+  String get rateTrucker => 'አሽከርካሪውን ደረጃ ይስጡ';
+
+  @override
+  String get submitRating => 'ደረጃ አስገባ';
+
+  @override
+  String get ratingCommentHint => 'አስተያየት ያክሉ (አማራጭ)';
+
+  @override
+  String get ratingThankYou => 'ስለ ደረጃዎ እናመሰግናለን!';
+
+  @override
+  String get alreadyRated => 'ደረጃ ተሰጥቷል';
+
+  @override
+  String get noRatingsYet => 'እስካሁን ደረጃ የለም';
+
+  @override
+  String get farmerRating => 'የገበሬ ደረጃ';
+
+  @override
+  String ratingsCount(int count) {
+    return '$count ደረጃዎች';
+  }
+
+  @override
   String get contactFarmer => 'ገበሬውን አግኝ';
 
   @override

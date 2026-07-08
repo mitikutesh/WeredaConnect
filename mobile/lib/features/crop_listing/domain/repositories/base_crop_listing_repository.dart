@@ -18,6 +18,7 @@ abstract class BaseCropListingRepository {
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
+    String? farmerPhone,
     String? placeId,
   });
 

@@ -113,17 +113,23 @@ class CreateOrder extends OrderEvent {
 }
 
 /// Submit payment proof for an order (buyer action).
+///
+/// [paymentMethod] selects the (currently mocked) rail — `cbe_transfer` or
+/// `telebirr`. [cbeTransactionId] carries the payment reference for either rail
+/// (a mock reference is generated when the buyer doesn't enter a real one).
 class SubmitPayment extends OrderEvent {
   final String orderId;
   final String cbeTransactionId;
+  final String paymentMethod;
 
   const SubmitPayment({
     required this.orderId,
     required this.cbeTransactionId,
+    this.paymentMethod = 'cbe_transfer',
   });
 
   @override
-  List<Object?> get props => [orderId, cbeTransactionId];
+  List<Object?> get props => [orderId, cbeTransactionId, paymentMethod];
 }
 
 /// Cancel an order (buyer or farmer action).

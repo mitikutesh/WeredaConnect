@@ -83,6 +83,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       final listing = await _repository.createListing(
         farmerId: event.farmerId,
         farmerName: event.farmerName,
+        farmerPhone: event.farmerPhone,
         cropType: event.cropType,
         quantity: event.quantity,
         pricePerKg: event.pricePerKg,

@@ -1748,6 +1748,91 @@
   "@createDelivery": {
     "description": "Button label and screen title for creating a new delivery"
   },
+  "selectPaymentMethod": "Select payment method",
+  "@selectPaymentMethod": {
+    "description": "Heading above the payment method options on the order payment screen"
+  },
+  "paymentMethodCbe": "Commercial Bank of Ethiopia (CBE)",
+  "@paymentMethodCbe": {
+    "description": "CBE payment method option label"
+  },
+  "paymentMethodTelebirr": "Telebirr",
+  "@paymentMethodTelebirr": {
+    "description": "Telebirr payment method option label"
+  },
+  "mockPaymentNotice": "Demo mode: payments are simulated. No real transfer is made.",
+  "@mockPaymentNotice": {
+    "description": "Notice explaining that payment is mocked/simulated"
+  },
+  "telebirrPayInstructions": "Tap Submit Payment to simulate a Telebirr payment for this order.",
+  "@telebirrPayInstructions": {
+    "description": "Instructions shown when Telebirr is the selected (mocked) payment method"
+  },
+  "transactionIdOptional": "CBE Transaction ID (optional)",
+  "@transactionIdOptional": {
+    "description": "Label for the optional CBE transaction id field in demo mode"
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Copy action tooltip"
+  },
+  "call": "Call",
+  "@call": {
+    "description": "Call action button label"
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Close action button label"
+  },
+  "farmerPhone": "Farmer Phone",
+  "@farmerPhone": {
+    "description": "Label for the farmer's phone number"
+  },
+  "phoneNotAvailable": "Phone number not available",
+  "@phoneNotAvailable": {
+    "description": "Shown when a farmer's phone number is not available"
+  },
+  "rateFarmer": "Rate Farmer",
+  "@rateFarmer": {
+    "description": "Button to rate the farmer after a delivery"
+  },
+  "rateTrucker": "Rate Trucker",
+  "@rateTrucker": {
+    "description": "Button to rate the trucker after a delivery"
+  },
+  "submitRating": "Submit Rating",
+  "@submitRating": {
+    "description": "Submit button in the rating dialog"
+  },
+  "ratingCommentHint": "Add a comment (optional)",
+  "@ratingCommentHint": {
+    "description": "Hint for the optional rating comment field"
+  },
+  "ratingThankYou": "Thank you for your rating!",
+  "@ratingThankYou": {
+    "description": "Snackbar shown after submitting a rating"
+  },
+  "alreadyRated": "Rated",
+  "@alreadyRated": {
+    "description": "Label shown when a counterparty has already been rated"
+  },
+  "noRatingsYet": "No ratings yet",
+  "@noRatingsYet": {
+    "description": "Shown when a user has no ratings yet"
+  },
+  "farmerRating": "Farmer Rating",
+  "@farmerRating": {
+    "description": "Label for the farmer's aggregate rating"
+  },
+  "ratingsCount": "{count} ratings",
+  "@ratingsCount": {
+    "description": "Number of ratings a user has received",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "contactFarmer": "Contact Farmer",
   "@contactFarmer": {
     "description": "Button to contact the farmer about a listing"

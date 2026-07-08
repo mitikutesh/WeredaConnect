@@ -29,6 +29,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly intentsTable: dynamodb.Table;
   public readonly deviceTokensTable: dynamodb.Table;
   public readonly matchEventsTable: dynamodb.Table;
+  public readonly ratingsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -462,6 +463,29 @@ export class DatabaseStack extends cdk.Stack {
     });
     this.matchEventsTable = matchEvents.table;
 
+    // ─── Ratings Table (buyer → counterparty ratings) ──────────────
+    // Immutable, create-only. PK is the deterministic "{orderId}:{rateeId}",
+    // so the sync create's attribute_not_exists condition enforces one rating
+    // per (order, ratee).
+    // PK-only (no sort key): the deterministic ratingId is the whole key, so the
+    // create-time attribute_not_exists(ratingId) condition truly enforces one
+    // rating per (order, ratee). A composite key would let a re-submission with
+    // a fresh server-stamped createdAt slip past the guard as a distinct item.
+    const ratings = new WeredaDynamoTable(this, "RatingsTable", {
+      tableName: `${prefix}-ratings`,
+      partitionKey: { name: "ratingId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.ratingsTable = ratings.table;
+
+    // GSI: query all ratings received by a user (the ratee) — the primary read.
+    this.ratingsTable.addGlobalSecondaryIndex({
+      indexName: "RateeIdCreatedAtIndex",
+      partitionKey: { name: "rateeId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -579,6 +603,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "OrdersTableName", {
       value: this.ordersTable.tableName,
       description: "DynamoDB Orders Table",
+    });
+
+    new cdk.CfnOutput(this, "RatingsTableName", {
+      value: this.ratingsTable.tableName,
+      description: "DynamoDB Ratings Table",
     });
   }
 }

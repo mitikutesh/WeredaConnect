@@ -22,6 +22,7 @@ class LoadCropListings extends CropListingEvent {
 class CreateCropListing extends CropListingEvent {
   final String farmerId;
   final String? farmerName;
+  final String? farmerPhone;
   final String cropType;
   final double quantity;
   final double pricePerKg;
@@ -46,6 +47,7 @@ class CreateCropListing extends CropListingEvent {
     required this.locationName,
     required this.description,
     this.farmerName,
+    this.farmerPhone,
     this.audioNoteRef,
     this.woreda,
     this.placeId,
@@ -55,6 +57,7 @@ class CreateCropListing extends CropListingEvent {
   List<Object?> get props => [
         farmerId,
         farmerName,
+        farmerPhone,
         cropType,
         quantity,
         pricePerKg,

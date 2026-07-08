@@ -150,7 +150,11 @@ class _FakeOrderRepository extends BaseOrderRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> submitPayment(String orderId, String cbeTransactionId) =>
+  Future<void> submitPayment(
+    String orderId,
+    String cbeTransactionId, {
+    String paymentMethod = 'cbe_transfer',
+  }) =>
       throw UnimplementedError();
 
   @override
