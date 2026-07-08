@@ -407,6 +407,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "participantId",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -479,6 +483,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "KeySchema": [
               {
                 "AttributeName": "participantId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "FarmerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "farmerId",
                 "KeyType": "HASH",
               },
               {
