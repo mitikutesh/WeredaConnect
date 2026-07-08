@@ -12,6 +12,8 @@ namespace WeredaConnect.Server.Data;
 ///   SK: createdAt (STRING)
 ///   GSI StatusCreatedAtIndex: status (PK) + createdAt (SK)
 ///   GSI TripIdIndex: tripId (PK) + createdAt (SK)
+///   GSI ParticipantIndex: participantId (PK, = buyerId) + createdAt (SK)
+///   GSI FarmerIdCreatedAtIndex: farmerId (PK) + createdAt (SK)
 /// </summary>
 public sealed class DeliveryRepository : IDeliveryRepository
 {
@@ -160,6 +162,59 @@ public sealed class DeliveryRepository : IDeliveryRepository
             Limit = limit,
             ScanIndexForward = false // newest first
         };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByFarmerAsync(
+        string farmerId,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "FarmerIdCreatedAtIndex",
+            KeyConditionExpression = "#farmerId = :farmerId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#farmerId", "farmerId" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":farmerId", new AttributeValue { S = farmerId } }
+            },
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        // Always exclude soft-deleted deliveries; apply the optional status
+        // filter on the non-key attribute (a FilterExpression, since status is
+        // not part of this GSI's key).
+        var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filterParts);
 
         if (exclusiveStartKey != null)
         {

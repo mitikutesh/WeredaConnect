@@ -57,10 +57,17 @@ class DeliveryRepository extends BaseDeliveryRepository {
           );
         }
       case 'confirmDelivery':
-        if (delivery.status != DeliveryStatus.inTransit) {
+        // The trucker's separate "mark in transit" step is optional, so the
+        // buyer may confirm the handoff directly from pickedUp. This mirrors
+        // the server transition map (pickedUp -> delivered) and the detail
+        // screen's button gating. Requiring inTransit here silently blocked
+        // the confirmation, leaving the delivery stuck at pickedUp so escrow
+        // never released to the farmer.
+        if (delivery.status != DeliveryStatus.pickedUp &&
+            delivery.status != DeliveryStatus.inTransit) {
           throw DeliveryValidationException(
             'status',
-            'Delivery must be in transit for confirmation',
+            'Delivery must be picked up or in transit for confirmation',
           );
         }
         if (delivery.buyerId != userId) {

@@ -339,6 +339,43 @@ void main() {
       await bloc.close();
     });
 
+    test(
+        'LoadMatchResults: a matching failure on reopen degrades to '
+        'MatchResultsLoaded (empty + stale), never BuyerIntentError', () async {
+      // Reopening a SAVED intent must not show a scary "no internet" error
+      // page when matching fails — it degrades to empty/stale results with the
+      // "cached results" banner + browse fallbacks, exactly like create.
+      final intent = await repository.createIntent(
+        buyerId: 'buyer-1',
+        cropType: 'wheat',
+        quantityNeeded: 5,
+        maxPricePerKg: 150,
+        deliveryWoreda: 'AddisAbeba',
+      );
+      final bloc = BuyerIntentBloc(
+        repository: repository,
+        matchingService: _ThrowingMatchingService(),
+        marketplaceSync: _FakeMarketplaceSync(isar),
+      );
+
+      final states = <BuyerIntentState>[];
+      final sub = bloc.stream.listen(states.add);
+      bloc.add(LoadMatchResults(intentId: intent.intentId));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await sub.cancel();
+
+      expect(
+        states.whereType<BuyerIntentError>(),
+        isEmpty,
+        reason: 'reopening a saved intent must not error on a match failure',
+      );
+      final loaded = states.whereType<MatchResultsLoaded>().single;
+      expect(loaded.matches, isEmpty);
+      expect(loaded.isStale, isTrue);
+      expect(loaded.intent.intentId, intent.intentId);
+      await bloc.close();
+    });
+
     test('I5: FulfillIntent emits a terminal ActiveIntentsLoaded', () async {
       final intent = await repository.createIntent(
         buyerId: 'buyer-1',

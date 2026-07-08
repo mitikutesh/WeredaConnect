@@ -79,7 +79,9 @@ class IsarMarketplaceSync implements MarketplaceSync {
   @override
   Future<void> pullDeliveries() async {
     if (_isFresh(_lastDeliveryPull)) return;
-    final deliveries = await _fetchDeliveries();
+    final userId = await _currentUserId();
+    if (userId == null || userId.isEmpty) return;
+    final deliveries = await _fetchDeliveries(userId);
     // entityIds of local delivery writes not yet confirmed synced. A buyer who
     // just confirmed delivery offline must not have that overwritten by an older
     // server view before the queued upload lands.
@@ -308,25 +310,38 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 
-  Future<List<Delivery>> _fetchDeliveries() async {
-    final results = <Delivery>[];
-    String? nextToken;
-    do {
-      final params = <String, dynamic>{'mine': 'true', 'limit': '50'};
-      if (nextToken != null) params['nextToken'] = nextToken;
-      final data = await _api.get<Map<String, dynamic>>(
-        '/deliveries',
-        queryParameters: params,
-      );
-      final items = data['deliveries'] as List<dynamic>? ??
-          data['items'] as List<dynamic>? ??
-          const <dynamic>[];
-      for (final item in items) {
-        results.add(_parseDelivery(item as Map<String, dynamic>));
-      }
-      nextToken = data['nextToken'] as String?;
-    } while (nextToken != null);
-    return results;
+  Future<List<Delivery>> _fetchDeliveries(String userId) async {
+    // Query both scopes and merge: a farmer is not the ParticipantIndex key
+    // (that is the buyer) and never authors the delivery, so they only appear
+    // under ?farmerId=; a buyer appears under ?mine=true. Merging by deliveryId
+    // returns the caller's deliveries whichever party they are, without this
+    // layer needing to know the role. (A trucker matches neither and authors
+    // locally; their cross-device pull is a follow-up once a truckerId GSI
+    // exists.)
+    final byId = <String, Delivery>{};
+    for (final scope in <Map<String, dynamic>>[
+      {'farmerId': userId},
+      {'mine': 'true'},
+    ]) {
+      String? nextToken;
+      do {
+        final params = <String, dynamic>{...scope, 'limit': '50'};
+        if (nextToken != null) params['nextToken'] = nextToken;
+        final data = await _api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: params,
+        );
+        final items = data['deliveries'] as List<dynamic>? ??
+            data['items'] as List<dynamic>? ??
+            const <dynamic>[];
+        for (final item in items) {
+          final d = _parseDelivery(item as Map<String, dynamic>);
+          if (d.deliveryId.isNotEmpty) byId[d.deliveryId] = d;
+        }
+        nextToken = data['nextToken'] as String?;
+      } while (nextToken != null);
+    }
+    return byId.values.toList();
   }
 
   Delivery _parseDelivery(Map<String, dynamic> m) {

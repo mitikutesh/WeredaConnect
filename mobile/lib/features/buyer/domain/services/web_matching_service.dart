@@ -6,25 +6,35 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
-import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
+import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
 
-/// Web / online matching service — delegates scoring to the server.
+/// Web / online matching service — client-side matching over API data.
 ///
-/// On mobile (offline-first), matching runs on-device over Isar-cached data.
-/// Here, ranking is delegated to the server `GET /match` endpoint, which scores
-/// crops with the same weighted formula as the mobile scorer. The device fetches
-/// a small, already-ranked result set instead of downloading every listing and
-/// scoring it locally. Trips are paired client-side (the match endpoint returns
-/// crops only).
+/// On mobile (offline-first), matching runs on-device over Isar-cached data
+/// via [MatchScorer]. Web has no Isar, so this service fetches the marketplace
+/// from the API (`GET /crops?status=available`, `GET /trips?status=open`,
+/// following pagination) and runs the SAME [MatchScorer] against it. Mobile
+/// and web therefore share ONE scoring definition and produce identical
+/// rankings — the device does the ranking either way.
+///
+/// This deliberately does NOT depend on a server-side `GET /match` endpoint:
+/// the plain `/crops` browse endpoint (which the marketplace already uses) is
+/// enough to match locally, so matching keeps working even where `/match` is
+/// not deployed.
 ///
 /// Ethiopian context:
-/// - Works over network (no offline support on web)
-/// - Commission rate is 5% (platform fee), same as mobile
-/// - Trip matching uses case-insensitive woreda name contains-matching
+/// - Buyers see ALL farmers' crops (role visibility), so candidate generation
+///   fetches every active listing, not just the buyer's own.
+/// - Commission rate is 5% (platform fee), same as mobile.
+/// - Trip matching uses case-insensitive woreda name contains-matching.
 class WebMatchingService extends BaseMatchingService {
   final ApiClient _api;
 
   static const double commissionRate = 0.05;
+
+  /// Shared, platform-agnostic relevance scorer — identical math to the mobile
+  /// [MatchingService], so online and offline rankings agree.
+  static const MatchScorer _scorer = MatchScorer();
 
   WebMatchingService({required ApiClient api}) : _api = api;
 
@@ -32,54 +42,31 @@ class WebMatchingService extends BaseMatchingService {
   Future<List<CropMatchResult>> matchListingsForIntent(
     BuyerIntent intent,
   ) async {
-    final (matches, _) = await _fetchMatches(intent);
+    final (matches, _) = await _match(intent);
     return matches;
   }
 
-  /// Fetch ranked matches plus the server's total eligible-match count.
+  /// Match ranked crops plus the count of eligible candidates.
   ///
-  /// The display list is capped by the request `limit`, but the badge count
-  /// must not saturate at that cap — the server reports `totalMatches`
-  /// (eligible matches before the limit cut) for that purpose.
-  Future<(List<CropMatchResult>, int)> _fetchMatches(
-    BuyerIntent intent,
-  ) async {
+  /// Candidate generation, near-miss tolerance, scoring and tie-breaking all
+  /// mirror the mobile [MatchingService]: fetch every active listing, keep the
+  /// ones [MatchScorer.isCandidate] accepts, score each, and rank by score DESC
+  /// with cheaper crop price breaking ties.
+  Future<(List<CropMatchResult>, int)> _match(BuyerIntent intent) async {
     try {
-      // Server-side scoring: GET /match returns crops already ranked by the
-      // shared scoring formula. Resolve the delivery woreda to coordinates
-      // client-side so the server can use true haversine distance; the woreda
-      // string is also sent as a proxy fallback.
-      final params = <String, dynamic>{
-        'cropType': intent.cropType,
-        'maxPricePerKg': intent.maxPricePerKg.toString(),
-        'quantityNeeded': intent.quantityNeeded.toString(),
-        'deliveryWoreda': intent.deliveryWoreda,
-        'limit': '50',
-      };
-      final destCoord = WoredaCentroids.lookup(intent.deliveryWoreda);
-      if (destCoord != null) {
-        params['latitude'] = destCoord.latitude.toString();
-        params['longitude'] = destCoord.longitude.toString();
-      }
+      final now = DateTime.now().toUtc();
 
-      final data = await _api.get<Map<String, dynamic>>(
-        '/match',
-        queryParameters: params,
-      );
-      final rawMatches = data['matches'] as List<dynamic>? ?? [];
-      // Fall back to the returned page size for servers without totalMatches.
-      final totalMatches =
-          (data['totalMatches'] as num?)?.toInt() ?? rawMatches.length;
-      if (rawMatches.isEmpty) return (const <CropMatchResult>[], totalMatches);
+      // Buyers match against ALL farmers' active listings (role visibility).
+      final crops = await _fetchAvailableCrops();
+      final candidates =
+          crops.where((c) => _scorer.isCandidate(intent, c)).toList();
+      if (candidates.isEmpty) return (const <CropMatchResult>[], 0);
 
-      // Pair each matched crop with suggested trips (the match endpoint returns
-      // crops only). Fetch open trips once for all matches.
+      // Pair each candidate crop with suggested trips (fetched once).
       final allTrips = await _fetchOpenTrips();
 
-      final matches = <CropMatchResult>[];
-      for (final raw in rawMatches) {
-        final map = raw as Map<String, dynamic>;
-        final listing = _parseMatch(map);
+      final results = <CropMatchResult>[];
+      for (final listing in candidates) {
         final trips = _filterTripsForRoute(
           allTrips,
           listing.locationName,
@@ -97,28 +84,33 @@ class WebMatchingService extends BaseMatchingService {
         final subtotal = cropCost + transportCost;
         final estimatedTotal = subtotal + subtotal * commissionRate;
 
-        matches.add(
+        results.add(
           CropMatchResult(
             listing: listing,
             suggestedTrips: trips,
             estimatedTotalMin: estimatedTotal,
-            matchScore: (map['score'] as num?)?.toDouble() ?? 0.0,
-            isSubstitute: map['isSubstitute'] as bool? ?? false,
+            matchScore: _scorer.scoreListing(intent, listing, now),
+            isSubstitute: _scorer.isSubstitute(intent, listing),
           ),
         );
       }
 
-      // The server already ranked by score; preserve that order.
-      return (matches, totalMatches);
+      // Rank by relevance (highest first); tie-break by cheaper crop price —
+      // identical to the mobile ranking so results don't reorder online/offline.
+      results.sort((a, b) {
+        final byScore = b.matchScore.compareTo(a.matchScore);
+        return byScore != 0
+            ? byScore
+            : a.listing.pricePerKg.compareTo(b.listing.pricePerKg);
+      });
+
+      return (results, results.length);
     } on ApiException {
       // Surface transient network/auth/server failures to the caller so the
-      // BLoC can emit an error state instead of silently masking the failure
-      // as 'no matches' (which would also overwrite the cached match count).
+      // BLoC can decide how to present them (empty/stale on reopen, silent on
+      // create) instead of this layer silently masking them as 'no matches'.
       rethrow;
     }
-    // Any other failure (e.g. a malformed response that breaks parsing) is
-    // intentionally NOT caught here: it propagates to the BLoC as an error
-    // rather than being hidden as an empty result set.
   }
 
   @override
@@ -127,17 +119,46 @@ class WebMatchingService extends BaseMatchingService {
     BaseBuyerIntentRepository repository,
   ) async {
     final intents = await repository.getActiveIntents(buyerId);
+    if (intents.isEmpty) return;
+
+    // Fetch the catalogue once and count candidates per intent with the SAME
+    // predicate as [matchListingsForIntent], so the badge count can never drift
+    // from what the buyer actually sees.
+    final crops = await _fetchAvailableCrops();
     for (final intent in intents) {
-      // Use the server's total (pre-limit) count so the badge matches the
-      // uncapped on-device count on mobile instead of saturating at the
-      // request limit.
-      final (_, totalMatches) = await _fetchMatches(intent);
+      final count = crops.where((c) => _scorer.isCandidate(intent, c)).length;
       await repository.updateMatchCount(
         intent.intentId,
-        totalMatches,
+        count,
         DateTime.now().toUtc(),
       );
     }
+  }
+
+  /// Fetch all active crop listings from the API, following pagination.
+  ///
+  /// Uses the marketplace browse endpoint (`GET /crops?status=available`) so no
+  /// dedicated match endpoint is required. Errors propagate so the caller can
+  /// report a real failure instead of treating it as "no matches".
+  Future<List<CropListing>> _fetchAvailableCrops() async {
+    final crops = <CropListing>[];
+    String? nextToken;
+    do {
+      final params = <String, dynamic>{'status': 'available', 'limit': '50'};
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/crops',
+        queryParameters: params,
+      );
+      final items = data['crops'] as List<dynamic>? ??
+          data['items'] as List<dynamic>? ??
+          const <dynamic>[];
+      for (final item in items) {
+        crops.add(_parseCrop(item as Map<String, dynamic>));
+      }
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null);
+    return crops;
   }
 
   /// Fetch all open trips from the API, following pagination.
@@ -189,6 +210,7 @@ class WebMatchingService extends BaseMatchingService {
   /// - toWoreda contains delivery woreda (case-insensitive)
   /// - departureDate in the future
   /// - capacity >= quantityNeeded
+  /// - departureDate on/before the buyer's deadline when one is set
   /// - Sorted by pricePerQuintal ascending
   ///
   /// NOTE: mobile applies a 0.01 float tolerance on the capacity check
@@ -207,6 +229,10 @@ class WebMatchingService extends BaseMatchingService {
     final fromLower = fromLocation.toLowerCase();
     final toLower = toLocation.toLowerCase();
     final deadline = neededByDate?.toUtc();
+
+    // Guard against empty needles: String.contains('') is always true, which
+    // would drop the woreda filter and match every open trip.
+    if (fromLower.isEmpty || toLower.isEmpty) return const <Trip>[];
 
     final matched = trips.where((trip) {
       if (trip.departureDate.isBefore(now)) return false;
@@ -255,28 +281,38 @@ class WebMatchingService extends BaseMatchingService {
       ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 
-  /// Parse a MatchDto (from GET /match) into a CropListing. The match endpoint
-  /// returns the crop's woreda and GPS coordinates but not its full free-text
-  /// description (loaded on the detail screen). Matches are always available.
-  CropListing _parseMatch(Map<String, dynamic> m) {
+  /// Parse a crop from `GET /crops` into a [CropListing].
+  ///
+  /// The browse endpoint returns the crop's woreda but may omit GPS
+  /// coordinates and the farmer-reliability signal; the [MatchScorer] degrades
+  /// gracefully in that case (woreda-string geo proxy + neutral reliability),
+  /// so a missing field lowers precision but never breaks matching.
+  CropListing _parseCrop(Map<String, dynamic> m) {
     return CropListing()
-      ..listingId = m['cropId'] as String? ?? ''
+      // API uses "cropId"; sync-created listings echo "listingId".
+      ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
       ..farmerId = m['farmerId'] as String? ?? ''
       ..farmerName = m['farmerName'] as String? ?? ''
       ..cropType = m['cropType'] as String? ?? ''
-      ..quantity = (m['quantityKg'] as num?)?.toDouble() ?? 0
+      // The number is quintals regardless of the key name (historical misnomer).
+      ..quantity = (m['quantity'] as num?)?.toDouble() ??
+          (m['quantityKg'] as num?)?.toDouble() ??
+          0
       ..pricePerKg = (m['pricePerKg'] as num?)?.toDouble() ?? 0
       ..location = (LatLng()
         ..latitude = (m['latitude'] as num?)?.toDouble() ?? 0
         ..longitude = (m['longitude'] as num?)?.toDouble() ?? 0)
-      ..locationName = m['woreda'] as String? ?? ''
-      ..description = ''
+      ..locationName =
+          m['locationName'] as String? ?? m['woreda'] as String? ?? ''
+      ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
       ..status = ListingStatus.active
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
-      ..updatedAt =
-          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
-      ..version = 1;
+      ..updatedAt = DateTime.tryParse(
+            m['updatedAt'] as String? ?? m['createdAt'] as String? ?? '',
+          ) ??
+          DateTime.now()
+      ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 }

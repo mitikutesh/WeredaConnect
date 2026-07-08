@@ -24,8 +24,12 @@ abstract class MarketplaceSync {
   /// Deliveries are created/updated by whichever party acts (trucker confirms
   /// pickup, buyer confirms delivery). The offline sync engine only *uploads* a
   /// device's own writes, so without this pull a buyer never sees the
-  /// trucker-driven status changes on their own device. Scoped server-side to
-  /// deliveries the caller participates in (`GET /deliveries?mine=true`).
+  /// trucker-driven status changes on their own device — and a farmer, who
+  /// never authors a delivery at all, sees nothing. Scoped server-side to the
+  /// caller by querying BOTH `?farmerId=` (FarmerIdCreatedAtIndex) and
+  /// `?mine=true` (the buyer via ParticipantIndex) and merging — so the caller
+  /// gets their deliveries whether they are the farmer or the buyer, without
+  /// this layer needing to know the role.
   Future<void> pullDeliveries();
 
   /// Fetch the current user's orders from the server into local storage.

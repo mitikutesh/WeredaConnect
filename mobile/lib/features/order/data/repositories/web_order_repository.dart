@@ -24,7 +24,7 @@ class WebOrderRepository extends BaseOrderRepository {
       '/orders',
       queryParameters: params,
     );
-    return _parseOrders(data);
+    return _filterByStatus(_parseOrders(data), statusFilter);
   }
 
   @override
@@ -38,7 +38,7 @@ class WebOrderRepository extends BaseOrderRepository {
       '/orders',
       queryParameters: params,
     );
-    return _parseOrders(data);
+    return _filterByStatus(_parseOrders(data), statusFilter);
   }
 
   @override
@@ -67,17 +67,31 @@ class WebOrderRepository extends BaseOrderRepository {
       '/orders',
       queryParameters: params,
     );
-    return _parseOrders(data);
+    return _filterByStatus(_parseOrders(data), statusFilter);
+  }
+
+  /// Defensive client-side status filter. The server SHOULD honour the `status`
+  /// query param, but a lagging deployment that ignores it would return the
+  /// user's full order list for every tab — matching the reported "Pending
+  /// orders also show under Accepted" bug. Filtering here keeps the status tabs
+  /// correct regardless of server behaviour; it's a no-op once the server
+  /// filters, and cheap because a single user's order set is small.
+  List<Order> _filterByStatus(List<Order> orders, String? statusFilter) {
+    if (statusFilter == null) return orders;
+    return orders.where((o) => o.status.name == statusFilter).toList();
   }
 
   @override
   Future<Order?> getOrderById(String orderId) async {
     try {
       final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+      // GET /orders/{id} returns {"order": {...}} (GetOrderResponse, camelCase).
+      // Accept the `item` envelope and a bare object too, so a response-shape
+      // change never silently degrades into a spurious "order not found" that
+      // the detail screen surfaces as "An error occurred".
+      final envelope = data['order'] ?? data['item'];
+      if (envelope is Map<String, dynamic>) return _parseOrderMap(envelope);
       if (data.containsKey('orderId')) return _parseOrderMap(data);
-      if (data.containsKey('item')) {
-        return _parseOrderMap(data['item'] as Map<String, dynamic>);
-      }
       return null;
     } on Exception {
       return null;

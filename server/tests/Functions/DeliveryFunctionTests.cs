@@ -133,6 +133,54 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public async Task HandleGetDeliveries_WithFarmerId_MatchingCaller_QueriesByFarmer()
+    {
+        var deliveries = new List<Dictionary<string, object>>
+        {
+            CreateDeliveryItem(farmerId: "farmer-123")
+        };
+        _mockDeliveryRepo.QueryByFarmerAsync(
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((deliveries, null));
+
+        var request = MakeAuthenticatedRequest(
+            "farmer-123",
+            queryParams: new Dictionary<string, string> { { "farmerId", "farmer-123" } });
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("del-001", response.Body);
+        // Must route to the farmer GSI, NOT the pending-defaulting status query.
+        await _mockDeliveryRepo.Received(1).QueryByFarmerAsync(
+            "farmer-123",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockDeliveryRepo.DidNotReceive().QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_WithFarmerId_NotCaller_Returns403()
+    {
+        // A farmer must only be able to query their OWN deliveries.
+        var request = MakeAuthenticatedRequest(
+            "farmer-123",
+            queryParams: new Dictionary<string, string> { { "farmerId", "someone-else" } });
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+        await _mockDeliveryRepo.DidNotReceive().QueryByFarmerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
     public async Task HandleGetDeliveries_Authenticated_ReturnsDeliveriesList()
     {
         var deliveries = new List<Dictionary<string, object>>

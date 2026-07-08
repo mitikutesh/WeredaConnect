@@ -142,4 +142,18 @@ public sealed record CropDto
     /// on-device matcher defaults it to a neutral value.
     /// </summary>
     public double? FarmerReliability { get; init; }
+
+    /// <summary>
+    /// Crop's GPS latitude (WGS84), captured when the farmer created the
+    /// listing with a location fix. Absent when no GPS was recorded — the
+    /// on-device matcher (mobile AND web) then falls back to a woreda-string
+    /// geo proxy. Returning it here lets the web client score true haversine
+    /// distance, matching the mobile on-device matcher.
+    /// </summary>
+    public double? Latitude { get; init; }
+
+    /// <summary>
+    /// Crop's GPS longitude (WGS84). See <see cref="Latitude"/>.
+    /// </summary>
+    public double? Longitude { get; init; }
 }

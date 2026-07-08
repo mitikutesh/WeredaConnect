@@ -248,7 +248,9 @@ public class CropFunction
             Description = GetStringOrNull(item, "description"),
             Location = GetStringOrNull(item, "location"),
             DeletedAt = GetStringOrNull(item, "deletedAt"),
-            FarmerReliability = GetDoubleOrNull(item, "farmerReliability")
+            FarmerReliability = GetDoubleOrNull(item, "farmerReliability"),
+            Latitude = GetDoubleOrNull(item, "latitude"),
+            Longitude = GetDoubleOrNull(item, "longitude")
         };
     }
 

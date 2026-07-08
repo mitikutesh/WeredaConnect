@@ -231,6 +231,20 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Query a farmer's deliveries directly. ParticipantIndex is keyed on
+    // the buyerId only, so a farmer (who never authors the delivery — the
+    // trucker does) had no index to find their own deliveries and the tab was
+    // permanently empty. NOTE: DynamoDB/CloudFormation allows adding only ONE
+    // GSI per table update, so the symmetric TruckerIdCreatedAtIndex is a
+    // separate follow-up deploy (truckers author locally, so they are not
+    // blocked today).
+    this.deliveriesTable.addGlobalSecondaryIndex({
+      indexName: "FarmerIdCreatedAtIndex",
+      partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Payments table (Telebirr escrow tracking)
     const payments = new WeredaDynamoTable(this, "PaymentsTable", {
       tableName: `${prefix}-payments`,

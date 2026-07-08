@@ -258,6 +258,16 @@ GET /crops/crop-456
 | `deletedAt` | string (ISO 8601) | No | — | Timestamp when listing was soft-deleted |
 | `version` | number | Yes | ≥1 | Optimistic concurrency control version |
 
+> **Implementation note — flat wire shape (`CropDto`).** The live `GET /crops`
+> response is **flat**, not the nested `location` object above: it returns
+> top-level `woreda`, `quantityKg`, `pricePerKg`, and — for on-device
+> matching — top-level **`latitude`**, **`longitude`**, and `farmerReliability`
+> (all `double?`, omitted when absent). The web client matches by fetching
+> `GET /crops?status=available` and scoring with the shared `MatchScorer`, so
+> `latitude`/`longitude` MUST be present for true haversine geo-scoring; when
+> absent the matcher falls back to a woreda-string proxy. See
+> `specs/contracts/match-api.md` (same coordinate fields on `MatchDto`).
+
 ### Crop Types (Enum)
 
 | Value | English Name | Amharic Name | Afan Oromo Name |

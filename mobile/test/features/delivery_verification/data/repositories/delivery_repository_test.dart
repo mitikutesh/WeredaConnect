@@ -297,6 +297,51 @@ void main() {
       expect(fromDb.dropoffPhotoRef, 'photos/dropoff-001.jpg');
     });
 
+    test('confirmDelivery succeeds directly from pickedUp (in-transit skipped)',
+        () async {
+      // The trucker's mark-in-transit step is optional; the server allows
+      // pickedUp -> delivered and the UI offers confirm at pickedUp. The repo
+      // must not reject it, else the delivery sticks at pickedUp and escrow
+      // never releases to the farmer.
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+      // NOTE: no _transitionToInTransit — confirm straight from pickedUp.
+
+      final gps = LatLng()
+        ..latitude = 8.9806
+        ..longitude = 38.7578;
+
+      await repository.confirmDelivery(
+        deliveryId: delivery.deliveryId,
+        buyerId: 'buyer-001',
+        gpsDropoff: gps,
+        photoRef: 'photos/dropoff-001.jpg',
+      );
+
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.status, DeliveryStatus.delivered);
+      // create(1) + pickup(2) + deliver(3)
+      expect(fromDb.version, 3);
+      expect(fromDb.confirmedAt, isNotNull);
+    });
+
     test('confirmDelivery enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
