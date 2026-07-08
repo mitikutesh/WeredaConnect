@@ -6,6 +6,7 @@ import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { HttpUserPoolAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -616,6 +617,136 @@ export class ApiStack extends cdk.Stack {
     props.uploadsBucket.grantReadWrite(deliveryFn.function);
     paginationSecret.grantRead(deliveryFn.function);
 
+    // ─── Telebirr live gateway (gated) ────────────────────────────────
+    // Off by default: dev/staging run MockTelebirrGateway (TELEBIRR_MOCK=true)
+    // at zero extra cost. When enabled (env config or `-c enableTelebirrLive=true`)
+    // we provision the real path: a credentials secret + a VPC with a t4g.nano
+    // NAT INSTANCE giving the escrow Lambdas a STABLE outbound IP for Telebirr's
+    // source-IP allow-list. The public webhook route + Lambda are wired below.
+    const enableTelebirrLive =
+      (envConfig.enableTelebirrLive ?? false) ||
+      this.node.tryGetContext("enableTelebirrLive") === "true";
+
+    let telebirrSecret: secretsmanager.Secret | undefined;
+    let telebirrVpc: ec2.Vpc | undefined;
+    let telebirrWebhookFn: WeredaLambda | undefined;
+    // Spread into the escrow Lambdas so they egress via the NAT's stable IP.
+    let escrowVpcProps: { vpc?: ec2.IVpc; vpcSubnets?: ec2.SubnetSelection } = {};
+
+    if (enableTelebirrLive) {
+      // Merchant credentials JSON. Populate real values OUT-OF-BAND via
+      // `aws secretsmanager put-secret-value` (see .ai/telebirr-testing.md).
+      // generateSecretString seeds placeholders ONCE at create, so the Lambdas
+      // cold-start before population and later redeploys never clobber the real
+      // values. All keys are non-empty so TelebirrConfig.FromJson won't throw;
+      // signing/verifying fails cleanly until real creds are set.
+      telebirrSecret = new secretsmanager.Secret(this, "TelebirrCredentials", {
+        secretName: `/${prefix}/telebirr/credentials`,
+        description:
+          "Telebirr merchant credentials (JSON). Populate via put-secret-value; do not edit inline.",
+        generateSecretString: {
+          generateStringKey: "_generated",
+          secretStringTemplate: JSON.stringify({
+            fabricAppId: "PLACEHOLDER",
+            appSecret: "PLACEHOLDER",
+            merchantAppId: "PLACEHOLDER",
+            merchantCode: "PLACEHOLDER",
+            shortCode: "PLACEHOLDER",
+            baseUrl:
+              "https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway",
+            webUrl:
+              "https://developerportal.ethiotelebirr.et:38443/payment/web/paygate",
+            merchantPrivateKeyPem: "PLACEHOLDER",
+            telebirrPublicKeyPem: "PLACEHOLDER",
+            returnUrl: "weredaconnect://payment/complete",
+            signPadding: "pkcs1",
+            // Optional Ethiopian egress proxy for OUTBOUND Telebirr calls
+            // (http[s]://[user:pass@]host:port). Empty = direct. Telebirr's
+            // sandbox only accepts Ethiopian source IPs — set this if a NAT EIP
+            // is not sufficient. Can also be set via TELEBIRR_HTTP_PROXY env.
+            httpProxy: "",
+          }),
+        },
+      });
+
+      // VPC with a single t4g.nano NAT INSTANCE (not a NAT Gateway — see the
+      // "Never NAT Gateways" rule in CLAUDE.md). One NAT serves both AZs to keep
+      // cost to ~$3-4/mo. Free gateway endpoints keep DynamoDB/S3 traffic off it.
+      const natProvider = ec2.NatProvider.instanceV2({
+        instanceType: ec2.InstanceType.of(
+          ec2.InstanceClass.T4G,
+          ec2.InstanceSize.NANO,
+        ),
+        defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
+      });
+      telebirrVpc = new ec2.Vpc(this, "TelebirrVpc", {
+        vpcName: `${prefix}-telebirr`,
+        maxAzs: 2,
+        natGateways: 1,
+        natGatewayProvider: natProvider,
+        subnetConfiguration: [
+          { name: "public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
+          {
+            name: "private",
+            subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            cidrMask: 24,
+          },
+        ],
+      });
+      // OUTBOUND_ONLY blocks unsolicited inbound from the internet; still let
+      // the private-subnet Lambdas reach the NAT instance.
+      natProvider.connections.allowFrom(
+        ec2.Peer.ipv4(telebirrVpc.vpcCidrBlock),
+        ec2.Port.allTraffic(),
+        "Escrow Lambdas -> NAT instance",
+      );
+      telebirrVpc.addGatewayEndpoint("DdbEndpoint", {
+        service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+      });
+      telebirrVpc.addGatewayEndpoint("S3Endpoint", {
+        service: ec2.GatewayVpcEndpointAwsService.S3,
+      });
+
+      // Stable Elastic IP on the NAT instance — the address you register with
+      // Telebirr for outbound source-IP allow-listing. Either reuse a
+      // pre-allocated EIP (so it can be registered with Telebirr BEFORE the
+      // full deploy — `aws ec2 allocate-address --domain vpc`) or let CDK
+      // allocate a fresh one and emit its address as an output.
+      const presetEipAllocId =
+        envConfig.telebirrNatEipAllocationId ??
+        (this.node.tryGetContext("telebirrNatEipAllocationId") as
+          | string
+          | undefined);
+
+      let natEipAllocationId: string;
+      let natEipOutputValue: string;
+      if (presetEipAllocId) {
+        natEipAllocationId = presetEipAllocId;
+        natEipOutputValue = `preallocated:${presetEipAllocId}`;
+      } else {
+        const natEip = new ec2.CfnEIP(this, "TelebirrNatEip", {
+          domain: "vpc",
+          tags: [{ key: "Name", value: `${prefix}-telebirr-nat` }],
+        });
+        natEipAllocationId = natEip.attrAllocationId;
+        natEipOutputValue = natEip.ref; // the public IPv4 address
+      }
+      new ec2.CfnEIPAssociation(this, "TelebirrNatEipAssoc", {
+        allocationId: natEipAllocationId,
+        instanceId: natProvider.gatewayInstances[0].instanceId,
+      });
+      new cdk.CfnOutput(this, "TelebirrNatEipOut", {
+        value: natEipOutputValue,
+        description:
+          "Outbound IP to register with Telebirr (source-IP allow-list)",
+      });
+
+      escrowVpcProps = {
+        vpc: telebirrVpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      };
+    }
+
     // ─── R4.3 Escrow Function ─────────────────────────────────────────
 
     const escrowFn = new WeredaLambda(this, "EscrowFunction", {
@@ -637,12 +768,14 @@ export class ApiStack extends cdk.Stack {
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
         PAGINATION_SECRET_ARN: paginationSecret.secretArn,
-        ...(envConfig.isProd ? {} : { TELEBIRR_MOCK: "true" }),
+        ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       logRetention: logs.RetentionDays.ONE_YEAR,
       reservedConcurrentExecutions: 15,
+      // In live mode, egress to Telebirr via the NAT instance's stable IP.
+      ...escrowVpcProps,
     });
     props.escrowsTable.grantReadWriteData(escrowFn.function);
     props.escrowAuditTable.grantWriteData(escrowFn.function);
@@ -673,12 +806,14 @@ export class ApiStack extends cdk.Stack {
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
-        ...(envConfig.isProd ? {} : { TELEBIRR_MOCK: "true" }),
+        ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
       logRetention: logs.RetentionDays.ONE_YEAR,
       reservedConcurrentExecutions: 2,
+      // In live mode, egress to Telebirr via the NAT instance's stable IP.
+      ...escrowVpcProps,
     });
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
@@ -719,6 +854,32 @@ export class ApiStack extends cdk.Stack {
         }),
       ],
     });
+
+    // ─── Telebirr Webhook Function (gated; public, RSA-verified) ───────
+    // Receives the async C2B notification and flips escrow initiated→escrowed.
+    // NOT placed in the VPC: it makes no outbound Telebirr call (only verifies
+    // the signature + writes DynamoDB + reads the secret), so it needs no stable
+    // egress IP. Kept out of the VPC to avoid coupling it to the NAT instance.
+    if (enableTelebirrLive) {
+      telebirrWebhookFn = new WeredaLambda(this, "TelebirrWebhookFunction", {
+        functionName: `${prefix}-telebirr-webhook`,
+        description:
+          "POST /webhooks/telebirr — async C2B payment notification (public, RSA-verified)",
+        handlerName: "TelebirrWebhookFunction",
+        environment: {
+          ESCROWS_TABLE: props.escrowsTable.tableName,
+          ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+          ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+        },
+        timeout: cdk.Duration.seconds(15),
+        memorySize: 512,
+        logRetention: logs.RetentionDays.ONE_YEAR,
+        reservedConcurrentExecutions: 10,
+      });
+      props.escrowsTable.grantReadWriteData(telebirrWebhookFn.function);
+      props.escrowAuditTable.grantWriteData(telebirrWebhookFn.function);
+      props.escrowIdempotencyTable.grantReadWriteData(telebirrWebhookFn.function);
+    }
 
     // ─── Order Function ──────────────────────────────────────────────
 
@@ -1162,6 +1323,47 @@ export class ApiStack extends cdk.Stack {
         },
       ),
     });
+
+    // ─── Telebirr live env wiring + public webhook route (gated) ──────
+    // Notify/callback URL and secret access are attached here (after the API
+    // exists so we can derive the public URL). The escrow/cron Lambdas make the
+    // outbound call; the webhook Lambda receives the callback.
+    if (enableTelebirrLive && telebirrSecret) {
+      const notifyUrl = `${httpApi.apiEndpoint}/webhooks/telebirr`;
+      const liveFns = [escrowFn, escrowCronFn, telebirrWebhookFn].filter(
+        (f): f is WeredaLambda => f !== undefined,
+      );
+      for (const fn of liveFns) {
+        fn.function.addEnvironment(
+          "TELEBIRR_SECRET_ARN",
+          telebirrSecret.secretArn,
+        );
+        fn.function.addEnvironment("TELEBIRR_NOTIFY_URL", notifyUrl);
+        if (envConfig.telebirrAllowedIps) {
+          fn.function.addEnvironment(
+            "TELEBIRR_ALLOWED_IPS",
+            envConfig.telebirrAllowedIps,
+          );
+        }
+        telebirrSecret.grantRead(fn.function);
+      }
+
+      if (telebirrWebhookFn) {
+        httpApi.addRoutes({
+          path: "/webhooks/telebirr",
+          methods: [apigateway.HttpMethod.POST],
+          // Public: NO authorizer. Telebirr authenticates via its RSA signature,
+          // which TelebirrWebhookFunction verifies (+ optional IP allow-list).
+          integration: new integrations.HttpLambdaIntegration(
+            "TelebirrWebhookInt",
+            telebirrWebhookFn.function,
+            {
+              payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+            },
+          ),
+        });
+      }
+    }
 
     // ─── Admin Lambda Function ────────────────────────────────────────
 

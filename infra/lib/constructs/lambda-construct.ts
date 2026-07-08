@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -17,6 +18,17 @@ export interface WeredaLambdaProps {
   readonly reservedConcurrentExecutions?: number;
   /** CloudWatch log retention. Defaults to THREE_MONTHS. */
   readonly logRetention?: logs.RetentionDays;
+  /**
+   * VPC to place this Lambda in. Only set for functions that need a stable
+   * outbound IP (e.g. the escrow Lambdas calling Telebirr). Placing a Lambda in
+   * a VPC couples it to the VPC's NAT for internet egress, so leave unset for
+   * everything else.
+   */
+  readonly vpc?: ec2.IVpc;
+  /** Which subnets to run in when `vpc` is set. Defaults to PRIVATE_WITH_EGRESS. */
+  readonly vpcSubnets?: ec2.SubnetSelection;
+  /** Security groups when `vpc` is set. Defaults to a CDK-generated group. */
+  readonly securityGroups?: ec2.ISecurityGroup[];
 }
 
 /**
@@ -88,6 +100,15 @@ export class WeredaLambda extends Construct {
       architecture: lambda.Architecture.ARM_64,
       memorySize: props.memorySize ?? 512,
       timeout: props.timeout ?? cdk.Duration.seconds(10),
+      ...(props.vpc
+        ? {
+            vpc: props.vpc,
+            vpcSubnets: props.vpcSubnets ?? {
+              subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            },
+            ...(props.securityGroups ? { securityGroups: props.securityGroups } : {}),
+          }
+        : {}),
       ...(() => {
         if (props.reservedConcurrentExecutions == null) return {};
         // Skip reserved concurrency in dev — account limit is too low (10 total)

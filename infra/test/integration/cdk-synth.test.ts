@@ -32,6 +32,7 @@ describe('CDK Integration Tests', () => {
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -75,6 +76,7 @@ describe('CDK Integration Tests', () => {
         fraudSignalsTable: dbStack.fraudSignalsTable,
         intentsTable: dbStack.intentsTable,
         deviceTokensTable: dbStack.deviceTokensTable,
+        matchEventsTable: dbStack.matchEventsTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 
