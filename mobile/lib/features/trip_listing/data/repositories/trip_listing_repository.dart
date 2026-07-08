@@ -292,10 +292,21 @@ class TripListingRepository extends BaseTripListingRepository {
 
     final now = DateTime.now().toUtc();
 
+    // The server's optimistic-concurrency check (sync-protocol.md) expects the
+    // version the client *had* before the change — the version the server still
+    // holds. Capture it before bumping and send THAT; the server applies the op
+    // when `clientVersion == serverVersion` and stores `clientVersion + 1`.
+    // Sending the already-incremented version instead guarantees a version
+    // conflict, after which the server-wins ConflictResolver reverts the local
+    // status back to the server's (e.g. a cancel silently flips back to open).
+    final baseVersion = trip.version;
+
     await _isar.writeTxn(() async {
       trip.status = newStatus;
       trip.updatedAt = now;
-      trip.version += 1;
+      // Bump to what the server will store on success, keeping the two in
+      // lockstep so the next transition sends the correct base version.
+      trip.version = baseVersion + 1;
       await _isar.trips.put(trip);
     });
 
@@ -306,7 +317,7 @@ class TripListingRepository extends BaseTripListingRepository {
       action: syncAction,
       data: jsonEncode({
         'status': newStatus.name,
-        'version': trip.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );

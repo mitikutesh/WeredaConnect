@@ -184,7 +184,7 @@ class _IdleCard extends StatelessWidget {
   }
 }
 
-/// POSTED state — trip is open, waiting for match.
+/// POSTED state — trip is open and visible to buyers.
 class _PostedCard extends StatelessWidget {
   final Trip trip;
 
@@ -205,7 +205,40 @@ class _PostedCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _RouteDisplay(from: trip.fromWoreda, to: trip.toWoreda),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _RouteDisplay(
+                  from: trip.fromWoreda,
+                  to: trip.toWoreda,
+                ),
+              ),
+              const SizedBox(width: 8),
+              // A plain "Open" status instead of a perpetual "Waiting for
+              // match…" spinner: truckers post trips for buyers to browse, so
+              // there is no automatic match to wait on — the spinner only
+              // confused users.
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.statusSuccess.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  l10n.tripStatusOpen,
+                  style: const TextStyle(
+                    color: AppTheme.statusSuccess,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           Text(
             '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',
@@ -215,8 +248,6 @@ class _PostedCard extends StatelessWidget {
               color: AppTheme.primaryGreen,
             ),
           ),
-          const SizedBox(height: 12),
-          _WaitingIndicator(text: l10n.waitingForMatch),
         ],
       ),
     );
@@ -591,37 +622,6 @@ class _RouteDisplay extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Subtle pulsing "Waiting..." indicator.
-class _WaitingIndicator extends StatelessWidget {
-  final String text;
-
-  const _WaitingIndicator({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppTheme.accentGold,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          text,
-          style: const TextStyle(
-            color: AppTheme.accentGold,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ],

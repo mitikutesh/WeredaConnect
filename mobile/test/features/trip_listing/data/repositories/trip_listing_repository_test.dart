@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -263,6 +264,13 @@ void main() {
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 2);
       expect(pending.last.action, 'delete');
+
+      // The delete op must carry the version the server still holds (1, the
+      // pre-increment value) — NOT the locally-bumped 2. Sending 2 fails the
+      // server's optimistic-concurrency check and the cancel silently reverts.
+      final deleteData = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(deleteData['version'], 1);
+      expect(deleteData['status'], TripStatus.cancelled.name);
     });
 
     // --- Contract Edge Cases: Capacity Boundaries ---
