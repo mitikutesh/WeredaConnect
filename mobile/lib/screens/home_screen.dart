@@ -1633,7 +1633,12 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           await isar.deliverys.where().sortByCreatedAtDesc().limit(3).findAll();
       final userDeliveries = userId.isNotEmpty
           ? deliveries
-              .where((d) => d.farmerId == userId || d.buyerId == userId)
+              .where(
+                (d) =>
+                    d.farmerId == userId ||
+                    d.buyerId == userId ||
+                    d.truckerId == userId,
+              )
               .take(3)
               .toList()
           : deliveries;
@@ -1647,6 +1652,53 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 : _ActivityType.pending,
           ),
         );
+      }
+
+      // Recent orders (buyer placed / farmer incoming / trucker assigned)
+      if (userId.isNotEmpty) {
+        final orders = await isar.orders
+            .filter()
+            .buyerIdEqualTo(userId)
+            .or()
+            .farmerIdEqualTo(userId)
+            .or()
+            .truckerIdEqualTo(userId)
+            .sortByCreatedAtDesc()
+            .limit(3)
+            .findAll();
+        for (final o in orders) {
+          final status = o.status.name;
+          items.add(
+            _ActivityItem(
+              description: '${l10n.orders}: ${o.cropType} ($status)',
+              timestamp: o.createdAt,
+              type: status == 'delivered'
+                  ? _ActivityType.success
+                  : _ActivityType.pending,
+            ),
+          );
+        }
+
+        // Recent trips (trucker's own; empty for other roles)
+        final trips = await isar.trips
+            .filter()
+            .truckerIdEqualTo(userId)
+            .sortByCreatedAtDesc()
+            .limit(3)
+            .findAll();
+        for (final t in trips) {
+          final status = t.status.name;
+          items.add(
+            _ActivityItem(
+              description:
+                  '${l10n.myTrips}: ${t.fromWoreda} → ${t.toWoreda} ($status)',
+              timestamp: t.createdAt,
+              type: status == 'delivered'
+                  ? _ActivityType.success
+                  : _ActivityType.info,
+            ),
+          );
+        }
       }
 
       items.sort((a, b) => b.timestamp.compareTo(a.timestamp));

@@ -6,6 +6,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -504,10 +505,22 @@ void _showHeroConfirmation(
               Navigator.of(dialogContext).pop();
               final authState = context.read<AuthBloc>().state;
               if (authState is AuthAuthenticated) {
-                context
-                    .read<TripListingBloc>()
-                    .add(eventFactory(authState.userId));
-                onRefresh?.call();
+                final bloc = context.read<TripListingBloc>()
+                  ..add(eventFactory(authState.userId));
+                // Refresh only AFTER the status transition commits — calling
+                // onRefresh synchronously races the bloc's write and re-reads
+                // the stale status, which never self-corrects offline.
+                final refresh = onRefresh;
+                if (refresh != null) {
+                  bloc.stream
+                      .firstWhere(
+                        (s) =>
+                            s is TripStarted ||
+                            s is TripDelivered ||
+                            s is TripListingError,
+                      )
+                      .then((_) => refresh());
+                }
               }
             },
             style:

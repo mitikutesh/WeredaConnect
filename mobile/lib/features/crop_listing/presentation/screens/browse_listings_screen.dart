@@ -393,44 +393,48 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                       );
                     }
 
-                    return ListView.separated(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      itemCount: state.listings.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final listing = state.listings[index];
-                        return ListingCard(
-                          title: listing.cropType,
-                          location: listing.locationName,
-                          sellerName: listing.farmerName.isNotEmpty
-                              ? listing.farmerName
-                              : listing.farmerId,
-                          price: l10n.etbCurrency(
-                            listing.pricePerKg.toStringAsFixed(0),
-                          ),
-                          hasEscrow: true,
-                          rating: 4.5,
-                          icon: Icons.eco,
-                          onTap: () {
-                            final authState = context.read<AuthBloc>().state;
-                            if (authState is AuthAuthenticated) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => CropListingDetailScreen(
-                                    listing: listing,
-                                    currentUserId: authState.userId,
-                                    currentUserRole: authState.role,
+                    return RefreshIndicator(
+                      onRefresh: () async => _loadListings(),
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        itemCount: state.listings.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final listing = state.listings[index];
+                          return ListingCard(
+                            title: listing.cropType,
+                            location: listing.locationName,
+                            sellerName: listing.farmerName.isNotEmpty
+                                ? listing.farmerName
+                                : listing.farmerId,
+                            price: l10n.etbCurrency(
+                              listing.pricePerKg.toStringAsFixed(0),
+                            ),
+                            hasEscrow: true,
+                            rating: 4.5,
+                            icon: Icons.eco,
+                            onTap: () {
+                              final authState = context.read<AuthBloc>().state;
+                              if (authState is AuthAuthenticated) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => CropListingDetailScreen(
+                                      listing: listing,
+                                      currentUserId: authState.userId,
+                                      currentUserRole: authState.role,
+                                    ),
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                        );
-                      },
+                                );
+                              }
+                            },
+                          );
+                        },
+                      ),
                     );
                   }
 

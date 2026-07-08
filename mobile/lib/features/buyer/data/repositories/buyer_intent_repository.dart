@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
@@ -79,20 +80,30 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
     // Resolve the delivery woreda to coordinates client-side (single source of
     // centroid data) so the server can score geo-distance.
     final coord = WoredaCentroids.lookup(deliveryWoreda);
-    await _enqueueIntent('create', intentId, {
-      'intentId': intentId,
-      'buyerId': buyerId,
-      'cropType': cropType,
-      'quantityNeeded': quantityNeeded,
-      'maxPricePerKg': maxPricePerKg,
-      'deliveryWoreda': deliveryWoreda,
-      if (coord != null) 'deliveryLatitude': coord.latitude,
-      if (coord != null) 'deliveryLongitude': coord.longitude,
-      if (neededByDate != null)
-        'neededByDate': neededByDate.toUtc().toIso8601String(),
-      'status': 'active',
-      'version': 1,
-    });
+    // The local Isar write above is authoritative (offline-first). Enqueue
+    // failures (queue full / duplicate idempotency key) must NOT surface as a
+    // save failure — the intent is persisted; the sync layer reconciles later.
+    try {
+      await _enqueueIntent('create', intentId, {
+        'intentId': intentId,
+        'buyerId': buyerId,
+        'cropType': cropType,
+        'quantityNeeded': quantityNeeded,
+        'maxPricePerKg': maxPricePerKg,
+        'deliveryWoreda': deliveryWoreda,
+        if (coord != null) 'deliveryLatitude': coord.latitude,
+        if (coord != null) 'deliveryLongitude': coord.longitude,
+        if (neededByDate != null)
+          'neededByDate': neededByDate.toUtc().toIso8601String(),
+        'status': 'active',
+        'version': 1,
+      });
+    } on Object catch (e) {
+      debugPrint(
+        '[BuyerIntentRepository] intent saved locally but sync enqueue '
+        'failed: $e',
+      );
+    }
 
     return intent;
   }

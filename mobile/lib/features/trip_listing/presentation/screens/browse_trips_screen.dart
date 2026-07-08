@@ -353,6 +353,19 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
       ],
     );
 
-    return widget.embedded ? content : Scaffold(body: content);
+    // A trip created/started/delivered from the shell FAB or a detail screen
+    // leaves this still-mounted list stale (the embedded tab doesn't re-run
+    // initState). Re-load so the new/changed trip appears immediately instead
+    // of the empty "No trips found" placeholder.
+    final withRefresh = BlocListener<TripListingBloc, TripListingState>(
+      listenWhen: (previous, current) =>
+          current is TripCreated ||
+          current is TripStarted ||
+          current is TripDelivered,
+      listener: (context, state) => _loadTrips(),
+      child: content,
+    );
+
+    return widget.embedded ? withRefresh : Scaffold(body: withRefresh);
   }
 }

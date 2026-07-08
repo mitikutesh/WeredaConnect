@@ -115,7 +115,9 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
             tripId: trip.tripId,
             listingId: widget.listing.listingId,
             farmerId: widget.listing.farmerId,
-            farmerName: widget.listing.farmerId, // farmerId used as fallback
+            farmerName: widget.listing.farmerName.isNotEmpty
+                ? widget.listing.farmerName
+                : widget.listing.farmerId, // fall back to id only if unnamed
             truckerId: authState.userId,
             truckerName: trip.truckerName,
             buyerId: buyerId,

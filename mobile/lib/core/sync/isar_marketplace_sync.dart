@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
@@ -33,6 +34,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
   DateTime? _lastCropPull;
   DateTime? _lastTripPull;
   DateTime? _lastDeliveryPull;
+  DateTime? _lastOrderPull;
 
   IsarMarketplaceSync({
     required ApiClient api,
@@ -99,6 +101,32 @@ class IsarMarketplaceSync implements MarketplaceSync {
       }
     });
     _lastDeliveryPull = DateTime.now();
+  }
+
+  @override
+  Future<void> pullOrders({required String userId, String? role}) async {
+    if (userId.isEmpty) return;
+    if (_isFresh(_lastOrderPull)) return;
+    final orders = await _fetchOrders(userId, role);
+    // entityIds of local order writes not yet confirmed synced — a buyer who
+    // just placed/paid offline must not have it overwritten by an older server
+    // view before the queued upload lands.
+    final pendingIds = await _entityIdsWithPendingUploads();
+
+    await _isar.writeTxn(() async {
+      for (final o in orders) {
+        if (pendingIds.contains(o.orderId)) continue;
+        final existing =
+            await _isar.orders.filter().orderIdEqualTo(o.orderId).findFirst();
+        if (existing != null) {
+          // Never regress to an older server version than what we already hold.
+          if (o.version < existing.version) continue;
+          o.id = existing.id;
+        }
+        await _isar.orders.put(o);
+      }
+    });
+    _lastOrderPull = DateTime.now();
   }
 
   bool _isFresh(DateTime? last) =>
@@ -345,6 +373,81 @@ class IsarMarketplaceSync implements MarketplaceSync {
     return DeliveryStatus.values.firstWhere(
       (e) => e.name == s,
       orElse: () => DeliveryStatus.pending,
+    );
+  }
+
+  /// Fetch the user's orders scoped by their role. A user holds a single role,
+  /// so one query suffices (farmer→farmerId, buyer→buyerId, trucker→truckerId);
+  /// when the role is unknown, fetch all three and union by orderId.
+  Future<List<Order>> _fetchOrders(String userId, String? role) async {
+    final fields = switch (role) {
+      'farmer' => const ['farmerId'],
+      'buyer' => const ['buyerId'],
+      'trucker' => const ['truckerId'],
+      _ => const ['buyerId', 'farmerId', 'truckerId'],
+    };
+    final byId = <String, Order>{};
+    for (final field in fields) {
+      String? nextToken;
+      do {
+        final params = <String, dynamic>{field: userId, 'limit': '50'};
+        if (nextToken != null) params['nextToken'] = nextToken;
+        final data = await _api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: params,
+        );
+        final items = data['orders'] as List<dynamic>? ??
+            data['items'] as List<dynamic>? ??
+            const <dynamic>[];
+        for (final item in items) {
+          final o = _parseOrder(item as Map<String, dynamic>);
+          if (o.orderId.isNotEmpty) byId[o.orderId] = o;
+        }
+        nextToken = data['nextToken'] as String?;
+      } while (nextToken != null);
+    }
+    return byId.values.toList();
+  }
+
+  Order _parseOrder(Map<String, dynamic> m) {
+    return Order()
+      ..orderId = m['orderId'] as String? ?? ''
+      ..listingId = m['listingId'] as String? ?? ''
+      ..buyerId = m['buyerId'] as String? ?? ''
+      ..farmerId = m['farmerId'] as String? ?? ''
+      ..buyerName = m['buyerName'] as String? ?? ''
+      ..farmerName = m['farmerName'] as String? ?? ''
+      ..cropType = m['cropType'] as String? ?? ''
+      ..quantity = (m['quantity'] as num?)?.toDouble() ?? 0
+      ..pricePerUnit = (m['pricePerUnit'] as num?)?.toDouble() ?? 0
+      ..totalPrice = (m['totalPrice'] as num?)?.toDouble() ?? 0
+      ..status = _parseOrderStatus(m['status'] as String?)
+      ..createdAt =
+          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
+      ..respondedAt = DateTime.tryParse(m['respondedAt'] as String? ?? '')
+      ..rejectionReason = m['rejectionReason'] as String?
+      ..version = (m['version'] as num?)?.toInt() ?? 1
+      ..tripId = m['tripId'] as String?
+      ..truckerId = m['truckerId'] as String?
+      ..truckerName = m['truckerName'] as String?
+      ..cropCost = (m['cropCost'] as num?)?.toDouble()
+      ..transportCost = (m['transportCost'] as num?)?.toDouble()
+      ..commissionRate = (m['commissionRate'] as num?)?.toDouble()
+      ..commissionAmount = (m['commissionAmount'] as num?)?.toDouble()
+      ..orderTotal = (m['orderTotal'] as num?)?.toDouble()
+      ..paymentMethod = m['paymentMethod'] as String?
+      ..cbeTransactionId = m['cbeTransactionId'] as String?
+      ..paymentVerifiedAt =
+          DateTime.tryParse(m['paymentVerifiedAt'] as String? ?? '')
+      ..cancelledAt = DateTime.tryParse(m['cancelledAt'] as String? ?? '')
+      ..cancelReason = m['cancelReason'] as String?
+      ..updatedAt = DateTime.tryParse(m['updatedAt'] as String? ?? '');
+  }
+
+  OrderStatus _parseOrderStatus(String? s) {
+    return OrderStatus.values.firstWhere(
+      (e) => e.name == s,
+      orElse: () => OrderStatus.created,
     );
   }
 
