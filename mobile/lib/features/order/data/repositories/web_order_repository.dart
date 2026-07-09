@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
@@ -127,7 +128,7 @@ class WebOrderRepository extends BaseOrderRepository {
       'cropType': cropType,
       'quantity': quantity,
       'pricePerUnit': pricePerUnit,
-      'status': 'created',
+      'status': orderStatusToWire(OrderStatus.created.name),
       if (tripId != null) 'tripId': tripId,
       if (truckerId != null) 'truckerId': truckerId,
       if (truckerName != null) 'truckerName': truckerName,
@@ -205,7 +206,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'timestamp': now,
             'idempotencyKey': 'web_payment_${orderId}_$now',
             'data': {
-              'status': 'paymentSubmitted',
+              'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
               'paymentMethod': paymentMethod,
               'cbeTransactionId': cbeTransactionId,
             },
@@ -239,7 +240,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'timestamp': now,
             'idempotencyKey': 'web_cancel_${orderId}_$now',
             'data': {
-              'status': 'cancelled',
+              'status': orderStatusToWire(OrderStatus.cancelled.name),
               if (reason != null) 'cancelReason': reason,
             },
           },
@@ -268,7 +269,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'entityId': orderId,
             'timestamp': now,
             'idempotencyKey': 'web_accept_${orderId}_$now',
-            'data': {'status': 'accepted'},
+            'data': {'status': orderStatusToWire(OrderStatus.accepted.name)},
           },
         ],
       },
@@ -299,7 +300,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'timestamp': now,
             'idempotencyKey': 'web_reject_${orderId}_$now',
             'data': {
-              'status': 'rejected',
+              'status': orderStatusToWire(OrderStatus.rejected.name),
               if (reason != null) 'rejectionReason': reason,
             },
           },
@@ -355,8 +356,10 @@ class WebOrderRepository extends BaseOrderRepository {
   }
 
   OrderStatus _parseOrderStatus(String? s) {
+    // Server sends order status in snake_case; map it back to the camelCase enum.
+    final name = s == null ? null : orderStatusFromWire(s);
     return OrderStatus.values.firstWhere(
-      (e) => e.name == s,
+      (e) => e.name == name,
       orElse: () => OrderStatus.created,
     );
   }

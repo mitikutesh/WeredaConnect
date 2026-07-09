@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -344,8 +345,8 @@ class ConflictResolver {
         order!.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
         order!.totalPrice = (serverData['totalPrice'] as num).toDouble();
 
-        // Parse status enum
-        final statusStr = serverData['status'] as String;
+        // Parse status enum. Server sends snake_case; map to the camelCase enum.
+        final statusStr = orderStatusFromWire(serverData['status'] as String);
         order!.status = OrderStatus.values.firstWhere(
           (e) => e.name == statusStr,
           orElse: () => OrderStatus.created,

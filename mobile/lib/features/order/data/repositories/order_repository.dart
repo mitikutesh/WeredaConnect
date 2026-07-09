@@ -5,6 +5,7 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
@@ -202,7 +203,7 @@ class OrderRepository extends BaseOrderRepository {
           if (tripId != null) 'tripId': tripId,
           if (truckerId != null) 'truckerId': truckerId,
           if (truckerName != null) 'truckerName': truckerName,
-          'status': OrderStatus.created.name,
+          'status': orderStatusToWire(OrderStatus.created.name),
           'createdAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
           'version': 1,
@@ -231,13 +232,17 @@ class OrderRepository extends BaseOrderRepository {
     if (order == null) return;
 
     final now = DateTime.now().toUtc();
+    // Send the version the client HAD before this change: the server checks
+    // `#v = :expectedVersion`, so sending the post-increment value would always
+    // conflict and get reverted by server-wins (same off-by-one fixed for trips).
+    final baseVersion = order.version;
 
     await _isar.writeTxn(() async {
       order.cbeTransactionId = cbeTransactionId;
       order.paymentMethod = paymentMethod;
       order.status = OrderStatus.paymentSubmitted;
       order.updatedAt = now;
-      order.version += 1;
+      order.version = baseVersion + 1;
       await _isar.orders.put(order);
     });
 
@@ -250,9 +255,9 @@ class OrderRepository extends BaseOrderRepository {
         'orderId': orderId,
         'cbeTransactionId': cbeTransactionId,
         'paymentMethod': paymentMethod,
-        'status': OrderStatus.paymentSubmitted.name,
+        'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
         'updatedAt': now.toIso8601String(),
-        'version': order.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
@@ -272,13 +277,14 @@ class OrderRepository extends BaseOrderRepository {
     if (order.buyerId != userId && order.farmerId != userId) return;
 
     final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
 
     await _isar.writeTxn(() async {
       order.status = OrderStatus.cancelled;
       order.cancelledAt = now;
       order.cancelReason = reason;
       order.updatedAt = now;
-      order.version += 1;
+      order.version = baseVersion + 1;
       await _isar.orders.put(order);
     });
 
@@ -289,11 +295,11 @@ class OrderRepository extends BaseOrderRepository {
       action: 'update',
       data: jsonEncode({
         'orderId': orderId,
-        'status': OrderStatus.cancelled.name,
+        'status': orderStatusToWire(OrderStatus.cancelled.name),
         'cancelledAt': now.toIso8601String(),
         if (reason != null) 'cancelReason': reason,
         'updatedAt': now.toIso8601String(),
-        'version': order.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
@@ -309,12 +315,13 @@ class OrderRepository extends BaseOrderRepository {
     if (order.status != OrderStatus.funded) return;
 
     final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
 
     await _isar.writeTxn(() async {
       order.status = OrderStatus.accepted;
       order.respondedAt = now;
       order.updatedAt = now;
-      order.version += 1;
+      order.version = baseVersion + 1;
       await _isar.orders.put(order);
     });
 
@@ -325,10 +332,10 @@ class OrderRepository extends BaseOrderRepository {
       action: 'update',
       data: jsonEncode({
         'orderId': orderId,
-        'status': OrderStatus.accepted.name,
+        'status': orderStatusToWire(OrderStatus.accepted.name),
         'respondedAt': now.toIso8601String(),
         'updatedAt': now.toIso8601String(),
-        'version': order.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
@@ -348,13 +355,14 @@ class OrderRepository extends BaseOrderRepository {
     if (order.status != OrderStatus.funded) return;
 
     final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
 
     await _isar.writeTxn(() async {
       order.status = OrderStatus.rejected;
       order.respondedAt = now;
       order.rejectionReason = reason;
       order.updatedAt = now;
-      order.version += 1;
+      order.version = baseVersion + 1;
       await _isar.orders.put(order);
     });
 
@@ -365,11 +373,11 @@ class OrderRepository extends BaseOrderRepository {
       action: 'update',
       data: jsonEncode({
         'orderId': orderId,
-        'status': OrderStatus.rejected.name,
+        'status': orderStatusToWire(OrderStatus.rejected.name),
         'respondedAt': now.toIso8601String(),
         if (reason != null) 'rejectionReason': reason,
         'updatedAt': now.toIso8601String(),
-        'version': order.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
