@@ -136,7 +136,9 @@ public partial class SyncFunction
 
     private static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
     {
-        { "created", new HashSet<string> { "pending_payment", "cancelled" } },
+        // Buyers pay immediately after placing an order, so allow the direct
+        // created -> payment_submitted hop as well as the pending_payment step.
+        { "created", new HashSet<string> { "pending_payment", "payment_submitted", "cancelled" } },
         { "pending_payment", new HashSet<string> { "payment_submitted", "cancelled" } },
         { "payment_submitted", new HashSet<string> { "funded", "payment_failed" } },
         { "funded", new HashSet<string> { "accepted", "cancelled" } },
@@ -3825,13 +3827,40 @@ public partial class SyncFunction
 
         if (updateResult.IsSuccess)
         {
+            var appliedStatus = operation.Data.TryGetValue("status", out var statusVal)
+                ? statusVal?.ToString()
+                : null;
+
             // 6D: When order transitions to "funded", decrease listing quantity
-            if (operation.Data.TryGetValue("status", out var statusVal) && statusVal?.ToString() == "funded")
+            if (appliedStatus == "funded")
             {
                 await TryDecreaseListingQuantityAsync(existingOrder, context);
             }
 
             var newVersion = version + 1;
+
+            // Mock/demo payments have no real gateway to verify the transfer, so a
+            // submitted payment is auto-verified server-side: advance
+            // payment_submitted -> funded (clients are blocked from the
+            // system-managed 'funded' state) so the farmer can act on the order.
+            // Live/prod payments (TELEBIRR_MOCK unset) are funded by the real
+            // gateway callback, never here.
+            if (appliedStatus == "payment_submitted" && IsMockPaymentsEnabled())
+            {
+                var fundedData = await TryAutoFundMockOrderAsync(
+                    operation.EntityId, newVersion, existingOrder, context);
+                if (fundedData != null)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "success",
+                        ServerVersion = newVersion + 1,
+                        ServerData = fundedData
+                    };
+                }
+            }
+
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
@@ -3901,6 +3930,56 @@ public partial class SyncFunction
             // Best-effort: don't fail the order update if listing update fails
             context.Logger.LogWarning(
                 $"Failed to decrease listing quantity: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Whether the environment runs mocked payments (no real Telebirr gateway).
+    /// Set by infra for dev/staging (TELEBIRR_MOCK=true); never set in prod or
+    /// when the live gateway is enabled.
+    /// </summary>
+    private static bool IsMockPaymentsEnabled() =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("TELEBIRR_MOCK"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Auto-verify a mocked payment by advancing the order payment_submitted ->
+    /// funded server-side (the client cannot set the system-managed 'funded'
+    /// state). Mirrors the real funded path: stamps paymentVerifiedAt and
+    /// decreases the listing quantity. Best-effort — on failure the caller keeps
+    /// the successful payment_submitted result rather than erroring the payment.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> TryAutoFundMockOrderAsync(
+        string orderId, int expectedVersion,
+        Dictionary<string, object> existingOrder, ILambdaContext context)
+    {
+        try
+        {
+            var fundData = new Dictionary<string, object>
+            {
+                { "status", "funded" },
+                { "paymentVerifiedAt", DateTime.UtcNow.ToString("o") }
+            };
+
+            var result = await _orderRepo.UpdateAsync(orderId, fundData, expectedVersion);
+            if (!result.IsSuccess)
+            {
+                context.Logger.LogWarning(
+                    $"Mock auto-fund not applied for order {orderId}: {result.Error?.Message}");
+                return null;
+            }
+
+            await TryDecreaseListingQuantityAsync(existingOrder, context);
+            context.Logger.LogInformation($"Order {orderId} auto-funded (mock payments).");
+            return result.Value;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Mock auto-fund failed for order {orderId}: [{ex.GetType().Name}]");
+            return null;
         }
     }
 

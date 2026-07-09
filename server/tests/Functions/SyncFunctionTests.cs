@@ -2111,4 +2111,121 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.DoesNotContain("Only buyers can create orders", response.Body);
     }
+
+    [Fact]
+    public async Task OrderUpdate_CreatedToPaymentSubmitted_IsAllowed()
+    {
+        // Buyers pay immediately after placing an order, so the direct
+        // created -> payment_submitted hop must be accepted (not rejected as an
+        // invalid transition). Regression for the "An error occurred" bug.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "created" },
+            { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" },
+                { "status", "payment_submitted" },
+                { "version", "2" }
+            }));
+
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-pay",
+            IdempotencyKey = "user:order:order-001:update:12345",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "payment_submitted" },
+                { "paymentMethod", "telebirr" },
+                { "cbeTransactionId", "MOCK-TBR-1" }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("Invalid status transition", response.Body);
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PaymentSubmitted_MockMode_AutoFundsOrder()
+    {
+        // In mock mode there is no real gateway to verify the transfer, so a
+        // submitted payment must be auto-verified: the server advances the order
+        // to the system-managed 'funded' state so the farmer can act on it.
+        Environment.SetEnvironmentVariable("TELEBIRR_MOCK", "true");
+        try
+        {
+            var orderRepo = Substitute.For<IOrderRepository>();
+            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" },
+                { "buyerId", "buyer-001" },
+                { "farmerId", "farmer-001" },
+                { "listingId", "listing-001" },
+                { "quantity", "10" },
+                { "status", "created" },
+                { "version", "1" }
+            });
+            orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+                .Returns(call =>
+                {
+                    var data = call.ArgAt<Dictionary<string, object>>(1);
+                    var status = data.TryGetValue("status", out var s) ? s?.ToString() ?? "" : "";
+                    return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+                    {
+                        { "orderId", "order-001" },
+                        { "status", status },
+                        { "version", "2" }
+                    });
+                });
+
+            var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+                "test-trips-table", "test-deliveries-table",
+                userRepo: _mockUserRepo, orderRepo: orderRepo);
+
+            var op = new SyncOperationRequest
+            {
+                OperationId = "op-pay",
+                IdempotencyKey = "user:order:order-001:update:12345",
+                EntityType = "order",
+                EntityId = "order-001",
+                Action = "update",
+                Data = new Dictionary<string, object>
+                {
+                    { "status", "payment_submitted" },
+                    { "paymentMethod", "telebirr" },
+                    { "cbeTransactionId", "MOCK-TBR-1" }
+                }
+            };
+            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+            var response = await function.FunctionHandler(request, _context);
+
+            Assert.Equal(200, response.StatusCode);
+            Assert.Contains("success", response.Body);
+            await orderRepo.Received().UpdateAsync(
+                "order-001",
+                Arg.Is<Dictionary<string, object>>(d =>
+                    d.ContainsKey("status") && d["status"].ToString() == "funded"),
+                Arg.Any<int>());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
+        }
+    }
 }

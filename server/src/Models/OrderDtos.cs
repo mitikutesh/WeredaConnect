@@ -54,6 +54,9 @@ public sealed record GetOrderResponse
 ///   created → pending_payment → payment_submitted → funded → accepted →
 ///   pickup_confirmed → in_transit → delivered → disbursing → settled
 ///
+/// Shortcut: buyers pay immediately after placing an order, so
+///   created → payment_submitted is also allowed (skipping pending_payment).
+///
 /// Exception states: payment_failed, cancelled, disputed, dispute_resolved
 /// </summary>
 public sealed record OrderDto
