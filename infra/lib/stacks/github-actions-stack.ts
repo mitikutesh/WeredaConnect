@@ -124,6 +124,31 @@ export class GithubActionsStack extends cdk.Stack {
       }),
     );
 
+    // CDK deploys (server Lambdas + infrastructure, via the deploy-server
+    // workflow). Rather than granting broad CloudFormation/Lambda/IAM rights to
+    // this CI principal, allow it to assume the CDK bootstrap roles — those hold
+    // the real deploy permissions. Also allow reading the bootstrap version SSM
+    // parameter, which the CLI checks before assuming. Qualifier `hnb659fds` is
+    // the CDK bootstrap default.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "AssumeCdkBootstrapRoles",
+        effect: iam.Effect.ALLOW,
+        actions: ["sts:AssumeRole"],
+        resources: [`arn:aws:iam::${this.account}:role/cdk-hnb659fds-*`],
+      }),
+    );
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "ReadCdkBootstrapVersion",
+        effect: iam.Effect.ALLOW,
+        actions: ["ssm:GetParameter"],
+        resources: [
+          `arn:aws:ssm:*:${this.account}:parameter/cdk-bootstrap/hnb659fds/version`,
+        ],
+      }),
+    );
+
     this.deployRoleArn = deployRole.roleArn;
 
     new cdk.CfnOutput(this, "DeployRoleArn", {
