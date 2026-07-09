@@ -57,7 +57,8 @@ void main() {
       expect(a, 'crop:crop-1:buyer-1:farmer-1');
     });
 
-    test('sendMessage writes locally and enqueues a message create op', () async {
+    test('sendMessage writes locally and enqueues a message create op',
+        () async {
       final message = await repository.sendMessage(
         contextType: 'crop',
         contextId: 'crop-1',
