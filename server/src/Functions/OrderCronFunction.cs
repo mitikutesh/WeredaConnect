@@ -17,6 +17,9 @@ namespace WeredaConnect.Server.Functions;
 public class OrderCronFunction
 {
     private readonly IOrderRepository _orderRepo;
+    // Optional: unified transaction-audit trail. Auto-cancel is a system-driven
+    // order transition that would otherwise be invisible in the monitor.
+    private readonly ITransactionAuditRepository? _transactionAuditRepo;
 
     private const int ExpirationHours = 24;
 
@@ -30,14 +33,20 @@ public class OrderCronFunction
 
         var dynamoDb = new AmazonDynamoDBClient();
         _orderRepo = new OrderRepository(dynamoDb, ordersTable);
+
+        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
+        _transactionAuditRepo = txAuditTable != null
+            ? new TransactionAuditRepository(dynamoDb, txAuditTable)
+            : null;
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public OrderCronFunction(IOrderRepository orderRepo)
+    public OrderCronFunction(IOrderRepository orderRepo, ITransactionAuditRepository? transactionAuditRepo = null)
     {
         _orderRepo = orderRepo ?? throw new ArgumentNullException(nameof(orderRepo));
+        _transactionAuditRepo = transactionAuditRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -153,6 +162,11 @@ public class OrderCronFunction
             if (result.IsSuccess)
             {
                 cancelledCount++;
+                await TransactionAuditWriter.EmitAsync(
+                    _transactionAuditRepo, context, orderId, "order", orderId,
+                    "order_cancelled", status, "cancelled",
+                    AuditContext.ForSystem(),
+                    metadata: $"Auto-cancelled: no payment within {ExpirationHours}h.");
             }
             else
             {

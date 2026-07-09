@@ -51,6 +51,14 @@ public partial class SyncFunction
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
     private readonly IRatingRepository? _ratingRepo;
+    // Optional: unified transaction-audit trail for order/delivery lifecycle
+    // transitions. Absent env → null (transitions still process; simply unlogged).
+    private readonly ITransactionAuditRepository? _transactionAuditRepo;
+
+    // Who/where for the current sync batch (same user/IP/correlation across all
+    // operations in one request). Set at the top of FunctionHandler. Lambda runs
+    // one invocation per instance at a time, so a per-batch field is safe.
+    private AuditContext? _batchAudit;
 
     // SSM commission rate cache (15-min TTL)
     private static double _cachedCommissionRate;
@@ -275,6 +283,12 @@ public partial class SyncFunction
         _ratingRepo = ratingsTable != null
             ? new RatingRepository(_dynamoDb, ratingsTable)
             : null;
+
+        // Optional: unified transaction-audit trail (order/delivery transitions).
+        var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
+        _transactionAuditRepo = txAuditTable != null
+            ? new TransactionAuditRepository(_dynamoDb, txAuditTable)
+            : null;
     }
 
     /// <summary>
@@ -289,7 +303,8 @@ public partial class SyncFunction
         IIntentRepository? intentRepo = null,
         IMatchEventRepository? matchEventRepo = null,
         IEscrowRepository? escrowRepo = null,
-        IRatingRepository? ratingRepo = null)
+        IRatingRepository? ratingRepo = null,
+        ITransactionAuditRepository? transactionAuditRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -304,6 +319,7 @@ public partial class SyncFunction
         _matchEventRepo = matchEventRepo;
         _escrowRepo = escrowRepo;
         _ratingRepo = ratingRepo;
+        _transactionAuditRepo = transactionAuditRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -362,6 +378,9 @@ public partial class SyncFunction
         }
 
         var correlationId = AuditLogger.GetCorrelationId(request);
+
+        // Who/where for every audit event emitted while processing this batch.
+        _batchAudit = AuditContext.From(request, authenticatedUserId, authenticatedRole);
 
         AuditLogger.LogAudit("SYNC", "BATCH_START",
             userId: authenticatedUserId, correlationId: correlationId,
@@ -2697,6 +2716,12 @@ public partial class SyncFunction
                     {
                         await _dynamoDb.PutItemAsync(request);
 
+                        var deliveryTxId = item.TryGetValue("orderId", out var dCreateOid)
+                            && !string.IsNullOrEmpty(dCreateOid.S)
+                            ? dCreateOid.S : operation.EntityId;
+                        await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
+                            "delivery_created", null, "pending");
+
                         var result = CropRepository.FromItem(item);
                         return new SyncOperationResult
                         {
@@ -3293,6 +3318,21 @@ public partial class SyncFunction
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = CropRepository.FromItem(response.Attributes);
 
+                        // Audit the delivery transition (who/when; GPS is joined at
+                        // read time from the delivery record) for the monitor.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var newDelivStatusObj))
+                        {
+                            var toStatus = newDelivStatusObj?.ToString() ?? "";
+                            var fromStatus = existing.TryGetValue("status", out var exStatus)
+                                ? exStatus.S : null;
+                            var deliveryTxId = existing.TryGetValue("orderId", out var exOid)
+                                && !string.IsNullOrEmpty(exOid.S)
+                                ? exOid.S : operation.EntityId;
+                            await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
+                                DeliveryActionFor(toStatus), fromStatus, toStatus);
+                        }
+
                         // Bridge delivery confirmation -> escrow release. When the buyer
                         // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
                         // disputeWindowEndsAt so the auto-release cron settles to the farmer
@@ -3600,6 +3640,54 @@ public partial class SyncFunction
         }
     }
 
+    /// <summary>
+    /// Best-effort emit to the unified transaction-audit trail using the current
+    /// batch's who/where context (or a system override for follow-on transitions).
+    /// No-op when audit is unconfigured or no batch context is set.
+    /// </summary>
+    private Task EmitTxAuditAsync(
+        ILambdaContext context,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext? ctxOverride = null,
+        string? metadata = null)
+    {
+        var ctx = ctxOverride ?? _batchAudit;
+        if (ctx == null)
+        {
+            return Task.CompletedTask;
+        }
+        return TransactionAuditWriter.EmitAsync(
+            _transactionAuditRepo, context, transactionId, entityType, entityId,
+            action, fromState, toState, ctx, metadata);
+    }
+
+    /// <summary>
+    /// Map an order status to a timeline action key. Reuses the vocabulary the
+    /// admin app already localises (payment_verified / farmer_responded /
+    /// order_cancelled / order_created); everything else is a generic
+    /// order_updated with the from→to states carrying the detail.
+    /// </summary>
+    private static string OrderActionFor(string toStatus) => toStatus switch
+    {
+        "funded" => "payment_verified",
+        "accepted" or "rejected" => "farmer_responded",
+        "cancelled" => "order_cancelled",
+        _ => "order_updated",
+    };
+
+    /// <summary>Delivery status → timeline action key (reuses picked_up / delivered).</summary>
+    private static string DeliveryActionFor(string toStatus) => toStatus switch
+    {
+        "pickedUp" => "picked_up",
+        "delivered" => "delivered",
+        _ => "delivery_updated",
+    };
+
     private async Task<SyncOperationResult> ProcessOrderCreateAsync(
         SyncOperationRequest operation,
         string? authenticatedUserId,
@@ -3692,6 +3780,8 @@ public partial class SyncFunction
 
         if (createResult.IsSuccess)
         {
+            await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
+                "order_created", null, "created");
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
@@ -3831,6 +3921,16 @@ public partial class SyncFunction
                 ? statusVal?.ToString()
                 : null;
 
+            // Audit the order transition (who/when/where) for the monitor.
+            if (!string.IsNullOrEmpty(appliedStatus))
+            {
+                var priorStatus = existingOrder.TryGetValue("status", out var psObj)
+                    ? psObj?.ToString()
+                    : null;
+                await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
+                    OrderActionFor(appliedStatus), priorStatus, appliedStatus);
+            }
+
             // 6D: When order transitions to "funded", decrease listing quantity
             if (appliedStatus == "funded")
             {
@@ -3851,6 +3951,10 @@ public partial class SyncFunction
                     operation.EntityId, newVersion, existingOrder, context);
                 if (fundedData != null)
                 {
+                    // System-driven follow-on transition — record it as a system actor.
+                    await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
+                        "payment_verified", "payment_submitted", "funded",
+                        ctxOverride: AuditContext.ForSystem());
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
