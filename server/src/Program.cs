@@ -103,6 +103,16 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new RatingFunction().FunctionHandler, serializer),
 
+            // DynamoDB Streams consumer (raw Stream in/out, like CropMatchStreamFunction).
+            // Checked BEFORE MessageFunction so the substring match is unambiguous.
+            var h when h.Contains("MessageStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task<Stream>>)new MessageStreamFunction().ProcessStreamAsync),
+
+            var h when h.Contains("MessageFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new MessageFunction().FunctionHandler, serializer),
+
             var h when h.Contains("TelebirrWebhookFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new TelebirrWebhookFunction().FunctionHandler, serializer),

@@ -369,6 +369,7 @@ public class DeliveryFunction
             BuyerPhone = includePhone ? GetStringOrNull(item, "buyerPhone") : null,
             QrToken = includeQrToken ? GetString(item, "qrToken") : "",
             Status = GetString(item, "status"),
+            DeliveryType = GetStringOrNull(item, "deliveryType"),
             GpsPickup = GetLatLng(item, "gpsPickup"),
             GpsDropoff = GetLatLng(item, "gpsDropoff"),
             PickupPhotoRef = GetStringOrNull(item, "pickupPhotoRef"),

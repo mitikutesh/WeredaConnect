@@ -23,13 +23,16 @@ export class DatabaseStack extends cdk.Stack {
   public readonly paymentsTable: dynamodb.Table;
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
+  public readonly transactionAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
+  public readonly deliveryQrSecretsTable: dynamodb.Table;
   public readonly ordersTable: dynamodb.Table;
   public readonly fraudSignalsTable: dynamodb.Table;
   public readonly intentsTable: dynamodb.Table;
   public readonly deviceTokensTable: dynamodb.Table;
   public readonly matchEventsTable: dynamodb.Table;
   public readonly ratingsTable: dynamodb.Table;
+  public readonly messagesTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -314,6 +317,16 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Look up escrow by order (admin transaction monitor join). Sparse —
+    // only escrows created from an order carry orderId. See AdminFunction
+    // GetEscrowByOrderIdAsync / GET /admin/transactions/{orderId}.
+    this.escrowsTable.addGlobalSecondaryIndex({
+      indexName: "OrderIndex",
+      partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Escrow audit table (immutable append-only, no updates or deletes)
     const escrowAudit = new WeredaDynamoTable(this, "EscrowAuditTable", {
       tableName: `${prefix}-escrow-audit`,
@@ -322,6 +335,30 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.escrowAuditTable = escrowAudit.table;
+
+    // Transaction audit table (immutable append-only, cross-entity).
+    // Unified who/what/when/where trail for the transaction lifecycle legs that
+    // had NO audit before — orders, deliveries, and admin actions — anchored on
+    // the order (transactionId = orderId) so the admin monitor reads a whole
+    // transaction's history in one query. The escrow leg keeps its dedicated
+    // escrow-audit table; the monitor timeline merges both. No TTL — audit is
+    // retained. See server TransactionAuditRepository / TransactionAuditWriter.
+    const transactionAudit = new WeredaDynamoTable(this, "TransactionAuditTable", {
+      tableName: `${prefix}-transaction-audit`,
+      partitionKey: { name: "transactionId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.transactionAuditTable = transactionAudit.table;
+
+    // GSI: fetch every audit event for one entity (orderId / deliveryId), and
+    // the cross-entity recent feed (scan) for the admin audit log.
+    this.transactionAuditTable.addGlobalSecondaryIndex({
+      indexName: "EntityIndex",
+      partitionKey: { name: "entityId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     // Escrow idempotency table (prevents double-charges on flaky 3G networks)
     const escrowIdempotency = new WeredaDynamoTable(
@@ -341,6 +378,31 @@ export class DatabaseStack extends cdk.Stack {
     // Enable TTL for automatic cleanup after 30 days (longer than sync 7-day TTL)
     (
       this.escrowIdempotencyTable.node.defaultChild as dynamodb.CfnTable
+    ).addPropertyOverride("TimeToLiveSpecification", {
+      AttributeName: "expiresAt",
+      Enabled: true,
+    });
+
+    // Delivery QR handoff secrets table. Keeps the per-delivery pickup nonce OUT of the
+    // delivery record so it can never leak via any delivery sync-down / GSI / conflict-echo
+    // path (non-leakage true by construction). PK deliveryId; TTL for cleanup only.
+    const deliveryQrSecrets = new WeredaDynamoTable(
+      this,
+      "DeliveryQrSecretsTable",
+      {
+        tableName: `${prefix}-delivery-qr-secrets`,
+        partitionKey: {
+          name: "deliveryId",
+          type: dynamodb.AttributeType.STRING,
+        },
+        isProd: envConfig.isProd,
+      },
+    );
+    this.deliveryQrSecretsTable = deliveryQrSecrets.table;
+
+    // Enable TTL for automatic cleanup (well past the code-enforced freshness window).
+    (
+      this.deliveryQrSecretsTable.node.defaultChild as dynamodb.CfnTable
     ).addPropertyOverride("TimeToLiveSpecification", {
       AttributeName: "expiresAt",
       Enabled: true,
@@ -486,6 +548,53 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // ─── Messages Table (context-scoped in-app chat) ───────────────
+    // Immutable, create-only. PK is the client-generated messageId, so the
+    // sync create's attribute_not_exists(messageId) condition is idempotent
+    // across network retries. A conversation is a client-side view: messages
+    // grouped by the deterministic conversationId. The NEW_IMAGE stream feeds
+    // MessageStreamFunction, which pushes an FCM notification to the recipient.
+    // All 3 GSIs are declared at table creation (the "one GSI per table update"
+    // constraint only applies to adding a GSI to an already-deployed table).
+    const messages = new WeredaDynamoTable(this, "MessagesTable", {
+      tableName: `${prefix}-messages`,
+      partitionKey: { name: "messageId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
+    });
+    this.messagesTable = messages.table;
+
+    // GSI: load a conversation thread ordered by time (web read; fresh thread).
+    this.messagesTable.addGlobalSecondaryIndex({
+      indexName: "ConversationIdCreatedAtIndex",
+      partitionKey: {
+        name: "conversationId",
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: pull all messages addressed to me since lastPullAt (sync-down; also
+    // how a client discovers brand-new inbound conversations).
+    this.messagesTable.addGlobalSecondaryIndex({
+      indexName: "RecipientIdCreatedAtIndex",
+      partitionKey: {
+        name: "recipientId",
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: reconstruct my own sent messages on a fresh device / web client.
+    this.messagesTable.addGlobalSecondaryIndex({
+      indexName: "SenderIdCreatedAtIndex",
+      partitionKey: { name: "senderId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -608,6 +717,11 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "RatingsTableName", {
       value: this.ratingsTable.tableName,
       description: "DynamoDB Ratings Table",
+    });
+
+    new cdk.CfnOutput(this, "MessagesTableName", {
+      value: this.messagesTable.tableName,
+      description: "DynamoDB Messages Table (in-app chat)",
     });
   }
 }

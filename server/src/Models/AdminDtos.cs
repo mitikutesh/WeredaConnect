@@ -252,3 +252,123 @@ public sealed record AdminTransactionAnalyticsResponse
     public required string Period { get; init; }
     public required string GeneratedAt { get; init; }
 }
+
+// ──────────────────────────────────────────────
+// Transaction Monitor (unified order + delivery + escrow view)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// One row in the admin transaction monitor list. Anchored on the order (the
+/// first record created in a transaction's lifecycle); buyer/farmer/trucker
+/// names are carried on the order record itself, so no enrichment is needed.
+/// <c>Stage</c> is a coarse lifecycle grouping derived from the order status,
+/// used to colour/filter rows at a glance.
+/// </summary>
+public sealed record AdminTransactionSummary
+{
+    public required string OrderId { get; init; }
+    public required string Status { get; init; }
+    public required string Stage { get; init; }
+    public required string BuyerId { get; init; }
+    public string? BuyerName { get; init; }
+    public required string FarmerId { get; init; }
+    public string? FarmerName { get; init; }
+    public string? TruckerId { get; init; }
+    public string? TruckerName { get; init; }
+    public required string CropType { get; init; }
+    public required double Quantity { get; init; }
+    public required double OrderTotal { get; init; }
+    public required string Currency { get; init; }
+    public string? PaymentMethod { get; init; }
+    public required string CreatedAt { get; init; }
+    public required string UpdatedAt { get; init; }
+}
+
+/// <summary>
+/// GET /admin/transactions response — paginated transaction list.
+/// </summary>
+public sealed record AdminTransactionListResponse
+{
+    public required List<AdminTransactionSummary> Transactions { get; init; }
+    public string? NextToken { get; init; }
+    public required int Total { get; init; }
+}
+
+/// <summary>
+/// One chronological event in a transaction's stitched timeline. Assembled from
+/// order timestamps, delivery timestamps, and the (immutable) escrow audit trail —
+/// so it answers who/what/when, and where when a GPS fix was captured.
+/// </summary>
+public sealed record AdminTransactionTimelineEvent
+{
+    public required string Timestamp { get; init; }
+
+    /// <summary>Which entity the event belongs to: order | delivery | escrow.</summary>
+    public required string Entity { get; init; }
+
+    /// <summary>Machine action key (e.g. order_created, picked_up, release).</summary>
+    public required string Action { get; init; }
+
+    public string? FromState { get; init; }
+    public string? ToState { get; init; }
+
+    /// <summary>Who performed the action (display name, user id, or system/cron/telebirr).</summary>
+    public string? Actor { get; init; }
+
+    public string? TelebirrRef { get; init; }
+
+    /// <summary>Source IP the action came from, when captured (the audit "where").</summary>
+    public string? IpAddress { get; init; }
+
+    /// <summary>GPS fix captured at the event, when available (pickup/dropoff).</summary>
+    public LatLngDto? Location { get; init; }
+
+    public string? Detail { get; init; }
+}
+
+/// <summary>
+/// GET /admin/transactions/{orderId} response — the full stitched transaction:
+/// the order, its escrow (payment/settlement hub) and delivery when present, and
+/// a single merged timeline across all three legs.
+/// </summary>
+public sealed record AdminTransactionDetailResponse
+{
+    public required OrderDto Order { get; init; }
+    public EscrowDto? Escrow { get; init; }
+    public DeliveryDto? Delivery { get; init; }
+    public required List<AdminTransactionTimelineEvent> Timeline { get; init; }
+}
+
+// ──────────────────────────────────────────────
+// Cross-entity audit log (unified transaction-audit trail)
+// ──────────────────────────────────────────────
+
+/// <summary>
+/// One entry in the unified transaction-audit trail — who/what/when/where for an
+/// order, delivery, or admin action.
+/// </summary>
+public sealed record AdminAuditEntryDto
+{
+    public required string AuditId { get; init; }
+    public required string TransactionId { get; init; }
+    public required string EntityType { get; init; }
+    public required string EntityId { get; init; }
+    public required string Action { get; init; }
+    public string? FromState { get; init; }
+    public string? ToState { get; init; }
+    public required string Actor { get; init; }
+    public string? ActorRole { get; init; }
+    public string? IpAddress { get; init; }
+    public string? CorrelationId { get; init; }
+    public required string Timestamp { get; init; }
+    public string? Metadata { get; init; }
+}
+
+/// <summary>
+/// GET /admin/audit response — recent cross-entity audit entries (newest first).
+/// </summary>
+public sealed record AdminAuditListResponse
+{
+    public required List<AdminAuditEntryDto> Entries { get; init; }
+    public required int Total { get; init; }
+}

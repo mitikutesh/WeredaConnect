@@ -28,6 +28,7 @@ Delivery _makeDelivery({
   String farmerId = 'farmer-001',
   String truckerId = 'trucker-001',
   String buyerId = 'buyer-001',
+  String? deliveryType,
 }) {
   return Delivery()
     ..deliveryId = deliveryId
@@ -40,6 +41,7 @@ Delivery _makeDelivery({
     ..buyerId = buyerId
     ..buyerName = 'Mekonnen Tadesse'
     ..qrToken = 'test-token'
+    ..deliveryType = deliveryType
     ..status = status
     ..gpsPickup = gpsPickup
     ..gpsDropoff = gpsDropoff
@@ -92,6 +94,37 @@ void main() {
 
       // deliveryId.substring(0, 8) = 'delivery'
       expect(find.textContaining('delivery'), findsAtLeastNWidgets(1));
+    });
+
+    testWidgets(
+        'buyer sees the self-pickup scan action on a self_pickup pending delivery',
+        (tester) async {
+      final delivery = _makeDelivery(
+        truckerId: '',
+        deliveryType: 'self_pickup',
+      );
+
+      await tester.pumpWidget(
+        buildTestWidget(delivery: delivery, currentUserId: 'buyer-001'),
+      );
+      await tester.pumpAndSettle();
+
+      // Without a local Isar escrow record (widget test), the gate falls back to
+      // enabled and shows the self-pickup collect action.
+      expect(find.text("Scan farmer's QR to collect"), findsOneWidget);
+    });
+
+    testWidgets(
+        'buyer does NOT see the self-pickup scan action on a normal delivery',
+        (tester) async {
+      final delivery = _makeDelivery();
+
+      await tester.pumpWidget(
+        buildTestWidget(delivery: delivery, currentUserId: 'buyer-001'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Scan farmer's QR to collect"), findsNothing);
     });
 
     testWidgets('renders participant info', (tester) async {

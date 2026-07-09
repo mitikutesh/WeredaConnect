@@ -1,0 +1,122 @@
+/**
+ * Shared vocabulary for the transaction monitor: status/stage → badge colour,
+ * plus label lookups that fall back to the raw machine value when a translation
+ * key is missing (so a new server-side status never renders blank).
+ *
+ * Badge variants mirror the mobile StatusChip palette (see Badge.tsx).
+ */
+
+type Variant = "default" | "success" | "warning" | "danger" | "info" | "transit";
+
+/** Order lifecycle status → badge colour (OrderDto state machine). */
+export const orderStatusVariant: Record<string, Variant> = {
+  created: "default",
+  pending_payment: "warning",
+  payment_submitted: "info",
+  payment_failed: "danger",
+  funded: "info",
+  accepted: "info",
+  pickup_confirmed: "info",
+  in_transit: "transit",
+  delivered: "success",
+  disbursing: "info",
+  settled: "success",
+  cancelled: "default",
+  disputed: "danger",
+  dispute_resolved: "success",
+};
+
+/**
+ * Collapse an order status into its coarse lifecycle stage. Mirrors the server
+ * DeriveStage (AdminFunction) — kept in sync so the detail header matches the
+ * list row. Used where the API returns only the raw status (transaction detail).
+ */
+export function deriveStage(status: string): string {
+  switch (status) {
+    case "created":
+    case "pending_payment":
+      return "awaiting_payment";
+    case "payment_submitted":
+    case "funded":
+    case "accepted":
+    case "pickup_confirmed":
+    case "in_transit":
+    case "disbursing":
+      return "in_progress";
+    case "delivered":
+      return "delivered";
+    case "settled":
+      return "completed";
+    case "cancelled":
+      return "cancelled";
+    case "payment_failed":
+    case "disputed":
+    case "dispute_resolved":
+      return "problem";
+    default:
+      return "unknown";
+  }
+}
+
+/** Coarse lifecycle stage → badge colour (server DeriveStage). */
+export const stageVariant: Record<string, Variant> = {
+  awaiting_payment: "warning",
+  in_progress: "info",
+  delivered: "success",
+  completed: "success",
+  cancelled: "default",
+  problem: "danger",
+  unknown: "default",
+};
+
+/** Escrow/payment status → badge colour. */
+export const escrowStatusVariant: Record<string, Variant> = {
+  initiated: "info",
+  escrowed: "info",
+  released: "success",
+  completed: "success",
+  disputed: "danger",
+  dispute_resolved: "success",
+  refunded: "warning",
+  cancelled: "default",
+};
+
+/** Delivery status → badge colour. */
+export const deliveryStatusVariant: Record<string, Variant> = {
+  pending: "default",
+  pickedUp: "info",
+  inTransit: "transit",
+  delivered: "success",
+  disputed: "danger",
+  cancelled: "default",
+};
+
+/** Which timeline leg an event belongs to → badge colour. */
+export const timelineEntityVariant: Record<string, Variant> = {
+  order: "info",
+  delivery: "transit",
+  escrow: "success",
+};
+
+type Translate = (key: string) => string;
+
+/** Look up a translation, falling back to the raw value if the key is missing. */
+function labelOrRaw(t: Translate, key: string, raw: string): string {
+  const label = t(key);
+  return label === key ? raw : label;
+}
+
+export const orderStatusLabel = (status: string, t: Translate) =>
+  labelOrRaw(t, `transactions.status_${status}`, status);
+
+export const stageLabel = (stage: string, t: Translate) =>
+  labelOrRaw(t, `transactions.stage_${stage}`, stage);
+
+export const escrowStatusLabel = (status: string, t: Translate) =>
+  labelOrRaw(t, `transactions.escrow_${status}`, status);
+
+export const deliveryStatusLabel = (status: string, t: Translate) =>
+  labelOrRaw(t, `transactions.delivery_${status}`, status);
+
+export const timelineActionLabel = (action: string, t: Translate) =>
+  labelOrRaw(t, `transactions.action_${action}`, action);

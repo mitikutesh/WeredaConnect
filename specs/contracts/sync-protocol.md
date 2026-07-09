@@ -34,7 +34,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "uuid-v4",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
@@ -75,7 +75,7 @@ This format ensures:
   "results": [
     {
       "operationId": "uuid-v4",
-      "status": "success | conflict | error",
+      "status": "success | conflict | duplicate | deferred | error",
       "serverVersion": 4,
       "serverData": { },
       "message": "optional human-readable note"
@@ -87,6 +87,13 @@ This format ensures:
 **Field Rules:**
 - `status: "success"` — operation applied; `serverVersion` is the new version
 - `status: "conflict"` — client was behind; `serverData` contains the server's current state; `serverVersion` is the server's version
+- `status: "duplicate"` — idempotency key already processed; treated like success (removed from queue)
+- `status: "deferred"` — the server cannot verify the op **yet** (a dependency has not
+  synced up). The client MUST re-queue it **without** consuming a retry attempt and retry
+  later; the server hard-fails (`error`) it if it stays unverifiable past its window. This
+  keeps offline-first: the op is never lost. Currently emitted for a delivery
+  `pickedUp`/`delivered` transition whose QR handoff secret (farmer-authored nonce) has not
+  yet reached the server. `serverData`/`serverVersion` are absent.
 - `status: "error"` — operation failed (validation, auth, etc.); `message` explains why
 
 ---

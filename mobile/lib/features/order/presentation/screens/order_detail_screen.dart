@@ -10,7 +10,12 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -323,6 +328,63 @@ class _OrderDetailBody extends StatelessWidget {
               minimumSize: const Size.fromHeight(48),
             ),
           ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    // Buyer + paid + no trucker/trip → "Collect it myself" (self-pickup).
+    // Creates a self-pickup delivery the buyer confirms at the farm by scanning
+    // the farmer's QR. Only offered when no trucker is arranging transport.
+    if (userRole == UserRole.buyer &&
+        (order.status == OrderStatus.funded ||
+            order.status == OrderStatus.paymentSubmitted) &&
+        order.truckerId == null &&
+        order.tripId == null) {
+      widgets.add(
+        BlocConsumer<DeliveryBloc, DeliveryState>(
+          listenWhen: (_, curr) =>
+              curr is DeliveryCreated &&
+              curr.delivery.deliveryType ==
+                  DeliveryConstants.selfPickupDeliveryType,
+          listener: (context, state) {
+            if (state is DeliveryCreated) {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => DeliveryDetailScreen(
+                    delivery: state.delivery,
+                    currentUserId: userId,
+                  ),
+                ),
+              );
+            }
+          },
+          builder: (context, state) {
+            final isLoading = state is DeliveryLoading;
+            return SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: isLoading
+                    ? null
+                    : () => context.read<DeliveryBloc>().add(
+                          CreateSelfPickupDelivery(
+                            orderId: order.orderId,
+                            listingId: order.listingId,
+                            farmerId: order.farmerId,
+                            farmerName: order.farmerName,
+                            buyerId: userId,
+                            buyerName: order.buyerName,
+                          ),
+                        ),
+                icon: const Icon(Icons.storefront),
+                label: Text(l10n.orderCollectMyself),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+              ),
+            );
+          },
         ),
       );
       widgets.add(const SizedBox(height: 12));

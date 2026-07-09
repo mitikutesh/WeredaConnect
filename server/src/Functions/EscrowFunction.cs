@@ -169,7 +169,8 @@ public class EscrowFunction
 
         try
         {
-            var result = await _escrowService.InitiateAsync(body, userId);
+            var result = await _escrowService.InitiateAsync(
+                body, userId, AuditContext.From(request, userId));
 
             // Record for velocity tracking (F-14)
             if (_fraudService != null && result.IsSuccess)
@@ -248,7 +249,8 @@ public class EscrowFunction
 
         try
         {
-            var result = await _escrowService.ReleaseAsync(body, userId, role);
+            var result = await _escrowService.ReleaseAsync(
+                body, userId, role, AuditContext.From(request, userId, role));
 
             AuditLogger.LogAudit("ESCROW", "RELEASE",
                 userId: userId, correlationId: releaseCorrelationId,
@@ -309,7 +311,8 @@ public class EscrowFunction
 
         try
         {
-            var result = await _escrowService.DisputeAsync(body, userId);
+            var result = await _escrowService.DisputeAsync(
+                body, userId, AuditContext.From(request, userId));
 
             AuditLogger.LogAudit("ESCROW", "DISPUTE",
                 userId: userId, correlationId: disputeCorrelationId,
@@ -371,7 +374,8 @@ public class EscrowFunction
 
         try
         {
-            var result = await _escrowService.RefundAsync(body, userId, role);
+            var result = await _escrowService.RefundAsync(
+                body, userId, role, AuditContext.From(request, userId, role));
 
             AuditLogger.LogAudit("ESCROW", "REFUND",
                 userId: userId, correlationId: refundCorrelationId,

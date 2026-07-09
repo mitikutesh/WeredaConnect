@@ -13,6 +13,8 @@ import { UsersPage } from "@/pages/UsersPage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { RevenuePage } from "@/pages/RevenuePage";
 import { TransactionsPage } from "@/pages/TransactionsPage";
+import { TransactionDetailPage } from "@/pages/TransactionDetailPage";
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { AuditLogPage } from "@/pages/AuditLogPage";
 import { SystemHealthPage } from "@/pages/SystemHealthPage";
 import { CompliancePage } from "@/pages/CompliancePage";
@@ -70,6 +72,8 @@ function AppRoutes() {
         <Route path="users/:id" element={<UserDetailPage />} />
         <Route path="revenue" element={<RevenuePage />} />
         <Route path="transactions" element={<TransactionsPage />} />
+        <Route path="transactions/:orderId" element={<TransactionDetailPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="audit-log" element={<AuditLogPage />} />
         <Route path="system-health" element={<SystemHealthPage />} />
         <Route path="compliance" element={<CompliancePage />} />

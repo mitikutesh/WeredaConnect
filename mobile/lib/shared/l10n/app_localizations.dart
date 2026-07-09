@@ -1378,6 +1378,24 @@ abstract class AppLocalizations {
   /// **'Confirm Delivery'**
   String get deliveryConfirmDelivery;
 
+  /// Buyer button to scan the farmer's QR at the farm to confirm a self-pickup collection
+  ///
+  /// In en, this message translates to:
+  /// **'Scan farmer\'s QR to collect'**
+  String get deliverySelfPickupConfirm;
+
+  /// Hint shown when the self-pickup scan is disabled because escrow is not yet funded
+  ///
+  /// In en, this message translates to:
+  /// **'Pay into escrow first, then scan at the farm to collect.'**
+  String get deliverySelfPickupPayFirst;
+
+  /// Buyer button to arrange self-pickup (no trucker) for an order
+  ///
+  /// In en, this message translates to:
+  /// **'Collect it myself'**
+  String get orderCollectMyself;
+
   /// Button to scan QR code
   ///
   /// In en, this message translates to:
@@ -4527,6 +4545,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Place results'**
   String get placeResultsLabel;
+
+  /// Title of the messages inbox / conversations list
+  ///
+  /// In en, this message translates to:
+  /// **'Messages'**
+  String get messages;
+
+  /// Empty state title on the messages inbox
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet'**
+  String get noConversationsYet;
+
+  /// Empty state hint on the messages inbox
+  ///
+  /// In en, this message translates to:
+  /// **'Your conversations with farmers, truckers and buyers will appear here.'**
+  String get noConversationsHint;
+
+  /// Empty state inside a conversation thread
+  ///
+  /// In en, this message translates to:
+  /// **'No messages yet. Start the conversation below.'**
+  String get noMessagesInThread;
+
+  /// Placeholder for the chat message input field
+  ///
+  /// In en, this message translates to:
+  /// **'Type a message…'**
+  String get typeAMessage;
+
+  /// Send button label for the chat composer
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get send;
+
+  /// Action that opens an in-app chat with a counterparty
+  ///
+  /// In en, this message translates to:
+  /// **'Send a message'**
+  String get sendMessage;
+
+  /// Short button label to open a chat
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get messageContact;
+
+  /// Action to chat with the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Message Farmer'**
+  String get messageFarmer;
+
+  /// Action to chat with the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Message Trucker'**
+  String get messageTrucker;
+
+  /// Action to chat with the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Message Buyer'**
+  String get messageBuyer;
+
+  /// Generic contact button / sheet title
+  ///
+  /// In en, this message translates to:
+  /// **'Contact'**
+  String get contact;
 }
 
 class _AppLocalizationsDelegate

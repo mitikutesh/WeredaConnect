@@ -104,6 +104,39 @@ void main() {
       await bloc.close();
     });
 
+    test(
+        'emits [Loading, DeliveryCreated] on CreateSelfPickupDelivery '
+        '(no trucker, deliveryType=self_pickup, tripId=deliveryId)', () async {
+      final bloc = DeliveryBloc(repository: repository);
+      final states = <DeliveryState>[];
+      final subscription = bloc.stream.listen(states.add);
+
+      bloc.add(
+        const CreateSelfPickupDelivery(
+          orderId: 'order-001',
+          listingId: 'listing-001',
+          farmerId: 'farmer-001',
+          farmerName: 'Abebe Kebede',
+          buyerId: 'buyer-001',
+          buyerName: 'Sara Hailu',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(states.length, 2);
+      expect(states[0], isA<DeliveryLoading>());
+      expect(states[1], isA<DeliveryCreated>());
+      final created = (states[1] as DeliveryCreated).delivery;
+      expect(created.deliveryType, 'self_pickup');
+      expect(created.truckerId, isEmpty);
+      expect(created.buyerId, 'buyer-001');
+      // No trip: sort key is synthesized from the deliveryId.
+      expect(created.tripId, created.deliveryId);
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
     test('emits [Loading, PickupConfirmed] on ConfirmPickup', () async {
       // Create a delivery first
       final delivery = await repository.createDelivery(
@@ -180,6 +213,47 @@ void main() {
       );
 
       await expectation;
+      await bloc.close();
+    });
+
+    test(
+        'ConfirmDelivery succeeds on a PENDING self-pickup delivery '
+        '(no trucker/transit leg) and marks it delivered', () async {
+      // Self-pickup goes straight pending -> delivered on the single farm scan;
+      // the client must NOT require pickedUp/inTransit here (regression guard: a
+      // stricter guard silently blocked confirmation and the farmer was never paid).
+      final delivery = await repository.createSelfPickupDelivery(
+        orderId: 'order-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+      );
+      expect(delivery.status, DeliveryStatus.pending);
+
+      final bloc = DeliveryBloc(repository: repository);
+      final expectation = expectLater(
+        bloc.stream,
+        emitsInOrder([isA<DeliveryLoading>(), isA<DeliveryConfirmed>()]),
+      );
+
+      bloc.add(
+        ConfirmDelivery(
+          deliveryId: delivery.deliveryId,
+          buyerId: 'buyer-001',
+          scannedQrNonce: 'sp-nonce',
+        ),
+      );
+
+      await expectation;
+
+      final updated = await repository.getDeliveryById(
+        delivery.deliveryId,
+        userId: 'buyer-001',
+      );
+      expect(updated!.status, DeliveryStatus.delivered);
+
       await bloc.close();
     });
 

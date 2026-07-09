@@ -1,66 +1,123 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import { ArrowLeftRight, TrendingUp, Clock, CheckCircle } from "lucide-react";
-import { Card, KpiCard } from "@/components/ui/Card";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
+import { Badge } from "@/components/ui/Badge";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
-import { useTransactionAnalytics } from "@/hooks/useQuery";
+import { useTransactions } from "@/hooks/useQuery";
+import { formatETB, formatDate } from "@/lib/i18n";
+import {
+  orderStatusVariant,
+  stageVariant,
+  orderStatusLabel,
+  stageLabel,
+} from "@/lib/transaction";
 
 export function TransactionsPage() {
-  const { t } = useLocale();
-  const { data, isLoading } = useTransactionAnalytics();
+  const { t, locale } = useLocale();
+  const [search, setSearch] = useState("");
+  const navigate = useNavigate();
+  const { data, isLoading } = useTransactions(
+    search ? `search=${encodeURIComponent(search)}` : undefined,
+  );
 
-  const stats = (data as Record<string, unknown>) || {};
-  const chartData = (stats.daily as Record<string, unknown>[]) || [];
+  const resp = data as Record<string, unknown> | undefined;
+  const transactions = (resp?.transactions as Record<string, unknown>[]) || [];
 
-  if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
-  }
+  const columns = [
+    {
+      key: "orderId",
+      header: t("transactions.orderId"),
+      render: (row: Record<string, unknown>) => (
+        <span className="font-mono text-xs">
+          {String(row.orderId || "").slice(0, 12)}
+        </span>
+      ),
+    },
+    {
+      key: "buyerName",
+      header: t("transactions.buyer"),
+      render: (row: Record<string, unknown>) =>
+        String(row.buyerName || row.buyerId || ""),
+    },
+    {
+      key: "farmerName",
+      header: t("transactions.seller"),
+      render: (row: Record<string, unknown>) =>
+        String(row.farmerName || row.farmerId || ""),
+    },
+    {
+      key: "truckerName",
+      header: t("transactions.trucker"),
+      render: (row: Record<string, unknown>) =>
+        row.truckerName || row.truckerId ? (
+          String(row.truckerName || row.truckerId)
+        ) : (
+          <span className="text-text-muted">{t("transactions.noTrucker")}</span>
+        ),
+    },
+    {
+      key: "cropType",
+      header: t("transactions.crop"),
+      render: (row: Record<string, unknown>) => String(row.cropType || ""),
+    },
+    {
+      key: "orderTotal",
+      header: t("transactions.amount"),
+      render: (row: Record<string, unknown>) =>
+        formatETB(Number(row.orderTotal) || 0, locale),
+    },
+    {
+      key: "stage",
+      header: t("transactions.stage"),
+      render: (row: Record<string, unknown>) => {
+        const stage = String(row.stage || "");
+        return (
+          <Badge variant={stageVariant[stage] || "default"}>
+            {stageLabel(stage, t)}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: t("transactions.status"),
+      render: (row: Record<string, unknown>) => {
+        const status = String(row.status || "");
+        return (
+          <Badge variant={orderStatusVariant[status] || "default"}>
+            {orderStatusLabel(status, t)}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: "createdAt",
+      header: t("transactions.createdAt"),
+      render: (row: Record<string, unknown>) =>
+        formatDate(String(row.createdAt || "")),
+    },
+  ];
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("transactions.title")}</h2>
-
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          label={t("transactions.totalVolume")}
-          value={Number(stats.totalVolume) || 0}
-          icon={<ArrowLeftRight size={20} />}
-        />
-        <KpiCard
-          label={t("transactions.dailyAvg")}
-          value={Number(stats.dailyAvg) || 0}
-          icon={<TrendingUp size={20} />}
-        />
-        <KpiCard
-          label={t("transactions.peakHour")}
-          value={String(stats.peakHour || t("common.notAvailable"))}
-          icon={<Clock size={20} />}
-        />
-        <KpiCard
-          label={t("transactions.successRate")}
-          value={`${Number(stats.successRate) || 0}%`}
-          icon={<CheckCircle size={20} />}
-        />
-      </div>
-
+      <h2 className="mb-1 text-xl font-bold">{t("transactions.title")}</h2>
+      <p className="mb-6 text-sm text-text-muted">{t("transactions.subtitle")}</p>
       <Card>
-        <h3 className="mb-4 font-semibold">{t("transactions.totalVolume")}</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            <Bar dataKey="count" fill="#1A6B5C" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="mb-4 max-w-full md:max-w-sm">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder={t("transactions.searchPlaceholder")}
+          />
+        </div>
+        <DataTable
+          columns={columns}
+          data={transactions}
+          isLoading={isLoading}
+          onRowClick={(row) => navigate(`/transactions/${row.orderId}`)}
+        />
       </Card>
     </div>
   );

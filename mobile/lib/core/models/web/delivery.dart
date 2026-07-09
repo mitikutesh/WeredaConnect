@@ -15,6 +15,9 @@ class Delivery {
   late String buyerName;
   late String qrToken;
   String? qrNonce;
+
+  /// `null`/absent = normal trucker delivery; `self_pickup` = buyer collects at the farm.
+  String? deliveryType;
   LatLng? gpsPickup;
   LatLng? gpsDropoff;
   String? pickupPhotoRef;

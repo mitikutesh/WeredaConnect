@@ -27,12 +27,15 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/compliance/summary     → NBE compliance
 /// - GET  /admin/analytics/revenue      → commission analytics
 /// - GET  /admin/analytics/transactions → volume metrics
+/// - GET  /admin/transactions           → transaction monitor list (order-anchored)
+/// - GET  /admin/transactions/{orderId} → stitched transaction detail + timeline
 /// </summary>
 public class AdminFunction
 {
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _escrowsTable;
     private readonly string _escrowAuditTable;
+    private readonly string _transactionAuditTable;
     private readonly string _fraudSignalsTable;
     private readonly string _usersTable;
     private readonly string _cropsTable;
@@ -46,6 +49,7 @@ public class AdminFunction
         _dynamoDb = new AmazonDynamoDBClient();
         _escrowsTable = Environment.GetEnvironmentVariable("ESCROWS_TABLE") ?? "";
         _escrowAuditTable = Environment.GetEnvironmentVariable("ESCROW_AUDIT_TABLE") ?? "";
+        _transactionAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE") ?? "";
         _fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE") ?? "";
         _usersTable = Environment.GetEnvironmentVariable("USERS_TABLE") ?? "";
         _cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
@@ -66,11 +70,39 @@ public class AdminFunction
         _usersTable = usersTable;
         _escrowsTable = "";
         _escrowAuditTable = "";
+        _transactionAuditTable = "";
         _fraudSignalsTable = "";
         _cropsTable = "";
         _tripsTable = "";
         _ordersTable = "";
         _deliveriesTable = "";
+        _paymentsTable = "";
+    }
+
+    /// <summary>
+    /// Test/DI constructor for the transaction-monitor endpoints: inject the client
+    /// plus the tables those handlers touch (orders + escrows + deliveries + escrow
+    /// audit). Unrelated table names default to empty.
+    /// </summary>
+    internal AdminFunction(
+        IAmazonDynamoDB dynamoDb,
+        string usersTable,
+        string ordersTable,
+        string escrowsTable,
+        string deliveriesTable,
+        string escrowAuditTable,
+        string transactionAuditTable = "")
+    {
+        _dynamoDb = dynamoDb;
+        _usersTable = usersTable;
+        _ordersTable = ordersTable;
+        _escrowsTable = escrowsTable;
+        _deliveriesTable = deliveriesTable;
+        _escrowAuditTable = escrowAuditTable;
+        _transactionAuditTable = transactionAuditTable;
+        _fraudSignalsTable = "";
+        _cropsTable = "";
+        _tripsTable = "";
         _paymentsTable = "";
     }
 
@@ -115,6 +147,9 @@ public class AdminFunction
                 ("GET", ["admin", "compliance", "summary"]) => await HandleComplianceSummaryAsync(context),
                 ("GET", ["admin", "analytics", "revenue"]) => await HandleRevenueAnalyticsAsync(request, context),
                 ("GET", ["admin", "analytics", "transactions"]) => await HandleTransactionAnalyticsAsync(request, context),
+                ("GET", ["admin", "transactions"]) => await HandleListTransactionsAsync(request, context),
+                ("GET", ["admin", "transactions", _]) => await HandleGetTransactionAsync(segments[2], context),
+                ("GET", ["admin", "audit"]) => await HandleAuditLogAsync(request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
@@ -363,6 +398,17 @@ public class AdminFunction
                 "Escrow is not in a disputed state.");
         }
 
+        // Audit: this admin dispute-resolution is otherwise unrecorded (it updates
+        // the escrow directly, not via EscrowService, so no escrow-audit entry).
+        var disputeOrderId = item.TryGetValue("orderId", out var doid) && doid.S != null ? doid.S : escrowId;
+        await TransactionAuditWriter.EmitAsync(
+            TxAuditRepo(), context, disputeOrderId, "escrow", escrowId,
+            "admin_dispute_resolved", "disputed", "dispute_resolved",
+            AuditContext.From(request, adminUserId, "admin"), metadata: body.Resolution);
+        AuditLogger.LogAudit("ADMIN", "RESOLVE_DISPUTE",
+            userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: "escrow", entityId: escrowId, outcome: "success");
+
         var response = new ResolveDisputeResponse
         {
             EscrowId = escrowId,
@@ -475,6 +521,14 @@ public class AdminFunction
         };
 
         await _dynamoDb.UpdateItemAsync(updateRequest);
+
+        await TransactionAuditWriter.EmitAsync(
+            TxAuditRepo(), context, signalId, "fraud", signalId,
+            $"fraud_{body.Action}", null, body.Action,
+            AuditContext.From(request, adminUserId, "admin"), metadata: body.Notes);
+        AuditLogger.LogAudit("ADMIN", "FRAUD_ACTION",
+            userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
 
         var response = new FraudActionResponse
         {
@@ -678,6 +732,16 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_007", "User not found.");
         }
 
+        var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
+        await TransactionAuditWriter.EmitAsync(
+            TxAuditRepo(), context, userId, "user", userId,
+            $"user_{body.Action}", null, null,
+            AuditContext.From(request, actingAdminId, "admin"),
+            metadata: body.Action == "change_role" ? body.NewRole : body.Reason);
+        AuditLogger.LogAudit("ADMIN", "USER_ACTION",
+            userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
+
         var response = new UserActionResponse
         {
             UserId = userId,
@@ -815,6 +879,454 @@ public class AdminFunction
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionAnalyticsResponse);
+    }
+
+    // ──────────────────────────────────────────────
+    // Transaction Monitor (unified order + delivery + escrow view)
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// GET /admin/transactions — order-anchored list of every transaction with a
+    /// derived lifecycle stage. Supports ?status= (exact order status), ?search=
+    /// (order id / buyer / farmer name contains), and cursor pagination. The order
+    /// status alone encodes the stage, and orders carry party names, so this is a
+    /// single scan with no per-row joins.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleListTransactionsAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_ordersTable))
+        {
+            return LambdaResponse.Ok(
+                new AdminTransactionListResponse { Transactions = new List<AdminTransactionSummary>(), Total = 0 },
+                AppJsonContext.Default.AdminTransactionListResponse);
+        }
+
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+        queryParams.TryGetValue("status", out var status);
+        queryParams.TryGetValue("search", out var search);
+        var limit = ParseLimit(queryParams, 50);
+
+        var scanRequest = new ScanRequest { TableName = _ordersTable };
+
+        var filterParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>();
+
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            attrNames["#status"] = "status";
+            attrValues[":status"] = new AttributeValue { S = status };
+        }
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            filterParts.Add("(contains(#orderId, :search) OR contains(#buyerName, :search) OR contains(#farmerName, :search))");
+            attrNames["#orderId"] = "orderId";
+            attrNames["#buyerName"] = "buyerName";
+            attrNames["#farmerName"] = "farmerName";
+            attrValues[":search"] = new AttributeValue { S = search };
+        }
+
+        if (filterParts.Count > 0)
+        {
+            scanRequest.FilterExpression = string.Join(" AND ", filterParts);
+            scanRequest.ExpressionAttributeNames = attrNames;
+            scanRequest.ExpressionAttributeValues = attrValues;
+        }
+
+        // Scan has no ordering and applies the filter AFTER the per-page read, so we
+        // page through (bounded) collecting EVERY match — otherwise a search would
+        // silently miss rows beyond an arbitrary first page. Sort newest-first in
+        // memory and return the most recent `limit`. Bounded by MaxScanItems to cap
+        // cost; a GSI keyed for a global newest-first feed is the scale path.
+        const int MaxScanItems = 5000;
+        var matched = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? lastKey = null;
+        var scanned = 0;
+        var capped = false;
+
+        do
+        {
+            if (lastKey != null)
+            {
+                scanRequest.ExclusiveStartKey = lastKey;
+            }
+
+            var resp = await _dynamoDb.ScanAsync(scanRequest);
+            scanned += resp.ScannedCount;
+            matched.AddRange(resp.Items.Select(DynamoDbHelper.FromItem));
+            lastKey = resp.LastEvaluatedKey.Count > 0 ? resp.LastEvaluatedKey : null;
+
+            if (scanned >= MaxScanItems)
+            {
+                capped = true;
+                break;
+            }
+        } while (lastKey != null);
+
+        if (capped)
+        {
+            context.Logger.LogWarning(
+                $"Transaction list scan hit the {MaxScanItems}-item cap; older transactions may be omitted.");
+        }
+
+        // Newest-first (createdAt is ISO-8601 → ordinal descending == chronological).
+        matched.Sort((a, b) => string.CompareOrdinal(GetString(b, "createdAt"), GetString(a, "createdAt")));
+
+        var response = new AdminTransactionListResponse
+        {
+            Transactions = matched.Take(limit).Select(MapToTransactionSummary).ToList(),
+            NextToken = null,
+            Total = matched.Count
+        };
+
+        return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionListResponse);
+    }
+
+    /// <summary>
+    /// GET /admin/transactions/{orderId} — the full stitched transaction. Joins the
+    /// escrow (payment/settlement hub) via the OrderIndex GSI, the delivery via
+    /// escrow.deliveryId, and merges order + delivery timestamps with the immutable
+    /// escrow audit trail into a single chronological timeline.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleGetTransactionAsync(string orderId, ILambdaContext context)
+    {
+        var orderItem = await QuerySingleItemAsync(_ordersTable, "orderId", orderId);
+        if (orderItem == null)
+        {
+            return LambdaResponse.Error(404, "ADMIN_012", "Transaction not found.");
+        }
+
+        var order = OrderFunction.MapToOrderDto(DynamoDbHelper.FromItem(orderItem));
+
+        // Escrow is the hub: it links the order to its delivery and holds the
+        // payment/settlement state. Looked up by orderId via the OrderIndex GSI.
+        var escrowItem = await GetEscrowByOrderIdAsync(orderId);
+        EscrowDto? escrow = escrowItem != null ? MapToEscrowDto(escrowItem) : null;
+        if (escrow != null)
+        {
+            await EnrichEscrowNamesAsync(new List<EscrowDto> { escrow });
+        }
+
+        // Unified audit for the order/delivery/admin legs (Phase 2), anchored on
+        // orderId. Gathered first because it can also surface the deliveryId when
+        // the escrow join can't (see below).
+        var unifiedEvents = new List<Dictionary<string, object>>();
+        var txRepo = TxAuditRepo();
+        if (txRepo != null)
+        {
+            unifiedEvents.AddRange(await txRepo.GetByTransactionAsync(orderId));
+        }
+
+        // Delivery join: prefer the escrow's deliveryId (the primary link), but fall
+        // back to a deliveryId surfaced by a unified delivery event — so the delivery
+        // card + GPS still render for orders whose escrow lacks orderId (sparse
+        // OrderIndex) or has no escrow yet. Admins see phone + QR token.
+        var deliveryId = escrow?.DeliveryId;
+        if (string.IsNullOrEmpty(deliveryId))
+        {
+            var deliveryEvent = unifiedEvents.FirstOrDefault(e => GetString(e, "entityType") == "delivery");
+            if (deliveryEvent != null)
+            {
+                deliveryId = GetStringOrNull(deliveryEvent, "entityId");
+            }
+        }
+
+        DeliveryDto? delivery = null;
+        if (!string.IsNullOrEmpty(deliveryId) && !string.IsNullOrEmpty(_deliveriesTable))
+        {
+            var deliveryItem = await QuerySingleItemAsync(_deliveriesTable, "deliveryId", deliveryId);
+            if (deliveryItem != null)
+            {
+                delivery = DeliveryFunction.MapToDeliveryDto(
+                    DynamoDbHelper.FromItem(deliveryItem), includePhone: true, includeQrToken: true);
+            }
+        }
+
+        // Also pull any delivery events anchored on the deliveryId (when the order
+        // wasn't known at write time), deduped against the by-order query.
+        if (txRepo != null && !string.IsNullOrEmpty(deliveryId))
+        {
+            var seen = new HashSet<string>(unifiedEvents.Select(e => GetString(e, "auditId")));
+            var byDelivery = await txRepo.GetByEntityAsync(deliveryId);
+            unifiedEvents.AddRange(byDelivery.Where(e => seen.Add(GetString(e, "auditId"))));
+        }
+
+        // The escrow audit trail is the real who/what/when for the payment leg.
+        var auditEntries = new List<EscrowAuditEntryDto>();
+        if (escrow != null && !string.IsNullOrEmpty(_escrowAuditTable))
+        {
+            var auditRepo = new EscrowAuditRepository(_dynamoDb, _escrowAuditTable);
+            var auditItems = await auditRepo.GetAuditTrailAsync(escrow.EscrowId);
+            auditEntries = auditItems.Select(MapToAuditEntry).ToList();
+        }
+
+        var response = new AdminTransactionDetailResponse
+        {
+            Order = order,
+            Escrow = escrow,
+            Delivery = delivery,
+            Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents)
+        };
+
+        return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionDetailResponse);
+    }
+
+    /// <summary>Build the transaction-audit repository, or null when unconfigured.</summary>
+    private ITransactionAuditRepository? TxAuditRepo() =>
+        string.IsNullOrEmpty(_transactionAuditTable)
+            ? null
+            : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable);
+
+    /// <summary>
+    /// GET /admin/audit — recent cross-entity audit feed (order/delivery/admin
+    /// legs) newest-first, for the admin audit log. The escrow leg has its own
+    /// per-escrow trail at /admin/escrows/{id}/audit.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleAuditLogAsync(
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var txRepo = TxAuditRepo();
+        var entries = new List<AdminAuditEntryDto>();
+        if (txRepo != null)
+        {
+            var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+            var limit = ParseLimit(queryParams, 100);
+            var items = await txRepo.GetRecentAsync(limit);
+            entries = items.Select(MapToTransactionAuditEntry).ToList();
+        }
+
+        var response = new AdminAuditListResponse { Entries = entries, Total = entries.Count };
+        return LambdaResponse.Ok(response, AppJsonContext.Default.AdminAuditListResponse);
+    }
+
+    private static AdminAuditEntryDto MapToTransactionAuditEntry(Dictionary<string, object> item) =>
+        new()
+        {
+            AuditId = GetString(item, "auditId"),
+            TransactionId = GetString(item, "transactionId"),
+            EntityType = GetString(item, "entityType"),
+            EntityId = GetString(item, "entityId"),
+            Action = GetString(item, "action"),
+            FromState = GetStringOrNull(item, "fromState"),
+            ToState = GetStringOrNull(item, "toState"),
+            Actor = GetString(item, "actor"),
+            ActorRole = GetStringOrNull(item, "actorRole"),
+            IpAddress = GetStringOrNull(item, "ipAddress"),
+            CorrelationId = GetStringOrNull(item, "correlationId"),
+            Timestamp = GetString(item, "timestamp"),
+            Metadata = GetStringOrNull(item, "metadata"),
+        };
+
+    /// <summary>
+    /// Look up the escrow for an order via the OrderIndex GSI (sparse — only escrows
+    /// created from an order carry orderId). Returns the newest match, or null.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> GetEscrowByOrderIdAsync(string orderId)
+    {
+        if (string.IsNullOrEmpty(_escrowsTable))
+        {
+            return null;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _escrowsTable,
+            IndexName = "OrderIndex",
+            KeyConditionExpression = "#orderId = :orderId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#orderId", "orderId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":orderId", new AttributeValue { S = orderId } }
+            },
+            Limit = 1,
+            ScanIndexForward = false
+        };
+
+        var response = await _dynamoDb.QueryAsync(request);
+        return response.Items.Count > 0 ? DynamoDbHelper.FromItem(response.Items[0]) : null;
+    }
+
+    /// <summary>
+    /// Map an order item to a transaction-monitor summary row. Names live on the
+    /// order record, so no user-table enrichment is needed.
+    /// </summary>
+    private static AdminTransactionSummary MapToTransactionSummary(Dictionary<string, object> item)
+    {
+        var status = GetString(item, "status");
+        return new AdminTransactionSummary
+        {
+            OrderId = GetString(item, "orderId"),
+            Status = status,
+            Stage = DeriveStage(status),
+            BuyerId = GetString(item, "buyerId"),
+            BuyerName = GetStringOrNull(item, "buyerName"),
+            FarmerId = GetString(item, "farmerId"),
+            FarmerName = GetStringOrNull(item, "farmerName"),
+            TruckerId = GetStringOrNull(item, "truckerId"),
+            TruckerName = GetStringOrNull(item, "truckerName"),
+            CropType = GetString(item, "cropType"),
+            Quantity = GetDoubleValue(item, "quantity"),
+            OrderTotal = GetDoubleValue(item, "orderTotal"),
+            Currency = "ETB",
+            PaymentMethod = GetStringOrNull(item, "paymentMethod"),
+            CreatedAt = GetString(item, "createdAt"),
+            UpdatedAt = GetString(item, "updatedAt")
+        };
+    }
+
+    /// <summary>
+    /// Collapse the fine-grained order status into a coarse lifecycle stage used to
+    /// group/colour rows in the monitor. Kept in sync with the OrderDto state machine.
+    /// </summary>
+    private static string DeriveStage(string status) => status switch
+    {
+        "created" or "pending_payment" => "awaiting_payment",
+        "payment_submitted" or "funded" or "accepted"
+            or "pickup_confirmed" or "in_transit" or "disbursing" => "in_progress",
+        "delivered" => "delivered",
+        "settled" => "completed",
+        "cancelled" => "cancelled",
+        "payment_failed" or "disputed" or "dispute_resolved" => "problem",
+        _ => "unknown"
+    };
+
+    /// <summary>
+    /// Merge the order, delivery, and escrow-audit legs into one chronological
+    /// timeline. ISO-8601 timestamps sort lexically; empty timestamps are dropped.
+    /// </summary>
+    private static List<AdminTransactionTimelineEvent> BuildTimeline(
+        OrderDto order,
+        DeliveryDto? delivery,
+        EscrowDto? escrow,
+        List<EscrowAuditEntryDto> auditEntries,
+        List<Dictionary<string, object>> unifiedEvents)
+    {
+        var events = new List<AdminTransactionTimelineEvent>();
+
+        void Add(
+            string? timestamp,
+            string entity,
+            string action,
+            string? toState = null,
+            string? actor = null,
+            string? detail = null,
+            LatLngDto? location = null,
+            string? telebirrRef = null,
+            string? fromState = null,
+            string? ipAddress = null)
+        {
+            if (string.IsNullOrEmpty(timestamp))
+            {
+                return;
+            }
+
+            events.Add(new AdminTransactionTimelineEvent
+            {
+                Timestamp = timestamp,
+                Entity = entity,
+                Action = action,
+                FromState = fromState,
+                ToState = toState,
+                Actor = actor,
+                TelebirrRef = telebirrRef,
+                IpAddress = ipAddress,
+                Location = location,
+                Detail = detail
+            });
+        }
+
+        // Unified audit events (Phase 2) — the real who/what/when/where for the
+        // order/delivery/admin legs. When present these supersede the synthesised
+        // reconstruction below; GPS is attached from the delivery record by action.
+        // Gated per-entity (not one combined flag) so a transaction that straddles
+        // the Phase-2 deploy — a pre-deploy order with only post-deploy delivery
+        // events, or vice versa — still gets the synthesised history for the leg
+        // that has no unified events yet.
+        var hasUnifiedOrder = false;
+        var hasUnifiedDelivery = false;
+        foreach (var e in unifiedEvents)
+        {
+            var entity = GetString(e, "entityType");
+            var action = GetString(e, "action");
+            if (entity == "order") hasUnifiedOrder = true;
+            if (entity == "delivery") hasUnifiedDelivery = true;
+
+            LatLngDto? location = null;
+            if (entity == "delivery" && delivery != null)
+            {
+                location = action == "picked_up" ? delivery.GpsPickup
+                    : action == "delivered" ? delivery.GpsDropoff
+                    : null;
+            }
+
+            Add(GetStringOrNull(e, "timestamp"), entity, action,
+                toState: GetStringOrNull(e, "toState"),
+                actor: GetStringOrNull(e, "actor"),
+                detail: GetStringOrNull(e, "metadata"),
+                location: location,
+                fromState: GetStringOrNull(e, "fromState"),
+                ipAddress: GetStringOrNull(e, "ipAddress"));
+        }
+
+        // Order leg synthesised from timestamp fields — only when the unified trail
+        // has no order events (e.g. an order created before Phase 2).
+        if (!hasUnifiedOrder)
+        {
+            Add(order.CreatedAt, "order", "order_created", "created", order.BuyerName ?? order.BuyerId);
+            Add(order.PaymentVerifiedAt, "order", "payment_verified", "funded",
+                order.BuyerName ?? order.BuyerId, detail: BuildPaymentDetail(order));
+            Add(order.RespondedAt, "order", "farmer_responded", null,
+                order.FarmerName ?? order.FarmerId, detail: order.RejectionReason);
+            Add(order.CancelledAt, "order", "order_cancelled", "cancelled", detail: order.CancelReason);
+        }
+
+        // Delivery leg synthesised likewise — independent of the order leg.
+        if (!hasUnifiedDelivery && delivery != null)
+        {
+            Add(delivery.CreatedAt, "delivery", "delivery_created", "pending", delivery.TruckerName);
+            Add(delivery.PickedUpAt, "delivery", "picked_up", "pickedUp",
+                delivery.TruckerName, location: delivery.GpsPickup);
+            Add(delivery.ConfirmedAt, "delivery", "delivered", "delivered",
+                delivery.BuyerName, location: delivery.GpsDropoff);
+        }
+
+        // Escrow / payment leg — always from the immutable escrow audit trail.
+        foreach (var entry in auditEntries)
+        {
+            Add(entry.Timestamp, "escrow", entry.Action, entry.ToState,
+                entry.Actor, telebirrRef: entry.TelebirrRef, fromState: entry.FromState,
+                ipAddress: entry.IpAddress);
+        }
+
+        // Chronological. Parse timestamps so mixed ISO-8601 precisions (with/without
+        // fractional seconds) still order correctly; OrderBy is stable, so ties keep
+        // insertion order.
+        return events.OrderBy(e => ParseTimestamp(e.Timestamp)).ToList();
+    }
+
+    /// <summary>Parse an ISO-8601 timestamp for sorting; unparseable → epoch (sorts first).</summary>
+    private static DateTimeOffset ParseTimestamp(string timestamp) =>
+        DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dto)
+            ? dto
+            : DateTimeOffset.MinValue;
+
+    private static string? BuildPaymentDetail(OrderDto order)
+    {
+        if (!string.IsNullOrEmpty(order.CbeTransactionId))
+        {
+            return string.IsNullOrEmpty(order.PaymentMethod)
+                ? order.CbeTransactionId
+                : $"{order.PaymentMethod} · {order.CbeTransactionId}";
+        }
+        return order.PaymentMethod;
     }
 
     // ──────────────────────────────────────────────
@@ -1254,6 +1766,23 @@ public class AdminFunction
             }
         }
         return defaultValue;
+    }
+
+    private static double GetDoubleValue(Dictionary<string, object> item, string key)
+    {
+        if (item.TryGetValue(key, out var val) && val != null)
+        {
+            if (val is double d)
+            {
+                return d;
+            }
+
+            if (double.TryParse(val.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
+        }
+        return 0.0;
     }
 
     private static bool GetBool(Dictionary<string, object> item, string key)

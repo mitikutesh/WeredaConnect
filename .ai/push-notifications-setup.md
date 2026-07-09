@@ -158,24 +158,25 @@ aws dynamodb describe-table --region eu-north-1 \
 
 ## 4. Mobile build configuration (activation steps)
 
-> **What's already committed**: buyer intents now sync to the server
-> (`BuyerIntentRepository` enqueues `buyer_intent` ops). The FCM **client** below is *not*
-> committed — adding the `google-services` Gradle plugin would fail the Android build until
-> `google-services.json` exists (only you can provide it). These are the activation steps.
+> **What's already committed (as of 2026-07-09)**: buyer intents sync
+> (`buyer_intent` ops) **and the FCM client is now implemented** —
+> `lib/core/notifications/push_notification_service.dart` (registered on auth in
+> `run_mobile.dart`), the `google-services` Gradle plugin (`settings.gradle` +
+> `app/build.gradle`), the `firebase_core`/`firebase_messaging` deps, and the
+> `POST_NOTIFICATIONS` manifest permission. The push client now drives **two**
+> alert types: buyer match alerts (`CropMatchStreamFunction`) and **new-message
+> alerts** (`MessageStreamFunction`, see `specs/contracts/messaging.md`).
+>
+> The remaining human-only steps are §1 (`google-services.json`) — already
+> present in this repo — and §2a (the SNS Platform Application), plus a deploy.
 
-1. **`google-services.json`** → `mobile/android/app/google-services.json` (from §1.4).
-2. **Gradle Google Services plugin**:
-   - `mobile/android/settings.gradle` (or project `build.gradle`): add the plugin
-     `id "com.google.gms.google-services" version "4.4.2" apply false`.
-   - `mobile/android/app/build.gradle`: `apply plugin: "com.google.gms.google-services"`.
-3. **Dependencies** in `mobile/pubspec.yaml`, then `flutter pub get`:
-   ```yaml
-   firebase_core: ^3.6.0
-   firebase_messaging: ^15.1.3
-   ```
+1. **`google-services.json`** → `mobile/android/app/google-services.json` (from §1.4). ✅ present.
+2. **Gradle Google Services plugin** — ✅ done:
+   - `mobile/android/settings.gradle` plugins block: `id "com.google.gms.google-services" version "4.4.2" apply false`.
+   - `mobile/android/app/build.gradle` plugins block: `id "com.google.gms.google-services"`.
+3. **Dependencies** in `mobile/pubspec.yaml` — ✅ done (`firebase_core: ^3.6.0`, `firebase_messaging: ^15.1.3`).
 4. **minSdk** ≥ 21 (already satisfied; target is Android 8 / API 26).
-5. **Android 13+ permission**: `POST_NOTIFICATIONS` is requested at runtime by the service
-   below (FlutterFire handles the manifest entry).
+5. **Android 13+ permission**: `POST_NOTIFICATIONS` — ✅ added to `AndroidManifest.xml`; requested at runtime by the service.
 
 Build once the above are in place:
 ```bash

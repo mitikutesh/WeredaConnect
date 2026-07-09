@@ -22,6 +22,11 @@ public sealed class EscrowService
     private readonly IOrderRepository? _orderRepo;
     private readonly IDeliveryRepository? _deliveryRepo;
 
+    // Who/where for the current operation, set at each public entry point. Lambda
+    // runs one invocation per instance at a time, so a per-call field is safe.
+    // Lets the escrow audit trail finally record ipAddress + correlationId.
+    private AuditContext? _auditContext;
+
     /// <summary>
     /// Delivery states in which a new escrow may be initiated (contract §Delivery State
     /// Validation: "must be pending or pickedUp"). `inTransit` is intentionally excluded —
@@ -91,8 +96,10 @@ public sealed class EscrowService
     /// Initiate escrow payment for a delivery. Holds funds in buyer's Telebirr account.
     /// </summary>
     public async Task<EscrowResult<InitiateEscrowResponse>> InitiateAsync(
-        InitiateEscrowRequest request, string authenticatedUserId)
+        InitiateEscrowRequest request, string authenticatedUserId, AuditContext? auditContext = null)
     {
+        _auditContext = auditContext;
+
         // 1. Validate buyerId matches JWT sub → ESCROW_006
         if (!string.Equals(request.BuyerId, authenticatedUserId, StringComparison.Ordinal))
         {
@@ -482,8 +489,11 @@ public sealed class EscrowService
     /// </summary>
     /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseAsync(
-        ReleaseEscrowRequest request, string authenticatedUserId, string? role = null)
+        ReleaseEscrowRequest request, string authenticatedUserId, string? role = null,
+        AuditContext? auditContext = null)
     {
+        _auditContext = auditContext;
+
         // 1. Authorization: only system or admin can release funds → ESCROW_015
         if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
@@ -688,8 +698,10 @@ public sealed class EscrowService
     /// Raise a dispute on an escrowed payment. Must be within 48 hours of delivery confirmation.
     /// </summary>
     public async Task<EscrowResult<DisputeEscrowResponse>> DisputeAsync(
-        DisputeEscrowRequest request, string authenticatedUserId)
+        DisputeEscrowRequest request, string authenticatedUserId, AuditContext? auditContext = null)
     {
+        _auditContext = auditContext;
+
         // 0. Validate idempotency key format → ESCROW_003
         if (!IsValidIdempotencyKey(request.IdempotencyKey))
         {
@@ -877,8 +889,11 @@ public sealed class EscrowService
     /// </summary>
     /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<RefundEscrowResponse>> RefundAsync(
-        RefundEscrowRequest request, string authenticatedUserId, string? role = null)
+        RefundEscrowRequest request, string authenticatedUserId, string? role = null,
+        AuditContext? auditContext = null)
     {
+        _auditContext = auditContext;
+
         // 1. Authorization: only system or admin can refund → ESCROW_021
         if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
         {
@@ -1338,6 +1353,19 @@ public sealed class EscrowService
         if (metadata != null)
         {
             auditEntry["metadata"] = metadata;
+        }
+
+        // Record the "where" (source IP) + correlation id when the caller supplied
+        // request context. Previously the escrow-audit ipAddress field was declared
+        // and read by the admin API but never written by any writer.
+        if (!string.IsNullOrEmpty(_auditContext?.IpAddress))
+        {
+            auditEntry["ipAddress"] = _auditContext!.IpAddress!;
+        }
+
+        if (!string.IsNullOrEmpty(_auditContext?.CorrelationId))
+        {
+            auditEntry["correlationId"] = _auditContext!.CorrelationId!;
         }
 
         await _auditRepo.AppendAsync(auditEntry);

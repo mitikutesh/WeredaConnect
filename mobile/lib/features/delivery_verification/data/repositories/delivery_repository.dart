@@ -63,11 +63,23 @@ class DeliveryRepository extends BaseDeliveryRepository {
         // screen's button gating. Requiring inTransit here silently blocked
         // the confirmation, leaving the delivery stuck at pickedUp so escrow
         // never released to the farmer.
-        if (delivery.status != DeliveryStatus.pickedUp &&
-            delivery.status != DeliveryStatus.inTransit) {
+        //
+        // Self-pickup has NO trucker/transit leg: the buyer collects at the
+        // farm and confirms straight from `pending` (server allows the
+        // self_pickup pending -> delivered hop). Without this, the buyer's scan
+        // threw here and the self-pickup escrow never released.
+        final isSelfPickup =
+            delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType;
+        final validForConfirm = isSelfPickup
+            ? delivery.status == DeliveryStatus.pending
+            : (delivery.status == DeliveryStatus.pickedUp ||
+                delivery.status == DeliveryStatus.inTransit);
+        if (!validForConfirm) {
           throw DeliveryValidationException(
             'status',
-            'Delivery must be picked up or in transit for confirmation',
+            isSelfPickup
+                ? 'Self-pickup must be pending to confirm collection'
+                : 'Delivery must be picked up or in transit for confirmation',
           );
         }
         if (delivery.buyerId != userId) {
@@ -275,6 +287,75 @@ class DeliveryRepository extends BaseDeliveryRepository {
     }
 
     await _updateListingStatus(listingId, ListingStatus.reserved, truckerId);
+
+    return delivery;
+  }
+
+  /// Buyer creates a self-pickup delivery (no trucker). The farmer generates the
+  /// QR later; the buyer confirms the handoff at the farm by scanning it.
+  @override
+  Future<Delivery> createSelfPickupDelivery({
+    required String orderId,
+    required String listingId,
+    required String farmerId,
+    required String farmerName,
+    required String buyerId,
+    required String buyerName,
+  }) async {
+    final deliveryId = _uuid.v4();
+    final now = DateTime.now().toUtc();
+
+    final delivery = Delivery()
+      ..deliveryId = deliveryId
+      // No trip: the sort key is synthesized from the deliveryId (server does the
+      // same). truckerId/truckerName/qrToken are empty — there is no trucker and
+      // the farmer generates the QR after the delivery exists.
+      ..tripId = deliveryId
+      ..listingId = listingId
+      ..farmerId = farmerId
+      ..farmerName = farmerName
+      ..truckerId = ''
+      ..truckerName = ''
+      ..buyerId = buyerId
+      ..buyerName = buyerName
+      ..qrToken = ''
+      ..deliveryType = DeliveryConstants.selfPickupDeliveryType
+      ..status = DeliveryStatus.pending
+      ..createdAt = now
+      ..updatedAt = now
+      ..version = 1;
+
+    await _isar.writeTxn(() async {
+      await _isar.deliverys.put(delivery);
+    });
+
+    final data = jsonEncode({
+      'orderId': orderId,
+      'listingId': listingId,
+      'farmerId': farmerId,
+      'farmerName': farmerName,
+      'buyerId': buyerId,
+      'buyerName': buyerName,
+      'deliveryType': DeliveryConstants.selfPickupDeliveryType,
+      'status': DeliveryStatus.pending.name,
+      'version': 1,
+    });
+
+    try {
+      await _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'delivery',
+        entityId: deliveryId,
+        action: 'create',
+        data: data,
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint(
+        '[DeliveryRepository] self-pickup delivery saved locally but sync '
+        'enqueue failed: $e',
+      );
+    }
 
     return delivery;
   }

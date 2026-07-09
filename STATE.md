@@ -20,6 +20,23 @@ A buyer intent-matching series is in progress on `buyer-intenet` (not yet merged
   `firebase_messaging`) is the remaining work. **Not deployed** — requires a Firebase project
   + FCM service-account secret first (see runbook).
 
+### Active work — In-App Messaging (chat + contact + push) (2026-07-09)
+
+Context-scoped in-app chat added across infra + server + mobile, mirroring the
+`rating` slice. Buyer↔farmer (crop/order) and buyer↔trucker (trip/delivery);
+counterpart phone Call/Copy everywhere; FCM push to the recipient on a new
+message. **Also completes the mobile FCM last-mile** (Firebase client + token
+registration + Gradle/manifest) that Buyer-Intent Step 5 left pending — so buyer
+match alerts can now deliver too. Create-only immutable `message` entity synced
+via `/sync`; server denormalizes name/phone authoritatively; role gate enforced
+in `ProcessMessageAsync`. New `messages` DynamoDB table (NEW_IMAGE stream) +
+`MessageFunction` (GET /messages) + `MessageStreamFunction` (push). Contract:
+`specs/contracts/messaging.md`. Verified: server tests + mobile analyze/tests
+green. **NOT committed/deployed** — needs `cdk deploy` + the manual SNS Platform
+Application (`.ai/push-notifications-setup.md` §2a). Deferred: tap-to-thread
+deep-link, order/delivery detail Message buttons. Full notes:
+memory `messaging-feature.md`.
+
 ---
 
 ## Resumption Context

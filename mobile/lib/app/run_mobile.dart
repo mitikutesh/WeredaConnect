@@ -15,7 +15,9 @@ import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/sync/sync_worker.dart';
+import 'package:wereda_connect/core/notifications/push_notification_service.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/screens/auth_gate.dart';
 import 'package:wereda_connect/features/buyer/data/repositories/buyer_intent_repository.dart';
@@ -34,6 +36,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/messaging/data/repositories/message_repository.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
@@ -294,6 +298,17 @@ class WeredaConnectApp extends StatelessWidget {
               ),
             ),
           ),
+          // In-app chat. InboxBloc is app-global (drives the unread badge and
+          // exposes the repository); per-thread ConversationBloc is route-scoped.
+          BlocProvider<InboxBloc>(
+            create: (_) => InboxBloc(
+              repository: MessageRepository(
+                isar: IsarService.instance.db,
+                syncQueue: syncQueue,
+                apiClient: ApiClient(),
+              ),
+            ),
+          ),
           BlocProvider<ConflictBloc>(
             create: (context) => ConflictBloc(
               notificationService: context.read<ConflictNotificationService>(),
@@ -330,7 +345,16 @@ class WeredaConnectApp extends StatelessWidget {
               // Pinned to light until the raw Colors.* sweep makes all
               // screens dark-safe; then a Settings toggle can ship.
               themeMode: ThemeMode.light,
-              home: const AuthGate(),
+              // Register for push once the user is authenticated (all roles
+              // receive message alerts). Best-effort: no-ops if FCM isn't set up.
+              home: BlocListener<AuthBloc, AuthState>(
+                listenWhen: (prev, curr) =>
+                    curr is AuthAuthenticated && prev is! AuthAuthenticated,
+                listener: (context, state) {
+                  PushNotificationService(api: ApiClient()).init();
+                },
+                child: const AuthGate(),
+              ),
             );
           },
         ),

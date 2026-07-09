@@ -666,6 +666,16 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryConfirmDelivery => 'ማድረሻን አረጋግጥ';
 
   @override
+  String get deliverySelfPickupConfirm => 'ለመረከብ የገበሬውን ኪዩአር ይቃኙ';
+
+  @override
+  String get deliverySelfPickupPayFirst =>
+      'መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።';
+
+  @override
+  String get orderCollectMyself => 'ራሴ እወስዳለሁ';
+
+  @override
   String get deliveryScanQr => 'ኪዩአር ቃኝ';
 
   @override
@@ -2351,4 +2361,41 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get placeResultsLabel => 'የቦታ ውጤቶች';
+
+  @override
+  String get messages => 'መልእክቶች';
+
+  @override
+  String get noConversationsYet => 'እስካሁን መልእክት የለም';
+
+  @override
+  String get noConversationsHint =>
+      'ከገበሬዎች፣ ከጫኝ አሽከርካሪዎችና ከገዢዎች ጋር ያደረጓቸው ውይይቶች እዚህ ይታያሉ።';
+
+  @override
+  String get noMessagesInThread => 'እስካሁን መልእክት የለም። ከታች ውይይቱን ይጀምሩ።';
+
+  @override
+  String get typeAMessage => 'መልእክት ይጻፉ…';
+
+  @override
+  String get send => 'ላክ';
+
+  @override
+  String get sendMessage => 'መልእክት ላክ';
+
+  @override
+  String get messageContact => 'መልእክት';
+
+  @override
+  String get messageFarmer => 'ለገበሬው መልእክት ላክ';
+
+  @override
+  String get messageTrucker => 'ለአሽከርካሪው መልእክት ላክ';
+
+  @override
+  String get messageBuyer => 'ለገዢው መልእክት ላክ';
+
+  @override
+  String get contact => 'አግኝ';
 }

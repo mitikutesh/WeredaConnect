@@ -870,6 +870,9 @@
     "description": "Button to confirm delivery pickup"
   },
   "deliveryConfirmDelivery": "Geejjiba Mirkaneessi",
+  "deliverySelfPickupConfirm": "Fudhachuuf QR qonnaan bulaa iskaanii godhi",
+  "deliverySelfPickupPayFirst": "Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.",
+  "orderCollectMyself": "Ani ofiin nan fudhadha",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"
   },
@@ -2362,5 +2365,17 @@
   "passwordTooShort": "Jecha darbii xiqqaatu qubee 8 qabaachuu qaba",
   "placeSearchHint": "Aanaa ykn magaalaa barbaadi",
   "placeNoResults": "Wal-fakkaataan hin jirne — waan barreessite fayyadamuu dandeessa",
-  "placeResultsLabel": "Bu'aawwan iddoo"
+  "placeResultsLabel": "Bu'aawwan iddoo",
+  "messages": "Ergaawwan",
+  "noConversationsYet": "Hanga ammaatti ergaan hin jiru",
+  "noConversationsHint": "Marii qonnaan bultoota, konkolaachiftootaa fi bittootaa wajjin gootan asitti mul'ata.",
+  "noMessagesInThread": "Hanga ammaatti ergaan hin jiru. Gaditti marii jalqabi.",
+  "typeAMessage": "Ergaa barreessi…",
+  "send": "Ergi",
+  "sendMessage": "Ergaa ergi",
+  "messageContact": "Ergaa",
+  "messageFarmer": "Qonnaan bulaaf ergaa ergi",
+  "messageTrucker": "Konkolaachisaaf ergaa ergi",
+  "messageBuyer": "Bittaaf ergaa ergi",
+  "contact": "Quunnamtii"
 }

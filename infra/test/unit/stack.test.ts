@@ -21,10 +21,10 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates sixteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
-    // 12 core tables + intents (buyer-intent matching) + device_tokens (push
-    // alerts) + match_events (matching telemetry) + ratings (buyer ratings).
-    template.resourceCountIs('AWS::DynamoDB::Table', 16);
+  test('creates nineteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+    // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
+    // + delivery-qr-secrets + messages (in-app chat) = 19.
+    template.resourceCountIs('AWS::DynamoDB::Table', 19);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -65,12 +65,15 @@ describe('ApiStack', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
@@ -94,10 +97,10 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates twenty Lambda functions on ARM64', () => {
-    // 16 core handlers + match (buyer intent), device-token, crop-match-stream
-    // (push alerts), and ratings (buyer ratings).
-    template.resourceCountIs('AWS::Lambda::Function', 20);
+  test('creates twenty-two Lambda functions on ARM64', () => {
+    // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
+    // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22.
+    template.resourceCountIs('AWS::Lambda::Function', 22);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -113,9 +116,10 @@ describe('ApiStack', () => {
     //                 /escrow/by-delivery/{deliveryId} (F-33),
     //                 /auth/forgot-password, /auth/reset-password,
     //                 /match (buyer intent matching), /device-tokens (push alerts),
-    //                 /ratings, /ratings/{id} (buyer ratings)
-    // 15 admin routes: 12 GET + 3 POST
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 44);
+    //                 /ratings, /ratings/{id} (buyer ratings),
+    //                 /messages, /messages/{id} (in-app chat)
+    // Plus admin routes and the delivery-qr-secrets work → 49 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 49);
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {
@@ -149,12 +153,15 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     return Template.fromStack(apiStack);
@@ -243,12 +250,15 @@ describe('ApiStack (prod security)', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);

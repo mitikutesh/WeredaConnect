@@ -19,6 +19,7 @@ import 'package:wereda_connect/core/sync/sync_queue.dart'
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/widgets/messages_badge_button.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
@@ -551,6 +552,9 @@ class _HomeHeaderWithBanner extends StatelessWidget {
                         _SyncStatusIcon(isOnline: isOnline),
                         const SizedBox(width: 14),
                       ],
+                      // In-app chat inbox (with unread badge)
+                      const MessagesBadgeButton(color: Colors.white),
+                      const SizedBox(width: 4),
                       // Notification bell (functional)
                       _NotificationIcon(
                         userId: userId,

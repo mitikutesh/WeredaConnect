@@ -776,11 +776,45 @@ Delivery operations are high-priority sync items (they affect payment release):
 
 ---
 
+---
+
+## Buyer Self-Pickup (no trucker)
+
+When no trucker is involved, the **buyer** collects the crop at the farm. This is modelled
+as a delivery with `deliveryType: "self_pickup"`:
+
+- **Created by the buyer** (not the trucker). `truckerId` is empty; `tripId` is synthesized
+  from the `deliveryId` (there is no trip); a linked `orderId` is **required** and that order
+  MUST carry no transport cost / trucker (so escrow settles 2-way: farmer + commission).
+  Buyer and farmer must differ.
+- **Single-scan handoff**: the buyer scans the **farmer's** QR at the farm, which transitions
+  the delivery `pending → delivered` directly (buyer-only; permitted only for `self_pickup`).
+  This stamps the linked escrow so the auto-release cron pays the farmer.
+- **GPS is mandatory** for the self-pickup `delivered` confirmation and is validated against
+  the **listing** location (≤5km). A listing with no registered location cannot be
+  self-picked-up (the money-releasing confirmation would otherwise be unverifiable).
+
+## QR Secret Storage & Verification (hardened)
+
+- The pickup **nonce** is stored in a dedicated `delivery-qr-secrets` table keyed by
+  `deliveryId`, **never on the delivery record** — so it can never be echoed to a client via
+  any sync-down / GSI projection / conflict `serverData`. It is write-only from the client's
+  perspective and is never returned in any DTO or response.
+- The scanner echoes the scanned nonce as `scannedQrNonce`; the server authorizes the
+  `pickedUp`/`delivered` transition only if it matches the stored nonce, is within a freshness
+  window, and has not already been consumed for that transition (single-use). Consumption is
+  recorded only **after** the version CAS commits, so a rejected transition never burns it.
+- For a money-bearing delivery whose nonce has not yet synced, the server returns
+  **`deferred`** (see sync-protocol) rather than failing open.
+- **Migration**: in-flight deliveries created before this change keep their on-record
+  `qrNonce` and are validated against it (and it is scrubbed from any echoed `serverData`).
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
+| 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
 
 ---
 

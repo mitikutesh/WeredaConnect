@@ -45,6 +45,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "FraudSignalsTable0048AA89",
       },
     },
+    "MessagesTableName": {
+      "Description": "DynamoDB Messages Table (in-app chat)",
+      "Value": {
+        "Ref": "MessagesTableA255D91E",
+      },
+    },
     "OrdersTableName": {
       "Description": "DynamoDB Orders Table",
       "Value": {
@@ -535,6 +541,34 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "DeliveryQrSecretsTable7949302F": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "deliveryId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "deliveryId",
+            "KeyType": "HASH",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-delivery-qr-secrets",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "DeviceTokensTableCECEFE14": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -659,6 +693,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "expiresAt",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "orderId",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -719,6 +757,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               },
               {
                 "AttributeName": "expiresAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "OrderIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "orderId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
                 "KeyType": "RANGE",
               },
             ],
@@ -867,6 +921,99 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "AttributeName": "ttl",
           "Enabled": true,
         },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MessagesTableA255D91E": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "messageId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "conversationId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "recipientId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "senderId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "ConversationIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "conversationId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "RecipientIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "recipientId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "SenderIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "senderId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "messageId",
+            "KeyType": "HASH",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_IMAGE",
+        },
+        "TableName": "wereda-connect-dev-messages",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -1225,6 +1372,60 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "AttributeName": "expiresAt",
           "Enabled": true,
         },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "TransactionAuditTable981A5065": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "transactionId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "entityId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "EntityIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "entityId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "transactionId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-transaction-audit",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

@@ -168,6 +168,13 @@ public sealed record DeliveryDto
     public required string Status { get; init; }
 
     /// <summary>
+    /// Delivery type: null/absent = a normal trucker delivery; "self_pickup" = the
+    /// buyer collects at the farm (no trucker). Lets a farmer's app show the pickup QR
+    /// for a buyer-created self-pickup delivery.
+    /// </summary>
+    public string? DeliveryType { get; init; }
+
+    /// <summary>
     /// GPS coordinates at pickup location.
     /// </summary>
     public LatLngDto? GpsPickup { get; init; }

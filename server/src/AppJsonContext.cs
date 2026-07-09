@@ -111,6 +111,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RatingSummaryDto))]
 [JsonSerializable(typeof(GetRatingsResponse))]
 [JsonSerializable(typeof(GetRatingResponse))]
+// Message DTOs (in-app chat)
+[JsonSerializable(typeof(MessageDto))]
+[JsonSerializable(typeof(List<MessageDto>))]
+[JsonSerializable(typeof(GetMessagesResponse))]
+[JsonSerializable(typeof(GetMessageResponse))]
 // Admin endpoint DTOs
 [JsonSerializable(typeof(AdminDashboardStatsResponse))]
 [JsonSerializable(typeof(AdminEscrowListResponse))]
@@ -132,6 +137,16 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminComplianceSummaryResponse))]
 [JsonSerializable(typeof(AdminRevenueAnalyticsResponse))]
 [JsonSerializable(typeof(AdminTransactionAnalyticsResponse))]
+// Admin transaction monitor DTOs (unified order + delivery + escrow view)
+[JsonSerializable(typeof(AdminTransactionSummary))]
+[JsonSerializable(typeof(List<AdminTransactionSummary>))]
+[JsonSerializable(typeof(AdminTransactionListResponse))]
+[JsonSerializable(typeof(AdminTransactionTimelineEvent))]
+[JsonSerializable(typeof(List<AdminTransactionTimelineEvent>))]
+[JsonSerializable(typeof(AdminTransactionDetailResponse))]
+[JsonSerializable(typeof(AdminAuditEntryDto))]
+[JsonSerializable(typeof(List<AdminAuditEntryDto>))]
+[JsonSerializable(typeof(AdminAuditListResponse))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

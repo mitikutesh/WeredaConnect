@@ -1620,7 +1620,9 @@ public class SyncFunctionTests
             _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
             userRepo: _mockUserRepo, escrowRepo: mockEscrow);
 
-        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+        // A money-bearing delivery now requires QR proof to confirm (fail-closed): the farmer's
+        // nonce is on the record (legacy path, no secret table wired here) and the buyer echoes it.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-escrow");
 
         var updateOp = new SyncOperationRequest
         {
@@ -1632,7 +1634,8 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object>
             {
                 { "status", "delivered" },
-                { "version", 1 }
+                { "version", 1 },
+                { "scannedQrNonce", "nonce-escrow" }
             }
         };
 
@@ -1668,7 +1671,9 @@ public class SyncFunctionTests
             _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
             userRepo: _mockUserRepo, escrowRepo: mockEscrow);
 
-        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+        // Give the delivery a nonce + echo it so the confirmation actually SUCCEEDS and reaches
+        // the stamp path — proving the skip is due to idempotency, not a failed/ deferred op.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-replay");
 
         var updateOp = new SyncOperationRequest
         {
@@ -1680,7 +1685,8 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object>
             {
                 { "status", "delivered" },
-                { "version", 1 }
+                { "version", 1 },
+                { "scannedQrNonce", "nonce-replay" }
             }
         };
 
@@ -2227,5 +2233,301 @@ public class SyncFunctionTests
         {
             Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
         }
+    }
+
+    // ===== Self-pickup + QR handoff hardening =====
+
+    private void SetupDeliveryQuery(Dictionary<string, AttributeValue> item)
+    {
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-deliveries-table"))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { item }
+            });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = item });
+    }
+
+    private static Dictionary<string, AttributeValue> SelfPickupDeliveryItem(
+        string status, int version, string? qrNonce, string createdAt) =>
+        new()
+        {
+            { "deliveryId", new AttributeValue { S = "del-sp" } },
+            { "tripId", new AttributeValue { S = "del-sp" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "truckerId", new AttributeValue { S = "" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "qrToken", new AttributeValue { S = "" } },
+            { "deliveryType", new AttributeValue { S = "self_pickup" } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = createdAt } },
+            { "updatedAt", new AttributeValue { S = createdAt } },
+            { "version", new AttributeValue { N = version.ToString() } },
+            { "qrNonce", qrNonce != null ? new AttributeValue { S = qrNonce } : new AttributeValue { NULL = true } }
+        };
+
+    [Fact]
+    public async Task SelfPickupCreate_ByNonBuyer_Rejected()
+    {
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-sp-create",
+            IdempotencyKey = "trucker-001:delivery:del-sp:create:1",
+            EntityType = "delivery",
+            EntityId = "del-sp",
+            Action = "create",
+            Data = new Dictionary<string, object>
+            {
+                { "deliveryType", "self_pickup" },
+                { "orderId", "order-001" },
+                { "listingId", "listing-001" },
+                { "farmerId", "farmer-001" },
+                { "farmerName", "Abebe" },
+                { "buyerId", "buyer-001" },
+                { "buyerName", "Mekonnen" },
+                { "status", "pending" }
+            }
+        };
+
+        // Authenticated as a trucker, not the buyer named in buyerId.
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task SelfPickupCreate_WithTrucker_Rejected()
+    {
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-sp-create2",
+            IdempotencyKey = "buyer-001:delivery:del-sp:create:1",
+            EntityType = "delivery",
+            EntityId = "del-sp",
+            Action = "create",
+            Data = new Dictionary<string, object>
+            {
+                { "deliveryType", "self_pickup" },
+                { "orderId", "order-001" },
+                { "listingId", "listing-001" },
+                { "farmerId", "farmer-001" },
+                { "farmerName", "Abebe" },
+                { "truckerId", "trucker-001" },
+                { "buyerId", "buyer-001" },
+                { "buyerName", "Mekonnen" },
+                { "status", "pending" }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("must not have a trucker", response.Body);
+    }
+
+    [Fact]
+    public async Task SelfPickupDelivered_WithNonceAndListingGps_Succeeds()
+    {
+        // Listing has a registered location; the buyer confirms at that location.
+        // Use a FRESH crop repo (no shared constructor default to shadow this stub).
+        var cropRepo = Substitute.For<ICropRepository>();
+        cropRepo.GetByIdAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" },
+            { "farmerId", "farmer-001" },
+            { "latitude", "9.0" },
+            { "longitude", "38.7" },
+            { "status", "available" },
+            { "version", "1" }
+        });
+
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-sp").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "esc-sp" },
+            { "createdAt", "2026-07-08T10:00:00Z" },
+            { "status", "escrowed" }
+        });
+
+        var function = new SyncFunction(
+            _mockSyncMeta, cropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+
+        SetupDeliveryQuery(SelfPickupDeliveryItem(
+            "pending", 1, "sp-nonce", DateTime.UtcNow.AddDays(-1).ToString("o")));
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-sp-deliver",
+            IdempotencyKey = "buyer-001:delivery:del-sp:update:deliver",
+            EntityType = "delivery",
+            EntityId = "del-sp",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "sp-nonce" },
+                { "gpsDropoff", new Dictionary<string, object> { { "latitude", 9.0 }, { "longitude", 38.7 } } }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await mockEscrow.Received(1).UpdateStatusAsync(
+            "esc-sp", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("deliveryConfirmedAt")));
+    }
+
+    [Fact]
+    public async Task SelfPickupDelivered_WithoutGps_Rejected()
+    {
+        SetupDeliveryQuery(SelfPickupDeliveryItem(
+            "pending", 1, "sp-nonce", DateTime.UtcNow.AddDays(-1).ToString("o")));
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-sp-nogps",
+            IdempotencyKey = "buyer-001:delivery:del-sp:update:nogps",
+            EntityType = "delivery",
+            EntityId = "del-sp",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "sp-nonce" }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("DELIVERY_GPS_PROXIMITY", response.Body);
+    }
+
+    [Fact]
+    public async Task MoneyBearingDelivered_NoNonce_Deferred()
+    {
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "esc-001" },
+            { "status", "escrowed" }
+        });
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+
+        // Recent trucker delivery with NO nonce anywhere → must DEFER, not fail open.
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = "del-001" } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "truckerId", new AttributeValue { S = "trucker-001" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "status", new AttributeValue { S = "pickedUp" } },
+            { "createdAt", new AttributeValue { S = DateTime.UtcNow.AddDays(-1).ToString("o") } },
+            { "updatedAt", new AttributeValue { S = DateTime.UtcNow.AddDays(-1).ToString("o") } },
+            { "version", new AttributeValue { N = "1" } }
+        };
+        SetupDeliveryQuery(item);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-defer",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:defer",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", 1 } }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Contains("deferred", response.Body);
+        Assert.DoesNotContain("\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task Delivered_NonceReplayByDifferentOp_Rejected()
+    {
+        var mockSecret = Substitute.For<IDeliveryQrSecretRepository>();
+        mockSecret.GetAsync("del-001").Returns(new DeliveryQrSecret
+        {
+            DeliveryId = "del-001",
+            Nonce = "the-nonce",
+            IssuedAt = DateTime.UtcNow.AddHours(-1).ToString("o"),
+            ConsumedDeliveredOp = "some-other-op" // already consumed for delivered
+        });
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, qrSecretRepo: mockSecret);
+
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-replay",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:replay",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "the-nonce" }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Contains("DELIVERY_NONCE_REPLAY", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryConflict_DoesNotLeakQrNonce()
+    {
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "secret-nonce-999");
+        // Force the version CAS to fail so the conflict path echoes the server item.
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("conflict"));
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-conflict",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:conflict",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "secret-nonce-999" }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        // The scanner triggered a conflict; the echoed server item must NOT carry the secret.
+        Assert.DoesNotContain("secret-nonce-999", response.Body);
+        Assert.DoesNotContain("qrNonce", response.Body);
     }
 }

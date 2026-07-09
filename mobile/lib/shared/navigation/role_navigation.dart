@@ -16,7 +16,16 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// This file is the single source of truth for which destination sits at
 /// which index — the mobile shell, the web shell, and every "jump to tab"
 /// call site must resolve through it so they can never disagree.
-enum RoleTab { home, myCrops, myTrips, market, orders, deliveries, payments }
+enum RoleTab {
+  home,
+  myCrops,
+  myTrips,
+  market,
+  orders,
+  deliveries,
+  payments,
+  messages,
+}
 
 extension RoleTabVisual on RoleTab {
   IconData get icon => switch (this) {
@@ -27,6 +36,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.orders => Icons.receipt_long_outlined,
         RoleTab.deliveries => Icons.local_shipping_outlined,
         RoleTab.payments => Icons.account_balance_wallet_outlined,
+        RoleTab.messages => Icons.chat_bubble_outline,
       };
 
   IconData get activeIcon => switch (this) {
@@ -37,6 +47,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.orders => Icons.receipt_long,
         RoleTab.deliveries => Icons.local_shipping,
         RoleTab.payments => Icons.account_balance_wallet,
+        RoleTab.messages => Icons.chat_bubble,
       };
 
   String label(AppLocalizations l10n) => switch (this) {
@@ -47,6 +58,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.orders => l10n.orders,
         RoleTab.deliveries => l10n.deliveries,
         RoleTab.payments => l10n.payments,
+        RoleTab.messages => l10n.messages,
       };
 
   /// Web route for this destination (go_router).
@@ -58,6 +70,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.orders => '/orders',
         RoleTab.deliveries => '/deliveries',
         RoleTab.payments => '/payments',
+        RoleTab.messages => '/messages',
       };
 }
 
@@ -89,9 +102,9 @@ List<RoleTab> tabsForRole(UserRole role) {
 /// from the web sidebar (desktop/tablet has room; mobile pushes instead).
 List<RoleTab> sidebarExtrasForRole(UserRole role) {
   return switch (role) {
-    UserRole.farmer => const [RoleTab.payments],
-    UserRole.trucker => const [RoleTab.orders],
-    UserRole.buyer => const [RoleTab.payments],
+    UserRole.farmer => const [RoleTab.messages, RoleTab.payments],
+    UserRole.trucker => const [RoleTab.messages, RoleTab.orders],
+    UserRole.buyer => const [RoleTab.messages, RoleTab.payments],
   };
 }
 

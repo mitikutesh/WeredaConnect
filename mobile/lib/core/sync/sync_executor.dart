@@ -77,6 +77,11 @@ class SyncBatchResult {
   final int succeeded;
   final int conflicted;
   final int failed;
+
+  /// Operations the server could not verify YET (status `deferred`) — e.g. a
+  /// delivery pickup/confirm whose QR secret hasn't synced up. Re-queued without
+  /// burning a retry; NOT counted as a failure (so no backoff / failure UI).
+  final int deferred;
   final SyncBatchStatus status;
   final String? errorMessage;
 
@@ -89,6 +94,7 @@ class SyncBatchResult {
     this.succeeded = 0,
     this.conflicted = 0,
     this.failed = 0,
+    this.deferred = 0,
     this.status = SyncBatchStatus.success,
     this.errorMessage,
     this.operationErrors = const {},
@@ -99,6 +105,7 @@ class SyncBatchResult {
         succeeded = 0,
         conflicted = 0,
         failed = 0,
+        deferred = 0,
         status = SyncBatchStatus.empty,
         errorMessage = null,
         operationErrors = const {};
@@ -108,6 +115,7 @@ class SyncBatchResult {
         succeeded = 0,
         conflicted = 0,
         failed = 0,
+        deferred = 0,
         status = SyncBatchStatus.skipped,
         errorMessage = null,
         operationErrors = const {};
@@ -117,6 +125,7 @@ class SyncBatchResult {
         succeeded = 0,
         conflicted = 0,
         failed = 0,
+        deferred = 0,
         status = SyncBatchStatus.noInternet,
         errorMessage = null,
         operationErrors = const {};
@@ -145,12 +154,14 @@ class SyncBatchResult {
     final newSucceeded = succeeded + other.succeeded;
     final newConflicted = conflicted + other.conflicted;
     final newFailed = failed + other.failed;
+    final newDeferred = deferred + other.deferred;
 
     return SyncBatchResult(
       total: newTotal,
       succeeded: newSucceeded,
       conflicted: newConflicted,
       failed: newFailed,
+      deferred: newDeferred,
       status: newFailed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
       errorMessage: other.errorMessage ?? errorMessage,
       operationErrors: {...operationErrors, ...other.operationErrors},
@@ -374,6 +385,17 @@ class SyncExecutor {
         // Queue is empty
         if (result.status == SyncBatchStatus.empty) break;
 
+        // Only deferrals remain (server can't verify yet — e.g. a QR secret hasn't
+        // synced). No forward progress is possible this session, so stop WITHOUT
+        // backoff, retries, or a failure result. The ops stay pending and the next
+        // sync trigger (connectivity change / periodic worker) retries them.
+        if (result.deferred > 0 &&
+            result.succeeded == 0 &&
+            result.conflicted == 0 &&
+            !result.hasErrors) {
+          break;
+        }
+
         // Batch succeeded — reset failure counter, check for more
         if (!result.hasErrors) {
           consecutiveFailures = 0;
@@ -459,7 +481,9 @@ class SyncExecutor {
         );
       }
 
-      debugPrint('[SYNC] server response: ${response.data}');
+      // NB: do NOT log the raw response — it can contain sensitive fields
+      // (e.g. delivery QR nonce). Per-operation outcomes are logged (redacted)
+      // by the caller from the SyncBatchResult instead.
       return await _processResponse(pending, response.data!);
     } on DioException catch (e) {
       return await _handleDioError(e, pending);
@@ -509,6 +533,7 @@ class SyncExecutor {
     var succeeded = 0;
     var conflicted = 0;
     var failed = 0;
+    var deferred = 0;
     final operationErrors = <String, String>{};
 
     // Build lookup map for O(1) access by operationId
@@ -578,6 +603,16 @@ class SyncExecutor {
           await _syncQueue.markAsSynced(operationId);
           succeeded++;
 
+        case 'deferred':
+          // Server can't verify this op YET (e.g. a delivery pickup/confirm whose
+          // QR secret hasn't synced up from the farmer). Re-queue WITHOUT burning a
+          // retry so it is retried later; the server hard-fails it if it stays
+          // unverifiable past its window. Offline-first: the op is never lost.
+          // Tracked as `deferred` (NOT `failed`) so it triggers no backoff/failure
+          // UI; the runSync loop stops the session when only deferrals remain.
+          await _syncQueue.revertToPending(operationId);
+          deferred++;
+
         default:
           // 'error' or unknown status — capture per-operation error message
           // for fraud detection codes (FRAUD_DUPLICATE_LISTING,
@@ -620,6 +655,7 @@ class SyncExecutor {
       succeeded: succeeded,
       conflicted: conflicted,
       failed: failed,
+      deferred: deferred,
       status: failed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
       errorMessage: fraudError,
       operationErrors: operationErrors,

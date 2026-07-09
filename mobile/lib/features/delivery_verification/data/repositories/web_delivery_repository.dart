@@ -77,6 +77,65 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   }
 
   @override
+  Future<Delivery> createSelfPickupDelivery({
+    required String orderId,
+    required String listingId,
+    required String farmerId,
+    required String farmerName,
+    required String buyerId,
+    required String buyerName,
+  }) async {
+    final deliveryId =
+        'dlv_${DateTime.now().millisecondsSinceEpoch}_${buyerId.hashCode.abs()}';
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    await _api.post<dynamic>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'delivery',
+            'action': 'create',
+            'entityId': deliveryId,
+            'timestamp': now,
+            'idempotencyKey': 'web_create_$deliveryId',
+            'data': {
+              'orderId': orderId,
+              'listingId': listingId,
+              'farmerId': farmerId,
+              'farmerName': farmerName,
+              'buyerId': buyerId,
+              'buyerName': buyerName,
+              'deliveryType': 'self_pickup',
+              'status': 'pending',
+            },
+          },
+        ],
+      },
+    );
+
+    return Delivery()
+      ..deliveryId = deliveryId
+      ..tripId = deliveryId
+      ..listingId = listingId
+      ..farmerId = farmerId
+      ..farmerName = farmerName
+      ..truckerId = ''
+      ..truckerName = ''
+      ..buyerId = buyerId
+      ..buyerName = buyerName
+      ..qrToken = ''
+      ..deliveryType = 'self_pickup'
+      ..status = DeliveryStatus.pending
+      ..createdAt = DateTime.now().toUtc()
+      ..updatedAt = DateTime.now().toUtc()
+      ..version = 1;
+  }
+
+  @override
   Future<void> persistQrNonce({
     required String deliveryId,
     required String qrNonce,
@@ -357,6 +416,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..buyerId = m['buyerId'] as String? ?? ''
       ..buyerName = m['buyerName'] as String? ?? ''
       ..qrToken = m['qrToken'] as String? ?? ''
+      ..deliveryType = m['deliveryType'] as String?
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')
