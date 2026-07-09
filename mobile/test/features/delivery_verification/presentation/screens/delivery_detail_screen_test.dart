@@ -100,7 +100,6 @@ void main() {
         'buyer sees the self-pickup scan action on a self_pickup pending delivery',
         (tester) async {
       final delivery = _makeDelivery(
-        status: DeliveryStatus.pending,
         truckerId: '',
         deliveryType: 'self_pickup',
       );
@@ -118,7 +117,7 @@ void main() {
     testWidgets(
         'buyer does NOT see the self-pickup scan action on a normal delivery',
         (tester) async {
-      final delivery = _makeDelivery(status: DeliveryStatus.pending);
+      final delivery = _makeDelivery();
 
       await tester.pumpWidget(
         buildTestWidget(delivery: delivery, currentUserId: 'buyer-001'),
