@@ -111,6 +111,11 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RatingSummaryDto))]
 [JsonSerializable(typeof(GetRatingsResponse))]
 [JsonSerializable(typeof(GetRatingResponse))]
+// Message DTOs (in-app chat)
+[JsonSerializable(typeof(MessageDto))]
+[JsonSerializable(typeof(List<MessageDto>))]
+[JsonSerializable(typeof(GetMessagesResponse))]
+[JsonSerializable(typeof(GetMessageResponse))]
 // Admin endpoint DTOs
 [JsonSerializable(typeof(AdminDashboardStatsResponse))]
 [JsonSerializable(typeof(AdminEscrowListResponse))]

@@ -59,6 +59,35 @@ class CreateDelivery extends DeliveryEvent {
       ];
 }
 
+/// Buyer creates a self-pickup delivery (no trucker) for an order.
+class CreateSelfPickupDelivery extends DeliveryEvent {
+  final String orderId;
+  final String listingId;
+  final String farmerId;
+  final String farmerName;
+  final String buyerId;
+  final String buyerName;
+
+  const CreateSelfPickupDelivery({
+    required this.orderId,
+    required this.listingId,
+    required this.farmerId,
+    required this.farmerName,
+    required this.buyerId,
+    required this.buyerName,
+  });
+
+  @override
+  List<Object?> get props => [
+        orderId,
+        listingId,
+        farmerId,
+        farmerName,
+        buyerId,
+        buyerName,
+      ];
+}
+
 /// Confirm pickup of crops by trucker.
 class ConfirmPickup extends DeliveryEvent {
   final String deliveryId;

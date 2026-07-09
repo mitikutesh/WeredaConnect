@@ -28,12 +28,15 @@ describe('CDK Integration Tests', () => {
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
       fraudSignalsTable: dbStack.fraudSignalsTable,
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -73,12 +76,15 @@ describe('CDK Integration Tests', () => {
         escrowsTable: dbStack.escrowsTable,
         escrowAuditTable: dbStack.escrowAuditTable,
         escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
         ordersTable: dbStack.ordersTable,
         fraudSignalsTable: dbStack.fraudSignalsTable,
         intentsTable: dbStack.intentsTable,
         deviceTokensTable: dbStack.deviceTokensTable,
         matchEventsTable: dbStack.matchEventsTable,
         ratingsTable: dbStack.ratingsTable,
+        messagesTable: dbStack.messagesTable,
+        transactionAuditTable: dbStack.transactionAuditTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 

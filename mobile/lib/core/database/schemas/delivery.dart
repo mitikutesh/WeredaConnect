@@ -54,6 +54,11 @@ class Delivery {
   /// QR nonce persisted by generator for server-side cross-validation.
   String? qrNonce;
 
+  /// Delivery type. `null`/absent = a normal trucker delivery; `self_pickup` =
+  /// the buyer collects at the farm (no trucker). Governs who may create the
+  /// delivery and how it transitions (see server SyncFunction).
+  String? deliveryType;
+
   /// GPS coordinates at pickup location (farmer's location)
   LatLng? gpsPickup;
 

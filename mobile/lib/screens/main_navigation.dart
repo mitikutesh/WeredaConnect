@@ -9,6 +9,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_state.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/screens/conflict_resolution_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
@@ -85,6 +86,9 @@ class _MainNavigationState extends State<MainNavigation> {
           RoleTab.orders => const OrdersTabScreen(),
           RoleTab.deliveries => const DeliveriesTabScreen(),
           RoleTab.payments => const PaymentsTabScreen(),
+          // Never a bar tab (sidebar-extra only); reachable from the home
+          // header on mobile. Handled here to keep the switch exhaustive.
+          RoleTab.messages => const MessagesInboxScreen(),
         },
     ];
   }

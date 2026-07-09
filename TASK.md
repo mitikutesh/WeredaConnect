@@ -19,6 +19,16 @@ SNS)** in progress: docs done (`.ai/push-notifications-setup.md`,
 server, `POST /device-tokens`, crops Stream → match-on-insert Lambda, mobile
 `firebase_messaging`). Requires a Firebase project + FCM secret before deploy.
 
+**In-App Messaging (2026-07-09):** context-scoped chat (buyer↔farmer, buyer↔trucker)
++ phone Call/Copy + FCM push on new message, built across infra/server/mobile
+(create-only `message` entity, `messages` table + stream, `MessageFunction`,
+`MessageStreamFunction`, `features/messaging/**`, shared `contact_actions_sheet`).
+**This also finishes the mobile FCM client** (Step 5 last-mile: `firebase_*` deps,
+`push_notification_service.dart`, Gradle/manifest). Contract `specs/contracts/messaging.md`;
+runbook `.ai/push-notifications-setup.md` updated. Not committed/deployed — needs
+`cdk deploy` + manual SNS platform app. Deferred: tap-to-thread deep-link,
+order/delivery detail Message buttons.
+
 ---
 
 ## PO Audit Summary (2026-03-19)

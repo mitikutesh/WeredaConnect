@@ -32,12 +32,14 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly escrowAuditTable: dynamodb.Table;
   readonly transactionAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
+  readonly deliveryQrSecretsTable: dynamodb.Table;
   readonly ordersTable: dynamodb.Table;
   readonly fraudSignalsTable: dynamodb.Table;
   readonly intentsTable: dynamodb.Table;
   readonly deviceTokensTable: dynamodb.Table;
   readonly matchEventsTable: dynamodb.Table;
   readonly ratingsTable: dynamodb.Table;
+  readonly messagesTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -322,7 +324,9 @@ export class ApiStack extends cdk.Stack {
         INTENTS_TABLE: props.intentsTable.tableName,
         MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
         RATINGS_TABLE: props.ratingsTable.tableName,
+        MESSAGES_TABLE: props.messagesTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
+        DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
@@ -341,9 +345,15 @@ export class ApiStack extends cdk.Stack {
     props.fraudSignalsTable.grantReadWriteData(syncFn.function);
     // Ratings: sync creates them and reads the order to validate participation.
     props.ratingsTable.grantReadWriteData(syncFn.function);
+    // Messages: sync creates them (context participants verified against the
+    // crops/orders/trips/deliveries tables, already granted above).
+    props.messagesTable.grantReadWriteData(syncFn.function);
     // Transaction audit is append-only: write-only grant. Order/delivery
     // lifecycle transitions are logged here for the admin monitor.
     props.transactionAuditTable.grantWriteData(syncFn.function);
+    // QR handoff secrets: sync writes the farmer's nonce and reads it to verify a
+    // scanner's echo (and marks it consumed). Never echoed back to any client.
+    props.deliveryQrSecretsTable.grantReadWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
@@ -479,6 +489,43 @@ export class ApiStack extends cdk.Stack {
         // records that failed (e.g. a transient DynamoDB throttle) so Lambda
         // retries only those instead of checkpointing the whole batch and
         // silently dropping a buyer's push alert.
+        reportBatchItemFailures: true,
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: lambda.FilterRule.isEqual("INSERT"),
+          }),
+        ],
+      }),
+    );
+
+    // ─── Message Stream Function (chat message → recipient push) ───────
+    // Messages DynamoDB Stream → look up the recipient's device endpoints →
+    // push an FCM notification. Mirrors CropMatchStreamFunction but simpler:
+    // the recipientId is read straight off the NEW_IMAGE (no scoring/query).
+    const messageStreamFn = new WeredaLambda(this, "MessageStreamFunction", {
+      functionName: `${prefix}-message-stream`,
+      description: "Messages DynamoDB Stream → push chat notification to recipient",
+      handlerName: "MessageStreamFunction",
+      environment: {
+        DEVICE_TOKENS_TABLE: props.deviceTokensTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      reservedConcurrentExecutions: 5,
+    });
+    props.deviceTokensTable.grantReadData(messageStreamFn.function);
+    messageStreamFn.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [fcmEndpointArnPattern],
+      }),
+    );
+    // Messages are immutable, so only INSERT events matter.
+    messageStreamFn.function.addEventSource(
+      new lambdaEventSources.DynamoEventSource(props.messagesTable, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 10,
+        retryAttempts: 3,
         reportBatchItemFailures: true,
         filters: [
           lambda.FilterCriteria.filter({
@@ -924,6 +971,23 @@ export class ApiStack extends cdk.Stack {
     props.ratingsTable.grantReadData(ratingFn.function);
     paginationSecret.grantRead(ratingFn.function);
 
+    // ─── Message Function ────────────────────────────────────────────
+
+    const messageFn = new WeredaLambda(this, "MessageFunction", {
+      functionName: `${prefix}-messages`,
+      description: "GET /messages — read chat threads + sync-down pull (read-only)",
+      handlerName: "MessageFunction",
+      environment: {
+        MESSAGES_TABLE: props.messagesTable.tableName,
+        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    props.messagesTable.grantReadData(messageFn.function);
+    paginationSecret.grantRead(messageFn.function);
+
     // ─── Order Cron Function (auto-cancel expired unpaid orders) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
@@ -1240,6 +1304,35 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "RatingsGetInt",
         ratingFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ─── Message Routes (authenticated) ──────────────────────────────
+    // Creates go through /sync; these are read-only (thread load + pull).
+
+    httpApi.addRoutes({
+      path: "/messages",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "MessagesListInt",
+        messageFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/messages/{id}",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "MessagesGetInt",
+        messageFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

@@ -876,6 +876,14 @@
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"
   },
+  "deliverySelfPickupConfirm": "Scan farmer's QR to collect",
+  "@deliverySelfPickupConfirm": {
+    "description": "Buyer button to scan the farmer's QR at the farm to confirm a self-pickup collection"
+  },
+  "orderCollectMyself": "Collect it myself",
+  "@orderCollectMyself": {
+    "description": "Buyer button to arrange self-pickup (no trucker) for an order"
+  },
   "deliveryScanQr": "Scan QR",
   "@deliveryScanQr": {
     "description": "Button to scan QR code"
@@ -3071,5 +3079,53 @@
   "placeResultsLabel": "Place results",
   "@placeResultsLabel": {
     "description": "Accessibility label for the place selector results list"
+  },
+  "messages": "Messages",
+  "@messages": {
+    "description": "Title of the messages inbox / conversations list"
+  },
+  "noConversationsYet": "No messages yet",
+  "@noConversationsYet": {
+    "description": "Empty state title on the messages inbox"
+  },
+  "noConversationsHint": "Your conversations with farmers, truckers and buyers will appear here.",
+  "@noConversationsHint": {
+    "description": "Empty state hint on the messages inbox"
+  },
+  "noMessagesInThread": "No messages yet. Start the conversation below.",
+  "@noMessagesInThread": {
+    "description": "Empty state inside a conversation thread"
+  },
+  "typeAMessage": "Type a message…",
+  "@typeAMessage": {
+    "description": "Placeholder for the chat message input field"
+  },
+  "send": "Send",
+  "@send": {
+    "description": "Send button label for the chat composer"
+  },
+  "sendMessage": "Send a message",
+  "@sendMessage": {
+    "description": "Action that opens an in-app chat with a counterparty"
+  },
+  "messageContact": "Message",
+  "@messageContact": {
+    "description": "Short button label to open a chat"
+  },
+  "messageFarmer": "Message Farmer",
+  "@messageFarmer": {
+    "description": "Action to chat with the farmer"
+  },
+  "messageTrucker": "Message Trucker",
+  "@messageTrucker": {
+    "description": "Action to chat with the trucker"
+  },
+  "messageBuyer": "Message Buyer",
+  "@messageBuyer": {
+    "description": "Action to chat with the buyer"
+  },
+  "contact": "Contact",
+  "@contact": {
+    "description": "Generic contact button / sheet title"
   }
 }

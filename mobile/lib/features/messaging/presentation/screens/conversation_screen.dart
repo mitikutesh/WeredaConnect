@@ -1,0 +1,338 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/domain/repositories/base_message_repository.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_event.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_state.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+
+/// A single conversation thread, scoped to a marketplace context
+/// (crop / order / trip / delivery). Creates its own [ConversationBloc] from the
+/// shared repository so its state never leaks into sibling screens.
+class ConversationScreen extends StatelessWidget {
+  final String contextType;
+  final String contextId;
+  final String counterpartId;
+  final String? counterpartName;
+  final String? counterpartPhone;
+
+  const ConversationScreen({
+    required this.contextType,
+    required this.contextId,
+    required this.counterpartId,
+    this.counterpartName,
+    this.counterpartPhone,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final authState = context.read<AuthBloc>().state;
+    final me = authState is AuthAuthenticated ? authState.userId : '';
+    final myName = authState is AuthAuthenticated ? authState.userName : '';
+    final myPhone =
+        authState is AuthAuthenticated ? (authState.phoneNumber ?? '') : '';
+
+    final conversationId = BaseMessageRepository.conversationIdFor(
+      contextType: contextType,
+      contextId: contextId,
+      userA: me,
+      userB: counterpartId,
+    );
+
+    return BlocProvider<ConversationBloc>(
+      create: (ctx) => ConversationBloc(
+        repository: ctx.read<InboxBloc>().repository,
+      )..add(LoadThread(conversationId)),
+      child: _ConversationView(
+        contextType: contextType,
+        contextId: contextId,
+        me: me,
+        myName: myName,
+        myPhone: myPhone,
+        counterpartId: counterpartId,
+        counterpartName: counterpartName,
+        counterpartPhone: counterpartPhone,
+      ),
+    );
+  }
+}
+
+class _ConversationView extends StatefulWidget {
+  final String contextType;
+  final String contextId;
+  final String me;
+  final String myName;
+  final String myPhone;
+  final String counterpartId;
+  final String? counterpartName;
+  final String? counterpartPhone;
+
+  const _ConversationView({
+    required this.contextType,
+    required this.contextId,
+    required this.me,
+    required this.myName,
+    required this.myPhone,
+    required this.counterpartId,
+    required this.counterpartName,
+    required this.counterpartPhone,
+  });
+
+  @override
+  State<_ConversationView> createState() => _ConversationViewState();
+}
+
+class _ConversationViewState extends State<_ConversationView> {
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    context.read<ConversationBloc>().add(
+          SendMessageRequested(
+            contextType: widget.contextType,
+            contextId: widget.contextId,
+            senderId: widget.me,
+            senderName: widget.myName,
+            senderPhone: widget.myPhone,
+            recipientId: widget.counterpartId,
+            recipientName: widget.counterpartName,
+            recipientPhone: widget.counterpartPhone,
+            body: text,
+          ),
+        );
+    _controller.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final title = (widget.counterpartName?.trim().isNotEmpty ?? false)
+        ? widget.counterpartName!.trim()
+        : widget.counterpartId;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_outlined),
+            tooltip: l10n.contact,
+            onPressed: () => showContactActionsSheet(
+              context,
+              name: title,
+              roleLabel: l10n.contact,
+              phone: widget.counterpartPhone,
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: BlocConsumer<ConversationBloc, ConversationState>(
+              listener: (context, state) {
+                if (state is ConversationLoaded) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (_scrollController.hasClients) {
+                      _scrollController.jumpTo(
+                        _scrollController.position.maxScrollExtent,
+                      );
+                    }
+                  });
+                }
+              },
+              builder: (context, state) {
+                if (state is ConversationLoaded) {
+                  if (state.messages.isEmpty) {
+                    return _EmptyThread(text: l10n.noMessagesInThread);
+                  }
+                  return ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(12),
+                    itemCount: state.messages.length,
+                    itemBuilder: (context, i) {
+                      final m = state.messages[i];
+                      return _MessageBubble(
+                        body: m.body,
+                        time: m.createdAt.toLocal(),
+                        isMine: m.senderId == widget.me,
+                      );
+                    },
+                  );
+                }
+                if (state is ConversationError) {
+                  return _EmptyThread(text: state.message);
+                }
+                return const Center(child: CircularProgressIndicator());
+              },
+            ),
+          ),
+          _Composer(
+            controller: _controller,
+            hintText: l10n.typeAMessage,
+            sendLabel: l10n.send,
+            onSend: _send,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  final String body;
+  final DateTime time;
+  final bool isMine;
+
+  const _MessageBubble({
+    required this.body,
+    required this.time,
+    required this.isMine,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hh = time.hour.toString().padLeft(2, '0');
+    final mm = time.minute.toString().padLeft(2, '0');
+
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.78,
+        ),
+        decoration: BoxDecoration(
+          color: isMine
+              ? AppTheme.primary
+              : theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(14),
+            topRight: const Radius.circular(14),
+            bottomLeft: Radius.circular(isMine ? 14 : 4),
+            bottomRight: Radius.circular(isMine ? 4 : 14),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              body,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isMine ? Colors.white : theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '$hh:$mm',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: (isMine ? Colors.white : theme.colorScheme.onSurface)
+                    .withValues(alpha: 0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Composer extends StatelessWidget {
+  final TextEditingController controller;
+  final String hintText;
+  final String sendLabel;
+  final VoidCallback onSend;
+
+  const _Composer({
+    required this.controller,
+    required this.hintText,
+    required this.sendLabel,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              icon: const Icon(Icons.send),
+              tooltip: sendLabel,
+              onPressed: onSend,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyThread extends StatelessWidget {
+  final String text;
+
+  const _EmptyThread({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.forum_outlined,
+              size: 64,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

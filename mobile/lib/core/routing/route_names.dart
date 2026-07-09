@@ -6,6 +6,7 @@ abstract class RouteNames {
   static const String orders = 'orders';
   static const String deliveries = 'deliveries';
   static const String payments = 'payments';
+  static const String messages = 'messages';
   static const String login = 'login';
   static const String register = 'register';
   static const String profile = 'profile';

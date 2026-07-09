@@ -459,7 +459,9 @@ class SyncExecutor {
         );
       }
 
-      debugPrint('[SYNC] server response: ${response.data}');
+      // NB: do NOT log the raw response — it can contain sensitive fields
+      // (e.g. delivery QR nonce). Per-operation outcomes are logged (redacted)
+      // by the caller from the SyncBatchResult instead.
       return await _processResponse(pending, response.data!);
     } on DioException catch (e) {
       return await _handleDioError(e, pending);
@@ -577,6 +579,14 @@ class SyncExecutor {
           // Already processed by server — safe to remove from queue
           await _syncQueue.markAsSynced(operationId);
           succeeded++;
+
+        case 'deferred':
+          // Server can't verify this op YET (e.g. a delivery pickup/confirm whose
+          // QR secret hasn't synced up from the farmer). Re-queue WITHOUT burning a
+          // retry so it is retried later; the server hard-fails it if it stays
+          // unverifiable past its window. Offline-first: the op is never lost.
+          await _syncQueue.revertToPending(operationId);
+          failed++;
 
         default:
           // 'error' or unknown status — capture per-operation error message

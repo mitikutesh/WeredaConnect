@@ -686,6 +686,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryConfirmDelivery => 'Geejjiba Mirkaneessi';
 
   @override
+  String get deliverySelfPickupConfirm =>
+      'Fudhachuuf QR qonnaan bulaa iskaanii godhi';
+
+  @override
+  String get orderCollectMyself => 'Ani ofiin nan fudhadha';
+
+  @override
   String get deliveryScanQr => 'QR Iskaan';
 
   @override
@@ -2430,4 +2437,42 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get placeResultsLabel => 'Bu\'aawwan iddoo';
+
+  @override
+  String get messages => 'Ergaawwan';
+
+  @override
+  String get noConversationsYet => 'Hanga ammaatti ergaan hin jiru';
+
+  @override
+  String get noConversationsHint =>
+      'Marii qonnaan bultoota, konkolaachiftootaa fi bittootaa wajjin gootan asitti mul\'ata.';
+
+  @override
+  String get noMessagesInThread =>
+      'Hanga ammaatti ergaan hin jiru. Gaditti marii jalqabi.';
+
+  @override
+  String get typeAMessage => 'Ergaa barreessi…';
+
+  @override
+  String get send => 'Ergi';
+
+  @override
+  String get sendMessage => 'Ergaa ergi';
+
+  @override
+  String get messageContact => 'Ergaa';
+
+  @override
+  String get messageFarmer => 'Qonnaan bulaaf ergaa ergi';
+
+  @override
+  String get messageTrucker => 'Konkolaachisaaf ergaa ergi';
+
+  @override
+  String get messageBuyer => 'Bittaaf ergaa ergi';
+
+  @override
+  String get contact => 'Quunnamtii';
 }

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
@@ -51,9 +53,17 @@ public partial class SyncFunction
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
     private readonly IRatingRepository? _ratingRepo;
+    // Optional: when the messages table is provisioned, participants of a
+    // marketplace context (crop/order/trip/delivery) can chat. Absent env → null
+    // (message sync simply returns MESSAGE_UNAVAILABLE).
+    private readonly IMessageRepository? _messageRepo;
     // Optional: unified transaction-audit trail for order/delivery lifecycle
     // transitions. Absent env → null (transitions still process; simply unlogged).
     private readonly ITransactionAuditRepository? _transactionAuditRepo;
+    // Optional: per-delivery QR handoff secret store, kept SEPARATE from the delivery
+    // record so the pickup nonce can never leak via any sync-down/GSI/DTO/conflict path.
+    // Absent env → null (falls back to the legacy on-record qrNonce for in-flight deliveries).
+    private readonly IDeliveryQrSecretRepository? _qrSecretRepo;
 
     // Who/where for the current sync batch (same user/IP/correlation across all
     // operations in one request). Set at the top of FunctionHandler. Lambda runs
@@ -91,6 +101,21 @@ public partial class SyncFunction
         "farmer", "trucker"
     };
 
+    // Client-supplied message fields. Sender/recipient name+phone are NOT here:
+    // the server denormalizes them authoritatively from the users table, so a
+    // client cannot spoof the counterpart's identity or phone number.
+    private static readonly HashSet<string> AllowedMessageFields = new()
+    {
+        "messageId", "conversationId", "contextType", "contextId",
+        "senderId", "recipientId", "body", "createdAt"
+    };
+
+    // The four context kinds a conversation may be scoped to.
+    private static readonly HashSet<string> AllowedMessageContextTypes = new(StringComparer.Ordinal)
+    {
+        "crop", "order", "trip", "delivery"
+    };
+
     private static readonly HashSet<string> AllowedIntentStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         "active", "fulfilled", "expired"
@@ -123,7 +148,7 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone", "buyerId", "buyerName", "buyerPhone",
         "status", "gpsPickup", "gpsDropoff",
         "pickupPhotoRef", "dropoffPhotoRef", "disputeReason",
-        "qrToken", "gpsAnomalyFlag", "qrNonce"
+        "qrToken", "gpsAnomalyFlag", "qrNonce", "deliveryType"
     };
 
     private static readonly HashSet<string> AllowedOrderFields = new()
@@ -172,7 +197,7 @@ public partial class SyncFunction
         "farmerId", "farmerName", "farmerPhone",
         "buyerId", "buyerName", "buyerPhone",
         "truckerId", "truckerName", "truckerPhone",
-        "tripId", "listingId"
+        "tripId", "listingId", "deliveryType"
     };
 
     private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
@@ -191,6 +216,43 @@ public partial class SyncFunction
         { "inTransit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disputed" } },
     };
+
+    // Self-pickup deliveries have no trucker/transit leg: the buyer collects at the farm,
+    // so a single scan of the farmer's QR takes pending → delivered in one hop. This
+    // transition is permitted ONLY for deliveryType == self_pickup (see the transition
+    // authorization below), never for a normal trucker delivery.
+    private const string SelfPickupDeliveryType = "self_pickup";
+
+    // QR handoff freshness / offline-defer windows (days). Generous, because rural
+    // handoffs sync late; the point is to stop indefinitely-stale codes and to give up
+    // deferring a money-bearing transition whose nonce is clearly never going to arrive.
+    private const int QrNonceFreshnessDays = 14;
+    private const int QrNonceMaxDeferDays = 14;
+
+    /// <summary>
+    /// Scrub secret fields from ANY entity item before it is echoed to a client as sync
+    /// <c>ServerData</c> (conflict/success). Currently the only such field is the delivery
+    /// QR handoff nonce: new deliveries never store it on the record (it lives in the separate
+    /// secret store), but this also cleans legacy in-flight items so the pickup nonce can never
+    /// ride back down to a scanner. A no-op for entities that have no secret field.
+    /// </summary>
+    private static Dictionary<string, object> ScrubSyncSecrets(Dictionary<string, object> item)
+    {
+        item.Remove("qrNonce");
+        return item;
+    }
+
+    /// <summary>
+    /// Constant-time comparison of a scanned QR nonce against the stored one. The nonce is a
+    /// high-entropy bearer secret, so compare in fixed time to avoid leaking a match prefix
+    /// via timing. Differing lengths short-circuit to false (length is not sensitive here).
+    /// </summary>
+    private static bool NonceEquals(string scanned, string expected)
+    {
+        var a = Encoding.UTF8.GetBytes(scanned);
+        var b = Encoding.UTF8.GetBytes(expected);
+        return CryptographicOperations.FixedTimeEquals(a, b);
+    }
 
     private static readonly HashSet<string> AllowedCropTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -284,10 +346,24 @@ public partial class SyncFunction
             ? new RatingRepository(_dynamoDb, ratingsTable)
             : null;
 
+        // Messages are optional in the same way: the message sync handler is only
+        // reachable once the messages table is provisioned.
+        var messagesTable = Environment.GetEnvironmentVariable("MESSAGES_TABLE");
+        _messageRepo = messagesTable != null
+            ? new MessageRepository(_dynamoDb, messagesTable)
+            : null;
+
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
         _transactionAuditRepo = txAuditTable != null
             ? new TransactionAuditRepository(_dynamoDb, txAuditTable)
+            : null;
+
+        // Optional: per-delivery QR handoff secret store. Absent env → null (legacy
+        // on-record qrNonce fallback keeps in-flight deliveries verifiable).
+        var qrSecretsTable = Environment.GetEnvironmentVariable("DELIVERY_QR_SECRETS_TABLE");
+        _qrSecretRepo = qrSecretsTable != null
+            ? new DeliveryQrSecretRepository(_dynamoDb, qrSecretsTable)
             : null;
     }
 
@@ -304,7 +380,9 @@ public partial class SyncFunction
         IMatchEventRepository? matchEventRepo = null,
         IEscrowRepository? escrowRepo = null,
         IRatingRepository? ratingRepo = null,
-        ITransactionAuditRepository? transactionAuditRepo = null)
+        ITransactionAuditRepository? transactionAuditRepo = null,
+        IDeliveryQrSecretRepository? qrSecretRepo = null,
+        IMessageRepository? messageRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -320,6 +398,8 @@ public partial class SyncFunction
         _escrowRepo = escrowRepo;
         _ratingRepo = ratingRepo;
         _transactionAuditRepo = transactionAuditRepo;
+        _qrSecretRepo = qrSecretRepo;
+        _messageRepo = messageRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -484,6 +564,7 @@ public partial class SyncFunction
                 "delivery" => await ProcessDeliveryAsync(operation, authenticatedUserId, context),
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "rating" => await ProcessRatingAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "message" => await ProcessMessageAsync(operation, authenticatedUserId, authenticatedRole, context),
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
@@ -1009,6 +1090,319 @@ public partial class SyncFunction
             && commentObj.ToString()!.Length > 500)
         {
             errors.Add("comment must be 500 characters or fewer.");
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// Process a message sync operation (context-scoped in-app chat). Messages
+    /// are create-only and immutable. The CRITICAL role/visibility gate lives
+    /// here: the sender must be the authenticated user, and both the sender and
+    /// recipient must be legitimate participants of the referenced context
+    /// (crop/order/trip/delivery). Sender/recipient name+phone are denormalized
+    /// authoritatively from the users table so neither side can spoof them and
+    /// either party can Call/Copy the other's number.
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessMessageAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        string? authenticatedRole,
+        ILambdaContext context)
+    {
+        if (_messageRepo == null || _userRepo == null)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_UNAVAILABLE: Messaging is not enabled on this environment.");
+        }
+
+        // Messages are immutable: only `create` is supported.
+        if (!string.Equals(operation.Action, "create", StringComparison.OrdinalIgnoreCase))
+        {
+            return MessageError(operation, "error",
+                $"MESSAGE_VALIDATION: Unsupported action '{operation.Action}'. Messages are immutable.");
+        }
+
+        if (operation.Data == null || operation.Data.Count == 0)
+        {
+            return MessageError(operation, "error", "Operation requires data payload.");
+        }
+
+        // Strip server-denormalized identity fields so a client can neither spoof
+        // them nor be rejected for echoing them back on a resend.
+        operation.Data.Remove("senderName");
+        operation.Data.Remove("senderPhone");
+        operation.Data.Remove("recipientName");
+        operation.Data.Remove("recipientPhone");
+
+        var unknownFields = operation.Data.Keys
+            .Where(k => !AllowedMessageFields.Contains(k) && k != "version")
+            .ToList();
+        if (unknownFields.Count > 0)
+        {
+            return MessageError(operation, "error",
+                $"MESSAGE_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}");
+        }
+
+        var validationErrors = ValidateMessageFields(operation.Data);
+        if (validationErrors.Count > 0)
+        {
+            return MessageError(operation, "error",
+                $"MESSAGE_VALIDATION: {string.Join(" ", validationErrors)}");
+        }
+
+        var messageId = operation.Data["messageId"].ToString()!;
+        var conversationId = operation.Data["conversationId"].ToString()!;
+        var contextType = operation.Data["contextType"].ToString()!;
+        var contextId = operation.Data["contextId"].ToString()!;
+        var senderId = operation.Data["senderId"].ToString()!;
+        var recipientId = operation.Data["recipientId"].ToString()!;
+
+        // The message id (entityId) must equal the client-generated messageId.
+        if (operation.EntityId != messageId)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_VALIDATION: messageId must equal the operation entityId.");
+        }
+
+        // The sender must be the authenticated user (the hard rule).
+        if (senderId != authenticatedUserId)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_UNAUTHORIZED: senderId must match authenticated user.");
+        }
+
+        if (senderId == recipientId)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_VALIDATION: sender and recipient must differ.");
+        }
+
+        // conversationId must be the deterministic "{contextType}:{contextId}:{lo}:{hi}"
+        // over the sorted participant ids — ties the grouping key to this exact
+        // context + pair so a client cannot mis-group or hijack a thread.
+        var sortedIds = new[] { senderId, recipientId };
+        Array.Sort(sortedIds, StringComparer.Ordinal);
+        var expectedConversationId = $"{contextType}:{contextId}:{sortedIds[0]}:{sortedIds[1]}";
+        if (conversationId != expectedConversationId)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_VALIDATION: conversationId does not match the context and participants.");
+        }
+
+        // Verify BOTH parties are legitimate participants of the context. Never
+        // trust a client-supplied role — derive legitimacy from the record.
+        var contextError = await VerifyMessageContextAsync(
+            contextType, contextId, senderId, recipientId);
+        if (contextError != null)
+        {
+            return MessageError(operation, "error", contextError);
+        }
+
+        // Denormalize both parties' name + phone authoritatively from the users
+        // table (overwrites anything the client might have sent).
+        var sender = await _userRepo.GetUserByIdAsync(senderId);
+        var recipient = await _userRepo.GetUserByIdAsync(recipientId);
+        if (sender == null || recipient == null)
+        {
+            return MessageError(operation, "error",
+                "MESSAGE_VALIDATION: sender or recipient user not found.");
+        }
+
+        operation.Data["senderName"] = sender.DisplayName ?? sender.FullName ?? "";
+        operation.Data["senderPhone"] = sender.PhoneNumber;
+        operation.Data["recipientName"] = recipient.DisplayName ?? recipient.FullName ?? "";
+        operation.Data["recipientPhone"] = recipient.PhoneNumber;
+
+        var createResult = await _messageRepo.CreateAsync(operation.EntityId, operation.Data);
+        return createResult.IsSuccess
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = 1,
+                ServerData = createResult.Value
+            }
+            : new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "duplicate",
+                Message = createResult.Error?.Message ?? "Message already exists."
+            };
+    }
+
+    /// <summary>
+    /// Verify sender and recipient are the two legitimate parties for the
+    /// referenced context. Returns null when valid, or an error message string.
+    /// </summary>
+    private async Task<string?> VerifyMessageContextAsync(
+        string contextType, string contextId, string senderId, string recipientId)
+    {
+        switch (contextType)
+        {
+            case "crop":
+            {
+                var crop = await _cropRepo.GetByIdAsync(contextId);
+                if (crop == null)
+                {
+                    return "MESSAGE_VALIDATION: Crop not found.";
+                }
+
+                var farmerId = ItemString(crop, "farmerId");
+                // Exactly one party owns the crop (the farmer); the other must be
+                // a buyer (buyers may message about ANY crop).
+                return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
+            }
+
+            case "trip":
+            {
+                var trip = await GetTripItemAsync(contextId);
+                if (trip == null)
+                {
+                    return "MESSAGE_VALIDATION: Trip not found.";
+                }
+
+                var truckerId = AttrString(trip, "truckerId");
+                // Exactly one party owns the trip (the trucker); the other buyer.
+                return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
+            }
+
+            case "order":
+            {
+                var order = await _orderRepo.GetByIdAsync(contextId);
+                if (order == null)
+                {
+                    return "MESSAGE_VALIDATION: Order not found.";
+                }
+
+                var participants = new HashSet<string>(StringComparer.Ordinal);
+                AddIfPresent(participants, ItemString(order, "buyerId"));
+                AddIfPresent(participants, ItemString(order, "farmerId"));
+                AddIfPresent(participants, ItemString(order, "truckerId"));
+                return VerifyDistinctParticipants(participants, senderId, recipientId);
+            }
+
+            case "delivery":
+            {
+                var delivery = await GetDeliveryItemAsync(contextId);
+                if (delivery == null)
+                {
+                    return "MESSAGE_VALIDATION: Delivery not found.";
+                }
+
+                var participants = new HashSet<string>(StringComparer.Ordinal);
+                AddIfPresent(participants, AttrString(delivery, "buyerId"));
+                AddIfPresent(participants, AttrString(delivery, "farmerId"));
+                AddIfPresent(participants, AttrString(delivery, "truckerId"));
+                return VerifyDistinctParticipants(participants, senderId, recipientId);
+            }
+
+            default:
+                return "MESSAGE_VALIDATION: Unknown contextType.";
+        }
+    }
+
+    /// <summary>
+    /// For crop/trip: exactly one of the two parties must be the record owner,
+    /// and the other party must have <paramref name="otherRole"/> (buyer).
+    /// </summary>
+    private async Task<string?> VerifyOwnerBuyerPairAsync(
+        string ownerId, string otherRole, string senderId, string recipientId)
+    {
+        if (string.IsNullOrEmpty(ownerId))
+        {
+            return "MESSAGE_FORBIDDEN: Context has no owner to message.";
+        }
+
+        var senderIsOwner = senderId == ownerId;
+        var recipientIsOwner = recipientId == ownerId;
+        if (senderIsOwner == recipientIsOwner)
+        {
+            // Neither is the owner, or (impossible: both) — not a valid pair.
+            return "MESSAGE_FORBIDDEN: You are not a participant in this conversation.";
+        }
+
+        var otherPartyId = senderIsOwner ? recipientId : senderId;
+        var otherParty = await _userRepo!.GetUserByIdAsync(otherPartyId);
+        if (otherParty == null
+            || !string.Equals(otherParty.Role, otherRole, StringComparison.OrdinalIgnoreCase))
+        {
+            return "MESSAGE_FORBIDDEN: You are not a participant in this conversation.";
+        }
+
+        return null;
+    }
+
+    /// <summary>Both parties must be distinct members of the participant set.</summary>
+    private static string? VerifyDistinctParticipants(
+        HashSet<string> participants, string senderId, string recipientId)
+    {
+        if (!participants.Contains(senderId) || !participants.Contains(recipientId))
+        {
+            return "MESSAGE_FORBIDDEN: You are not a participant in this conversation.";
+        }
+
+        return null;
+    }
+
+    private static void AddIfPresent(HashSet<string> set, string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            set.Add(value);
+        }
+    }
+
+    private static string ItemString(Dictionary<string, object> item, string key)
+        => item.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
+
+    private static string AttrString(Dictionary<string, AttributeValue> item, string key)
+        => item.TryGetValue(key, out var v) ? v.S ?? "" : "";
+
+    private static SyncOperationResult MessageError(
+        SyncOperationRequest operation, string status, string message)
+        => new()
+        {
+            OperationId = operation.OperationId,
+            Status = status,
+            Message = message
+        };
+
+    /// <summary>
+    /// Validate message fields: ids required, contextType in the allowed set,
+    /// body non-empty and ≤ 1000 chars, createdAt (if present) a valid timestamp.
+    /// </summary>
+    private static List<string> ValidateMessageFields(Dictionary<string, object> data)
+    {
+        var errors = new List<string>();
+
+        foreach (var required in new[] { "messageId", "conversationId", "contextId", "senderId", "recipientId" })
+        {
+            if (!data.TryGetValue(required, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
+            {
+                errors.Add($"{required} is required.");
+            }
+        }
+
+        if (!data.TryGetValue("contextType", out var ctObj)
+            || !AllowedMessageContextTypes.Contains(ctObj?.ToString() ?? ""))
+        {
+            errors.Add("contextType must be one of crop, order, trip, delivery.");
+        }
+
+        if (!data.TryGetValue("body", out var bodyObj) || string.IsNullOrWhiteSpace(bodyObj?.ToString()))
+        {
+            errors.Add("body is required.");
+        }
+        else if (bodyObj!.ToString()!.Length > 1000)
+        {
+            errors.Add("body must be 1000 characters or fewer.");
+        }
+
+        if (data.TryGetValue("createdAt", out var caObj) && caObj != null
+            && !DateTime.TryParse(caObj.ToString(), out _))
+        {
+            errors.Add("createdAt must be a valid ISO-8601 timestamp.");
         }
 
         return errors;
@@ -1956,7 +2350,7 @@ public partial class SyncFunction
                     try
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
-                        var result = CropRepository.FromItem(response.Attributes);
+                        var result = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes));
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -1967,7 +2361,7 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        var serverData = CropRepository.FromItem(existing);
+                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(existing));
                         var serverVer = existing.TryGetValue("version", out var sv)
                             ? int.TryParse(sv.N, out var svn) ? svn : 0
                             : 0;
@@ -2082,7 +2476,7 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        var serverData = CropRepository.FromItem(existing);
+                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(existing));
                         var serverVer = existing.TryGetValue("version", out var sv)
                             ? int.TryParse(sv.N, out var svn) ? svn : 0
                             : 0;
@@ -2284,9 +2678,14 @@ public partial class SyncFunction
     /// Validate delivery fields for create/update operations.
     /// Follows the same pattern as ValidateTripFields.
     /// </summary>
-    private static List<string> ValidateDeliveryFields(Dictionary<string, object> data, bool isCreate)
+    private static List<string> ValidateDeliveryFields(
+        Dictionary<string, object> data, bool isCreate, bool isSelfPickup = false)
     {
         var errors = new List<string>();
+
+        // Self-pickup deliveries have no trucker and the farmer's QR is generated later,
+        // so truckerId/truckerName/qrToken are NOT required at create for them.
+        var requireTruckerAndQr = isCreate && !isSelfPickup;
 
         // tripId: required on create, must be valid UUID format
         if (isCreate || data.ContainsKey("tripId"))
@@ -2362,7 +2761,7 @@ public partial class SyncFunction
             if (!data.TryGetValue("qrToken", out var qrTokenObj)
                 || string.IsNullOrWhiteSpace(qrTokenObj?.ToString()))
             {
-                if (isCreate)
+                if (requireTruckerAndQr)
                 {
                     errors.Add("qrToken is required.");
                 }
@@ -2396,7 +2795,7 @@ public partial class SyncFunction
             if (!data.TryGetValue("truckerName", out var truckerNameObj)
                 || string.IsNullOrWhiteSpace(truckerNameObj?.ToString()))
             {
-                if (isCreate)
+                if (requireTruckerAndQr)
                 {
                     errors.Add("truckerName is required.");
                 }
@@ -2452,8 +2851,9 @@ public partial class SyncFunction
             }
         }
 
-        // truckerId: required on create (auth check done separately)
-        if (isCreate && !data.ContainsKey("truckerId"))
+        // truckerId: required on create for trucker deliveries only (auth check done
+        // separately). Self-pickup deliveries legitimately have no trucker.
+        if (requireTruckerAndQr && !data.ContainsKey("truckerId"))
         {
             errors.Add("truckerId is required.");
         }
@@ -2485,8 +2885,46 @@ public partial class SyncFunction
                         };
                     }
 
-                    // Validate truckerId matches authenticated user
-                    if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
+                    // Self-pickup deliveries are created by the BUYER (there is no trucker);
+                    // normal deliveries are created by the trucker. Gate authorization on the
+                    // party that owns each kind.
+                    var createDeliveryType = operation.Data.TryGetValue("deliveryType", out var cdtObj)
+                        ? cdtObj?.ToString() : null;
+                    var isSelfPickupCreate = string.Equals(
+                        createDeliveryType, SelfPickupDeliveryType, StringComparison.Ordinal);
+
+                    if (isSelfPickupCreate)
+                    {
+                        var spBuyerId = operation.Data.TryGetValue("buyerId", out var spB)
+                            ? spB?.ToString() : null;
+                        if (spBuyerId != authenticatedUserId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_UNAUTHORIZED: buyerId must match authenticated user for self-pickup."
+                            };
+                        }
+
+                        var spTruckerId = operation.Data.TryGetValue("truckerId", out var spT)
+                            ? spT?.ToString() : null;
+                        if (!string.IsNullOrWhiteSpace(spTruckerId))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: A self-pickup delivery must not have a trucker."
+                            };
+                        }
+
+                        // Synthesize the required non-empty tripId sort key from the deliveryId
+                        // (self-pickup has no trip). GetByIdAsync queries the PK only, so this
+                        // synthetic value is inert for retrieval and the TripIdIndex.
+                        operation.Data["tripId"] = operation.EntityId;
+                    }
+                    else if (!operation.Data.TryGetValue("truckerId", out var truckerIdObj)
                         || truckerIdObj?.ToString() != authenticatedUserId)
                     {
                         return new SyncOperationResult
@@ -2573,6 +3011,76 @@ public partial class SyncFunction
                         }
                     }
 
+                    // Self-pickup integrity: no self-trade, and the linked order must carry no
+                    // transport cost / trucker — otherwise escrow would try to settle a trucker
+                    // leg with no trucker, or block on a split that can't reconcile 2-way.
+                    if (isSelfPickupCreate)
+                    {
+                        var spFarmerId = operation.Data.TryGetValue("farmerId", out var spF)
+                            ? spF?.ToString() : null;
+                        var spBuyerId2 = operation.Data.TryGetValue("buyerId", out var spB2)
+                            ? spB2?.ToString() : null;
+                        if (!string.IsNullOrEmpty(spFarmerId) && spFarmerId == spBuyerId2)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: Buyer and farmer must be different users."
+                            };
+                        }
+
+                        var spOrderId = operation.Data.TryGetValue("orderId", out var spO)
+                            ? spO?.ToString() : null;
+                        if (string.IsNullOrWhiteSpace(spOrderId))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: A self-pickup delivery requires an orderId."
+                            };
+                        }
+
+                        var spOrder = await _orderRepo.GetByIdAsync(spOrderId);
+                        if (spOrder == null)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: Referenced order not found."
+                            };
+                        }
+
+                        if (spOrder.TryGetValue("buyerId", out var soB)
+                            && soB?.ToString() != spBuyerId2)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: The order does not belong to this buyer."
+                            };
+                        }
+
+                        var soTransport = spOrder.TryGetValue("transportCost", out var soT)
+                            && decimal.TryParse(soT?.ToString(), NumberStyles.Any,
+                                CultureInfo.InvariantCulture, out var soTv)
+                            ? soTv : 0m;
+                        var soTrucker = spOrder.TryGetValue("truckerId", out var soTr)
+                            ? soTr?.ToString() : null;
+                        if (soTransport > 0m || !string.IsNullOrWhiteSpace(soTrucker))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_VALIDATION: Self-pickup is not allowed for an order that already has transport or a trucker."
+                            };
+                        }
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownFields = operation.Data.Keys
                         .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version")
@@ -2588,7 +3096,8 @@ public partial class SyncFunction
                     }
 
                     // Validate required fields
-                    var validationErrors = ValidateDeliveryFields(operation.Data, isCreate: true);
+                    var validationErrors = ValidateDeliveryFields(
+                        operation.Data, isCreate: true, isSelfPickup: isSelfPickupCreate);
                     if (validationErrors.Count > 0)
                     {
                         return new SyncOperationResult
@@ -2722,7 +3231,7 @@ public partial class SyncFunction
                         await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
                             "delivery_created", null, "pending");
 
-                        var result = CropRepository.FromItem(item);
+                        var result = ScrubSyncSecrets(CropRepository.FromItem(item));
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -2745,7 +3254,7 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "conflict",
                             ServerVersion = serverVersion,
-                            ServerData = existing != null ? CropRepository.FromItem(existing) : null,
+                            ServerData = existing != null ? ScrubSyncSecrets(CropRepository.FromItem(existing)) : null,
                             Message = "Delivery already exists on server."
                         };
                     }
@@ -2803,9 +3312,22 @@ public partial class SyncFunction
                     {
                         var newStatus = newStatusObj?.ToString();
 
+                        var existingDeliveryType = existing.TryGetValue("deliveryType", out var edt)
+                            ? edt.S : null;
+                        var isSelfPickupDelivery = string.Equals(
+                            existingDeliveryType, SelfPickupDeliveryType, StringComparison.Ordinal);
+
+                        // Self-pickup: the buyer collects at the farm, so a single scan takes
+                        // pending → delivered directly (there is no trucker pickup/transit leg).
+                        // Permitted ONLY for self-pickup; a normal delivery must still go through
+                        // the trucker's pickedUp step. The "delivered" auth below keeps it buyer-only.
+                        var selfPickupDirectDeliver = isSelfPickupDelivery
+                            && currentStatus == "pending" && newStatus == "delivered";
+
                         // Validate status transition
-                        if (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
-                            || newStatus == null || !allowed.Contains(newStatus))
+                        if (!selfPickupDirectDeliver
+                            && (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
+                                || newStatus == null || !allowed.Contains(newStatus)))
                         {
                             return new SyncOperationResult
                             {
@@ -2926,21 +3448,45 @@ public partial class SyncFunction
                                 Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
                             };
                         }
+
+                        // Route the farmer-authored pickup nonce to the SEPARATE secret
+                        // store (never onto the delivery item, so it can't leak via any
+                        // sync-down/GSI/conflict-echo path). When no table is provisioned
+                        // (_qrSecretRepo == null) we leave the legacy on-record qrNonce so
+                        // in-flight deliveries stay verifiable.
+                        if (isFarmerNoncePersist && _qrSecretRepo != null)
+                        {
+                            var nonceValue = operation.Data.TryGetValue("qrNonce", out var qnPersist)
+                                ? qnPersist?.ToString()
+                                : null;
+                            if (!string.IsNullOrEmpty(nonceValue))
+                            {
+                                await _qrSecretRepo.PutNonceAsync(operation.EntityId, nonceValue);
+                            }
+
+                            operation.Data.Remove("qrNonce");
+                        }
                     }
 
                     // QR nonce cross-validation for pickedUp/delivered transitions.
-                    // If the generator has synced a qrNonce, the scanner must provide
-                    // a matching scannedQrNonce. If qrNonce is null (generator hasn't
-                    // synced yet), allow the transition (offline-first backward compat).
+                    // The nonce lives in a SEPARATE secret store (never on the delivery item);
+                    // in-flight deliveries created before that store fall back to the legacy
+                    // on-record qrNonce. When set after a successful CAS, this holds the status
+                    // whose single-use marker should be recorded (consume-after-commit).
+                    string? nonceToConsumeStatus = null;
                     if (operation.Data.TryGetValue("status", out var statusForNonce))
                     {
                         var nStatus = statusForNonce?.ToString();
                         if (nStatus is "pickedUp" or "delivered")
                         {
-                            var existingQrNonce = existing.TryGetValue("qrNonce", out var qnAttr)
+                            var secret = _qrSecretRepo != null
+                                ? await _qrSecretRepo.GetAsync(operation.EntityId)
+                                : null;
+                            var legacyNonce = existing.TryGetValue("qrNonce", out var qnAttr)
                                 ? qnAttr.S : null;
+                            var effectiveNonce = secret?.Nonce ?? legacyNonce;
 
-                            if (!string.IsNullOrEmpty(existingQrNonce))
+                            if (!string.IsNullOrEmpty(effectiveNonce))
                             {
                                 var scannedNonce = operation.Data.TryGetValue("scannedQrNonce", out var snObj)
                                     ? snObj?.ToString() : null;
@@ -2955,13 +3501,87 @@ public partial class SyncFunction
                                     };
                                 }
 
-                                if (scannedNonce != existingQrNonce)
+                                if (!NonceEquals(scannedNonce, effectiveNonce))
                                 {
                                     return new SyncOperationResult
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match generator's nonce."
+                                    };
+                                }
+
+                                // Secret-store path adds freshness + single-use replay protection
+                                // (legacy on-record nonces lack issuance/consumption metadata).
+                                if (secret != null)
+                                {
+                                    if (!string.IsNullOrEmpty(secret.IssuedAt)
+                                        && DateTime.TryParse(secret.IssuedAt, CultureInfo.InvariantCulture,
+                                            DateTimeStyles.RoundtripKind, out var issuedAt)
+                                        && DateTime.UtcNow - issuedAt.ToUniversalTime()
+                                            > TimeSpan.FromDays(QrNonceFreshnessDays))
+                                    {
+                                        return new SyncOperationResult
+                                        {
+                                            OperationId = operation.OperationId,
+                                            Status = "error",
+                                            Message = "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the farmer to show a fresh code."
+                                        };
+                                    }
+
+                                    var consumedOp = secret.ConsumedOpFor(nStatus);
+                                    if (consumedOp != null && consumedOp != operation.OperationId)
+                                    {
+                                        return new SyncOperationResult
+                                        {
+                                            OperationId = operation.OperationId,
+                                            Status = "error",
+                                            Message = "DELIVERY_NONCE_REPLAY: This QR code was already used for this step."
+                                        };
+                                    }
+
+                                    // Consume only AFTER the version CAS succeeds (below), so a
+                                    // rejected transition never burns the nonce. A same-op retry
+                                    // (consumedOp == this op) is idempotent — do not re-consume.
+                                    if (consumedOp == null)
+                                    {
+                                        nonceToConsumeStatus = nStatus;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // No nonce on either source. Money-bearing deliveries must NOT
+                                // fail open: DEFER (offline-first — the op stays queued and retries)
+                                // until the farmer's nonce syncs, then hard-fail once it's clearly
+                                // never coming. Cash (no-escrow) deliveries keep the legacy
+                                // allow-through so a missing QR doesn't block them.
+                                var hasEscrow = _escrowRepo != null
+                                    && await _escrowRepo.GetByDeliveryIdAsync(operation.EntityId) != null;
+                                if (hasEscrow)
+                                {
+                                    var createdAtStr = existing.TryGetValue("createdAt", out var caAttr)
+                                        ? caAttr.S : null;
+                                    var tooOld = createdAtStr != null
+                                        && DateTime.TryParse(createdAtStr, CultureInfo.InvariantCulture,
+                                            DateTimeStyles.RoundtripKind, out var deliveryCreatedAt)
+                                        && DateTime.UtcNow - deliveryCreatedAt.ToUniversalTime()
+                                            > TimeSpan.FromDays(QrNonceMaxDeferDays);
+                                    if (tooOld)
+                                    {
+                                        return new SyncOperationResult
+                                        {
+                                            OperationId = operation.OperationId,
+                                            Status = "error",
+                                            Message = "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support."
+                                        };
+                                    }
+
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "deferred",
+                                        Message = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically."
                                     };
                                 }
                             }
@@ -3065,6 +3685,25 @@ public partial class SyncFunction
                         }
                     }
 
+                    // Self-pickup confirmation releases money, so GPS at the farm is MANDATORY
+                    // (a normal trucker delivery's GPS is best-effort). Require gpsDropoff up front
+                    // for self-pickup so the check below cannot be skipped by simply omitting it.
+                    if (resolvedNewStatus == "delivered"
+                        && string.Equals(
+                            existing.TryGetValue("deliveryType", out var spDt) ? spDt.S : null,
+                            SelfPickupDeliveryType, StringComparison.Ordinal)
+                        && !(operation.Data.TryGetValue("gpsDropoff", out var spGpsObj)
+                            && spGpsObj is System.Text.Json.JsonElement spGpsJe
+                            && spGpsJe.ValueKind == System.Text.Json.JsonValueKind.Object))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_GPS_PROXIMITY: Location is required to confirm self-pickup at the farm."
+                        };
+                    }
+
                     if (resolvedNewStatus == "delivered"
                         && operation.Data.TryGetValue("gpsDropoff", out var gpsDropoffObj)
                         && gpsDropoffObj is System.Text.Json.JsonElement dropoffJe
@@ -3085,27 +3724,68 @@ public partial class SyncFunction
                         var dropoffLat = dropoffLatEl.GetDouble();
                         var dropoffLng = dropoffLngEl.GetDouble();
 
-                        var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
-                        if (tripId != null)
+                        var deliveredDeliveryType = existing.TryGetValue("deliveryType", out var ddt)
+                            ? ddt.S : null;
+                        if (string.Equals(deliveredDeliveryType, SelfPickupDeliveryType, StringComparison.Ordinal))
                         {
-                            var trip = await GetTripItemAsync(tripId);
-                            if (trip != null
-                                && trip.TryGetValue("destinationLatitude", out var destLatAttr)
-                                && trip.TryGetValue("destinationLongitude", out var destLonAttr))
+                            // Self-pickup: the handoff happens AT THE FARM, so validate the buyer's
+                            // GPS against the LISTING location (there is no trip destination). Listing
+                            // GPS is MANDATORY — otherwise this money-releasing confirmation could be
+                            // made from anywhere.
+                            var listingId = existing.TryGetValue("listingId", out var lidD) ? lidD.S : null;
+                            var listing = listingId != null ? await _cropRepo.GetByIdAsync(listingId) : null;
+                            if (listing == null
+                                || !listing.TryGetValue("latitude", out var slLatObj)
+                                || !listing.TryGetValue("longitude", out var slLonObj)
+                                || !double.TryParse(slLatObj?.ToString(), NumberStyles.Any,
+                                    CultureInfo.InvariantCulture, out var listingLat)
+                                || !double.TryParse(slLonObj?.ToString(), NumberStyles.Any,
+                                    CultureInfo.InvariantCulture, out var listingLon))
                             {
-                                if (double.TryParse(destLatAttr.N, out var destLat)
-                                    && double.TryParse(destLonAttr.N, out var destLon))
+                                return new SyncOperationResult
                                 {
-                                    var distance = GpsValidator.HaversineDistance(
-                                        dropoffLat, dropoffLng, destLat, destLon);
-                                    if (distance > 5.0)
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = "DELIVERY_GPS_PROXIMITY: This listing has no registered location, so self-pickup cannot be verified."
+                                };
+                            }
+
+                            var spDistance = GpsValidator.HaversineDistance(
+                                dropoffLat, dropoffLng, listingLat, listingLon);
+                            if (spDistance > 5.0)
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = $"DELIVERY_GPS_PROXIMITY: You are {spDistance:F1}km from the farm location (max 5km)."
+                                };
+                            }
+                        }
+                        else
+                        {
+                            var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
+                            if (tripId != null)
+                            {
+                                var trip = await GetTripItemAsync(tripId);
+                                if (trip != null
+                                    && trip.TryGetValue("destinationLatitude", out var destLatAttr)
+                                    && trip.TryGetValue("destinationLongitude", out var destLonAttr))
+                                {
+                                    if (double.TryParse(destLatAttr.N, out var destLat)
+                                        && double.TryParse(destLonAttr.N, out var destLon))
                                     {
-                                        return new SyncOperationResult
+                                        var distance = GpsValidator.HaversineDistance(
+                                            dropoffLat, dropoffLng, destLat, destLon);
+                                        if (distance > 5.0)
                                         {
-                                            OperationId = operation.OperationId,
-                                            Status = "error",
-                                            Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance:F1}km from trip destination (max 5km)."
-                                        };
+                                            return new SyncOperationResult
+                                            {
+                                                OperationId = operation.OperationId,
+                                                Status = "error",
+                                                Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance:F1}km from trip destination (max 5km)."
+                                            };
+                                        }
                                     }
                                 }
                             }
@@ -3316,7 +3996,7 @@ public partial class SyncFunction
                     try
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
-                        var result = CropRepository.FromItem(response.Attributes);
+                        var result = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes));
 
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
@@ -3340,6 +4020,14 @@ public partial class SyncFunction
                         // was never paid out and the buyer was refunded after 7 days.
                         // Non-fatal: a confirmed delivery must still succeed even if the
                         // escrow can't be stamped here (reconciliation cron is the backstop).
+                        // Single-use: burn the nonce for this transition now that the CAS
+                        // committed. Ordered after the write so a failed CAS never consumes it.
+                        if (nonceToConsumeStatus != null && _qrSecretRepo != null)
+                        {
+                            await _qrSecretRepo.MarkConsumedAsync(
+                                operation.EntityId, nonceToConsumeStatus, operation.OperationId);
+                        }
+
                         if (_escrowRepo != null
                             && operation.Data != null
                             && operation.Data.TryGetValue("status", out var confirmedStatusObj)
@@ -3358,7 +4046,7 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        var serverData = CropRepository.FromItem(existing);
+                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(existing));
                         var serverVer = existing.TryGetValue("version", out var sv)
                             ? int.TryParse(sv.N, out var svn) ? svn : 0
                             : 0;
@@ -3475,7 +4163,7 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        var serverData = CropRepository.FromItem(existing);
+                        var serverData = ScrubSyncSecrets(CropRepository.FromItem(existing));
                         var serverVer = existing.TryGetValue("version", out var sv)
                             ? int.TryParse(sv.N, out var svn) ? svn : 0
                             : 0;

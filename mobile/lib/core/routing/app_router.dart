@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/features/auth/screens/reset_password_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -119,6 +120,11 @@ GoRouter createWebRouter(AuthBloc authBloc) {
             path: '/payments',
             name: RouteNames.payments,
             builder: (context, state) => const PaymentsTabScreen(),
+          ),
+          GoRoute(
+            path: '/messages',
+            name: RouteNames.messages,
+            builder: (context, state) => const MessagesInboxScreen(),
           ),
           GoRoute(
             path: '/profile',

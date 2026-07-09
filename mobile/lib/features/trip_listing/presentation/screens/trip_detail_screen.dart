@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
+import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
@@ -121,6 +123,52 @@ class TripDetailScreen extends StatelessWidget {
                         icon: Icons.phone,
                         label: l10n.truckerPhone,
                         value: trip.truckerPhone,
+                      ),
+                      // Contact/Message the trucker (buyers only — the trip
+                      // owner sees their own management actions instead).
+                      Builder(
+                        builder: (context) {
+                          final authState = context.read<AuthBloc>().state;
+                          final me = authState is AuthAuthenticated
+                              ? authState.userId
+                              : '';
+                          if (me.isEmpty || me == trip.truckerId) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  final navigator = Navigator.of(context);
+                                  showContactActionsSheet(
+                                    context,
+                                    name: trip.truckerName,
+                                    roleLabel: l10n.trucker,
+                                    phone: trip.truckerPhone,
+                                    onMessage: () => navigator.push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ConversationScreen(
+                                          contextType: 'trip',
+                                          contextId: trip.tripId,
+                                          counterpartId: trip.truckerId,
+                                          counterpartName: trip.truckerName,
+                                          counterpartPhone: trip.truckerPhone,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.chat_outlined),
+                                label: Text(l10n.messageTrucker),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 32),
 

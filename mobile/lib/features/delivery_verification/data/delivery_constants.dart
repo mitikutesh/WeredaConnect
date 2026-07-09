@@ -49,6 +49,10 @@ abstract final class DeliveryConstants {
   /// Dispute window duration from delivery confirmation.
   static const Duration disputeWindow = Duration(hours: 48);
 
+  /// Delivery type marking a buyer self-pickup (no trucker). Must match the
+  /// server's `SelfPickupDeliveryType` value.
+  static const String selfPickupDeliveryType = 'self_pickup';
+
   /// Maximum dispute reason length.
   static const int maxDisputeReasonLength = 500;
 

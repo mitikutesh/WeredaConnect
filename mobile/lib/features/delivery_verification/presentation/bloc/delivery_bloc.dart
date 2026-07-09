@@ -32,6 +32,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         super(const DeliveryInitial()) {
     on<LoadDeliveries>(_onLoadDeliveries);
     on<CreateDelivery>(_onCreateDelivery);
+    on<CreateSelfPickupDelivery>(_onCreateSelfPickupDelivery);
     on<ConfirmPickup>(_onConfirmPickup);
     on<MarkInTransit>(_onMarkInTransit);
     on<ConfirmDelivery>(_onConfirmDelivery);
@@ -91,6 +92,27 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         buyerId: event.buyerId,
         buyerName: event.buyerName,
         qrToken: event.qrToken,
+      );
+      emit(DeliveryCreated(delivery: delivery));
+    } on Object catch (e) {
+      emit(_errorFromException(e));
+    }
+  }
+
+  Future<void> _onCreateSelfPickupDelivery(
+    CreateSelfPickupDelivery event,
+    Emitter<DeliveryState> emit,
+  ) async {
+    emit(const DeliveryLoading());
+
+    try {
+      final delivery = await _repository.createSelfPickupDelivery(
+        orderId: event.orderId,
+        listingId: event.listingId,
+        farmerId: event.farmerId,
+        farmerName: event.farmerName,
+        buyerId: event.buyerId,
+        buyerName: event.buyerName,
       );
       emit(DeliveryCreated(delivery: delivery));
     } on Object catch (e) {

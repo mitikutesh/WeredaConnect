@@ -50,12 +50,14 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   escrowAuditTable: databaseStack.escrowAuditTable,
   transactionAuditTable: databaseStack.transactionAuditTable,
   escrowIdempotencyTable: databaseStack.escrowIdempotencyTable,
+  deliveryQrSecretsTable: databaseStack.deliveryQrSecretsTable,
   ordersTable: databaseStack.ordersTable,
   fraudSignalsTable: databaseStack.fraudSignalsTable,
   intentsTable: databaseStack.intentsTable,
   deviceTokensTable: databaseStack.deviceTokensTable,
   matchEventsTable: databaseStack.matchEventsTable,
   ratingsTable: databaseStack.ratingsTable,
+  messagesTable: databaseStack.messagesTable,
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);

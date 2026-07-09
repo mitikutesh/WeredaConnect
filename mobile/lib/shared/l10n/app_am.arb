@@ -880,6 +880,8 @@
     "description": "Button to confirm delivery pickup"
   },
   "deliveryConfirmDelivery": "ማድረሻን አረጋግጥ",
+  "deliverySelfPickupConfirm": "ለመረከብ የገበሬውን ኪዩአር ይቃኙ",
+  "orderCollectMyself": "ራሴ እወስዳለሁ",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"
   },
@@ -2369,5 +2371,17 @@
   "passwordTooShort": "የይለፍ ቃል ቢያንስ 8 ቁምፊዎች ሊኖሩት ይገባል",
   "placeSearchHint": "ወረዳ ወይም ከተማ ይፈልጉ",
   "placeNoResults": "ተመሳሳይ የለም — የጻፉትን መጠቀም ይችላሉ",
-  "placeResultsLabel": "የቦታ ውጤቶች"
+  "placeResultsLabel": "የቦታ ውጤቶች",
+  "messages": "መልእክቶች",
+  "noConversationsYet": "እስካሁን መልእክት የለም",
+  "noConversationsHint": "ከገበሬዎች፣ ከጫኝ አሽከርካሪዎችና ከገዢዎች ጋር ያደረጓቸው ውይይቶች እዚህ ይታያሉ።",
+  "noMessagesInThread": "እስካሁን መልእክት የለም። ከታች ውይይቱን ይጀምሩ።",
+  "typeAMessage": "መልእክት ይጻፉ…",
+  "send": "ላክ",
+  "sendMessage": "መልእክት ላክ",
+  "messageContact": "መልእክት",
+  "messageFarmer": "ለገበሬው መልእክት ላክ",
+  "messageTrucker": "ለአሽከርካሪው መልእክት ላክ",
+  "messageBuyer": "ለገዢው መልእክት ላክ",
+  "contact": "አግኝ"
 }

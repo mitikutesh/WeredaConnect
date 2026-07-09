@@ -18,6 +18,18 @@ abstract class BaseDeliveryRepository {
     required String qrToken,
   });
 
+  /// Buyer creates a SELF-PICKUP delivery (no trucker): the buyer collects at the
+  /// farm and confirms the handoff by scanning the farmer's QR. Requires the linked
+  /// [orderId] (the order must carry no transport/trucker — enforced server-side).
+  Future<Delivery> createSelfPickupDelivery({
+    required String orderId,
+    required String listingId,
+    required String farmerId,
+    required String farmerName,
+    required String buyerId,
+    required String buyerName,
+  });
+
   Future<void> persistQrNonce({
     required String deliveryId,
     required String qrNonce,

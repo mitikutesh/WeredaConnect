@@ -683,6 +683,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryConfirmDelivery => 'Confirm Delivery';
 
   @override
+  String get deliverySelfPickupConfirm => 'Scan farmer\'s QR to collect';
+
+  @override
+  String get orderCollectMyself => 'Collect it myself';
+
+  @override
   String get deliveryScanQr => 'Scan QR';
 
   @override
@@ -2409,4 +2415,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get placeResultsLabel => 'Place results';
+
+  @override
+  String get messages => 'Messages';
+
+  @override
+  String get noConversationsYet => 'No messages yet';
+
+  @override
+  String get noConversationsHint =>
+      'Your conversations with farmers, truckers and buyers will appear here.';
+
+  @override
+  String get noMessagesInThread =>
+      'No messages yet. Start the conversation below.';
+
+  @override
+  String get typeAMessage => 'Type a message…';
+
+  @override
+  String get send => 'Send';
+
+  @override
+  String get sendMessage => 'Send a message';
+
+  @override
+  String get messageContact => 'Message';
+
+  @override
+  String get messageFarmer => 'Message Farmer';
+
+  @override
+  String get messageTrucker => 'Message Trucker';
+
+  @override
+  String get messageBuyer => 'Message Buyer';
+
+  @override
+  String get contact => 'Contact';
 }

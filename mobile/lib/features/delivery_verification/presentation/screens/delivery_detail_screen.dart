@@ -453,6 +453,44 @@ class DeliveryDetailScreen extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
+    // Buyer + self-pickup + pending → Scan the farmer's QR to confirm collection.
+    // Self-pickup has no trucker/transit leg: this single scan takes the delivery
+    // pending → delivered at the farm. Pay into escrow first (button above) so the
+    // farmer is actually paid out on confirmation.
+    if (isBuyer &&
+        delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType &&
+        delivery.status == DeliveryStatus.pending) {
+      widgets.add(
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (context) => QrScanScreen(
+                    delivery: delivery,
+                    verificationType: VerificationType.delivery,
+                    qrService: QrVerificationService(
+                      deviceKeyService: DeviceSigningKeyService(),
+                    ),
+                    gpsService: GpsCaptureService(),
+                    photoManager: PhotoManager(),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.qr_code_scanner),
+            label: Text(l10n.deliverySelfPickupConfirm),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
     // Farmer + delivered → Raise Dispute (within 48h)
     if (isFarmer && delivery.status == DeliveryStatus.delivered) {
       _addDisputeButton(context, widgets);

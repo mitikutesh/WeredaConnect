@@ -2,6 +2,8 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    // Firebase Cloud Messaging — reads android/app/google-services.json.
+    id "com.google.gms.google-services"
 }
 
 def localProperties = new Properties()
@@ -46,7 +48,7 @@ android {
         targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-        
+
         // Optimize APK size for 3G downloads
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
@@ -90,4 +92,3 @@ flutter {
 dependencies {
     // No additional dependencies needed for base setup
 }
-
