@@ -308,6 +308,15 @@ export class ApiStack extends cdk.Stack {
 
     // ─── Sync Function ───────────────────────────────────────────────
 
+    // Mock payments: dev/staging run without a real Telebirr gateway, so the
+    // sync engine auto-verifies a submitted payment (payment_submitted ->
+    // funded) — matching the TELEBIRR_MOCK gate on the escrow/telebirr Lambdas.
+    // Prod or an enabled live gateway leaves it unset so the real gateway funds.
+    const syncTelebirrMock =
+      !envConfig.isProd &&
+      !((envConfig.enableTelebirrLive ?? false) ||
+        this.node.tryGetContext("enableTelebirrLive") === "true");
+
     const syncFn = new WeredaLambda(this, "SyncFunction", {
       functionName: `${prefix}-sync`,
       description: "POST /sync — offline-first sync engine batch processor",
@@ -327,6 +336,7 @@ export class ApiStack extends cdk.Stack {
         MESSAGES_TABLE: props.messagesTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
+        ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
