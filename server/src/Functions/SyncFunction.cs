@@ -3064,6 +3064,32 @@ public partial class SyncFunction
                             };
                         }
 
+                        // Bind the delivery's listing/farmer to the order's, so the buyer
+                        // can't point the GPS geofence at an attacker-chosen listing while
+                        // paying against a different order (anti-fraud: "physically at the farm").
+                        var spListingId = operation.Data.TryGetValue("listingId", out var spL)
+                            ? spL?.ToString() : null;
+                        if (spOrder.TryGetValue("listingId", out var soL)
+                            && soL?.ToString() != spListingId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: listingId does not match the order."
+                            };
+                        }
+                        if (spOrder.TryGetValue("farmerId", out var soF)
+                            && soF?.ToString() != spFarmerId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match the order."
+                            };
+                        }
+
                         var soTransport = spOrder.TryGetValue("transportCost", out var soT)
                             && decimal.TryParse(soT?.ToString(), NumberStyles.Any,
                                 CultureInfo.InvariantCulture, out var soTv)

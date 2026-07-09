@@ -63,11 +63,23 @@ class DeliveryRepository extends BaseDeliveryRepository {
         // screen's button gating. Requiring inTransit here silently blocked
         // the confirmation, leaving the delivery stuck at pickedUp so escrow
         // never released to the farmer.
-        if (delivery.status != DeliveryStatus.pickedUp &&
-            delivery.status != DeliveryStatus.inTransit) {
+        //
+        // Self-pickup has NO trucker/transit leg: the buyer collects at the
+        // farm and confirms straight from `pending` (server allows the
+        // self_pickup pending -> delivered hop). Without this, the buyer's scan
+        // threw here and the self-pickup escrow never released.
+        final isSelfPickup =
+            delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType;
+        final validForConfirm = isSelfPickup
+            ? delivery.status == DeliveryStatus.pending
+            : (delivery.status == DeliveryStatus.pickedUp ||
+                delivery.status == DeliveryStatus.inTransit);
+        if (!validForConfirm) {
           throw DeliveryValidationException(
             'status',
-            'Delivery must be picked up or in transit for confirmation',
+            isSelfPickup
+                ? 'Self-pickup must be pending to confirm collection'
+                : 'Delivery must be picked up or in transit for confirmation',
           );
         }
         if (delivery.buyerId != userId) {

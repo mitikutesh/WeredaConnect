@@ -216,6 +216,47 @@ void main() {
       await bloc.close();
     });
 
+    test(
+        'ConfirmDelivery succeeds on a PENDING self-pickup delivery '
+        '(no trucker/transit leg) and marks it delivered', () async {
+      // Self-pickup goes straight pending -> delivered on the single farm scan;
+      // the client must NOT require pickedUp/inTransit here (regression guard: a
+      // stricter guard silently blocked confirmation and the farmer was never paid).
+      final delivery = await repository.createSelfPickupDelivery(
+        orderId: 'order-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+      );
+      expect(delivery.status, DeliveryStatus.pending);
+
+      final bloc = DeliveryBloc(repository: repository);
+      final expectation = expectLater(
+        bloc.stream,
+        emitsInOrder([isA<DeliveryLoading>(), isA<DeliveryConfirmed>()]),
+      );
+
+      bloc.add(
+        ConfirmDelivery(
+          deliveryId: delivery.deliveryId,
+          buyerId: 'buyer-001',
+          scannedQrNonce: 'sp-nonce',
+        ),
+      );
+
+      await expectation;
+
+      final updated = await repository.getDeliveryById(
+        delivery.deliveryId,
+        userId: 'buyer-001',
+      );
+      expect(updated!.status, DeliveryStatus.delivered);
+
+      await bloc.close();
+    });
+
     test('emits [Loading, DisputeRaised, DeliveriesLoaded] on RaiseDispute',
         () async {
       final delivery = await repository.createDelivery(
