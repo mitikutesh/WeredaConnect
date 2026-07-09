@@ -99,6 +99,30 @@ export function useUserAction() {
   });
 }
 
+// Transaction Monitor (unified order + delivery + escrow lifecycle view)
+export function useTransactions(params?: string) {
+  return useQuery({
+    queryKey: ["admin", "transactions", params],
+    queryFn: () => api.get(`/admin/transactions${params ? `?${params}` : ""}`),
+  });
+}
+
+export function useTransactionDetail(orderId: string) {
+  return useQuery({
+    queryKey: ["admin", "transactions", orderId, "detail"],
+    queryFn: () => api.get(`/admin/transactions/${orderId}`),
+    enabled: !!orderId,
+  });
+}
+
+// Unified cross-entity audit feed (order/delivery/admin legs).
+export function useAuditLog() {
+  return useQuery({
+    queryKey: ["admin", "audit", "recent"],
+    queryFn: () => api.get("/admin/audit"),
+  });
+}
+
 // Analytics
 export function useRevenueAnalytics() {
   return useQuery({
