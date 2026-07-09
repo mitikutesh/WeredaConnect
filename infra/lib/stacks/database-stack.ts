@@ -23,6 +23,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly paymentsTable: dynamodb.Table;
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
+  public readonly transactionAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
   public readonly ordersTable: dynamodb.Table;
   public readonly fraudSignalsTable: dynamodb.Table;
@@ -314,6 +315,16 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Look up escrow by order (admin transaction monitor join). Sparse —
+    // only escrows created from an order carry orderId. See AdminFunction
+    // GetEscrowByOrderIdAsync / GET /admin/transactions/{orderId}.
+    this.escrowsTable.addGlobalSecondaryIndex({
+      indexName: "OrderIndex",
+      partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Escrow audit table (immutable append-only, no updates or deletes)
     const escrowAudit = new WeredaDynamoTable(this, "EscrowAuditTable", {
       tableName: `${prefix}-escrow-audit`,
@@ -322,6 +333,30 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.escrowAuditTable = escrowAudit.table;
+
+    // Transaction audit table (immutable append-only, cross-entity).
+    // Unified who/what/when/where trail for the transaction lifecycle legs that
+    // had NO audit before — orders, deliveries, and admin actions — anchored on
+    // the order (transactionId = orderId) so the admin monitor reads a whole
+    // transaction's history in one query. The escrow leg keeps its dedicated
+    // escrow-audit table; the monitor timeline merges both. No TTL — audit is
+    // retained. See server TransactionAuditRepository / TransactionAuditWriter.
+    const transactionAudit = new WeredaDynamoTable(this, "TransactionAuditTable", {
+      tableName: `${prefix}-transaction-audit`,
+      partitionKey: { name: "transactionId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.transactionAuditTable = transactionAudit.table;
+
+    // GSI: fetch every audit event for one entity (orderId / deliveryId), and
+    // the cross-entity recent feed (scan) for the admin audit log.
+    this.transactionAuditTable.addGlobalSecondaryIndex({
+      indexName: "EntityIndex",
+      partitionKey: { name: "entityId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "timestamp", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     // Escrow idempotency table (prevents double-charges on flaky 3G networks)
     const escrowIdempotency = new WeredaDynamoTable(

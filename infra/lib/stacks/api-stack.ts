@@ -30,6 +30,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly paymentsTable: dynamodb.Table;
   readonly escrowsTable: dynamodb.Table;
   readonly escrowAuditTable: dynamodb.Table;
+  readonly transactionAuditTable: dynamodb.Table;
   readonly escrowIdempotencyTable: dynamodb.Table;
   readonly ordersTable: dynamodb.Table;
   readonly fraudSignalsTable: dynamodb.Table;
@@ -321,6 +322,7 @@ export class ApiStack extends cdk.Stack {
         INTENTS_TABLE: props.intentsTable.tableName,
         MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
         RATINGS_TABLE: props.ratingsTable.tableName,
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
@@ -339,6 +341,9 @@ export class ApiStack extends cdk.Stack {
     props.fraudSignalsTable.grantReadWriteData(syncFn.function);
     // Ratings: sync creates them and reads the order to validate participation.
     props.ratingsTable.grantReadWriteData(syncFn.function);
+    // Transaction audit is append-only: write-only grant. Order/delivery
+    // lifecycle transitions are logged here for the admin monitor.
+    props.transactionAuditTable.grantWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
@@ -928,12 +933,15 @@ export class ApiStack extends cdk.Stack {
       handlerName: "OrderCronFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
       },
       timeout: cdk.Duration.minutes(5),
       memorySize: 256,
       reservedConcurrentExecutions: 2,
     });
     props.ordersTable.grantReadWriteData(orderCronFn.function);
+    // Auto-cancel writes an order lifecycle event to the audit trail.
+    props.transactionAuditTable.grantWriteData(orderCronFn.function);
 
     // EventBridge: auto-cancel expired orders every hour
     new events.Rule(this, "OrderCronHourly", {
@@ -1425,6 +1433,7 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ESCROWS_TABLE: props.escrowsTable.tableName,
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
+        TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
         CROPS_TABLE: props.cropsTable.tableName,
@@ -1457,6 +1466,9 @@ export class ApiStack extends cdk.Stack {
     props.escrowAuditTable.grantWriteData(adminFn.function);
     props.fraudSignalsTable.grantReadWriteData(adminFn.function);
     props.usersTable.grantWriteData(adminFn.function);
+    // Transaction audit: admin actions are logged here, and the monitor +
+    // audit-log read it (read for the timeline/feed, write for admin actions).
+    props.transactionAuditTable.grantReadWriteData(adminFn.function);
 
     // Admin pool permissions (admin auth)
     adminFn.function.addToRolePolicy(
@@ -1505,6 +1517,9 @@ export class ApiStack extends cdk.Stack {
       "/admin/compliance/summary",
       "/admin/analytics/revenue",
       "/admin/analytics/transactions",
+      "/admin/transactions",
+      "/admin/transactions/{orderId}",
+      "/admin/audit",
     ];
 
     for (const path of adminGetPaths) {
@@ -1550,13 +1565,45 @@ export class ApiStack extends cdk.Stack {
       });
     }
 
-    // ─── API Gateway Throttling ──────────────────────────────────────
+    // ─── API Gateway Throttling + Access Logs ────────────────────────
     const defaultStage = httpApi.defaultStage?.node
       .defaultChild as apigateway.CfnStage;
     if (defaultStage) {
       defaultStage.addPropertyOverride("DefaultRouteSettings", {
         ThrottlingBurstLimit: 50,
         ThrottlingRateLimit: 25,
+      });
+
+      // Edge-level audit: one structured JSON line per request (who/when/where
+      // + method/path/status/latency), independent of any Lambda. Answers "was
+      // this request even received, from where, and did it 4xx/5xx" without
+      // reading function logs. Retained in prod (audit), destroyed in dev.
+      const accessLogGroup = new logs.LogGroup(this, "ApiAccessLogs", {
+        logGroupName: `/aws/apigateway/${prefix}-http-api/access`,
+        retention: logs.RetentionDays.ONE_YEAR,
+        removalPolicy: envConfig.isProd
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+      });
+      // Access logging is wired via the L1 CfnStage (the L2 HttpApi auto-creates
+      // the default stage), so grant API Gateway permission to deliver logs
+      // explicitly — the L2 log-destination construct would otherwise do this.
+      accessLogGroup.grantWrite(new iam.ServicePrincipal("apigateway.amazonaws.com"));
+      defaultStage.addPropertyOverride("AccessLogSettings", {
+        DestinationArn: accessLogGroup.logGroupArn,
+        Format: JSON.stringify({
+          requestId: "$context.requestId",
+          ip: "$context.identity.sourceIp",
+          requestTime: "$context.requestTime",
+          httpMethod: "$context.httpMethod",
+          routeKey: "$context.routeKey",
+          path: "$context.path",
+          status: "$context.status",
+          protocol: "$context.protocol",
+          responseLength: "$context.responseLength",
+          integrationLatency: "$context.integrationLatency",
+          userAgent: "$context.identity.userAgent",
+        }),
       });
     }
 
