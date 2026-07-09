@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
@@ -461,8 +462,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
   }
 
   OrderStatus _parseOrderStatus(String? s) {
+    // Server sends order status in snake_case; map it back to the camelCase enum.
+    final name = s == null ? null : orderStatusFromWire(s);
     return OrderStatus.values.firstWhere(
-      (e) => e.name == s,
+      (e) => e.name == name,
       orElse: () => OrderStatus.created,
     );
   }
