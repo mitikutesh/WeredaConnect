@@ -1384,6 +1384,12 @@ abstract class AppLocalizations {
   /// **'Scan farmer\'s QR to collect'**
   String get deliverySelfPickupConfirm;
 
+  /// Hint shown when the self-pickup scan is disabled because escrow is not yet funded
+  ///
+  /// In en, this message translates to:
+  /// **'Pay into escrow first, then scan at the farm to collect.'**
+  String get deliverySelfPickupPayFirst;
+
   /// Buyer button to arrange self-pickup (no trucker) for an order
   ///
   /// In en, this message translates to:

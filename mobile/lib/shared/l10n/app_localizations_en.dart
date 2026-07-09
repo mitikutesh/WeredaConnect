@@ -686,6 +686,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliverySelfPickupConfirm => 'Scan farmer\'s QR to collect';
 
   @override
+  String get deliverySelfPickupPayFirst =>
+      'Pay into escrow first, then scan at the farm to collect.';
+
+  @override
   String get orderCollectMyself => 'Collect it myself';
 
   @override

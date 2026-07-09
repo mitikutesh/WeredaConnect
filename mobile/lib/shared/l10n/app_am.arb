@@ -881,6 +881,7 @@
   },
   "deliveryConfirmDelivery": "ማድረሻን አረጋግጥ",
   "deliverySelfPickupConfirm": "ለመረከብ የገበሬውን ኪዩአር ይቃኙ",
+  "deliverySelfPickupPayFirst": "መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።",
   "orderCollectMyself": "ራሴ እወስዳለሁ",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"

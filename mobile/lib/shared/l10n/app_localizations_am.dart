@@ -669,6 +669,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliverySelfPickupConfirm => 'ለመረከብ የገበሬውን ኪዩአር ይቃኙ';
 
   @override
+  String get deliverySelfPickupPayFirst =>
+      'መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።';
+
+  @override
   String get orderCollectMyself => 'ራሴ እወስዳለሁ';
 
   @override

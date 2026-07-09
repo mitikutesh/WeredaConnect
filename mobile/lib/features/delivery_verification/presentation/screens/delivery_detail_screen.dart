@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -455,37 +456,15 @@ class DeliveryDetailScreen extends StatelessWidget {
 
     // Buyer + self-pickup + pending → Scan the farmer's QR to confirm collection.
     // Self-pickup has no trucker/transit leg: this single scan takes the delivery
-    // pending → delivered at the farm. Pay into escrow first (button above) so the
-    // farmer is actually paid out on confirmation.
+    // pending → delivered at the farm. The scan is GATED until escrow is funded so
+    // the farmer is actually paid on confirmation (see _SelfPickupScanButton).
     if (isBuyer &&
         delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType &&
         delivery.status == DeliveryStatus.pending) {
       widgets.add(
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (context) => QrScanScreen(
-                    delivery: delivery,
-                    verificationType: VerificationType.delivery,
-                    qrService: QrVerificationService(
-                      deviceKeyService: DeviceSigningKeyService(),
-                    ),
-                    gpsService: GpsCaptureService(),
-                    photoManager: PhotoManager(),
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.qr_code_scanner),
-            label: Text(l10n.deliverySelfPickupConfirm),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
+        _SelfPickupScanButton(
+          delivery: delivery,
+          currentUserId: currentUserId,
         ),
       );
       widgets.add(const SizedBox(height: 12));
@@ -908,6 +887,130 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
           backgroundColor: AppTheme.onStatusSuccessContainer,
+        ),
+      ),
+    );
+  }
+}
+
+/// Buyer's self-pickup "Scan farmer's QR" button, GATED on the escrow being funded.
+///
+/// Confirming self-pickup releases money, so the scan is disabled until this delivery's
+/// escrow is `escrowed` locally — steering the buyer to pay first. Uses the same
+/// dynamic (web-safe) local Isar lookup as [_EscrowPayButton]; if the local record can't
+/// be read (e.g. web, where there is no QR scan flow anyway) it falls back to enabled so
+/// the server stays the authority (a scan with no funded escrow is a safe no-op payout-wise).
+class _SelfPickupScanButton extends StatefulWidget {
+  final Delivery delivery;
+  final String currentUserId;
+
+  const _SelfPickupScanButton({
+    required this.delivery,
+    required this.currentUserId,
+  });
+
+  @override
+  State<_SelfPickupScanButton> createState() => _SelfPickupScanButtonState();
+}
+
+class _SelfPickupScanButtonState extends State<_SelfPickupScanButton> {
+  bool _loading = true;
+  bool _escrowFunded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEscrowStatus();
+  }
+
+  Future<void> _loadEscrowStatus() async {
+    try {
+      final payment = await IsarService.instance.db.payments
+          .filter()
+          .deliveryIdEqualTo(widget.delivery.deliveryId)
+          .findFirst();
+      // Read the enum name dynamically to avoid importing the Isar schema into
+      // shared UI (keeps the web build clean). `escrowed`+ mean funds are held.
+      final statusName = payment?.status.name;
+      final funded = statusName == 'escrowed' ||
+          statusName == 'released' ||
+          statusName == 'completed';
+      if (mounted) {
+        setState(() {
+          _escrowFunded = funded;
+          _loading = false;
+        });
+      }
+    } on Object catch (_) {
+      // Web (db is null) or no local record — fall back to enabled; the server
+      // remains authoritative and a scan without a funded escrow is a safe no-op.
+      if (mounted) {
+        setState(() {
+          _escrowFunded = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (_loading) {
+      return const SizedBox(
+        height: 48,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_escrowFunded) {
+      // Not yet funded: guide the buyer to pay first (button disabled + hint).
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(l10n.deliverySelfPickupConfirm),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            l10n.deliverySelfPickupPayFirst,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => QrScanScreen(
+                delivery: widget.delivery,
+                verificationType: VerificationType.delivery,
+                qrService: QrVerificationService(
+                  deviceKeyService: DeviceSigningKeyService(),
+                ),
+                gpsService: GpsCaptureService(),
+                photoManager: PhotoManager(),
+              ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.qr_code_scanner),
+        label: Text(l10n.deliverySelfPickupConfirm),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
         ),
       ),
     );

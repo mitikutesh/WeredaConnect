@@ -690,6 +690,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Fudhachuuf QR qonnaan bulaa iskaanii godhi';
 
   @override
+  String get deliverySelfPickupPayFirst =>
+      'Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
+
+  @override
   String get orderCollectMyself => 'Ani ofiin nan fudhadha';
 
   @override

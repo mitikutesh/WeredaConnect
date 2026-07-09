@@ -871,6 +871,7 @@
   },
   "deliveryConfirmDelivery": "Geejjiba Mirkaneessi",
   "deliverySelfPickupConfirm": "Fudhachuuf QR qonnaan bulaa iskaanii godhi",
+  "deliverySelfPickupPayFirst": "Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.",
   "orderCollectMyself": "Ani ofiin nan fudhadha",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"

@@ -880,6 +880,10 @@
   "@deliverySelfPickupConfirm": {
     "description": "Buyer button to scan the farmer's QR at the farm to confirm a self-pickup collection"
   },
+  "deliverySelfPickupPayFirst": "Pay into escrow first, then scan at the farm to collect.",
+  "@deliverySelfPickupPayFirst": {
+    "description": "Hint shown when the self-pickup scan is disabled because escrow is not yet funded"
+  },
   "orderCollectMyself": "Collect it myself",
   "@orderCollectMyself": {
     "description": "Buyer button to arrange self-pickup (no trucker) for an order"
