@@ -14,6 +14,29 @@ Playwright web tests, Maestro mobile tests, and manual QA.
 
 **All users share the same password:** `TestPass1dev`
 
+## Admin User (admin dashboard)
+
+The admin dashboard (`admin/`) does **not** use the pool above. It authenticates
+against a dedicated **AdminUserPool** (`infra/lib/stacks/api-stack.ts`), and
+authorization is by membership in the Cognito **`admin` group** — the three
+marketplace users above are not admins and cannot log in to the dashboard.
+
+No admin user is seeded by default. Create one with:
+
+```bash
+./scripts/seed-admin-user.sh          # auto-discovers the admin pool from CFN outputs
+```
+
+| Role | Phone | Password | Notes |
+|------|-------|----------|-------|
+| **admin** | `+251900100009` | `AdminPass1dev` | member of the `admin` group |
+
+The admin app also needs a local `admin/.env` (never committed) with
+`VITE_COGNITO_ADMIN_USER_POOL_ID`, `VITE_COGNITO_ADMIN_CLIENT_ID`,
+`VITE_API_BASE_URL`, and `VITE_COGNITO_REGION` — the seeder prints the pool/client
+values on completion. Without this env, admin login fails with a generic
+"service unavailable" before any credential check.
+
 ## API Details
 
 - **API URL:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
