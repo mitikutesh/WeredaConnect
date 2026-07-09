@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -142,9 +143,10 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Should show filter text fields with hint text
-      expect(find.byType(TextField), findsNWidgets(2));
-      expect(find.byIcon(Icons.search), findsOneWidget);
+      // From/To filters are place-autocomplete pickers (with a search apply
+      // button beside them).
+      expect(find.byType(PlaceSelector), findsNWidgets(2));
+      expect(find.widgetWithIcon(IconButton, Icons.search), findsOneWidget);
     });
   });
 }

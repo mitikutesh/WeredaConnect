@@ -14,6 +14,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_c
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Browse screen for viewing and filtering trip listings.
 ///
@@ -148,36 +149,24 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child: PlaceSelector(
                       controller: _fromWoredaFilterController,
-                      decoration: InputDecoration(
-                        hintText: l10n.fromWoreda,
-                        isDense: true,
-                        border: const OutlineInputBorder(),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                      onSubmitted: (_) => _applyFilters(),
+                      hintText: l10n.fromWoreda,
+                      prefixIcon: Icons.trip_origin,
+                      isDense: true,
+                      // Selecting a suggestion applies the filter immediately;
+                      // free text is still applied via the search button.
+                      onPlaceSelected: (_) => _applyFilters(),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: TextField(
+                    child: PlaceSelector(
                       controller: _toWoredaFilterController,
-                      decoration: InputDecoration(
-                        hintText: l10n.toWoreda,
-                        isDense: true,
-                        border: const OutlineInputBorder(),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                      onSubmitted: (_) => _applyFilters(),
+                      hintText: l10n.toWoreda,
+                      prefixIcon: Icons.place_outlined,
+                      isDense: true,
+                      onPlaceSelected: (_) => _applyFilters(),
                     ),
                   ),
                   const SizedBox(width: 8),

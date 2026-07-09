@@ -185,7 +185,11 @@ class WebOrderRepository extends BaseOrderRepository {
   }
 
   @override
-  Future<void> submitPayment(String orderId, String cbeTransactionId) async {
+  Future<void> submitPayment(
+    String orderId,
+    String cbeTransactionId, {
+    String paymentMethod = 'cbe_transfer',
+  }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -202,7 +206,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'idempotencyKey': 'web_payment_${orderId}_$now',
             'data': {
               'status': 'paymentSubmitted',
-              'paymentMethod': 'cbe_transfer',
+              'paymentMethod': paymentMethod,
               'cbeTransactionId': cbeTransactionId,
             },
           },

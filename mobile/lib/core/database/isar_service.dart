@@ -17,6 +17,7 @@ import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/rating.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
@@ -170,6 +171,7 @@ class IsarService {
         PaymentIntentSchema,
         SyncOperationSchema,
         BuyerIntentSchema,
+        RatingSchema,
       ],
       directory: dir.path,
       name: 'wereda_connect',

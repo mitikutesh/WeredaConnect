@@ -82,6 +82,14 @@ public sealed record CropDto
     public string? FarmerName { get; init; }
 
     /// <summary>
+    /// Farmer's phone number, denormalized onto the listing so a buyer can
+    /// contact them (mirrors <c>TripDto.TruckerPhone</c>). Null for legacy
+    /// listings created before this field was added. Only returned to
+    /// authorized callers (crop reads are buyer/admin-gated).
+    /// </summary>
+    public string? FarmerPhone { get; init; }
+
+    /// <summary>
     /// Type of crop (e.g., "teff", "maize", "wheat", "coffee", "chickpea").
     /// </summary>
     public required string CropType { get; init; }
@@ -130,6 +138,14 @@ public sealed record CropDto
     /// Optional pickup location description.
     /// </summary>
     public string? Location { get; init; }
+
+    /// <summary>
+    /// Farmer-entered place for THIS listing (e.g. "Bahir Dar") — the source of
+    /// truth for display and matching. Distinct from <see cref="Woreda"/>, which
+    /// is the farmer's registered home district used only as a filter proxy.
+    /// Null for legacy listings created before this field was persisted.
+    /// </summary>
+    public string? LocationName { get; init; }
 
     /// <summary>
     /// ISO 8601 UTC timestamp of when this listing was soft-deleted (if status = "deleted").

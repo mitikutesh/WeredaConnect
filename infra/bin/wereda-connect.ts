@@ -54,6 +54,7 @@ const apiStack = new ApiStack(app, `${stackPrefix}-API`, {
   intentsTable: databaseStack.intentsTable,
   deviceTokensTable: databaseStack.deviceTokensTable,
   matchEventsTable: databaseStack.matchEventsTable,
+  ratingsTable: databaseStack.ratingsTable,
   uploadsBucket: databaseStack.uploadsBucket,
 });
 apiStack.addDependency(databaseStack);

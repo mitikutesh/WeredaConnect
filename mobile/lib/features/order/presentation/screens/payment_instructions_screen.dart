@@ -9,10 +9,12 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-/// Screen displaying CBE bank transfer instructions after order creation.
+/// Screen for paying for an order after it is created.
 ///
-/// Shows bank details, transfer reference, and amount.
-/// Allows buyer to enter CBE Transaction ID and submit payment proof.
+/// Buyers choose a payment method — Commercial Bank of Ethiopia (CBE) or
+/// Telebirr. Both are currently **mocked** (demo mode): the buyer may enter a
+/// real reference, but if left blank a mock reference is generated so the order
+/// can progress without a real transfer. See [_PaymentMethod].
 class PaymentInstructionsScreen extends StatefulWidget {
   final Order order;
 
@@ -26,9 +28,21 @@ class PaymentInstructionsScreen extends StatefulWidget {
       _PaymentInstructionsScreenState();
 }
 
+/// Supported (mocked) payment rails for an order.
+enum _PaymentMethod {
+  cbe('cbe_transfer'),
+  telebirr('telebirr');
+
+  const _PaymentMethod(this.wireValue);
+
+  /// Value persisted on the order + sent to the server.
+  final String wireValue;
+}
+
 class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
   final _transactionIdController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+
+  _PaymentMethod _method = _PaymentMethod.cbe;
 
   @override
   void dispose() {
@@ -39,12 +53,20 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
   String get _reference => widget.order.orderId.substring(0, 8).toUpperCase();
 
   void _submitPayment() {
-    if (!_formKey.currentState!.validate()) return;
+    // Demo mode: both rails are mocked. Use the entered reference if the buyer
+    // supplied one, otherwise generate a mock reference so the order can
+    // progress (a real integration would collect a genuine transaction id).
+    final entered = _transactionIdController.text.trim();
+    final reference = entered.isNotEmpty
+        ? entered
+        : '${_method == _PaymentMethod.telebirr ? 'MOCK-TBR' : 'MOCK-CBE'}'
+            '-$_reference';
 
     context.read<OrderBloc>().add(
           SubmitPayment(
             orderId: widget.order.orderId,
-            cbeTransactionId: _transactionIdController.text.trim(),
+            cbeTransactionId: reference,
+            paymentMethod: _method.wireValue,
           ),
         );
   }
@@ -76,19 +98,75 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Instructions ───────────────────────────────────
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Payment method selector ─────────────────────────
+                Text(
+                  l10n.selectPaymentMethod,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _PaymentMethodTile(
+                        icon: Icons.account_balance,
+                        label: l10n.paymentMethodCbe,
+                        selected: _method == _PaymentMethod.cbe,
+                        onTap: () =>
+                            setState(() => _method = _PaymentMethod.cbe),
+                      ),
+                      const Divider(height: 1),
+                      _PaymentMethodTile(
+                        icon: Icons.phone_android,
+                        label: l10n.paymentMethodTelebirr,
+                        selected: _method == _PaymentMethod.telebirr,
+                        onTap: () =>
+                            setState(() => _method = _PaymentMethod.telebirr),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Demo/mock notice ────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.tertiaryContainer
+                        .withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l10n.mockPaymentNotice,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Method-specific content ─────────────────────────
+                if (_method == _PaymentMethod.cbe) ...[
                   Text(
                     l10n.cbePaymentInstructions,
                     style: theme.textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 24),
-
-                  // ── Bank details card ──────────────────────────────
                   Card(
                     margin: EdgeInsets.zero,
                     child: Padding(
@@ -130,65 +208,130 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ── Transaction ID input ───────────────────────────
-                  TextFormField(
+                  // Optional transaction id (mock generates one when blank).
+                  TextField(
                     controller: _transactionIdController,
                     decoration: InputDecoration(
-                      labelText: l10n.enterTransactionId,
+                      labelText: l10n.transactionIdOptional,
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.receipt_long),
                     ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return l10n.transactionIdRequired;
-                      }
-                      return null;
-                    },
                   ),
                   const SizedBox(height: 24),
-
-                  // ── Action buttons ─────────────────────────────────
-                  BlocBuilder<OrderBloc, OrderState>(
-                    builder: (context, state) {
-                      final isLoading = state is OrderLoading;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                ] else ...[
+                  Text(
+                    l10n.telebirrPayInstructions,
+                    style: theme.textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 24),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
                         children: [
-                          FilledButton(
-                            onPressed: isLoading ? null : _submitPayment,
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(48),
-                            ),
-                            child: isLoading
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(l10n.submitPayment),
+                          _DetailRow(
+                            icon: Icons.phone_android,
+                            label: l10n.paymentMethodTelebirr,
+                            value: l10n.telebirrPayment,
+                            showCopy: false,
                           ),
-                          const SizedBox(height: 12),
-                          TextButton(
-                            onPressed: isLoading
-                                ? null
-                                : () => Navigator.of(context).pop(),
-                            style: TextButton.styleFrom(
-                              minimumSize: const Size.fromHeight(48),
+                          const Divider(height: 24),
+                          _DetailRow(
+                            icon: Icons.tag,
+                            label: l10n.transferReference,
+                            value: _reference,
+                            showCopy: true,
+                          ),
+                          const Divider(height: 24),
+                          _DetailRow(
+                            icon: Icons.payments,
+                            label: l10n.paymentAmount,
+                            value: l10n.etbCurrency(
+                              amount.toStringAsFixed(2),
                             ),
-                            child: Text(l10n.payLater),
+                            showCopy: false,
                           ),
                         ],
-                      );
-                    },
+                      ),
+                    ),
                   ),
+                  const SizedBox(height: 24),
                 ],
-              ),
+
+                // ── Action buttons ──────────────────────────────────
+                BlocBuilder<OrderBloc, OrderState>(
+                  builder: (context, state) {
+                    final isLoading = state is OrderLoading;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FilledButton(
+                          onPressed: isLoading ? null : _submitPayment,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          child: isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(l10n.submitPayment),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: isLoading
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          child: Text(l10n.payLater),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A selectable payment-method row (radio-style, without the deprecated
+/// RadioListTile group API).
+class _PaymentMethodTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PaymentMethodTile({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      onTap: onTap,
+      leading: Icon(icon),
+      title: Text(label),
+      trailing: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+        color: selected
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurface.withValues(alpha: 0.4),
       ),
     );
   }

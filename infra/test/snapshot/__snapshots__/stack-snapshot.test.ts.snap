@@ -63,6 +63,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "RateLimitsTable6BD6DCC2",
       },
     },
+    "RatingsTableName": {
+      "Description": "DynamoDB Ratings Table",
+      "Value": {
+        "Ref": "RatingsTable70DFC9A0",
+      },
+    },
     "SyncMetadataTableName": {
       "Description": "DynamoDB SyncMetadata Table",
       "Value": {
@@ -1133,6 +1139,56 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "AttributeName": "expiresAt",
           "Enabled": true,
         },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "RatingsTable70DFC9A0": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "ratingId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "rateeId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "RateeIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "rateeId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "ratingId",
+            "KeyType": "HASH",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-ratings",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",

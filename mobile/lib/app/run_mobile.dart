@@ -34,6 +34,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -281,6 +283,15 @@ class WeredaConnectApp extends StatelessWidget {
               ),
               marketplaceSync: marketplaceSync,
               eventLogger: MatchEventLogger(syncQueue: syncQueue),
+            ),
+          ),
+          BlocProvider<RatingBloc>(
+            create: (_) => RatingBloc(
+              repository: RatingRepository(
+                isar: IsarService.instance.db,
+                syncQueue: syncQueue,
+                apiClient: ApiClient(),
+              ),
             ),
           ),
           BlocProvider<ConflictBloc>(

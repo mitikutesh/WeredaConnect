@@ -249,6 +249,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
       ..farmerId = m['farmerId'] as String? ?? ''
       ..farmerName = m['farmerName'] as String? ?? ''
+      ..farmerPhone = m['farmerPhone'] as String? ?? ''
       ..cropType = m['cropType'] as String? ?? ''
       // See class doc: the number is quintals regardless of the key name.
       ..quantity = (m['quantity'] as num?)?.toDouble() ??

@@ -36,6 +36,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly intentsTable: dynamodb.Table;
   readonly deviceTokensTable: dynamodb.Table;
   readonly matchEventsTable: dynamodb.Table;
+  readonly ratingsTable: dynamodb.Table;
   readonly uploadsBucket: s3.Bucket;
 }
 
@@ -319,6 +320,7 @@ export class ApiStack extends cdk.Stack {
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         INTENTS_TABLE: props.intentsTable.tableName,
         MATCH_EVENTS_TABLE: props.matchEventsTable.tableName,
+        RATINGS_TABLE: props.ratingsTable.tableName,
       },
       timeout: cdk.Duration.seconds(30),
       reservedConcurrentExecutions: 10,
@@ -335,6 +337,8 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadWriteData(syncFn.function);
     props.rateLimitsTable.grantReadWriteData(syncFn.function);
     props.fraudSignalsTable.grantReadWriteData(syncFn.function);
+    // Ratings: sync creates them and reads the order to validate participation.
+    props.ratingsTable.grantReadWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
@@ -898,6 +902,23 @@ export class ApiStack extends cdk.Stack {
     props.ordersTable.grantReadData(orderFn.function);
     paginationSecret.grantRead(orderFn.function);
 
+    // ─── Rating Function ─────────────────────────────────────────────
+
+    const ratingFn = new WeredaLambda(this, "RatingFunction", {
+      functionName: `${prefix}-ratings`,
+      description: "GET /ratings — read ratings + aggregate (read-only)",
+      handlerName: "RatingFunction",
+      environment: {
+        RATINGS_TABLE: props.ratingsTable.tableName,
+        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+      },
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      reservedConcurrentExecutions: 10,
+    });
+    props.ratingsTable.grantReadData(ratingFn.function);
+    paginationSecret.grantRead(ratingFn.function);
+
     // ─── Order Cron Function (auto-cancel expired unpaid orders) ────
 
     const orderCronFn = new WeredaLambda(this, "OrderCronFunction", {
@@ -1182,6 +1203,35 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "OrdersGetInt",
         orderFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ─── Rating Routes (authenticated) ───────────────────────────────
+    // Creates go through /sync; these are read-only.
+
+    httpApi.addRoutes({
+      path: "/ratings",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "RatingsListInt",
+        ratingFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/ratings/{id}",
+      methods: [apigateway.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "RatingsGetInt",
+        ratingFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
         },

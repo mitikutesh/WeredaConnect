@@ -2512,6 +2512,126 @@ abstract class AppLocalizations {
   /// **'Create Delivery'**
   String get createDelivery;
 
+  /// Heading above the payment method options on the order payment screen
+  ///
+  /// In en, this message translates to:
+  /// **'Select payment method'**
+  String get selectPaymentMethod;
+
+  /// CBE payment method option label
+  ///
+  /// In en, this message translates to:
+  /// **'Commercial Bank of Ethiopia (CBE)'**
+  String get paymentMethodCbe;
+
+  /// Telebirr payment method option label
+  ///
+  /// In en, this message translates to:
+  /// **'Telebirr'**
+  String get paymentMethodTelebirr;
+
+  /// Notice explaining that payment is mocked/simulated
+  ///
+  /// In en, this message translates to:
+  /// **'Demo mode: payments are simulated. No real transfer is made.'**
+  String get mockPaymentNotice;
+
+  /// Instructions shown when Telebirr is the selected (mocked) payment method
+  ///
+  /// In en, this message translates to:
+  /// **'Tap Submit Payment to simulate a Telebirr payment for this order.'**
+  String get telebirrPayInstructions;
+
+  /// Label for the optional CBE transaction id field in demo mode
+  ///
+  /// In en, this message translates to:
+  /// **'CBE Transaction ID (optional)'**
+  String get transactionIdOptional;
+
+  /// Copy action tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get copy;
+
+  /// Call action button label
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get call;
+
+  /// Close action button label
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get close;
+
+  /// Label for the farmer's phone number
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Phone'**
+  String get farmerPhone;
+
+  /// Shown when a farmer's phone number is not available
+  ///
+  /// In en, this message translates to:
+  /// **'Phone number not available'**
+  String get phoneNotAvailable;
+
+  /// Button to rate the farmer after a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Rate Farmer'**
+  String get rateFarmer;
+
+  /// Button to rate the trucker after a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Rate Trucker'**
+  String get rateTrucker;
+
+  /// Submit button in the rating dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Rating'**
+  String get submitRating;
+
+  /// Hint for the optional rating comment field
+  ///
+  /// In en, this message translates to:
+  /// **'Add a comment (optional)'**
+  String get ratingCommentHint;
+
+  /// Snackbar shown after submitting a rating
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you for your rating!'**
+  String get ratingThankYou;
+
+  /// Label shown when a counterparty has already been rated
+  ///
+  /// In en, this message translates to:
+  /// **'Rated'**
+  String get alreadyRated;
+
+  /// Shown when a user has no ratings yet
+  ///
+  /// In en, this message translates to:
+  /// **'No ratings yet'**
+  String get noRatingsYet;
+
+  /// Label for the farmer's aggregate rating
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer Rating'**
+  String get farmerRating;
+
+  /// Number of ratings a user has received
+  ///
+  /// In en, this message translates to:
+  /// **'{count} ratings'**
+  String ratingsCount(int count);
+
   /// Button to contact the farmer about a listing
   ///
   /// In en, this message translates to:

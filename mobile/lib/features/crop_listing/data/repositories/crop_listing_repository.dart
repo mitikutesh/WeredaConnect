@@ -40,6 +40,7 @@ class CropListingRepository extends BaseCropListingRepository {
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
+    String? farmerPhone,
     String? placeId,
   }) async {
     final listingId = _uuid.v4();
@@ -53,6 +54,7 @@ class CropListingRepository extends BaseCropListingRepository {
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName ?? ''
+      ..farmerPhone = farmerPhone ?? ''
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerKg = pricePerKg
@@ -75,6 +77,7 @@ class CropListingRepository extends BaseCropListingRepository {
       'listingId': listingId,
       'farmerId': farmerId,
       'farmerName': farmerName ?? '',
+      'farmerPhone': farmerPhone ?? '',
       'cropType': cropType,
       'quantity': quantity,
       'pricePerKg': pricePerKg,

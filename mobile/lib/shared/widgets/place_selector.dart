@@ -44,6 +44,8 @@ class PlaceSelector extends StatefulWidget {
     this.debounce = const Duration(milliseconds: 150),
     this.minQueryLength = 2,
     this.maxResults = 8,
+    this.isDense = false,
+    this.contentPadding,
     super.key,
   });
 
@@ -76,6 +78,13 @@ class PlaceSelector extends StatefulWidget {
   final Duration debounce;
   final int minQueryLength;
   final int maxResults;
+
+  /// Renders the field in a compact (dense) layout — used for tight filter rows.
+  final bool isDense;
+
+  /// Overrides the field's content padding. Defaults to a comfortable
+  /// H16/V20 (or a compact H12/V10 when [isDense] is true and this is null).
+  final EdgeInsetsGeometry? contentPadding;
 
   @override
   State<PlaceSelector> createState() => _PlaceSelectorState();
@@ -202,10 +211,18 @@ class _PlaceSelectorState extends State<PlaceSelector> {
                   prefixIcon: Icon(widget.prefixIcon),
                   suffixIcon:
                       const Icon(Icons.search, color: AppTheme.textMuted),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
+                  isDense: widget.isDense,
+                  border: widget.isDense ? const OutlineInputBorder() : null,
+                  contentPadding: widget.contentPadding ??
+                      (widget.isDense
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            )
+                          : const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 20,
+                            )),
                 ),
               ),
               if (_showNoResultsHint && focusNode.hasFocus)

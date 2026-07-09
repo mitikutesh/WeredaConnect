@@ -157,7 +157,11 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
   ) async {
     emit(const OrderLoading());
     try {
-      await _repository.submitPayment(event.orderId, event.cbeTransactionId);
+      await _repository.submitPayment(
+        event.orderId,
+        event.cbeTransactionId,
+        paymentMethod: event.paymentMethod,
+      );
       emit(const PaymentSubmitted());
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));

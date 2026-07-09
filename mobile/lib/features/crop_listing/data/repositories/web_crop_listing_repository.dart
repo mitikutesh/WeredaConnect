@@ -27,6 +27,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
+    String? farmerPhone,
     String? placeId,
   }) async {
     final listingId = _uuid.v4();
@@ -35,6 +36,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     final payload = <String, dynamic>{
       'farmerId': farmerId,
       if (farmerName != null) 'farmerName': farmerName,
+      if (farmerPhone != null) 'farmerPhone': farmerPhone,
       'cropType': cropType,
       'quantity': quantity,
       'pricePerKg': pricePerKg,
@@ -76,6 +78,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName ?? ''
+      ..farmerPhone = farmerPhone ?? ''
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerKg = pricePerKg
@@ -184,6 +187,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
         ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
         ..farmerId = m['farmerId'] as String? ?? ''
         ..farmerName = m['farmerName'] as String? ?? ''
+        ..farmerPhone = m['farmerPhone'] as String? ?? ''
         ..cropType = m['cropType'] as String? ?? ''
         // API uses "quantityKg"; sync payload uses "quantity"
         ..quantity = (m['quantity'] as num?)?.toDouble() ??

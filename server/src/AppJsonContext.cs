@@ -105,6 +105,12 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(List<OrderDto>))]
 [JsonSerializable(typeof(GetOrdersResponse))]
 [JsonSerializable(typeof(GetOrderResponse))]
+// Rating DTOs
+[JsonSerializable(typeof(RatingDto))]
+[JsonSerializable(typeof(List<RatingDto>))]
+[JsonSerializable(typeof(RatingSummaryDto))]
+[JsonSerializable(typeof(GetRatingsResponse))]
+[JsonSerializable(typeof(GetRatingResponse))]
 // Admin endpoint DTOs
 [JsonSerializable(typeof(AdminDashboardStatsResponse))]
 [JsonSerializable(typeof(AdminEscrowListResponse))]

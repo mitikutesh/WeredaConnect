@@ -33,6 +33,7 @@ describe('CDK Integration Tests', () => {
       intentsTable: dbStack.intentsTable,
       deviceTokensTable: dbStack.deviceTokensTable,
       matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
     apiStack.addDependency(dbStack);
@@ -77,6 +78,7 @@ describe('CDK Integration Tests', () => {
         intentsTable: dbStack.intentsTable,
         deviceTokensTable: dbStack.deviceTokensTable,
         matchEventsTable: dbStack.matchEventsTable,
+        ratingsTable: dbStack.ratingsTable,
         uploadsBucket: dbStack.uploadsBucket,
       });
 

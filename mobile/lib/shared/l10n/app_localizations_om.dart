@@ -1314,6 +1314,70 @@ class AppLocalizationsOm extends AppLocalizations {
   String get createDelivery => 'Ergaa Uumi';
 
   @override
+  String get selectPaymentMethod => 'Mala kaffaltii filadhu';
+
+  @override
+  String get paymentMethodCbe => 'Baankii Daldala Itiyoophiyaa (CBE)';
+
+  @override
+  String get paymentMethodTelebirr => 'Telebirr';
+
+  @override
+  String get mockPaymentNotice =>
+      'Haala agarsiisaa: kaffaltiiwwan fakkeenya. Dabarsi dhugaan hin taasifamu.';
+
+  @override
+  String get telebirrPayInstructions =>
+      'Ajaja kanaaf kaffaltii Telebirr fakkeessuuf Kaffaltii Galchi tuqi.';
+
+  @override
+  String get transactionIdOptional => 'Lakkoofsa Daldala CBE (filannoo)';
+
+  @override
+  String get copy => 'Garagalchi';
+
+  @override
+  String get call => 'Bilbili';
+
+  @override
+  String get close => 'Cufi';
+
+  @override
+  String get farmerPhone => 'Bilbila Qonnaan Bulaa';
+
+  @override
+  String get phoneNotAvailable => 'Lakkoofsi bilbilaa hin argamu';
+
+  @override
+  String get rateFarmer => 'Qonnaan Bulaa Sadarkeessi';
+
+  @override
+  String get rateTrucker => 'Konkolaachisaa Sadarkeessi';
+
+  @override
+  String get submitRating => 'Sadarkaa Galchi';
+
+  @override
+  String get ratingCommentHint => 'Yaada dabaluu (filannoo)';
+
+  @override
+  String get ratingThankYou => 'Sadarkaa keessaniif galatoomaa!';
+
+  @override
+  String get alreadyRated => 'Sadarkeeffameera';
+
+  @override
+  String get noRatingsYet => 'Hanga ammaatti sadarkaan hin jiru';
+
+  @override
+  String get farmerRating => 'Sadarkaa Qonnaan Bulaa';
+
+  @override
+  String ratingsCount(int count) {
+    return 'sadarkaa $count';
+  }
+
+  @override
   String get contactFarmer => 'Qonnaan Bulaa Quunnamuu';
 
   @override

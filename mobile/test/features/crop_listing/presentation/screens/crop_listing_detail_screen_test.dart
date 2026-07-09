@@ -1,11 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/rating.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+/// No-op rating repository so the detail screen's farmer-rating row can build
+/// in tests without hitting a backend (returns "no ratings yet").
+class _FakeRatingRepository implements BaseRatingRepository {
+  @override
+  Future<Rating> createRating({
+    required String orderId,
+    required String raterId,
+    required String rateeId,
+    required String rateeRole,
+    required int stars,
+    String? comment,
+  }) async =>
+      Rating();
+
+  @override
+  Future<bool> hasRated({
+    required String orderId,
+    required String rateeId,
+  }) async =>
+      false;
+
+  @override
+  Future<List<Rating>> getRatingsForRatee(String rateeId) async => const [];
+
+  @override
+  Future<RatingSummary> getRatingSummary(String rateeId) async =>
+      RatingSummary.empty;
+}
 
 CropListing _makeListing({
   String cropType = 'teff',
@@ -42,10 +75,13 @@ Widget _buildScreen({
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     locale: const Locale('en'),
-    home: CropListingDetailScreen(
-      listing: listing,
-      currentUserId: currentUserId,
-      currentUserRole: currentUserRole,
+    home: BlocProvider<RatingBloc>(
+      create: (_) => RatingBloc(repository: _FakeRatingRepository()),
+      child: CropListingDetailScreen(
+        listing: listing,
+        currentUserId: currentUserId,
+        currentUserRole: currentUserRole,
+      ),
     ),
   );
 }

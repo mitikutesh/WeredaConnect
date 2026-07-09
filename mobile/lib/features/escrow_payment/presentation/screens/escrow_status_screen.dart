@@ -68,8 +68,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
     _loadEscrow();
     if (widget.awaitingPayment && widget.escrowId != null) {
       // Open Telebirr after first frame (needs a valid context for messenger).
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _launchTelebirr());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _launchTelebirr());
       _startPolling();
       // Refresh immediately when the buyer returns — via the deep-link
       // (weredaconnect://payment/complete) or app resume — instead of waiting

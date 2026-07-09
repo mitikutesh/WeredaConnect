@@ -26,6 +26,11 @@ class CropListing {
   /// Empty for legacy listings created before this field was added.
   String farmerName = '';
 
+  /// Farmer's phone number, denormalized so a buyer can contact them.
+  /// Mirrors [Trip.truckerPhone]. Empty for legacy listings or when the
+  /// server hasn't supplied it.
+  String farmerPhone = '';
+
   /// Type of crop (teff, wheat, barley, maize, chickpea, etc.)
   /// Stored in English but displayed in localized language
   @Index()

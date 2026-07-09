@@ -1730,6 +1730,33 @@
     "description": "Empty state subtitle on notifications screen"
   },
   "createDelivery": "Ergaa Uumi",
+  "selectPaymentMethod": "Mala kaffaltii filadhu",
+  "paymentMethodCbe": "Baankii Daldala Itiyoophiyaa (CBE)",
+  "paymentMethodTelebirr": "Telebirr",
+  "mockPaymentNotice": "Haala agarsiisaa: kaffaltiiwwan fakkeenya. Dabarsi dhugaan hin taasifamu.",
+  "telebirrPayInstructions": "Ajaja kanaaf kaffaltii Telebirr fakkeessuuf Kaffaltii Galchi tuqi.",
+  "transactionIdOptional": "Lakkoofsa Daldala CBE (filannoo)",
+  "copy": "Garagalchi",
+  "call": "Bilbili",
+  "close": "Cufi",
+  "farmerPhone": "Bilbila Qonnaan Bulaa",
+  "phoneNotAvailable": "Lakkoofsi bilbilaa hin argamu",
+  "rateFarmer": "Qonnaan Bulaa Sadarkeessi",
+  "rateTrucker": "Konkolaachisaa Sadarkeessi",
+  "submitRating": "Sadarkaa Galchi",
+  "ratingCommentHint": "Yaada dabaluu (filannoo)",
+  "ratingThankYou": "Sadarkaa keessaniif galatoomaa!",
+  "alreadyRated": "Sadarkeeffameera",
+  "noRatingsYet": "Hanga ammaatti sadarkaan hin jiru",
+  "farmerRating": "Sadarkaa Qonnaan Bulaa",
+  "ratingsCount": "sadarkaa {count}",
+  "@ratingsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "contactFarmer": "Qonnaan Bulaa Quunnamuu",
   "detailQuantity": "Hamma",
   "detailPrice": "Gatii",

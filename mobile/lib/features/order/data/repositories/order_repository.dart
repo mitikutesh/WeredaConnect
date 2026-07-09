@@ -222,8 +222,9 @@ class OrderRepository extends BaseOrderRepository {
   @override
   Future<void> submitPayment(
     String orderId,
-    String cbeTransactionId,
-  ) async {
+    String cbeTransactionId, {
+    String paymentMethod = 'cbe_transfer',
+  }) async {
     final order =
         await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
 
@@ -233,6 +234,7 @@ class OrderRepository extends BaseOrderRepository {
 
     await _isar.writeTxn(() async {
       order.cbeTransactionId = cbeTransactionId;
+      order.paymentMethod = paymentMethod;
       order.status = OrderStatus.paymentSubmitted;
       order.updatedAt = now;
       order.version += 1;
@@ -247,6 +249,7 @@ class OrderRepository extends BaseOrderRepository {
       data: jsonEncode({
         'orderId': orderId,
         'cbeTransactionId': cbeTransactionId,
+        'paymentMethod': paymentMethod,
         'status': OrderStatus.paymentSubmitted.name,
         'updatedAt': now.toIso8601String(),
         'version': order.version,

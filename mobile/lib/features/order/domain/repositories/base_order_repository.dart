@@ -39,7 +39,11 @@ abstract class BaseOrderRepository {
     double? commissionRate,
   });
 
-  Future<void> submitPayment(String orderId, String cbeTransactionId);
+  Future<void> submitPayment(
+    String orderId,
+    String cbeTransactionId, {
+    String paymentMethod = 'cbe_transfer',
+  });
 
   Future<void> cancelOrder(
     String orderId,

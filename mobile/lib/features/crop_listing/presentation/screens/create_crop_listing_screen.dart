@@ -112,6 +112,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
           CreateCropListing(
             farmerId: authState.userId,
             farmerName: authState.userName,
+            farmerPhone: authState.phoneNumber,
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),
