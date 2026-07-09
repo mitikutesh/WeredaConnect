@@ -72,6 +72,19 @@ export class WeredaLambda extends Construct {
           user: 'root',
           local: {
             tryBundle(outputDir: string): boolean {
+              // Deploy pipeline: use a real bootstrap that was cross-compiled on
+              // the runner (fast, no emulated-ARM64 Docker build). The
+              // deploy-server workflow sets LAMBDA_BOOTSTRAP_PATH to the
+              // published `bootstrap` binary. This must be checked BEFORE the CI
+              // placeholder branch, since GitHub Actions also sets CI=true.
+              const prebuilt = process.env.LAMBDA_BOOTSTRAP_PATH;
+              if (prebuilt && fs.existsSync(prebuilt)) {
+                const dest = path.join(outputDir, 'bootstrap');
+                fs.copyFileSync(prebuilt, dest);
+                fs.chmodSync(dest, 0o755);
+                return true;
+              }
+
               // In CI/test: skip Docker bundling, use placeholder bootstrap.
               // GitHub Actions sets CI=true; Docker is available there but a
               // full .NET cross-compile is slow and unnecessary for synth/tests.
