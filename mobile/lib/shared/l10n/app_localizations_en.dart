@@ -283,6 +283,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get invalidCredentials => 'Invalid phone number or password';
 
   @override
+  String get resetCodeInvalid =>
+      'The verification code is incorrect. Please check it and try again.';
+
+  @override
+  String get resetCodeExpired =>
+      'The verification code has expired. Please request a new one.';
+
+  @override
   String get phoneAlreadyRegistered =>
       'This phone number is already registered';
 

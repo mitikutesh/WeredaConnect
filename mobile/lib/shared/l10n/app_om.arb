@@ -344,6 +344,14 @@
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
+  "resetCodeInvalid": "Koodiin mirkaneessaa sirrii miti. Maaloo mirkaneessitanii irra deebi'aa yaalaa.",
+  "@resetCodeInvalid": {
+    "description": "Password reset: verification code mismatch (AUTH_022)"
+  },
+  "resetCodeExpired": "Koodiin mirkaneessaa yeroon isaa darbeera. Maaloo kan haaraa gaafadhaa.",
+  "@resetCodeExpired": {
+    "description": "Password reset: verification code expired (AUTH_023)"
+  },
   "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
   "@invalidCredentials": {
     "description": "Error message for invalid credentials"

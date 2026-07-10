@@ -285,6 +285,14 @@ class AppLocalizationsOm extends AppLocalizations {
       'Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti';
 
   @override
+  String get resetCodeInvalid =>
+      'Koodiin mirkaneessaa sirrii miti. Maaloo mirkaneessitanii irra deebi\'aa yaalaa.';
+
+  @override
+  String get resetCodeExpired =>
+      'Koodiin mirkaneessaa yeroon isaa darbeera. Maaloo kan haaraa gaafadhaa.';
+
+  @override
   String get phoneAlreadyRegistered =>
       'Lakkoofsi bilbilaa kun duraanuu galmaa\'eera';
 

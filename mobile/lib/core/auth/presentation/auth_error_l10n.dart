@@ -36,6 +36,11 @@ String localizeAuthError(
     AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
     AuthErrorCode.invalidFaydaToken => l10n.faydaVerificationFailed,
 
+    // Password reset errors (AUTH_022–024)
+    AuthErrorCode.resetCodeInvalid => l10n.resetCodeInvalid,
+    AuthErrorCode.resetCodeExpired => l10n.resetCodeExpired,
+    AuthErrorCode.resetPasswordRequirements => l10n.passwordRequirements,
+
     // Login errors
     AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
     AuthErrorCode.accountLocked => l10n.authAccountDisabled,

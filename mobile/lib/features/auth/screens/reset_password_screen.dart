@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -82,8 +83,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               backgroundColor: AppTheme.statusSuccess,
             ),
           );
-          // Pop all the way back to login
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          // Navigate to login explicitly. popUntil(isFirst) worked only on the
+          // push-based mobile flow; on web the forgot/reset screens replace the
+          // login route (GoRouter.go), so there was no login route to pop back to
+          // and the user was stranded. go('/login') works on both platforms.
+          context.go('/login');
         } else if (state is AuthError) {
           setState(() {
             _errorMessage = localizeAuthError(

@@ -344,6 +344,14 @@
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
+  "resetCodeInvalid": "የማረጋገጫ ኮዱ ትክክል አይደለም። እባክዎ አረጋግጠው እንደገና ይሞክሩ።",
+  "@resetCodeInvalid": {
+    "description": "Password reset: verification code mismatch (AUTH_022)"
+  },
+  "resetCodeExpired": "የማረጋገጫ ኮዱ ጊዜው አልፎበታል። እባክዎ አዲስ ይጠይቁ።",
+  "@resetCodeExpired": {
+    "description": "Password reset: verification code expired (AUTH_023)"
+  },
   "invalidCredentials": "ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል",
   "@invalidCredentials": {
     "description": "Error message for invalid credentials"

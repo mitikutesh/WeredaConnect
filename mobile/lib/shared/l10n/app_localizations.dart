@@ -628,6 +628,18 @@ abstract class AppLocalizations {
   /// **'Invalid phone number or password'**
   String get invalidCredentials;
 
+  /// Password reset: verification code mismatch (AUTH_022)
+  ///
+  /// In en, this message translates to:
+  /// **'The verification code is incorrect. Please check it and try again.'**
+  String get resetCodeInvalid;
+
+  /// Password reset: verification code expired (AUTH_023)
+  ///
+  /// In en, this message translates to:
+  /// **'The verification code has expired. Please request a new one.'**
+  String get resetCodeExpired;
+
   /// Error message for duplicate phone number
   ///
   /// In en, this message translates to:

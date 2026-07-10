@@ -351,6 +351,14 @@
   "@invalidCredentials": {
     "description": "Error message for invalid credentials"
   },
+  "resetCodeInvalid": "The verification code is incorrect. Please check it and try again.",
+  "@resetCodeInvalid": {
+    "description": "Password reset: verification code mismatch (AUTH_022)"
+  },
+  "resetCodeExpired": "The verification code has expired. Please request a new one.",
+  "@resetCodeExpired": {
+    "description": "Password reset: verification code expired (AUTH_023)"
+  },
   "phoneAlreadyRegistered": "This phone number is already registered",
   "@phoneAlreadyRegistered": {
     "description": "Error message for duplicate phone number"
