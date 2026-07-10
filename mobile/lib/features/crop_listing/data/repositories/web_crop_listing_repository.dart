@@ -128,15 +128,31 @@ class WebCropListingRepository extends BaseCropListingRepository {
     double? priceMin,
     double? priceMax,
   }) async {
-    // Server stores listings with status=available (not "active")
-    final params = <String, dynamic>{'status': 'available'};
-    if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
-    if (weredaFilter != null) params['woreda'] = weredaFilter;
-    final data = await _api.get<Map<String, dynamic>>(
-      '/crops',
-      queryParameters: params,
-    );
-    var listings = _parseListings(data);
+    // Buyer browse MUST return ALL matching crops (role-visibility rule), so drain
+    // every page — a single request caps at the server default of 20 listings.
+    var listings = <CropListing>[];
+    String? nextToken;
+    do {
+      // Server stores listings with status=available (not "active").
+      final params = <String, dynamic>{'status': 'available', 'limit': '100'};
+      if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
+      if (nextToken != null) params['nextToken'] = nextToken;
+      final data = await _api.get<Map<String, dynamic>>(
+        '/crops',
+        queryParameters: params,
+      );
+      listings.addAll(_parseListings(data));
+      nextToken = data['nextToken'] as String?;
+    } while (nextToken != null && nextToken.isNotEmpty);
+
+    // woreda is a free-text search: match the mobile repo's case-insensitive
+    // substring on locationName rather than an exact server-side woreda equality.
+    if (weredaFilter != null && weredaFilter.isNotEmpty) {
+      final needle = weredaFilter.toLowerCase();
+      listings = listings
+          .where((l) => l.locationName.toLowerCase().contains(needle))
+          .toList();
+    }
 
     // Client-side price filtering (server may not support price range)
     if (priceMin != null) {
