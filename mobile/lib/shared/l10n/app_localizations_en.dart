@@ -1871,6 +1871,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fieldRequired => 'This field is required';
 
   @override
+  String get back => 'Back';
+
+  @override
   String get clearAll => 'Clear all';
 
   @override

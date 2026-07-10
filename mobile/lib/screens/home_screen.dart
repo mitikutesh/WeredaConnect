@@ -1747,10 +1747,17 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           '/orders',
           queryParameters: {'farmerId': userId, 'limit': '3'},
         ).catchError((_) => <String, dynamic>{}),
-        // Deliveries (all roles)
+        // Deliveries (all roles) — MUST be scoped to the caller, otherwise the
+        // limit is applied to the global most-recent deliveries before filtering,
+        // so the user can see none of their own (the limit-before-filter bug the
+        // Isar path already fixed). Buyer uses the participant-scoped "mine" query.
         api.get<Map<String, dynamic>>(
           '/deliveries',
-          queryParameters: {'limit': '5'},
+          queryParameters: switch (role) {
+            UserRole.farmer => {'farmerId': userId, 'limit': '5'},
+            UserRole.trucker => {'truckerId': userId, 'limit': '5'},
+            _ => {'mine': 'true', 'limit': '5'},
+          },
         ).catchError((_) => <String, dynamic>{}),
       ];
 

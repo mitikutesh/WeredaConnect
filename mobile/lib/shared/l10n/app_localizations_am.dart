@@ -1823,6 +1823,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get fieldRequired => 'ይህ መስክ ያስፈልጋል';
 
   @override
+  String get back => 'ተመለስ';
+
+  @override
   String get clearAll => 'ሁሉንም አጽዳ';
 
   @override

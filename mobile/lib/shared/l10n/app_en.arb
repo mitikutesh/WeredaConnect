@@ -2527,6 +2527,10 @@
   "@fieldRequired": {
     "description": "Generic validation error for empty required fields"
   },
+  "back": "Back",
+  "@back": {
+    "description": "Back navigation label"
+  },
   "clearAll": "Clear all",
   "@clearAll": {
     "description": "Button label to clear all notifications"

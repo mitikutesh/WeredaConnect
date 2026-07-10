@@ -119,20 +119,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     alignment: Alignment.centerLeft,
                     child: GestureDetector(
                       onTap: () => Navigator.of(context).pop(),
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 4),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.arrow_back_ios_new,
                               size: 18,
                               color: Colors.white,
                             ),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 4),
                             Text(
-                              'Back',
-                              style: TextStyle(
+                              l10n.back,
+                              style: const TextStyle(
                                 fontSize: 14,
                                 color: Colors.white,
                               ),

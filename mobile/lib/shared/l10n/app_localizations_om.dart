@@ -1885,6 +1885,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get fieldRequired => 'Dirreen kun dirqama';
 
   @override
+  String get back => 'Deebi\'i';
+
+  @override
   String get clearAll => 'Hunda haqi';
 
   @override

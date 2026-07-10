@@ -3544,6 +3544,12 @@ abstract class AppLocalizations {
   /// **'This field is required'**
   String get fieldRequired;
 
+  /// Back navigation label
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get back;
+
   /// Button label to clear all notifications
   ///
   /// In en, this message translates to:

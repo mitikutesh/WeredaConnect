@@ -2276,6 +2276,10 @@
       }
     }
   },
+  "back": "Deebi'i",
+  "@back": {
+    "description": "Back navigation label"
+  },
   "quantityKg": "{amount} kg",
   "@quantityKg": {
     "placeholders": {

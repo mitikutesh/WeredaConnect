@@ -2253,6 +2253,10 @@
       }
     }
   },
+  "back": "ተመለስ",
+  "@back": {
+    "description": "Back navigation label"
+  },
   "listingNotFound": "ዝርዝር አልተገኘም",
   "unauthorizedAccess": "ይህን ትዕዛዝ ለማየት ፍቃድ የሎትም።",
   "whatDoYouNeed": "ምን ይፈልጋሉ?",
