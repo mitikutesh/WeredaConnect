@@ -336,6 +336,10 @@ export class ApiStack extends cdk.Stack {
         MESSAGES_TABLE: props.messagesTable.tableName,
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         DELIVERY_QR_SECRETS_TABLE: props.deliveryQrSecretsTable.tableName,
+        // Confirming a delivery stamps the linked escrow so the auto-release cron
+        // can pay the farmer. Without this env var (+ grant below) _escrowRepo is
+        // null and the delivery-confirmation -> escrow payout bridge is disabled.
+        ESCROWS_TABLE: props.escrowsTable.tableName,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -364,6 +368,9 @@ export class ApiStack extends cdk.Stack {
     // QR handoff secrets: sync writes the farmer's nonce and reads it to verify a
     // scanner's echo (and marks it consumed). Never echoed back to any client.
     props.deliveryQrSecretsTable.grantReadWriteData(syncFn.function);
+    // Escrows: on delivery confirmation sync looks up the linked escrow by deliveryId
+    // and stamps it for the auto-release cron. Read-write (CAS status update) + indexes.
+    props.escrowsTable.grantReadWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
