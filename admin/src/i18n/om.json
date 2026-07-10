@@ -119,7 +119,10 @@
     "totalCommission": "Koomishinii Waliigalaa",
     "monthlyRevenue": "Galii Ji'aa",
     "avgTransaction": "Giddugaleessa Daldala",
-    "commissionRate": "Hanga Koomishinii"
+    "commissionRate": "Hanga Koomishinii",
+    "totalVolume": "Hanga Waliigalaa",
+    "transactionCount": "Daldalawwan",
+    "avgCommission": "Giddugaleessa Koomishinii"
   },
   "transactions": {
     "title": "Daldala",
@@ -223,7 +226,13 @@
     "totalVolume": "Hanga Waliigalaa",
     "dailyAvg": "Giddugaleessa Guyyaa",
     "peakHour": "Sa'aatii Ol'aanaa",
-    "successRate": "Hanga Milkaa'inaa"
+    "successRate": "Hanga Milkaa'inaa",
+    "totalTransactions": "Daldalawwan Waliigalaa",
+    "completed": "Xumurame",
+    "pending": "Eeggataa",
+    "disputed": "Falmisiisaa",
+    "refunded": "Deebi'e",
+    "statusBreakdown": "Qoodama Haala"
   },
   "audit": {
     "title": "Galmee Odiitii",
@@ -243,7 +252,11 @@
     "healthy": "Fayyaa",
     "degraded": "Hir'atee",
     "down": "Kufee",
-    "services": "Tajaajilota"
+    "services": "Tajaajilota",
+    "status": "Haala",
+    "region": "Naannoo",
+    "activeTables": "Gabatee Sochii",
+    "uptime": "Yeroo Hojii"
   },
   "compliance": {
     "title": "Hordoffii",
@@ -252,7 +265,12 @@
     "verified": "Mirkanaa'era",
     "unverified": "Hin Mirkanaa'in",
     "dailyLimit": "Daangaa Guyyaa",
-    "monthlyLimit": "Daangaa Ji'aa"
+    "monthlyLimit": "Daangaa Ji'aa",
+    "overview": "Ilaalcha Waliigalaa",
+    "totalTransactions": "Daldalawwan Waliigalaa",
+    "totalVolume": "Hanga Waliigalaa",
+    "disputesOpen": "Falmiiwwan Banaa",
+    "disputesResolved": "Falmiiwwan Furaman"
   },
   "common": {
     "search": "Barbaadi",

@@ -119,7 +119,10 @@
     "totalCommission": "ጠቅላላ ኮሚሽን",
     "monthlyRevenue": "ወርሃዊ ገቢ",
     "avgTransaction": "አማካኝ ግብይት",
-    "commissionRate": "የኮሚሽን ምጣኔ"
+    "commissionRate": "የኮሚሽን ምጣኔ",
+    "totalVolume": "ጠቅላላ መጠን",
+    "transactionCount": "ግብይቶች",
+    "avgCommission": "አማካኝ ኮሚሽን"
   },
   "transactions": {
     "title": "ግብይቶች",
@@ -223,7 +226,13 @@
     "totalVolume": "ጠቅላላ መጠን",
     "dailyAvg": "ዕለታዊ አማካኝ",
     "peakHour": "ከፍተኛ ሰዓት",
-    "successRate": "የስኬት ምጣኔ"
+    "successRate": "የስኬት ምጣኔ",
+    "totalTransactions": "ጠቅላላ ግብይቶች",
+    "completed": "ተጠናቋል",
+    "pending": "በመጠባበቅ ላይ",
+    "disputed": "አከራካሪ",
+    "refunded": "ተመላሽ ተደርጓል",
+    "statusBreakdown": "የሁኔታ ስብጥር"
   },
   "audit": {
     "title": "የኦዲት ምዝግብ",
@@ -243,7 +252,11 @@
     "healthy": "ጤናማ",
     "degraded": "ያሽቆለቆለ",
     "down": "ወድቋል",
-    "services": "አገልግሎቶች"
+    "services": "አገልግሎቶች",
+    "status": "ሁኔታ",
+    "region": "ክልል",
+    "activeTables": "ንቁ ሠንጠረዦች",
+    "uptime": "የሥራ ጊዜ"
   },
   "compliance": {
     "title": "ተገዢነት",
@@ -252,7 +265,12 @@
     "verified": "ተረጋግጧል",
     "unverified": "አልተረጋገጠም",
     "dailyLimit": "ዕለታዊ ገደብ",
-    "monthlyLimit": "ወርሃዊ ገደብ"
+    "monthlyLimit": "ወርሃዊ ገደብ",
+    "overview": "አጠቃላይ እይታ",
+    "totalTransactions": "ጠቅላላ ግብይቶች",
+    "totalVolume": "ጠቅላላ መጠን",
+    "disputesOpen": "ክፍት አለመግባባቶች",
+    "disputesResolved": "የተፈቱ አለመግባባቶች"
   },
   "common": {
     "search": "ፈልግ",
