@@ -251,16 +251,26 @@ class WebTripListingRepository extends BaseTripListingRepository {
 
   @override
   Future<Trip?> getMostRelevantTrip(String truckerId) async {
+    // Do NOT filter to status=open: the trucker's hero card must also reflect
+    // matched/inTransit/delivered trips. Fetch the trucker's trips and apply the
+    // same priority the mobile repo uses (inTransit > matched > open > most recent).
     final data = await _api.get<Map<String, dynamic>>(
       '/trips',
-      queryParameters: {
-        'truckerId': truckerId,
-        'status': 'open',
-        'limit': '1',
-      },
+      queryParameters: {'truckerId': truckerId, 'limit': '50'},
     );
     final trips = _parseTrips(data);
-    return trips.isEmpty ? null : trips.first;
+    if (trips.isEmpty) return null;
+    for (final status in [
+      TripStatus.inTransit,
+      TripStatus.matched,
+      TripStatus.open,
+    ]) {
+      final matches = trips.where((t) => t.status == status).toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      if (matches.isNotEmpty) return matches.first;
+    }
+    trips.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return trips.first;
   }
 
   List<Trip> _parseTrips(Map<String, dynamic> data) {
@@ -273,10 +283,22 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }
 
   Trip _parseSingleTrip(Map<String, dynamic> m) {
-    // Single trip response may have the trip at the top level
+    // Server wraps the single-GET response as {"trip": {...}} (GetTripResponse,
+    // camelCase). Handling only the bare/`item` shapes threw a TypeError on the
+    // real response, breaking every web trip status transition (start/deliver/cancel
+    // all read the current version through here first).
+    if (m['trip'] is Map<String, dynamic>) {
+      return _parseTripMap(m['trip'] as Map<String, dynamic>);
+    }
+    // Or the trip at the top level.
     if (m.containsKey('tripId')) return _parseTripMap(m);
-    // Or nested under 'item'
-    return _parseTripMap(m['item'] as Map<String, dynamic>);
+    // Or nested under 'item'.
+    if (m['item'] is Map<String, dynamic>) {
+      return _parseTripMap(m['item'] as Map<String, dynamic>);
+    }
+    // Unknown shape: return a safe empty trip (version defaults to 1) rather
+    // than throwing.
+    return _parseTripMap(const <String, dynamic>{});
   }
 
   Trip _parseTripMap(Map<String, dynamic> m) {
