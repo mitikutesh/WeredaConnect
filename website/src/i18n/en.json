@@ -73,21 +73,48 @@
     "subtitle": "Three simple steps for each user",
     "farmer": {
       "title": "For Farmers",
-      "step1": { "title": "List Your Produce", "description": "Add what you're selling — type, quantity, and price. Works offline." },
-      "step2": { "title": "Get Matched", "description": "Buyers browse your listings. Accept offers that work for you." },
-      "step3": { "title": "Get Paid Securely", "description": "Payment held in Telebirr escrow. Released when buyer confirms delivery." }
+      "step1": {
+        "title": "List Your Produce",
+        "description": "Add what you're selling — type, quantity, and price. Works offline."
+      },
+      "step2": {
+        "title": "Get Matched",
+        "description": "Buyers browse your listings. Accept offers that work for you."
+      },
+      "step3": {
+        "title": "Get Paid Securely",
+        "description": "Payment held in Telebirr escrow. Released when buyer confirms delivery."
+      }
     },
     "trucker": {
       "title": "For Truckers",
-      "step1": { "title": "Browse Trips", "description": "See available cargo near your route. Filter by destination and weight." },
-      "step2": { "title": "Accept & Transport", "description": "Confirm pickup details. Track your trip progress in the app." },
-      "step3": { "title": "Earn on Delivery", "description": "Payment confirmed on delivery. Build your reputation with ratings." }
+      "step1": {
+        "title": "Post Your Trip",
+        "description": "List your route, capacity, and price. Buyers browse all trips and book you."
+      },
+      "step2": {
+        "title": "Accept & Transport",
+        "description": "Confirm pickup details. Track your trip progress in the app."
+      },
+      "step3": {
+        "title": "Earn on Delivery",
+        "description": "Payment confirmed on delivery. Build your reputation with ratings."
+      }
     },
     "buyer": {
       "title": "For Buyers",
-      "step1": { "title": "Search Produce", "description": "Browse farmers by crop type, region, and price. Fresh from the source." },
-      "step2": { "title": "Arrange Transport", "description": "Book a truck directly or let farmers arrange delivery." },
-      "step3": { "title": "Receive & Pay", "description": "Inspect on arrival. Confirm delivery to release escrow payment." }
+      "step1": {
+        "title": "Search Produce",
+        "description": "Browse farmers by crop type, region, and price. Fresh from the source."
+      },
+      "step2": {
+        "title": "Arrange Transport",
+        "description": "Book a truck directly or let farmers arrange delivery."
+      },
+      "step3": {
+        "title": "Receive & Pay",
+        "description": "Inspect on arrival. Confirm delivery to release escrow payment."
+      }
     }
   },
   "downloadCta": {
@@ -113,10 +140,22 @@
     "values": {
       "title": "Our Values",
       "items": [
-        { "title": "Offline First", "text": "Technology that works where people are, not where networks are." },
-        { "title": "Local Languages", "text": "Your language, your voice, your way of doing business." },
-        { "title": "Fair Markets", "text": "Transparent pricing that benefits farmers and buyers equally." },
-        { "title": "Rural Access", "text": "Designed for $50 phones and 2G connections." }
+        {
+          "title": "Offline First",
+          "text": "Technology that works where people are, not where networks are."
+        },
+        {
+          "title": "Local Languages",
+          "text": "Your language, your voice, your way of doing business."
+        },
+        {
+          "title": "Fair Markets",
+          "text": "Transparent pricing that benefits farmers and buyers equally."
+        },
+        {
+          "title": "Rural Access",
+          "text": "Designed for $50 phones and 2G connections."
+        }
       ]
     }
   },
@@ -144,6 +183,7 @@
     "legal": "Legal",
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
-    "copyright": "WeredaConnect. All rights reserved."
+    "copyright": "WeredaConnect. All rights reserved.",
+    "language": "Language"
   }
 }
