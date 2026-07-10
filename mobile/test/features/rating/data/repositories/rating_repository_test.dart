@@ -133,8 +133,12 @@ void main() {
       );
     });
 
-    test('getRatingSummary falls back to the local average when offline',
-        () async {
+    test(
+        'getRatingSummary returns empty when offline (public aggregate is not '
+        'derivable from this device\'s own ratings)', () async {
+      // These are ratings AUTHORED on this device. Averaging them would present
+      // the current user's own rating as the ratee's public score, so the offline
+      // path must return empty rather than a misleading aggregate.
       await repository.createRating(
         orderId: 'order-1',
         raterId: 'buyer-1',
@@ -151,8 +155,8 @@ void main() {
       );
 
       final summary = await repository.getRatingSummary('farmer-1');
-      expect(summary.count, 2);
-      expect(summary.average, 3.0);
+      expect(summary.count, 0);
+      expect(summary.average, 0);
     });
 
     test('getRatingSummary is empty for an unrated user', () async {

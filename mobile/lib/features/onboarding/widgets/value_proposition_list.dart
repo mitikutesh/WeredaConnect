@@ -27,7 +27,9 @@ class ValuePropositionList extends StatelessWidget {
         ),
         _ValuePropItem(
           icon: Icons.mic,
-          text: l10n.recordAudioNote,
+          // The value proposition is the benefit ("Voice Support in Your
+          // Language"), not the "Record Audio Note" action label.
+          text: l10n.voiceSupport,
           color: AppTheme.statusInfo,
         ),
         _ValuePropItem(
