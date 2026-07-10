@@ -1264,6 +1264,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get conflictEntityTrip => 'Imala';
 
   @override
+  String get conflictEntityOrder => 'Ajaja';
+
+  @override
+  String get conflictEntityRating => 'Madaallii';
+
+  @override
+  String get conflictEntityPayment => 'Kaffaltii';
+
+  @override
   String get conflictServerValues => 'Gatii Ammaa';
 
   @override

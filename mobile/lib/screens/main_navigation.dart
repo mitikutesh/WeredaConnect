@@ -141,8 +141,9 @@ class _MainNavigationState extends State<MainNavigation> {
           listener: (context, state) {
             if (state is ConflictPending) {
               final messenger = ScaffoldMessenger.of(context);
-              final message =
-                  l10n.conflictBannerSingle(state.conflict.entityType);
+              final message = l10n.conflictBannerSingle(
+                conflictEntityLabel(l10n, state.conflict.entityType),
+              );
               messenger.showMaterialBanner(
                 MaterialBanner(
                   backgroundColor: AppTheme.statusWarning.withAlpha(25),
@@ -161,14 +162,17 @@ class _MainNavigationState extends State<MainNavigation> {
                     TextButton(
                       onPressed: () {
                         messenger.hideCurrentMaterialBanner();
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => BlocProvider.value(
-                              value: context.read<ConflictBloc>(),
-                              child: ConflictResolutionScreen(
-                                conflict: state.conflict,
-                              ),
+                        // ConflictResolutionScreen is Scaffold-less bottom-sheet
+                        // content; present it as a modal bottom sheet so it has a
+                        // surface + backdrop instead of rendering on a bare black
+                        // full-screen route.
+                        showModalBottomSheet<void>(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (_) => BlocProvider.value(
+                            value: context.read<ConflictBloc>(),
+                            child: ConflictResolutionScreen(
+                              conflict: state.conflict,
                             ),
                           ),
                         );

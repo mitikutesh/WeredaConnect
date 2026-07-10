@@ -1661,6 +1661,18 @@
   "@conflictEntityTrip": {
     "description": "Entity type label for trip in conflict dialog"
   },
+  "conflictEntityOrder": "Order",
+  "@conflictEntityOrder": {
+    "description": "Entity type label for order in conflict dialog"
+  },
+  "conflictEntityRating": "Rating",
+  "@conflictEntityRating": {
+    "description": "Entity type label for rating in conflict dialog"
+  },
+  "conflictEntityPayment": "Payment",
+  "@conflictEntityPayment": {
+    "description": "Entity type label for payment/escrow in conflict dialog"
+  },
   "conflictServerValues": "Updated values from server:",
   "@conflictServerValues": {
     "description": "Section header showing server-side field values"

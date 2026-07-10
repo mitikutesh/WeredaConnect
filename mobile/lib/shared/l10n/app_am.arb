@@ -1641,6 +1641,18 @@
   "@conflictEntityTrip": {
     "description": "Entity type label for trip in conflict dialog"
   },
+  "conflictEntityOrder": "ትዕዛዝ",
+  "@conflictEntityOrder": {
+    "description": "Entity type label for order in conflict dialog"
+  },
+  "conflictEntityRating": "ደረጃ",
+  "@conflictEntityRating": {
+    "description": "Entity type label for rating in conflict dialog"
+  },
+  "conflictEntityPayment": "ክፍያ",
+  "@conflictEntityPayment": {
+    "description": "Entity type label for payment/escrow in conflict dialog"
+  },
   "conflictServerValues": "የአሁኑ እሴቶች",
   "@conflictServerValues": {
     "description": "Section header showing server-side field values"

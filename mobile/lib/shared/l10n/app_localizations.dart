@@ -2422,6 +2422,24 @@ abstract class AppLocalizations {
   /// **'Trip'**
   String get conflictEntityTrip;
 
+  /// Entity type label for order in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get conflictEntityOrder;
+
+  /// Entity type label for rating in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Rating'**
+  String get conflictEntityRating;
+
+  /// Entity type label for payment/escrow in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Payment'**
+  String get conflictEntityPayment;
+
   /// Section header showing server-side field values
   ///
   /// In en, this message translates to:

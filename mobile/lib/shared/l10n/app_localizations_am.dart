@@ -1219,6 +1219,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get conflictEntityTrip => 'ጉዞ';
 
   @override
+  String get conflictEntityOrder => 'ትዕዛዝ';
+
+  @override
+  String get conflictEntityRating => 'ደረጃ';
+
+  @override
+  String get conflictEntityPayment => 'ክፍያ';
+
+  @override
   String get conflictServerValues => 'የአሁኑ እሴቶች';
 
   @override

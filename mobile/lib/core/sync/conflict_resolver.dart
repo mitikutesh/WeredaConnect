@@ -176,15 +176,18 @@ class ConflictResolver {
       await _isar.writeTxn(() async {
         delivery ??= Delivery()..deliveryId = operation.entityId;
 
-        delivery!.tripId = serverData['tripId'] as String;
-        delivery!.listingId = serverData['listingId'] as String;
-        delivery!.farmerId = serverData['farmerId'] as String;
-        delivery!.farmerName = serverData['farmerName'] as String;
-        delivery!.truckerId = serverData['truckerId'] as String;
-        delivery!.truckerName = serverData['truckerName'] as String;
-        delivery!.buyerId = serverData['buyerId'] as String;
-        delivery!.buyerName = serverData['buyerName'] as String;
-        delivery!.qrToken = serverData['qrToken'] as String;
+        // Null-safe casts: self-pickup deliveries carry no trucker (and no
+        // qrToken), so a hard `as String` on those threw a TypeError and the
+        // conflict failed to auto-resolve instead of applying server-wins.
+        delivery!.tripId = serverData['tripId'] as String? ?? '';
+        delivery!.listingId = serverData['listingId'] as String? ?? '';
+        delivery!.farmerId = serverData['farmerId'] as String? ?? '';
+        delivery!.farmerName = serverData['farmerName'] as String? ?? '';
+        delivery!.truckerId = serverData['truckerId'] as String? ?? '';
+        delivery!.truckerName = serverData['truckerName'] as String? ?? '';
+        delivery!.buyerId = serverData['buyerId'] as String? ?? '';
+        delivery!.buyerName = serverData['buyerName'] as String? ?? '';
+        delivery!.qrToken = serverData['qrToken'] as String? ?? '';
 
         // Parse status enum
         final statusStr = serverData['status'] as String;

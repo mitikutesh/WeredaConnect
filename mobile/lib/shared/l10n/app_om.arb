@@ -1645,6 +1645,18 @@
   "@conflictEntityTrip": {
     "description": "Entity type label for trip in conflict dialog"
   },
+  "conflictEntityOrder": "Ajaja",
+  "@conflictEntityOrder": {
+    "description": "Entity type label for order in conflict dialog"
+  },
+  "conflictEntityRating": "Madaallii",
+  "@conflictEntityRating": {
+    "description": "Entity type label for rating in conflict dialog"
+  },
+  "conflictEntityPayment": "Kaffaltii",
+  "@conflictEntityPayment": {
+    "description": "Entity type label for payment/escrow in conflict dialog"
+  },
   "conflictServerValues": "Gatii Ammaa",
   "@conflictServerValues": {
     "description": "Section header showing server-side field values"

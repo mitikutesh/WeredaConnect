@@ -7,6 +7,44 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
     as bloc_event;
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
+/// Localized label for a conflict entity type. Falls back to a humanized token
+/// (e.g. "buyer_intent" -> "Buyer Intent") for any unmapped type rather than
+/// leaking the raw wire token. Shared by the conflict banner and this screen.
+String conflictEntityLabel(AppLocalizations l10n, String entityType) {
+  switch (entityType) {
+    case 'crop_listing':
+      return l10n.conflictEntityCropListing;
+    case 'delivery':
+      return l10n.conflictEntityDelivery;
+    case 'trip':
+      return l10n.conflictEntityTrip;
+    case 'order':
+      return l10n.conflictEntityOrder;
+    case 'rating':
+      return l10n.conflictEntityRating;
+    case 'escrow':
+    case 'payment':
+      return l10n.conflictEntityPayment;
+    default:
+      return _humanizeToken(entityType);
+  }
+}
+
+/// Turn a wire token ("picked_up", "in_transit", "buyer_intent") into a readable
+/// label ("Picked Up", "In Transit", "Buyer Intent"). Used as a fallback so the
+/// conflict UI never shows a raw snake_case/camelCase token.
+String _humanizeToken(String token) {
+  if (token.isEmpty) return '-';
+  final spaced = token
+      .replaceAll('_', ' ')
+      .replaceAllMapped(RegExp('([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
+  return spaced
+      .split(' ')
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+}
+
 /// Modal bottom sheet shown when a sync conflict is auto-resolved.
 ///
 /// Informs the user that their local data was updated by the server.
@@ -209,11 +247,13 @@ class ConflictResolutionScreen extends StatelessWidget {
           l10n.conflictFieldCropType: data['cropType']?.toString() ?? '-',
           l10n.conflictFieldQuantity: data['quantity']?.toString() ?? '-',
           l10n.conflictFieldPricePerKg: data['pricePerKg']?.toString() ?? '-',
-          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldStatus:
+              _humanizeToken(data['status']?.toString() ?? ''),
         };
       case 'delivery':
         return {
-          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldStatus:
+              _humanizeToken(data['status']?.toString() ?? ''),
           // Security fix #2: guard against short tripId
           l10n.conflictFieldTrip: () {
             final id = data['tripId']?.toString();
@@ -225,7 +265,8 @@ class ConflictResolutionScreen extends StatelessWidget {
         return {
           l10n.conflictFieldRoute:
               '${data['fromWoreda'] ?? '?'} → ${data['toWoreda'] ?? '?'}',
-          l10n.conflictFieldStatus: data['status']?.toString() ?? '-',
+          l10n.conflictFieldStatus:
+              _humanizeToken(data['status']?.toString() ?? ''),
           l10n.conflictFieldCapacity: data['capacity']?.toString() ?? '-',
         };
       default:
@@ -233,18 +274,8 @@ class ConflictResolutionScreen extends StatelessWidget {
     }
   }
 
-  String _entityTypeLabel(AppLocalizations l10n) {
-    switch (conflict.entityType) {
-      case 'crop_listing':
-        return l10n.conflictEntityCropListing;
-      case 'delivery':
-        return l10n.conflictEntityDelivery;
-      case 'trip':
-        return l10n.conflictEntityTrip;
-      default:
-        return conflict.entityType;
-    }
-  }
+  String _entityTypeLabel(AppLocalizations l10n) =>
+      conflictEntityLabel(l10n, conflict.entityType);
 
   IconData _entityTypeIcon() {
     switch (conflict.entityType) {

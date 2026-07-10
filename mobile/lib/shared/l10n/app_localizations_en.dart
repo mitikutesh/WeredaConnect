@@ -1258,6 +1258,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conflictEntityTrip => 'Trip';
 
   @override
+  String get conflictEntityOrder => 'Order';
+
+  @override
+  String get conflictEntityRating => 'Rating';
+
+  @override
+  String get conflictEntityPayment => 'Payment';
+
+  @override
   String get conflictServerValues => 'Updated values from server:';
 
   @override
