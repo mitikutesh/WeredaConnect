@@ -31,9 +31,14 @@ class MatchResultsScreen extends StatefulWidget {
   final BuyerIntent intent;
   final List<CropMatchResult>? initialMatches;
 
+  /// True when [initialMatches] were computed against cached data (offline
+  /// intent creation) so the "showing saved results" banner is shown.
+  final bool initialIsStale;
+
   const MatchResultsScreen({
     required this.intent,
     this.initialMatches,
+    this.initialIsStale = false,
     super.key,
   });
 
@@ -67,6 +72,7 @@ class _MatchResultsScreenState extends State<MatchResultsScreen> {
           ? _MatchResultsBody(
               intent: widget.intent,
               matches: widget.initialMatches!,
+              isStale: widget.initialIsStale,
             )
           : BlocBuilder<BuyerIntentBloc, BuyerIntentState>(
               // Ignore states meant for other screens (e.g. the

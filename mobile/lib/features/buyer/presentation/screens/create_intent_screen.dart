@@ -147,6 +147,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                   child: MatchResultsScreen(
                     intent: state.intent,
                     initialMatches: state.matches,
+                    initialIsStale: state.isStale,
                   ),
                 ),
               ),
