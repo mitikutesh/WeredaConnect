@@ -70,7 +70,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
       "clientVersion": 1,
       "data": {
         "deliveryId": "del-101",
-        "status": "picked_up",
+        "status": "pickedUp",
         "gpsPickup": {
           "latitude": 9.6778,
           "longitude": 39.5318
@@ -137,7 +137,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
         "deliveryId": "del-101",
         "tripId": "trip-101",
         "listingId": "crop-456",
-        "status": "picked_up",
+        "status": "pickedUp",
         "gpsPickup": {
           "latitude": 9.6778,
           "longitude": 39.5318
@@ -249,7 +249,7 @@ GET /deliveries/del-101
   "buyerName": "Fatuma Ahmed",
   "buyerPhone": "+251913456789",
   "qrToken": "eyJkZWxpdmVyeUlkIjoiZGVsLTEwMSIs...",
-  "status": "picked_up",
+  "status": "pickedUp",
   "gpsPickup": {
     "latitude": 9.6778,
     "longitude": 39.5318
@@ -355,8 +355,8 @@ GET /deliveries/del-101
 | Value | Description |
 |-------|-------------|
 | `pending` | Delivery created, awaiting trucker pickup |
-| `picked_up` | Trucker has picked up the crops from the farmer |
-| `in_transit` | Trucker is en route to the buyer (optional intermediate state) |
+| `pickedUp` | Trucker has picked up the crops from the farmer |
+| `inTransit` | Trucker is en route to the buyer (optional intermediate state) |
 | `delivered` | Buyer has confirmed receipt of the crops |
 | `cancelled` | Delivery cancelled before completion |
 | `disputed` | Buyer or farmer raised a dispute (within 48 hours of delivery) |
@@ -366,16 +366,16 @@ GET /deliveries/del-101
 Valid status transitions (enforced server-side):
 
 ```
-pending → picked_up      (trucker scans farmer's QR code at pickup)
+pending → pickedUp      (trucker scans farmer's QR code at pickup)
 pending → cancelled       (any participant cancels before pickup)
-picked_up → in_transit   (trucker departs from pickup location)
-picked_up → cancelled    (cancellation after pickup — re-opens matched listings)
-in_transit → delivered   (buyer scans trucker's QR code at dropoff)
+pickedUp → inTransit   (trucker departs from pickup location)
+pickedUp → cancelled    (cancellation after pickup — re-opens matched listings)
+inTransit → delivered   (buyer scans trucker's QR code at dropoff)
 delivered → disputed     (farmer or buyer raises dispute within 48 hours)
 ```
 
 Invalid transitions return `422 Unprocessable Entity`:
-- `pending → in_transit` (must pick up first)
+- `pending → inTransit` (must pick up first)
 - `pending → delivered` (must pick up and transit first)
 - `delivered → cancelled` (cannot cancel after delivery -- use dispute instead)
 - `cancelled → *` (terminal state)
@@ -713,7 +713,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - **Confirm pickup**: Only truckers can confirm pickup (they scan farmer's QR)
 - **Confirm delivery**: Only buyers can confirm delivery (they scan trucker's QR)
 - **Raise dispute**: Any participant (farmer, trucker, buyer) can dispute
-- **Cancel**: Any participant can cancel before `picked_up` status; only trucker can cancel after pickup
+- **Cancel**: Any participant can cancel before `pickedUp` status; only trucker can cancel after pickup
 - Server validates the JWT `sub` claim matches the appropriate participant ID for each action
 
 ### QR Token Security
@@ -815,6 +815,7 @@ as a delivery with `deliveryType: "self_pickup"`:
 |---------|------|--------|
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
+| 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
 
 ---
 
