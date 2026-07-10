@@ -20,7 +20,12 @@ class WebOrderRepository extends BaseOrderRepository {
     String? statusFilter,
   }) async {
     final params = <String, dynamic>{'farmerId': farmerId};
-    if (statusFilter != null) params['status'] = statusFilter;
+    // Order status crosses the wire in snake_case; statusFilter is the camelCase
+    // enum name, so translate it or the server (which matches stored snake_case)
+    // returns nothing for multi-word statuses (e.g. "In Transit" tab empty).
+    if (statusFilter != null) {
+      params['status'] = orderStatusToWire(statusFilter);
+    }
     final data = await _api.get<Map<String, dynamic>>(
       '/orders',
       queryParameters: params,
@@ -34,7 +39,12 @@ class WebOrderRepository extends BaseOrderRepository {
     String? statusFilter,
   }) async {
     final params = <String, dynamic>{'buyerId': buyerId};
-    if (statusFilter != null) params['status'] = statusFilter;
+    // Order status crosses the wire in snake_case; statusFilter is the camelCase
+    // enum name, so translate it or the server (which matches stored snake_case)
+    // returns nothing for multi-word statuses (e.g. "In Transit" tab empty).
+    if (statusFilter != null) {
+      params['status'] = orderStatusToWire(statusFilter);
+    }
     final data = await _api.get<Map<String, dynamic>>(
       '/orders',
       queryParameters: params,
@@ -63,7 +73,12 @@ class WebOrderRepository extends BaseOrderRepository {
     String? statusFilter,
   }) async {
     final params = <String, dynamic>{'truckerId': truckerId};
-    if (statusFilter != null) params['status'] = statusFilter;
+    // Order status crosses the wire in snake_case; statusFilter is the camelCase
+    // enum name, so translate it or the server (which matches stored snake_case)
+    // returns nothing for multi-word statuses (e.g. "In Transit" tab empty).
+    if (statusFilter != null) {
+      params['status'] = orderStatusToWire(statusFilter);
+    }
     final data = await _api.get<Map<String, dynamic>>(
       '/orders',
       queryParameters: params,

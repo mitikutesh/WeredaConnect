@@ -400,13 +400,14 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Cancellable statuses
+    // Cancellable statuses — only the BUYER may cancel (the server rejects a
+    // cancel from anyone else), so don't show a dead button to farmers/truckers.
     const cancellable = {
       OrderStatus.created,
       OrderStatus.pendingPayment,
       OrderStatus.funded,
     };
-    if (cancellable.contains(order.status)) {
+    if (cancellable.contains(order.status) && order.buyerId == userId) {
       widgets.add(
         SizedBox(
           width: double.infinity,
@@ -707,10 +708,21 @@ class _StatusTimeline extends StatelessWidget {
         _TimelineStep(OrderStatus.paymentFailed, l10n.statusPaymentFailed),
       ];
     }
+    if (status == OrderStatus.disputed) {
+      return [
+        _TimelineStep(OrderStatus.created, l10n.statusCreated),
+        _TimelineStep(OrderStatus.funded, l10n.statusFunded),
+        _TimelineStep(OrderStatus.delivered, l10n.statusDelivered),
+        _TimelineStep(OrderStatus.disputed, l10n.statusDisputed),
+      ];
+    }
 
-    // Happy path
+    // Happy path. Includes pendingPayment and disbursing so an order in either
+    // state highlights the right step instead of collapsing to step 0 (the
+    // Stepper falls back to index 0 when the status isn't in this list).
     return [
       _TimelineStep(OrderStatus.created, l10n.statusCreated),
+      _TimelineStep(OrderStatus.pendingPayment, l10n.statusPendingPayment),
       _TimelineStep(
         OrderStatus.paymentSubmitted,
         l10n.statusPaymentSubmitted,
@@ -723,6 +735,7 @@ class _StatusTimeline extends StatelessWidget {
       ),
       _TimelineStep(OrderStatus.inTransit, l10n.statusInTransit),
       _TimelineStep(OrderStatus.delivered, l10n.statusDelivered),
+      _TimelineStep(OrderStatus.disbursing, l10n.statusDisbursing),
       _TimelineStep(OrderStatus.settled, l10n.statusSettled),
     ];
   }
