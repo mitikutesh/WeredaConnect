@@ -148,13 +148,12 @@ public class TelebirrWebhookFunction
         }
 
         // Layer 4: replay rejection (composite of order + telebirr ref + status).
+        // NOTE: the dedupe key is recorded only AFTER the state transition commits
+        // (see below). Recording it here would permanently lock out webhook
+        // redelivery if the escrow update failed transiently, stranding a paid
+        // payment in 'initiated'. The escrow CAS (expectedVersion 'initiated') is
+        // the primary idempotency guard against concurrent duplicate deliveries.
         var replayKey = $"webhook:{merchOrderId}:{n.BizContent.PaymentOrderId}:{n.BizContent.TradeStatus}";
-        var firstDelivery = await _idempotencyRepo.StoreAsync(replayKey, escrowId, "webhook_processed");
-        if (!firstDelivery)
-        {
-            context.Logger.LogInformation("Telebirr webhook: duplicate delivery ignored.");
-            return;
-        }
 
         var isSuccess = string.Equals(n.BizContent.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
         var createdAt = GetString(escrow, "createdAt");
@@ -194,10 +193,19 @@ public class TelebirrWebhookFunction
                 await AppendAuditAsync(escrowId, "webhook_hold_failed", "initiated", "cancelled",
                     metadata: n.BizContent.TradeStatus);
             }
+
+            // The transition committed: only now record the replay/dedupe key so any
+            // transient failure above leaves the webhook safely retryable.
+            var firstDelivery = await _idempotencyRepo.StoreAsync(replayKey, escrowId, "webhook_processed");
+            if (!firstDelivery)
+            {
+                context.Logger.LogInformation("Telebirr webhook: duplicate delivery recorded post-processing.");
+            }
         }
         catch (ConditionalCheckFailedException)
         {
-            // Escrow already moved on (not 'initiated'): treat as an idempotent no-op.
+            // Escrow already moved on (not 'initiated'): a prior delivery already
+            // processed this payment. Treat as an idempotent no-op.
             context.Logger.LogInformation("Telebirr webhook: escrow not in 'initiated'; no-op.");
         }
     }
