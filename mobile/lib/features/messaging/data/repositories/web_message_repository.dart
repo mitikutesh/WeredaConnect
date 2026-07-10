@@ -95,7 +95,10 @@ class WebMessageRepository extends BaseMessageRepository {
       messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
       return messages;
     } on Object {
-      return const [];
+      // Surface the failure so the bloc shows an error state. Returning an empty
+      // list here rendered a genuine API error as a false "No conversations yet" /
+      // empty thread. A truly empty result still returns [] from the success path.
+      rethrow;
     }
   }
 
@@ -116,7 +119,10 @@ class WebMessageRepository extends BaseMessageRepository {
       // lastRead null → web shows no unread badges (no local read store).
       return buildConversationSummaries(messages, currentUserId);
     } on Object {
-      return const [];
+      // Surface the failure so the bloc shows an error state. Returning an empty
+      // list here rendered a genuine API error as a false "No conversations yet" /
+      // empty thread. A truly empty result still returns [] from the success path.
+      rethrow;
     }
   }
 
