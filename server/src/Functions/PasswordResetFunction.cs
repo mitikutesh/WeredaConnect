@@ -19,10 +19,14 @@ public class PasswordResetFunction
     private readonly ICognitoAuthService _authService;
     private readonly IRateLimitService _rateLimitService;
 
-    // Cognito error codes that burn the OTP attempt counter.
+    // Cognito error codes that burn the OTP attempt counter. These MUST match the
+    // codes CognitoAuthService.ConfirmForgotPasswordAsync actually returns
+    // (AUTH_022 code mismatch, AUTH_023 expired) — AUTH_018/019 are login-side codes
+    // it never emits, so the old values disabled rate limiting on wrong codes and
+    // left the enumeration-normalization target mismatched.
     // UserNotFound is included to prevent phone number enumeration via the reset endpoint.
-    private const string CodeMismatchCode = "AUTH_018";
-    private const string CodeExpiredCode = "AUTH_019";
+    private const string CodeMismatchCode = "AUTH_022";
+    private const string CodeExpiredCode = "AUTH_023";
     private const string UserNotFoundCode = "AUTH_013";
 
     /// <summary>

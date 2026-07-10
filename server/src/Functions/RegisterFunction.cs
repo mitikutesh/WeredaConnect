@@ -211,9 +211,16 @@ public class RegisterFunction
         }
         catch (Exception ex)
         {
-            // Log but don't fail — Cognito registration succeeded
-            context.Logger.LogWarning(
-                $"Failed to create DynamoDB user record for {userId}: {ex.Message}");
+            // Do NOT return success: a Cognito user with no profile record can never
+            // log in (LoginFunction returns AUTH_013 "profile not found"). Surface the
+            // failure so the client can retry instead of storing tokens for a dead account.
+            context.Logger.LogError(
+                $"Failed to create DynamoDB user record for {userId}: [{ex.GetType().Name}]");
+            AuditLogger.LogSecurity("REGISTER_PROFILE_FAILED",
+                userId: userId, correlationId: correlationId,
+                outcome: "failure", sourceIp: sourceIp);
+            return LambdaResponse.Error(500, "AUTH_007",
+                "Registration could not be completed. Please try again.");
         }
 
         var response = new RegisterResponse

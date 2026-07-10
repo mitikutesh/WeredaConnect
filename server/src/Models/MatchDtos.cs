@@ -19,7 +19,7 @@ public sealed record MatchDto
     /// documented in mobile IsarMarketplaceSync. No kg/quintal conversion
     /// happens anywhere in the stack; do NOT "correct" it by ×100.
     /// </summary>
-    public required int QuantityKg { get; init; }
+    public required decimal QuantityKg { get; init; }
     public required decimal PricePerKg { get; init; }
     public required string Status { get; init; }
     public required string CreatedAt { get; init; }

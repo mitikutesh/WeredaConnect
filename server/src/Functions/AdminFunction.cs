@@ -169,9 +169,12 @@ public class AdminFunction
         ILambdaContext context)
     {
         var usersCount = await ScanCountAsync(_usersTable);
-        var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Farmer");
-        var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Trucker");
-        var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Buyer");
+        // Roles are stored lowercase (validated case-insensitively, persisted
+        // verbatim from the lowercase wire value); the DynamoDB filter is
+        // case-sensitive, so capitalized values matched nothing and counted 0.
+        var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "farmer");
+        var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "trucker");
+        var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "buyer");
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
         // sets this after a successful Telebirr hold); "held" is never written to the
@@ -179,7 +182,9 @@ public class AdminFunction
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
-        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "active");
+        // Crops are created with status "available" (never "active"); the old
+        // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
+        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
         var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
@@ -830,7 +835,9 @@ public class AdminFunction
         period ??= "all";
 
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
-        var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "released");
+        // "completed" is the terminal settled state (contract §Status Definitions);
+        // "released" is transient and immediately transitions to "completed".
+        var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
 
         var avgCommission = completedCount > 0 ? totalCommissions / completedCount : 0m;
 
@@ -857,7 +864,8 @@ public class AdminFunction
         period ??= "all";
 
         var total = await ScanCountAsync(_escrowsTable);
-        var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "released");
+        // Terminal settled state is "completed", not the transient "released".
+        var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
         // In-flight (funded, not yet released) escrows are stored as "escrowed",
         // not "held" — the old filter always returned 0.
         var pending = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");

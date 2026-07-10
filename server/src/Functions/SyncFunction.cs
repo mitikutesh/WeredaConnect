@@ -174,7 +174,10 @@ public partial class SyncFunction
         { "created", new HashSet<string> { "pending_payment", "payment_submitted", "cancelled" } },
         { "pending_payment", new HashSet<string> { "payment_submitted", "cancelled" } },
         { "payment_submitted", new HashSet<string> { "funded", "payment_failed" } },
-        { "funded", new HashSet<string> { "accepted", "cancelled" } },
+        // Farmer responds to a funded order with accept or reject; reject is a
+        // terminal state (authorization + respondedAt/audit side-effects already
+        // handle "rejected" — only this transition entry was missing).
+        { "funded", new HashSet<string> { "accepted", "rejected", "cancelled" } },
         { "accepted", new HashSet<string> { "pickup_confirmed" } },
         { "pickup_confirmed", new HashSet<string> { "in_transit" } },
         { "in_transit", new HashSet<string> { "delivered" } },

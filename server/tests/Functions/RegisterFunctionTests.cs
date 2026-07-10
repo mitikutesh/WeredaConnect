@@ -230,7 +230,7 @@ public class RegisterFunctionTests
     }
 
     [Fact]
-    public async Task FunctionHandler_DbFailure_StillReturns201()
+    public async Task FunctionHandler_DbFailure_Returns500()
     {
         _mockAuth.RegisterAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -252,7 +252,10 @@ public class RegisterFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(201, response.StatusCode); // Cognito succeeded → success
+        // A Cognito user with no profile record can never log in, so registration
+        // must NOT report success when the profile write fails.
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains("AUTH_007", response.Body);
     }
 
     [Fact]
