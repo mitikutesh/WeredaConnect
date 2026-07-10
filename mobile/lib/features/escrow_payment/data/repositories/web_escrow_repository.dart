@@ -42,9 +42,43 @@ class WebEscrowRepository extends BaseEscrowRepository {
         _parsePayment(data),
         toPayUrl: data['toPayUrl'] as String?,
       );
+    } on ApiException catch (e) {
+      // Preserve the specific error class instead of collapsing every typed API
+      // error to ESCROW_CLIENT (which discarded ESCROW_* codes the UI localizes).
+      return _mapApiException(e);
     } on Exception catch (e) {
       return EscrowError('ESCROW_CLIENT', e.toString());
     }
+  }
+
+  /// Map a typed [ApiException] to a domain EscrowError, mirroring the mobile
+  /// EscrowRepository so web surfaces the same specific, localizable codes.
+  EscrowError _mapApiException(ApiException e) {
+    if (e is ValidationException) return EscrowError('ESCROW_VALIDATION', e.message);
+    if (e is AuthException) {
+      return const EscrowError('ESCROW_005', 'Please log in to continue.');
+    }
+    if (e is NotFoundException) {
+      return const EscrowError('ESCROW_016', 'Payment not found.');
+    }
+    if (e is ConflictException) return EscrowError('ESCROW_009', e.message);
+    if (e is RateLimitException) {
+      return const EscrowError(
+        'ESCROW_011',
+        'Too many requests. Please wait and try again.',
+      );
+    }
+    if (e is ServerException) {
+      if (e.statusCode == 502) {
+        return const EscrowError('ESCROW_013', 'Telebirr service error. Please try again.');
+      }
+      if (e.statusCode == 503) {
+        return const EscrowError('ESCROW_014', 'Telebirr is currently unavailable. Please try later.');
+      }
+      return EscrowError('ESCROW_SERVER', e.message);
+    }
+    if (e is NetworkException) return EscrowError('ESCROW_NETWORK', e.message);
+    return EscrowError('ESCROW_CLIENT', e.message);
   }
 
   @override
@@ -209,8 +243,14 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..releasedAt = DateTime.tryParse(m['releasedAt'] as String? ?? '')
       ..refundedAt = DateTime.tryParse(m['refundedAt'] as String? ?? '')
       ..completedAt = DateTime.tryParse(m['completedAt'] as String? ?? '')
-      ..disputeReason = m['disputeReason'] as String?
-      ..disputeDescription = m['disputeDescription'] as String?
+      // Server nests dispute fields under a `dispute` object (EscrowDto.Dispute);
+      // fall back to the flat keys for any legacy/summary shape.
+      ..disputeReason = (m['dispute'] as Map<String, dynamic>?)?['reason']
+              as String? ??
+          m['disputeReason'] as String?
+      ..disputeDescription = (m['dispute'] as Map<String, dynamic>?)?['description']
+              as String? ??
+          m['disputeDescription'] as String?
       ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 

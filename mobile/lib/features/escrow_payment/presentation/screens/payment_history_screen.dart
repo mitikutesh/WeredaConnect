@@ -49,12 +49,22 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
       _roleFilter = authState.role.name;
-      context.read<EscrowBloc>().add(
-            LoadPaymentHistory(
-              userId: authState.userId,
-              roleFilter: _roleFilter,
-            ),
-          );
+      final bloc = context.read<EscrowBloc>();
+      // Render the local cache immediately (fast, offline-friendly)...
+      bloc.add(
+        LoadPaymentHistory(
+          userId: authState.userId,
+          roleFilter: _roleFilter,
+        ),
+      );
+      // ...then pull from the server so a fresh device (empty local cache) isn't
+      // stuck on an empty history. refreshHistory falls back to the cache offline.
+      bloc.add(
+        RefreshPaymentHistory(
+          userId: authState.userId,
+          roleFilter: _roleFilter,
+        ),
+      );
     }
   }
 
