@@ -144,6 +144,16 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     // On web, QR nonces are not needed (no QR scanning on web)
   }
 
+  /// Fetch the delivery's current server version for optimistic-concurrency.
+  /// The server delivery update enforces `#v = :expectedVersion` against the
+  /// version it currently holds, so every mutation MUST send it (pre-increment)
+  /// or the CAS conflicts and the transition silently reverts. No local store on
+  /// web means we must read it back before mutating.
+  Future<int> _currentVersion(String deliveryId) async {
+    final current = await getDeliveryById(deliveryId, userId: '');
+    return current?.version ?? 1;
+  }
+
   @override
   Future<void> confirmPickup({
     required String deliveryId,
@@ -156,6 +166,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     final data = <String, dynamic>{
       'status': 'pickedUp',
       'truckerId': truckerId,
+      'version': await _currentVersion(deliveryId),
     };
     if (gpsPickup != null) {
       // Server expects a {latitude, longitude} object (not a "lat,lng" string),
@@ -201,6 +212,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     final data = <String, dynamic>{
       'status': 'delivered',
       'buyerId': buyerId,
+      'version': await _currentVersion(deliveryId),
     };
     if (gpsDropoff != null) {
       // Server expects a {latitude, longitude} object (see confirmPickup).
@@ -238,6 +250,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String truckerId,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
+    final version = await _currentVersion(deliveryId);
     await _api.post<dynamic>(
       '/sync',
       data: {
@@ -251,7 +264,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
             'entityId': deliveryId,
             'timestamp': now,
             'idempotencyKey': 'web_transit_${deliveryId}_$now',
-            'data': {'status': 'inTransit', 'truckerId': truckerId},
+            'data': {
+              'status': 'inTransit',
+              'truckerId': truckerId,
+              'version': version,
+            },
           },
         ],
       },
@@ -265,6 +282,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String reason,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
+    final version = await _currentVersion(deliveryId);
     await _api.post<dynamic>(
       '/sync',
       data: {
@@ -281,6 +299,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
             'data': {
               'status': 'disputed',
               'disputeReason': reason,
+              'version': version,
             },
           },
         ],
@@ -294,6 +313,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String userId,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
+    final version = await _currentVersion(deliveryId);
     await _api.post<dynamic>(
       '/sync',
       data: {
@@ -307,7 +327,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
             'entityId': deliveryId,
             'timestamp': now,
             'idempotencyKey': 'web_cancel_${deliveryId}_$now',
-            'data': {'status': 'cancelled'},
+            'data': {'status': 'cancelled', 'version': version},
           },
         ],
       },

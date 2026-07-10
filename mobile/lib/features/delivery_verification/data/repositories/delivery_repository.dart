@@ -423,6 +423,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateGpsCoordinates(gpsPickup?.latitude, gpsPickup?.longitude);
 
     final now = DateTime.now().toUtc();
+    // Send the PRE-increment version to the server: its optimistic-concurrency
+    // check (#v = :expectedVersion) compares against the version it currently holds.
+    // Sending the post-increment value makes every transition conflict and revert.
+    final baseVersion = delivery.version;
 
     await _isar.writeTxn(() async {
       delivery.status = DeliveryStatus.pickedUp;
@@ -438,7 +442,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     // pickedUpAt/updatedAt are stamped server-side; deliveryId is the entityId.
     final syncData = <String, dynamic>{
       'status': DeliveryStatus.pickedUp.name,
-      'version': delivery.version,
+      'version': baseVersion,
     };
 
     if (gpsPickup != null) {
@@ -486,6 +490,8 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateGpsCoordinates(gpsDropoff?.latitude, gpsDropoff?.longitude);
 
     final now = DateTime.now().toUtc();
+    // Pre-increment version for the server CAS (see confirmPickup).
+    final baseVersion = delivery.version;
 
     await _isar.writeTxn(() async {
       delivery.status = DeliveryStatus.delivered;
@@ -501,7 +507,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     // confirmedAt/updatedAt are stamped server-side; deliveryId is the entityId.
     final syncData = <String, dynamic>{
       'status': DeliveryStatus.delivered.name,
-      'version': delivery.version,
+      'version': baseVersion,
     };
 
     if (gpsDropoff != null) {
@@ -547,6 +553,8 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateDeliveryOperation(delivery, 'markInTransit', truckerId);
 
     final now = DateTime.now().toUtc();
+    // Pre-increment version for the server CAS (see confirmPickup).
+    final baseVersion = delivery.version;
 
     await _isar.writeTxn(() async {
       delivery.status = DeliveryStatus.inTransit;
@@ -562,7 +570,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       action: 'update',
       data: jsonEncode({
         'status': DeliveryStatus.inTransit.name,
-        'version': delivery.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
@@ -593,6 +601,8 @@ class DeliveryRepository extends BaseDeliveryRepository {
     );
 
     final now = DateTime.now().toUtc();
+    // Pre-increment version for the server CAS (see confirmPickup).
+    final baseVersion = delivery.version;
 
     await _isar.writeTxn(() async {
       delivery.status = DeliveryStatus.disputed;
@@ -612,7 +622,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
         'status': DeliveryStatus.disputed.name,
         'disputeReason': reason,
         'updatedAt': now.toIso8601String(),
-        'version': delivery.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
@@ -634,6 +644,8 @@ class DeliveryRepository extends BaseDeliveryRepository {
     _validateDeliveryOperation(delivery, 'cancel', userId);
 
     final now = DateTime.now().toUtc();
+    // Pre-increment version for the server CAS (see confirmPickup).
+    final baseVersion = delivery.version;
 
     await _isar.writeTxn(() async {
       delivery.status = DeliveryStatus.cancelled;
@@ -651,7 +663,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
         'deliveryId': deliveryId,
         'status': DeliveryStatus.cancelled.name,
         'updatedAt': now.toIso8601String(),
-        'version': delivery.version,
+        'version': baseVersion,
       }),
       operationId: _uuid.v4(),
     );
