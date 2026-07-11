@@ -164,10 +164,16 @@ public sealed class MessageRepository : IMessageRepository
             { ":val", new AttributeValue { S = keyValue } }
         };
 
+        // Only declare #ca when the createdAt clause is actually present: DynamoDB
+        // rejects a request whose ExpressionAttributeNames contains an unused key
+        // (ValidationException). Empty `since` (the recipient-bootstrap case) has no
+        // createdAt clause, so #ca must NOT be declared then.
+        var names = new Dictionary<string, string> { { "#k", keyAttr } };
         var keyCondition = "#k = :val";
         if (!string.IsNullOrEmpty(since))
         {
             keyCondition += " AND #ca > :since";
+            names["#ca"] = "createdAt";
             values[":since"] = new AttributeValue { S = since };
         }
 
@@ -186,11 +192,7 @@ public sealed class MessageRepository : IMessageRepository
                 TableName = _tableName,
                 IndexName = indexName,
                 KeyConditionExpression = keyCondition,
-                ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    { "#k", keyAttr },
-                    { "#ca", "createdAt" }
-                },
+                ExpressionAttributeNames = names,
                 ExpressionAttributeValues = values,
                 ScanIndexForward = true, // oldest first
                 Limit = limit

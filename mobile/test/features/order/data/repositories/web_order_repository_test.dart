@@ -122,6 +122,28 @@ void main() {
 
       expect(order?.status, OrderStatus.paymentSubmitted);
     });
+
+    // Regression: the multi-word status FILTER was sent as the camelCase enum
+    // name, but the server matches stored snake_case, so the "In Transit" tab
+    // returned nothing on web. It must be translated to the wire token.
+    test('list status filter is sent to the server as a snake_case wire token',
+        () async {
+      Map<String, dynamic>? sentParams;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: any<Map<String, dynamic>>(named: 'queryParameters'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentParams =
+            invocation.namedArguments[#queryParameters] as Map<String, dynamic>;
+        return {'orders': <dynamic>[]};
+      });
+
+      await repo.getOrdersByBuyer('buyer-1', statusFilter: 'inTransit');
+
+      expect(sentParams!['status'], 'in_transit');
+    });
   });
 
   group('WebOrderRepository status filtering (defensive, client-side)', () {

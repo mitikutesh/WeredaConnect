@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -250,6 +251,39 @@ void main() {
       expect(pending.length, 2); // create + update
       expect(pending.last.action, 'update');
       expect(pending.last.entityType, 'delivery');
+    });
+
+    test(
+        'confirmPickup sends the PRE-increment version (server CAS; guards escrow '
+        'release from silent conflict/revert)', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      final data = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      // The server CAS (#v = :expectedVersion) compares against the version it
+      // currently holds (1). The local record advances to 2, but the payload MUST
+      // carry the pre-increment 1 — sending 2 makes every transition conflict.
+      expect(data['version'], 1);
+      final fromDb = await isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(delivery.deliveryId)
+          .findFirst();
+      expect(fromDb!.version, 2);
     });
 
     // --- Confirm Delivery ---

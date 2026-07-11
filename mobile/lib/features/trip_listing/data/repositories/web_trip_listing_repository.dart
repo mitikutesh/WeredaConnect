@@ -260,17 +260,22 @@ class WebTripListingRepository extends BaseTripListingRepository {
     );
     final trips = _parseTrips(data);
     if (trips.isEmpty) return null;
+    // Exactly the mobile priority: inTransit > matched > open > delivered. NOTE
+    // 'cancelled' is deliberately excluded — the mobile repo never surfaces a
+    // cancelled trip in the hero card, and cancelled trips are still returned by
+    // the query (they carry no deletedAt), so a bare "most recent" fallback would
+    // wrongly let a cancelled trip win over a delivered one.
     for (final status in [
       TripStatus.inTransit,
       TripStatus.matched,
       TripStatus.open,
+      TripStatus.delivered,
     ]) {
       final matches = trips.where((t) => t.status == status).toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       if (matches.isNotEmpty) return matches.first;
     }
-    trips.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return trips.first;
+    return null;
   }
 
   List<Trip> _parseTrips(Map<String, dynamic> data) {

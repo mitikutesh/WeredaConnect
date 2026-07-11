@@ -1663,6 +1663,33 @@ public class AdminFunction
 
     private static EscrowDto MapToEscrowDto(Dictionary<string, object> item)
     {
+        // Build the nested dispute from the flat fields so the admin Disputes list
+        // shows a Reason. Previously Dispute was hardcoded null, so the client's
+        // row.dispute.reason was always empty. Mirrors EscrowService.MapToEscrowDto.
+        DisputeDto? dispute = null;
+        var disputeReason = GetStringOrNull(item, "disputeReason");
+        var disputeId = GetStringOrNull(item, "disputeId");
+        if (disputeReason != null || disputeId != null)
+        {
+            var evidenceRefsRaw = GetStringOrNull(item, "disputeEvidenceRefs");
+            var evidenceRefs = string.IsNullOrEmpty(evidenceRefsRaw)
+                ? null
+                : evidenceRefsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            dispute = new DisputeDto
+            {
+                DisputeId = disputeId ?? "",
+                EscrowId = GetString(item, "escrowId"),
+                DisputedBy = GetString(item, "disputedBy"),
+                Reason = disputeReason ?? "",
+                Description = GetStringOrNull(item, "disputeDescription"),
+                EvidenceRefs = evidenceRefs,
+                Resolution = GetStringOrNull(item, "disputeResolution"),
+                ResolvedBy = GetStringOrNull(item, "disputeResolvedBy"),
+                ResolvedAt = GetStringOrNull(item, "disputeResolvedAt"),
+                CreatedAt = GetString(item, "disputeCreatedAt")
+            };
+        }
+
         return new EscrowDto
         {
             EscrowId = GetString(item, "escrowId"),
@@ -1682,7 +1709,7 @@ public class AdminFunction
             TelebirrHoldRef = GetStringOrNull(item, "telebirrHoldRef"),
             TelebirrReleaseRef = GetStringOrNull(item, "telebirrReleaseRef"),
             TelebirrRefundRef = GetStringOrNull(item, "telebirrRefundRef"),
-            Dispute = null,
+            Dispute = dispute,
             BuyerFaydaVerified = GetBool(item, "buyerFaydaVerified"),
             FarmerFaydaVerified = GetBool(item, "farmerFaydaVerified"),
             CreatedAt = GetString(item, "createdAt"),

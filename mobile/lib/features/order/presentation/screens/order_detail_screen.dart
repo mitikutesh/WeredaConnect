@@ -708,12 +708,14 @@ class _StatusTimeline extends StatelessWidget {
         _TimelineStep(OrderStatus.paymentFailed, l10n.statusPaymentFailed),
       ];
     }
-    if (status == OrderStatus.disputed) {
+    if (status == OrderStatus.disputed ||
+        status == OrderStatus.disputeResolved) {
       return [
         _TimelineStep(OrderStatus.created, l10n.statusCreated),
         _TimelineStep(OrderStatus.funded, l10n.statusFunded),
         _TimelineStep(OrderStatus.delivered, l10n.statusDelivered),
         _TimelineStep(OrderStatus.disputed, l10n.statusDisputed),
+        _TimelineStep(OrderStatus.disputeResolved, l10n.statusDisputeResolved),
       ];
     }
 

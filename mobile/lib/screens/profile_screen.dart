@@ -814,9 +814,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Only logout when the user explicitly confirms.
     // Escape key or barrier tap returns null, which is not true.
     if (confirmed == true && context.mounted) {
-      context.read<AuthBloc>().add(
-            const AuthLogoutRequested(clearCache: false),
-          );
+      // Explicit logout MUST clear the offline credential cache (tokens + PBKDF2
+      // password hash) — auth-api.md invariant 7, stolen-device mitigation. The
+      // AuthLogoutRequested default (clearCache: true) does exactly this; passing
+      // clearCache:false here previously defeated it.
+      context.read<AuthBloc>().add(const AuthLogoutRequested());
     }
   }
 
