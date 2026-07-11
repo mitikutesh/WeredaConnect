@@ -1283,7 +1283,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         },
         "TableName": "wereda-connect-dev-rate-limits",
         "TimeToLiveSpecification": {
-          "AttributeName": "expiresAt",
+          "AttributeName": "ttl",
           "Enabled": true,
         },
       },

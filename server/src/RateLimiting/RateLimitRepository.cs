@@ -54,7 +54,14 @@ public sealed class RateLimitRepository : IRateLimitRepository
                 { "pk", new AttributeValue { S = key } },
                 { "sk", new AttributeValue { S = key } }
             },
-            UpdateExpression = "ADD #count :inc SET #ttl = :ttl",
+            // Anchor the TTL to the FIRST request in the window (if_not_exists),
+            // not the latest. Bumping it on every increment turns the intended
+            // fixed window into a sliding one that never resets under sustained
+            // traffic, so the counter grows unbounded. The window closes
+            // ttlSeconds after it opened; the service treats a past TTL as a
+            // reset (see RateLimitService.IsWindowExpired) rather than relying on
+            // DynamoDB's best-effort TTL deletion.
+            UpdateExpression = "ADD #count :inc SET #ttl = if_not_exists(#ttl, :ttl)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#count", "count" },

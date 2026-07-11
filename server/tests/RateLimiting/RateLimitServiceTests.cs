@@ -83,6 +83,27 @@ public class RateLimitServiceTests
     }
 
     [Fact]
+    public async Task CheckLoginAllowed_NotLockedButCountWindowExpired_ResetsCounter()
+    {
+        // Regression for the if_not_exists anchoring: a not-locked counter whose
+        // window has elapsed must reset in code. DynamoDB TTL deletion lags, so
+        // without this the stale count keeps accumulating across windows and
+        // locks the user out earlier than the intended 15-minute window.
+        _mockRepo.GetAsync("LOGIN#+251912345678").Returns(new RateLimitEntry
+        {
+            Pk = "LOGIN#+251912345678",
+            Count = 2,
+            LockedUntil = null,
+            Ttl = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckLoginAllowedAsync("+251912345678");
+
+        Assert.True(result.IsSuccess);
+        await _mockRepo.Received(1).DeleteAsync("LOGIN#+251912345678");
+    }
+
+    [Fact]
     public async Task RecordFailedLogin_BelowThreshold_DoesNotLock()
     {
         _mockRepo.IncrementAsync("LOGIN#+251912345678", RateLimitService.LoginLockoutSeconds)
@@ -235,6 +256,23 @@ public class RateLimitServiceTests
     }
 
     [Fact]
+    public async Task CheckOtpAttemptAllowed_AtLimitButWindowExpired_ResetsAndAllows()
+    {
+        _mockRepo.GetAsync("OTP#+251912345678").Returns(new RateLimitEntry
+        {
+            Pk = "OTP#+251912345678",
+            Count = 3,
+            // Window already elapsed — DynamoDB may not have deleted the row yet.
+            Ttl = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckOtpAttemptAllowedAsync("+251912345678");
+
+        Assert.True(result.IsSuccess);
+        await _mockRepo.Received(1).DeleteAsync("OTP#+251912345678");
+    }
+
+    [Fact]
     public async Task RecordFailedOtpAttempt_IncrementsCounter()
     {
         await _service.RecordFailedOtpAttemptAsync("+251912345678");
@@ -242,6 +280,80 @@ public class RateLimitServiceTests
         await _mockRepo.Received(1).IncrementAsync(
             "OTP#+251912345678",
             RateLimitService.OtpWindowSeconds);
+    }
+
+    // --- Sync rate limiting ---
+
+    [Fact]
+    public async Task CheckSyncAllowed_NoEntry_ReturnsSuccess()
+    {
+        _mockRepo.GetAsync("SYNC#user-1").Returns((RateLimitEntry?)null);
+
+        var result = await _service.CheckSyncAllowedAsync("user-1");
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task CheckSyncAllowed_BelowLimit_ReturnsSuccess()
+    {
+        _mockRepo.GetAsync("SYNC#user-1").Returns(new RateLimitEntry
+        {
+            Pk = "SYNC#user-1",
+            Count = RateLimitService.MaxSyncPerMinute - 1,
+            Ttl = DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckSyncAllowedAsync("user-1");
+
+        Assert.True(result.IsSuccess);
+        await _mockRepo.DidNotReceive().DeleteAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task CheckSyncAllowed_AtLimitWithinWindow_Returns429()
+    {
+        _mockRepo.GetAsync("SYNC#user-1").Returns(new RateLimitEntry
+        {
+            Pk = "SYNC#user-1",
+            Count = RateLimitService.MaxSyncPerMinute,
+            Ttl = DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckSyncAllowedAsync("user-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(429, result.Error!.HttpStatus);
+        Assert.Equal("SYNC_RATE_LIMITED", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task CheckSyncAllowed_AtLimitButWindowExpired_ResetsAndAllows()
+    {
+        // Regression: a stale counter whose window has elapsed must reset in code.
+        // DynamoDB TTL deletion lags (up to 48h), and previously the check trusted
+        // it — so once Count hit the limit the user was rate-limited permanently.
+        _mockRepo.GetAsync("SYNC#user-1").Returns(new RateLimitEntry
+        {
+            Pk = "SYNC#user-1",
+            Count = RateLimitService.MaxSyncPerMinute + 500,
+            Ttl = DateTimeOffset.UtcNow.AddSeconds(-5).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckSyncAllowedAsync("user-1");
+
+        Assert.True(result.IsSuccess);
+        await _mockRepo.Received(1).DeleteAsync("SYNC#user-1");
+    }
+
+    [Fact]
+    public async Task RecordSync_IncrementsWithSyncWindow()
+    {
+        await _service.RecordSyncAsync("user-1");
+
+        await _mockRepo.Received(1).IncrementAsync(
+            "SYNC#user-1",
+            RateLimitService.SyncWindowSeconds);
     }
 
     [Fact]
