@@ -2,11 +2,15 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/rating.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
+
+class _MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   group('RatingRepository', () {
@@ -163,6 +167,44 @@ void main() {
       final summary = await repository.getRatingSummary('nobody');
       expect(summary.count, 0);
       expect(summary.average, 0);
+    });
+
+    group('hasRated server lookup (cross-device gate)', () {
+      test('returns true when the server has the rating by exact id', () async {
+        final api = _MockApiClient();
+        final repo = RatingRepository(
+          isar: isar,
+          syncQueue: syncQueue,
+          apiClient: api,
+        );
+        // Exact-id lookup: no page-2 miss (the bug the paged rateeId scan had).
+        when(() => api.get<Map<String, dynamic>>('/ratings/order-x:farmer-1'))
+            .thenAnswer(
+          (_) async => {
+            'rating': {'ratingId': 'order-x:farmer-1'},
+          },
+        );
+
+        final result =
+            await repo.hasRated(orderId: 'order-x', rateeId: 'farmer-1');
+        expect(result, isTrue);
+      });
+
+      test('falls back to local (false) when the server 404s / errors',
+          () async {
+        final api = _MockApiClient();
+        final repo = RatingRepository(
+          isar: isar,
+          syncQueue: syncQueue,
+          apiClient: api,
+        );
+        when(() => api.get<Map<String, dynamic>>(any()))
+            .thenThrow(Exception('404'));
+
+        final result =
+            await repo.hasRated(orderId: 'order-z', rateeId: 'farmer-1');
+        expect(result, isFalse);
+      });
     });
   });
 }

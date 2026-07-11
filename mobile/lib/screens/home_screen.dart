@@ -1348,7 +1348,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
             '/trips',
             queryParameters: {'truckerId': userId, 'status': 'matched'},
           ),
-          safeGet('/deliveries', queryParameters: {'truckerId': userId}),
+          // The server has no truckerId delivery index, so /deliveries?truckerId=
+          // is ignored and falls through to the global newest list — yielding a
+          // silent undercount of the trucker's deliveries. Don't issue it; the
+          // count needs a TruckerIdCreatedAtIndex GSI (documented follow-up).
+          Future<Map<String, dynamic>>.value(<String, dynamic>{}),
         ]);
         result['trips'] = _countApiItems(responses[0], alt: 'trips');
         result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
