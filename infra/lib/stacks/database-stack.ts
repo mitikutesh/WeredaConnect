@@ -93,14 +93,16 @@ export class DatabaseStack extends cdk.Stack {
     this.rateLimitsTable = rateLimits.table;
 
     // Enable TTL on rate limits table for automatic cleanup.
-    // MUST match the attribute the server actually writes (RateLimitRepository
-    // writes "ttl"). It previously pointed at "expiresAt" — an attribute the code
-    // never sets — so no rate-limit row was ever auto-deleted and counters (e.g.
-    // SYNC#{userId}) grew forever, permanently 429-ing every write path.
+    // The attribute stays "expiresAt": DynamoDB rejects renaming a table's TTL
+    // attribute in place ("Cannot change time-to-live attribute name"), so the
+    // server writes this attribute instead (RateLimitRepository.TtlAttribute).
+    // The original bug was that the code wrote "ttl" while the table expired on
+    // "expiresAt" — no row ever got deleted and counters grew forever. Fixed on
+    // the code side so no DynamoDB schema change is needed.
     (
       this.rateLimitsTable.node.defaultChild as dynamodb.CfnTable
     ).addPropertyOverride("TimeToLiveSpecification", {
-      AttributeName: "ttl",
+      AttributeName: "expiresAt",
       Enabled: true,
     });
 

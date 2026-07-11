@@ -134,6 +134,29 @@ public class RateLimitRepositoryTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task IncrementAsync_WritesExpiresAtTtlAttribute()
+    {
+        // The table's DynamoDB TTL is configured on "expiresAt"; the counter must
+        // write that attribute (not "ttl") or rows never get auto-deleted.
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>
+                {
+                    { "pk", new AttributeValue { S = "SYNC#user-1" } },
+                    { "count", new AttributeValue { N = "1" } }
+                }
+            });
+
+        await _repository.IncrementAsync("SYNC#user-1", 60);
+
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeNames["#ttl"] == "expiresAt"),
+            Arg.Any<CancellationToken>());
+    }
+
     // --- SetLockAsync ---
 
     [Fact]
@@ -201,6 +224,57 @@ public class RateLimitRepositoryTests
         var entry = RateLimitRepository.FromItem(item);
 
         Assert.Equal(0, entry.Count);
+    }
+
+    [Fact]
+    public void FromItem_ReadsExpiresAtAttribute()
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "pk", new AttributeValue { S = "SYNC#user-1" } },
+            { "count", new AttributeValue { N = "3" } },
+            { "expiresAt", new AttributeValue { N = "1739356500" } }
+        };
+
+        var entry = RateLimitRepository.FromItem(item);
+
+        Assert.Equal(1739356500L, entry.Ttl);
+    }
+
+    [Fact]
+    public void FromItem_MalformedTtl_DefaultsToZeroWithoutThrowing()
+    {
+        // A single bad row (attribute present but not a valid number, e.g. stored
+        // as a String so `.N` is null) must not throw and 500 every rate-limit
+        // check for the key.
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "pk", new AttributeValue { S = "SYNC#user-1" } },
+            { "count", new AttributeValue { N = "3" } },
+            { "expiresAt", new AttributeValue { S = "not-a-number" } }
+        };
+
+        var entry = RateLimitRepository.FromItem(item);
+
+        Assert.Equal(0L, entry.Ttl);
+        Assert.Equal(3, entry.Count);
+    }
+
+    [Fact]
+    public void FromItem_FallsBackToLegacyTtlAttribute()
+    {
+        // Rows written by older builds only have "ttl"; they must still report
+        // their expiry so a stale counter self-heals instead of sticking.
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "pk", new AttributeValue { S = "SYNC#user-1" } },
+            { "count", new AttributeValue { N = "99" } },
+            { "ttl", new AttributeValue { N = "1739356500" } }
+        };
+
+        var entry = RateLimitRepository.FromItem(item);
+
+        Assert.Equal(1739356500L, entry.Ttl);
     }
 
     // --- Constructor validation ---
