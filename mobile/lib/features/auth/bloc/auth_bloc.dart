@@ -513,6 +513,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// credential cache: an explicit logout clears the cached tokens + PBKDF2
   /// password hash (auth-api.md invariant 7), while callers that want to keep
   /// offline re-login can pass clearCache: false.
+  ///
+  /// Local clearing runs FIRST and [AuthUnauthenticated] is emitted before
+  /// the server-side token revocation, which is best-effort and bounded by a
+  /// timeout. Logout must never depend on the network: a revocation call that
+  /// hung left the session in storage and the UI stuck on [AuthLoading], and
+  /// the next page load silently restored the previous account.
   Future<void> _onAuthLogoutRequested(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
@@ -523,16 +529,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(const AuthLoading());
 
       final userId = currentState.userId;
-
-      // Clear offline credentials by default (event.clearCache); server-side
-      // token invalidation is attempted regardless. Hardcoding false left the
-      // password hash + tokens on the device after an explicit logout.
-      await _authService.logout(
-        phoneNumber: _currentPhoneNumber ?? '',
-        accessToken: currentState.tokens.accessToken,
-        refreshToken: currentState.tokens.refreshToken,
-        clearCache: event.clearCache,
-      );
+      // _clearSession() nulls _currentPhoneNumber — capture it first.
+      final phoneNumber = _currentPhoneNumber ?? currentState.phoneNumber ?? '';
+      final tokens = currentState.tokens;
 
       // Always clear business data to prevent data leakage on shared devices
       if (_isar != null) {
@@ -542,9 +541,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         await _clearUserBusinessData(_isar, userId);
       }
 
+      // Clear offline credentials by default (event.clearCache). Hardcoding
+      // false left the password hash + tokens on the device after an
+      // explicit logout.
+      if (event.clearCache) {
+        await _offlineCache.clearCredentials(phoneNumber);
+      }
+
       await _clearSession();
 
       emit(const AuthUnauthenticated());
+
+      // Best-effort server-side token revocation. clearCache: false because
+      // the bloc has already cleared credentials above — the service's
+      // deferred clear could otherwise wipe a re-login's fresh cache.
+      try {
+        await _authService
+            .logout(
+              phoneNumber: phoneNumber,
+              accessToken: tokens.accessToken,
+              refreshToken: tokens.refreshToken,
+              clearCache: false,
+            )
+            .timeout(const Duration(seconds: 5));
+      } on Object {
+        // Ignore — server-side tokens expire on their own.
+      }
     }
   }
 

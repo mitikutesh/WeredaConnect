@@ -569,20 +569,14 @@ void main() {
     // Logout
     // -----------------------------------------------------------------------
     group('Logout', () {
-      test('emits [AuthLoading, AuthUnauthenticated] on logout', () async {
-        when(
-          () => authService.logout(
-            phoneNumber: any(named: 'phoneNumber'),
-            accessToken: any(named: 'accessToken'),
-            refreshToken: any(named: 'refreshToken'),
-            clearCache: any(named: 'clearCache'),
-          ),
-        ).thenAnswer((_) async {});
+      /// Seed an authenticated session via a successful login.
+      Future<AuthBloc> seedAuthenticatedBloc() async {
+        when(() => offlineCache.clearCredentials(any()))
+            .thenAnswer((_) async {});
 
         final bloc = buildBloc();
         addTearDown(bloc.close);
 
-        // Seed authenticated state
         when(
           () => authService.login(
             phoneNumber: any(named: 'phoneNumber'),
@@ -605,8 +599,21 @@ void main() {
           ),
         );
         await Future<void>.delayed(const Duration(milliseconds: 300));
+        return bloc;
+      }
 
-        // Now logout
+      test('emits [AuthLoading, AuthUnauthenticated] on logout', () async {
+        when(
+          () => authService.logout(
+            phoneNumber: any(named: 'phoneNumber'),
+            accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
+            clearCache: any(named: 'clearCache'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final bloc = await seedAuthenticatedBloc();
+
         final states = await collectStates(
           bloc,
           const AuthLogoutRequested(),
@@ -614,6 +621,70 @@ void main() {
 
         expect(states.any((s) => s is AuthLoading), isTrue);
         expect(states.any((s) => s is AuthUnauthenticated), isTrue);
+        // The bloc clears credentials itself; the service call is
+        // revocation-only so a delayed completion can't wipe a re-login.
+        verify(() => offlineCache.clearCredentials('+251911234567')).called(1);
+        verify(
+          () => authService.logout(
+            phoneNumber: any(named: 'phoneNumber'),
+            accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
+            clearCache: false,
+          ),
+        ).called(1);
+      });
+
+      test(
+          'clears session and emits AuthUnauthenticated even when '
+          'server-side revocation fails', () async {
+        // Regression: logout used to await the server call before clearing
+        // local state — a hung/failed call left the session in storage and
+        // the UI stuck on AuthLoading, and the next launch silently
+        // restored the previous account.
+        when(
+          () => authService.logout(
+            phoneNumber: any(named: 'phoneNumber'),
+            accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
+            clearCache: any(named: 'clearCache'),
+          ),
+        ).thenThrow(Exception('network down'));
+
+        final bloc = await seedAuthenticatedBloc();
+
+        final states = await collectStates(
+          bloc,
+          const AuthLogoutRequested(),
+        );
+
+        expect(states.any((s) => s is AuthUnauthenticated), isTrue);
+        // Local session keys cleared despite the failed revocation.
+        expect(_secureStorageData['current_user_phone'], isNull);
+        expect(_secureStorageData['access_token'], isNull);
+        expect(_secureStorageData['id_token'], isNull);
+        expect(_secureStorageData['refresh_token'], isNull);
+        verify(() => offlineCache.clearCredentials('+251911234567')).called(1);
+      });
+
+      test('keeps offline credentials when clearCache is false', () async {
+        when(
+          () => authService.logout(
+            phoneNumber: any(named: 'phoneNumber'),
+            accessToken: any(named: 'accessToken'),
+            refreshToken: any(named: 'refreshToken'),
+            clearCache: any(named: 'clearCache'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final bloc = await seedAuthenticatedBloc();
+
+        final states = await collectStates(
+          bloc,
+          const AuthLogoutRequested(clearCache: false),
+        );
+
+        expect(states.any((s) => s is AuthUnauthenticated), isTrue);
+        verifyNever(() => offlineCache.clearCredentials(any()));
       });
     });
 
