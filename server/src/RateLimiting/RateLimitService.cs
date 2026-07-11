@@ -105,7 +105,21 @@ public sealed class RateLimitService : IRateLimitService
         var key = $"OTP#{phoneNumber}";
         var entry = await _repository.GetAsync(key);
 
-        if (entry != null && entry.Count >= MaxOtpAttempts)
+        if (entry == null)
+        {
+            return AuthResult<bool>.Success(true);
+        }
+
+        // Reset when the window has elapsed. DynamoDB TTL deletion is best-effort
+        // (can lag by up to 48h), so we cannot rely on the item disappearing —
+        // enforce the window in code or the count accumulates across windows.
+        if (IsWindowExpired(entry))
+        {
+            await _repository.DeleteAsync(key);
+            return AuthResult<bool>.Success(true);
+        }
+
+        if (entry.Count >= MaxOtpAttempts)
         {
             return AuthResult<bool>.Failure(400, "AUTH_012",
                 "Maximum OTP verification attempts exceeded. Please request a new OTP.", "otpCode");
@@ -131,7 +145,23 @@ public sealed class RateLimitService : IRateLimitService
         var key = $"SYNC#{userId}";
         var entry = await _repository.GetAsync(key);
 
-        if (entry != null && entry.Count >= MaxSyncPerMinute)
+        if (entry == null)
+        {
+            return AuthResult<bool>.Success(true);
+        }
+
+        // Reset when the 60s window has elapsed. DynamoDB TTL deletion is
+        // best-effort and can lag by up to 48h, so the stale counter MUST be
+        // treated as expired here — otherwise the count accumulates across
+        // windows and the user is rate-limited permanently (every write goes
+        // through /sync, so this locks the whole app for that user).
+        if (IsWindowExpired(entry))
+        {
+            await _repository.DeleteAsync(key);
+            return AuthResult<bool>.Success(true);
+        }
+
+        if (entry.Count >= MaxSyncPerMinute)
         {
             return AuthResult<bool>.Failure(429, "SYNC_RATE_LIMITED",
                 "Too many sync requests. Please try again later.");
@@ -145,4 +175,13 @@ public sealed class RateLimitService : IRateLimitService
         var key = $"SYNC#{userId}";
         await _repository.IncrementAsync(key, SyncWindowSeconds);
     }
+
+    /// <summary>
+    /// Whether a counter's fixed window has elapsed. The window end is anchored
+    /// on the first request (see <see cref="RateLimitRepository.IncrementAsync"/>,
+    /// which sets the TTL with <c>if_not_exists</c>), so once <see cref="RateLimitEntry.Ttl"/>
+    /// is in the past the count belongs to a stale window and must be reset.
+    /// </summary>
+    private static bool IsWindowExpired(RateLimitEntry entry) =>
+        entry.Ttl > 0 && entry.Ttl <= DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 }

@@ -109,6 +109,31 @@ public class RateLimitRepositoryTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task IncrementAsync_AnchorsTtlToFirstRequest()
+    {
+        // The TTL must be anchored with if_not_exists so the fixed window does not
+        // slide forward on every increment (which would let the counter grow
+        // without ever resetting).
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>
+                {
+                    { "pk", new AttributeValue { S = "SYNC#user-1" } },
+                    { "count", new AttributeValue { N = "1" } },
+                    { "ttl", new AttributeValue { N = "1739356500" } }
+                }
+            });
+
+        await _repository.IncrementAsync("SYNC#user-1", 60);
+
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.UpdateExpression.Contains("if_not_exists(#ttl, :ttl)")),
+            Arg.Any<CancellationToken>());
+    }
+
     // --- SetLockAsync ---
 
     [Fact]

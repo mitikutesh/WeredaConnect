@@ -13,8 +13,9 @@ public interface IRateLimitRepository
 
     /// <summary>
     /// Atomically increment the counter for a key.
-    /// Creates the entry if it doesn't exist, sets TTL for auto-cleanup.
-    /// Returns the new count after increment.
+    /// Creates the entry if it doesn't exist and anchors the TTL to the first
+    /// request in the window (via <c>if_not_exists</c>) so the window is fixed,
+    /// not sliding. Returns the new count after increment.
     /// </summary>
     Task<int> IncrementAsync(string key, int ttlSeconds);
 
