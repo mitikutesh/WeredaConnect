@@ -1319,8 +1319,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'A similar listing already exists. Please update your existing listing instead.';
 
   @override
-  String get fraudVelocityExceeded =>
-      'Too many requests. Please wait a moment and try again.';
+  String fraudVelocityExceeded(int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: '$minutes minutes',
+      one: '1 minute',
+    );
+    return 'Too many listings created. You can try again in $_temp0.';
+  }
 
   @override
   String get profileSaved => 'Profile updated';

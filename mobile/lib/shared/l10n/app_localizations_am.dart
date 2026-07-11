@@ -1280,8 +1280,9 @@ class AppLocalizationsAm extends AppLocalizations {
       'ተመሳሳይ ዝርዝር አስቀድሞ አለ። እባክዎ ያለውን ዝርዝር ያዘምኑ።';
 
   @override
-  String get fraudVelocityExceeded =>
-      'በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።';
+  String fraudVelocityExceeded(int minutes) {
+    return 'በጣም ብዙ ዝርዝሮች ፈጥረዋል። እባክዎ ከ$minutes ደቂቃ በኋላ ደግመው ይሞክሩ።';
+  }
 
   @override
   String get profileSaved => 'መገለጫ ተዘምኗል';

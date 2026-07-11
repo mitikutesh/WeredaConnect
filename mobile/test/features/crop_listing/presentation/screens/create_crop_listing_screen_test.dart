@@ -219,10 +219,15 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Verify the localized fraud message is shown in a snackbar
+      // Verify the localized fraud message is shown in a snackbar with a
+      // minutes countdown. The exact count depends on the wall clock, so
+      // match the pattern instead of a fixed value.
       expect(
-        find.text(
-          'Too many requests. Please wait a moment and try again.',
+        find.textContaining(
+          RegExp(
+            r'Too many listings created\. '
+            r'You can try again in \d+ minutes?\.',
+          ),
         ),
         findsOneWidget,
       );

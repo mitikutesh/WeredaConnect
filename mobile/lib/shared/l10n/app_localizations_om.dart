@@ -1325,8 +1325,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Tarreen walfakkaataan duraan jira. Maaloo tarree jiru haaromsi.';
 
   @override
-  String get fraudVelocityExceeded =>
-      'Gaaffiin baay\'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi\'ii yaali.';
+  String fraudVelocityExceeded(int minutes) {
+    return 'Tarreewwan baay\'ee uumteetta. Maaloo daqiiqaa $minutes booda irra deebi\'ii yaali.';
+  }
 
   @override
   String get profileSaved => 'Profaayiliin haaromfame';

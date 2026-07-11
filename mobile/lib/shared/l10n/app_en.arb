@@ -1754,9 +1754,15 @@
   "@fraudDuplicateListing": {
     "description": "Error when duplicate crop listing detected by server fraud check"
   },
-  "fraudVelocityExceeded": "Too many requests. Please wait a moment and try again.",
+  "fraudVelocityExceeded": "Too many listings created. You can try again in {minutes, plural, =1{1 minute} other{{minutes} minutes}}.",
   "@fraudVelocityExceeded": {
-    "description": "Error when velocity limit exceeded by server fraud check"
+    "description": "Error when the hourly listing limit is exceeded; minutes = time until the limit resets at the next UTC hour",
+    "placeholders": {
+      "minutes": {
+        "type": "int",
+        "example": "23"
+      }
+    }
   },
 
   "@@profileSection": "=== Profile Feature ===",
