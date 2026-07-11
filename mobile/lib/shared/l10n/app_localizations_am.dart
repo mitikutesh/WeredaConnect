@@ -277,6 +277,13 @@ class AppLocalizationsAm extends AppLocalizations {
   String get invalidCredentials => 'ልክ ያልሆነ ስልክ ቁጥር ወይም የይለፍ ቃል';
 
   @override
+  String get resetCodeInvalid =>
+      'የማረጋገጫ ኮዱ ትክክል አይደለም። እባክዎ አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String get resetCodeExpired => 'የማረጋገጫ ኮዱ ጊዜው አልፎበታል። እባክዎ አዲስ ይጠይቁ።';
+
+  @override
   String get phoneAlreadyRegistered => 'ይህ ስልክ ቁጥር ቀደም ብሎ ተመዝግቧል';
 
   @override
@@ -1212,6 +1219,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get conflictEntityTrip => 'ጉዞ';
 
   @override
+  String get conflictEntityOrder => 'ትዕዛዝ';
+
+  @override
+  String get conflictEntityRating => 'ደረጃ';
+
+  @override
+  String get conflictEntityPayment => 'ክፍያ';
+
+  @override
   String get conflictServerValues => 'የአሁኑ እሴቶች';
 
   @override
@@ -1805,6 +1821,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get fieldRequired => 'ይህ መስክ ያስፈልጋል';
+
+  @override
+  String get back => 'ተመለስ';
 
   @override
   String get clearAll => 'ሁሉንም አጽዳ';

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:async/async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
@@ -156,12 +157,16 @@ class MessageRepository extends BaseMessageRepository {
     // already hold (server compares createdAt strictly greater than `since`).
     final newestLocal =
         await _isar.messages.where().sortByCreatedAtDesc().findFirst();
-    final since = newestLocal?.createdAt.toUtc().toIso8601String();
+    // On an empty local store, send since='' (not omitted): the server's /messages
+    // endpoint requires either conversationId or since, and treats an empty since as
+    // "no lower bound". Omitting it entirely 400s, so a recipient who never chatted
+    // could never bootstrap their first inbound message. Mirrors the web repository.
+    final since = newestLocal?.createdAt.toUtc().toIso8601String() ?? '';
 
     try {
       final data = await api.get<Map<String, dynamic>>(
         '/messages',
-        queryParameters: {if (since != null) 'since': since},
+        queryParameters: {'since': since},
       );
       final list = (data['messages'] as List?) ?? const [];
       if (list.isEmpty) return 0;
@@ -192,7 +197,13 @@ class MessageRepository extends BaseMessageRepository {
   }
 
   @override
-  Stream<void> watchChanges() => _isar.messages.watchLazy();
+  Stream<void> watchChanges() => StreamGroup.merge<void>([
+        // Watch both messages AND read-state: marking a conversation read updates
+        // conversationReads (not messages), and the inbox unread badge must refresh
+        // when that happens, not only when a new message arrives.
+        _isar.messages.watchLazy(),
+        _isar.conversationReads.watchLazy(),
+      ]);
 
   // ── read-state helpers ──────────────────────────────────────────────
 

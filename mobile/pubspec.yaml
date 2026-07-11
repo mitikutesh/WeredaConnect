@@ -38,6 +38,9 @@ dependencies:
   equatable: ^2.0.5
   provider: ^6.1.0
 
+  # Async utilities (StreamGroup for merging Isar watch streams)
+  async: ^2.11.0
+
   # Routing (web-friendly)
   go_router: ^14.0.0
 

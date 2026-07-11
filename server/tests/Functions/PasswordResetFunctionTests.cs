@@ -294,7 +294,7 @@ public class PasswordResetFunctionTests
     public async Task ResetPassword_WrongCode_RecordsFailedOtpAttemptAndReturns400()
     {
         _mockAuth.ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
-            .Returns(AuthResult<bool>.Failure(400, "AUTH_018", "Invalid or expired code.", "confirmationCode"));
+            .Returns(AuthResult<bool>.Failure(400, "AUTH_022", "Invalid or expired code.", "confirmationCode"));
 
         var request = MakeRequest("/auth/reset-password", new
         {
@@ -306,7 +306,7 @@ public class PasswordResetFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(400, response.StatusCode);
-        Assert.Contains("AUTH_018", response.Body);
+        Assert.Contains("AUTH_022", response.Body);
         await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251912345678");
     }
 
@@ -314,7 +314,7 @@ public class PasswordResetFunctionTests
     public async Task ResetPassword_ExpiredCode_RecordsFailedOtpAttempt()
     {
         _mockAuth.ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
-            .Returns(AuthResult<bool>.Failure(400, "AUTH_019", "Code expired.", "confirmationCode"));
+            .Returns(AuthResult<bool>.Failure(400, "AUTH_023", "Code expired.", "confirmationCode"));
 
         var request = MakeRequest("/auth/reset-password", new
         {
@@ -344,9 +344,9 @@ public class PasswordResetFunctionTests
 
         var response = await _function.FunctionHandler(request, _context);
 
-        // Must return AUTH_018 (code mismatch), not 404/AUTH_013
+        // Must return AUTH_022 (code mismatch), not 404/AUTH_013
         Assert.Equal(400, response.StatusCode);
-        Assert.Contains("AUTH_018", response.Body);
+        Assert.Contains("AUTH_022", response.Body);
         Assert.DoesNotContain("AUTH_013", response.Body);
         await _mockRateLimit.Received(1).RecordFailedOtpAttemptAsync("+251900000000");
     }

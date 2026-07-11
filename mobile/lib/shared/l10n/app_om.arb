@@ -344,6 +344,14 @@
   "@invalidPhoneFormat": {
     "description": "Error message for invalid phone format"
   },
+  "resetCodeInvalid": "Koodiin mirkaneessaa sirrii miti. Maaloo mirkaneessitanii irra deebi'aa yaalaa.",
+  "@resetCodeInvalid": {
+    "description": "Password reset: verification code mismatch (AUTH_022)"
+  },
+  "resetCodeExpired": "Koodiin mirkaneessaa yeroon isaa darbeera. Maaloo kan haaraa gaafadhaa.",
+  "@resetCodeExpired": {
+    "description": "Password reset: verification code expired (AUTH_023)"
+  },
   "invalidCredentials": "Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti",
   "@invalidCredentials": {
     "description": "Error message for invalid credentials"
@@ -1637,6 +1645,18 @@
   "@conflictEntityTrip": {
     "description": "Entity type label for trip in conflict dialog"
   },
+  "conflictEntityOrder": "Ajaja",
+  "@conflictEntityOrder": {
+    "description": "Entity type label for order in conflict dialog"
+  },
+  "conflictEntityRating": "Madaallii",
+  "@conflictEntityRating": {
+    "description": "Entity type label for rating in conflict dialog"
+  },
+  "conflictEntityPayment": "Kaffaltii",
+  "@conflictEntityPayment": {
+    "description": "Entity type label for payment/escrow in conflict dialog"
+  },
   "conflictServerValues": "Gatii Ammaa",
   "@conflictServerValues": {
     "description": "Section header showing server-side field values"
@@ -2255,6 +2275,10 @@
         "type": "String"
       }
     }
+  },
+  "back": "Deebi'i",
+  "@back": {
+    "description": "Back navigation label"
   },
   "quantityKg": "{amount} kg",
   "@quantityKg": {

@@ -106,10 +106,24 @@ class RatingRepository extends BaseRatingRepository {
     required String orderId,
     required String rateeId,
   }) async {
-    final existing = await _isar.ratings
-        .filter()
-        .ratingIdEqualTo(ratingIdFor(orderId, rateeId))
-        .findFirst();
+    final targetId = ratingIdFor(orderId, rateeId);
+    // Ratings are immutable (one per order+ratee), so a rating made on another
+    // device must gate the button here too. Check the server by the EXACT id via
+    // GET /ratings/{id} (cheap, authoritative) — mirrors the web repo. A paged
+    // rateeId list scan could miss the rating past page 1. Fall back to the local
+    // store when offline (create is idempotent server-side either way).
+    final api = _apiClient;
+    if (api != null) {
+      try {
+        final data = await api.get<Map<String, dynamic>>('/ratings/$targetId');
+        if (data['rating'] != null) return true;
+      } on Object catch (e) {
+        // 404 → not rated; network error → fall through to the local check.
+        debugPrint('[RatingRepository] hasRated server check: $e');
+      }
+    }
+    final existing =
+        await _isar.ratings.filter().ratingIdEqualTo(targetId).findFirst();
     return existing != null;
   }
 
@@ -157,12 +171,12 @@ class RatingRepository extends BaseRatingRepository {
         debugPrint('[RatingRepository] getRatingSummary server fetch: $e');
       }
     }
-    // Local fallback (incomplete — only ratings authored on this device).
-    final local =
-        await _isar.ratings.filter().rateeIdEqualTo(rateeId).findAll();
-    if (local.isEmpty) return RatingSummary.empty;
-    final total = local.fold<int>(0, (sum, r) => sum + r.stars);
-    return RatingSummary(average: total / local.length, count: local.length);
+    // No server data (offline / fetch failed): the public aggregate is NOT
+    // derivable locally — Isar only holds ratings authored on THIS device, so
+    // averaging them would present the current user's own rating as the ratee's
+    // public score. Return empty rather than a misleading aggregate (the UI shows
+    // "no ratings yet / unavailable"). The server is the source of truth.
+    return RatingSummary.empty;
   }
 
   Rating _parseRating(Map<String, dynamic> m) {

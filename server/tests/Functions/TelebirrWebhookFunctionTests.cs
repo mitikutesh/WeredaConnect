@@ -4,6 +4,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Services;
@@ -158,13 +159,18 @@ public class TelebirrWebhookFunctionTests
     [Fact]
     public async Task Replayed_delivery_does_not_transition_again()
     {
-        _idemRepo.StoreAsync(Arg.Is<string>(k => k.StartsWith("webhook:")), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
-            .Returns(false); // already processed
+        // Idempotency is enforced by the escrow CAS (not an upfront dedupe key, which
+        // would strand a paid payment if the transition failed transiently): a prior
+        // delivery already moved the escrow out of 'initiated', so the conditional
+        // write throws and the handler treats the replay as a 200 no-op.
+        _escrowRepo.UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("escrow already processed"));
 
         var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed")), _ctx);
 
         resp.StatusCode.Should().Be(200);
-        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
-            Arg.Any<string>(), Arg.Any<string>(), "escrowed", Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        // The replay/dedupe key + idempotency completion are recorded only AFTER a
+        // successful transition, so a CAS-failing replay does not mark completion.
+        await _idemRepo.DidNotReceive().UpdateAsync(MerchOrderId, "completed");
     }
 }

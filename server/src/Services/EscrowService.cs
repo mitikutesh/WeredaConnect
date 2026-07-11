@@ -201,6 +201,10 @@ public sealed class EscrowService
 
         // 6d. Validate the delivery exists and is in an escrowable state.
         //     ESCROW_008 (404) if not found, ESCROW_010 (422) if wrong state.
+        //     Capture counterparty names so escrow history shows a human name rather
+        //     than falling back to the raw UUID in MapToEscrowSummaryDto.
+        string? counterpartyBuyerName = null;
+        string? counterpartyFarmerName = null;
         if (_deliveryRepo != null)
         {
             var delivery = await _deliveryRepo.GetByIdAsync(request.DeliveryId);
@@ -218,6 +222,9 @@ public sealed class EscrowService
                     $"Delivery is not in a valid state for payment (was '{deliveryStatus}').",
                     "deliveryId");
             }
+
+            counterpartyBuyerName = GetStringOrNull(delivery, "buyerName");
+            counterpartyFarmerName = GetStringOrNull(delivery, "farmerName");
         }
 
         // 7. User validation + Fayda ID verification for high-value transactions → ESCROW_007
@@ -373,6 +380,12 @@ public sealed class EscrowService
             escrowRecord["truckerPayout"] = truckerPayout;
         if (!string.IsNullOrEmpty(truckerId))
             escrowRecord["truckerId"] = truckerId;
+        // Persist counterparty names (sourced from the delivery record above) so escrow
+        // history shows a human name rather than falling back to the raw UUID.
+        if (!string.IsNullOrEmpty(counterpartyBuyerName))
+            escrowRecord["buyerName"] = counterpartyBuyerName;
+        if (!string.IsNullOrEmpty(counterpartyFarmerName))
+            escrowRecord["farmerName"] = counterpartyFarmerName;
 
         // 10. Store idempotency record BEFORE calling Telebirr (conditional write prevents races)
         var stored = await _idempotencyRepo.StoreAsync(request.IdempotencyKey, escrowId, "processing");
@@ -654,11 +667,31 @@ public sealed class EscrowService
             releaseFields["truckerPayoutPending"] = true;
 
         // We hold the settlement lock, so the status is still `currentStatus`; this CAS
-        // therefore succeeds. A genuine failure here is an anomaly and is allowed to surface
-        // (500) rather than being masked as success — funds were NOT double-moved because the
-        // lock guaranteed exclusivity before Telebirr.
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
-            releaseFields);
+        // therefore succeeds. Funds have ALREADY moved (Telebirr disbursed above), so the
+        // escrow MUST advance to 'released' — a transient failure here would strand it in
+        // 'escrowed'/'disputed' with the settlement lock held and no recovery path (a retry
+        // would 409 on the lock). Retry transient failures; a CAS failure (state already
+        // moved) is NOT retried and is allowed to surface. Re-disbursement is not a risk:
+        // the stable Telebirr ref (release:{escrowId}) dedupes, and this write does not call
+        // Telebirr.
+        const int maxReleaseWriteAttempts = 4;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "released", currentStatus,
+                    releaseFields);
+                break;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                throw;
+            }
+            catch (Exception) when (attempt < maxReleaseWriteAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
+            }
+        }
 
         // 7. Audit log
         await AppendAuditAsync(request.EscrowId, "release", currentStatus, "released",

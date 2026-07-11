@@ -151,6 +151,16 @@ public class LoginFunction
                 "User profile not found. Please contact support.");
         }
 
+        // Admin-suspended accounts must not authenticate even with valid credentials.
+        if (user.Suspended)
+        {
+            AuditLogger.LogSecurity("LOGIN_BLOCKED",
+                userId: user.UserId, detail: "suspended", correlationId: correlationId,
+                outcome: "failure", sourceIp: sourceIp);
+            return LambdaResponse.Error(403, "AUTH_025",
+                "This account has been suspended. Please contact support.");
+        }
+
         var response = new LoginResponse
         {
             Tokens = new TokenResponse

@@ -8,7 +8,6 @@ export function SystemHealthPage() {
   const { data, isLoading } = useSystemHealth();
 
   const health = (data as Record<string, unknown>) || {};
-  const services = (health.services as Record<string, unknown>[]) || [];
 
   if (isLoading) {
     return <div className="text-text-muted">{t("common.loading")}</div>;
@@ -19,45 +18,34 @@ export function SystemHealthPage() {
     degraded: "warning",
     down: "danger",
   };
+  const status = String(health.status ?? "");
 
   return (
     <div>
       <h2 className="mb-6 text-xl font-bold">{t("health.title")}</h2>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <p className="text-sm text-text-muted">{t("health.lambdaErrors")}</p>
-          <p className="mt-1 text-2xl font-bold">{Number(health.lambdaErrors) || 0}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-muted">{t("health.apiLatency")}</p>
-          <p className="mt-1 text-2xl font-bold">{Number(health.apiLatencyMs) || 0}ms</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-muted">{t("health.cronStatus")}</p>
+          <p className="text-sm text-text-muted">{t("health.status")}</p>
           <div className="mt-1">
-            <Badge variant={statusVariant[String(health.cronStatus ?? "")] || "default"}>
-              {health.cronStatus ? t(`health.${health.cronStatus}`) : t("common.noData")}
+            <Badge variant={statusVariant[status] || "default"}>
+              {status ? t(`health.${status}`) : t("common.noData")}
             </Badge>
           </div>
         </Card>
-      </div>
-
-      {services.length > 0 && (
-        <Card className="mt-6">
-          <h3 className="mb-4 font-semibold">{t("health.services")}</h3>
-          <div className="space-y-2">
-            {services.map((svc, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
-                <span className="text-sm font-medium">{String(svc.name || "")}</span>
-                <Badge variant={statusVariant[String(svc.status ?? "")] || "default"}>
-                  {svc.status ? t(`health.${svc.status}`) : t("common.noData")}
-                </Badge>
-              </div>
-            ))}
-          </div>
+        <Card>
+          <p className="text-sm text-text-muted">{t("health.region")}</p>
+          <p className="mt-1 text-2xl font-bold">{String(health.region || t("common.notAvailable"))}</p>
         </Card>
-      )}
+        <Card>
+          <p className="text-sm text-text-muted">{t("health.activeTables")}</p>
+          <p className="mt-1 text-2xl font-bold">{Number(health.activeTables) || 0}</p>
+        </Card>
+        <Card>
+          <p className="text-sm text-text-muted">{t("health.uptime")}</p>
+          <p className="mt-1 text-2xl font-bold">{String(health.uptime || t("common.notAvailable"))}</p>
+        </Card>
+      </div>
     </div>
   );
 }

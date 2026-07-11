@@ -42,7 +42,11 @@ import 'package:wereda_connect/features/buyer/domain/services/web_matching_servi
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
+import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
+import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
 
 Future<void> main() async {
@@ -216,8 +220,21 @@ Future<void> _runWeb({
           ),
           BlocProvider<BuyerIntentBloc>(
             create: (_) => BuyerIntentBloc(
-              repository: WebBuyerIntentRepository(),
+              repository: WebBuyerIntentRepository(api: api),
               matchingService: WebMatchingService(api: api),
+            ),
+          ),
+          // RatingBloc + InboxBloc are required by the home/detail screens; without
+          // them this web bootstrap crashed with ProviderNotFoundException (they are
+          // present in main_web.dart — keep the two trees in sync).
+          BlocProvider<RatingBloc>(
+            create: (_) => RatingBloc(
+              repository: WebRatingRepository(api: api),
+            ),
+          ),
+          BlocProvider<InboxBloc>(
+            create: (_) => InboxBloc(
+              repository: WebMessageRepository(api: api),
             ),
           ),
           BlocProvider<ConflictBloc>(

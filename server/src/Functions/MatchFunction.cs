@@ -253,7 +253,7 @@ public class MatchFunction
             FarmerName = GetStringOrNull(item, "farmerName"),
             CropType = candidate.CropType,
             Woreda = GetString(item, "woreda"),
-            QuantityKg = (int)candidate.Quantity,
+            QuantityKg = (decimal)candidate.Quantity,
             PricePerKg = (decimal)candidate.PricePerKg,
             Status = GetString(item, "status"),
             CreatedAt = GetString(item, "createdAt"),

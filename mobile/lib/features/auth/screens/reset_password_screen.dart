@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -82,8 +84,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               backgroundColor: AppTheme.statusSuccess,
             ),
           );
-          // Pop all the way back to login
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          // Return to login. The two platforms navigate differently and each
+          // needs its own dismissal:
+          // - Web: the forgot/reset screens REPLACE the /login route (GoRouter.go),
+          //   so there is no route to pop back to — go('/login') is required.
+          // - Mobile: they are pushed as pageless routes ON TOP of the /login
+          //   GoRouter page, so go('/login') targets that same anchor and leaves
+          //   this screen mounted; popUntil(isFirst) is required to dismiss them.
+          if (kIsWeb) {
+            context.go('/login');
+          } else {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
         } else if (state is AuthError) {
           setState(() {
             _errorMessage = localizeAuthError(

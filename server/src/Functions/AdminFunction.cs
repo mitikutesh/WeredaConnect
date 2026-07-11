@@ -169,9 +169,12 @@ public class AdminFunction
         ILambdaContext context)
     {
         var usersCount = await ScanCountAsync(_usersTable);
-        var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Farmer");
-        var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Trucker");
-        var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "Buyer");
+        // Roles are stored lowercase (validated case-insensitively, persisted
+        // verbatim from the lowercase wire value); the DynamoDB filter is
+        // case-sensitive, so capitalized values matched nothing and counted 0.
+        var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "farmer");
+        var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "trucker");
+        var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "buyer");
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
         // sets this after a successful Telebirr hold); "held" is never written to the
@@ -179,7 +182,9 @@ public class AdminFunction
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
-        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "active");
+        // Crops are created with status "available" (never "active"); the old
+        // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
+        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
         var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
@@ -830,7 +835,9 @@ public class AdminFunction
         period ??= "all";
 
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
-        var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "released");
+        // "completed" is the terminal settled state (contract §Status Definitions);
+        // "released" is transient and immediately transitions to "completed".
+        var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
 
         var avgCommission = completedCount > 0 ? totalCommissions / completedCount : 0m;
 
@@ -857,7 +864,8 @@ public class AdminFunction
         period ??= "all";
 
         var total = await ScanCountAsync(_escrowsTable);
-        var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "released");
+        // Terminal settled state is "completed", not the transient "released".
+        var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
         // In-flight (funded, not yet released) escrows are stored as "escrowed",
         // not "held" — the old filter always returned 0.
         var pending = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
@@ -1655,6 +1663,33 @@ public class AdminFunction
 
     private static EscrowDto MapToEscrowDto(Dictionary<string, object> item)
     {
+        // Build the nested dispute from the flat fields so the admin Disputes list
+        // shows a Reason. Previously Dispute was hardcoded null, so the client's
+        // row.dispute.reason was always empty. Mirrors EscrowService.MapToEscrowDto.
+        DisputeDto? dispute = null;
+        var disputeReason = GetStringOrNull(item, "disputeReason");
+        var disputeId = GetStringOrNull(item, "disputeId");
+        if (disputeReason != null || disputeId != null)
+        {
+            var evidenceRefsRaw = GetStringOrNull(item, "disputeEvidenceRefs");
+            var evidenceRefs = string.IsNullOrEmpty(evidenceRefsRaw)
+                ? null
+                : evidenceRefsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            dispute = new DisputeDto
+            {
+                DisputeId = disputeId ?? "",
+                EscrowId = GetString(item, "escrowId"),
+                DisputedBy = GetString(item, "disputedBy"),
+                Reason = disputeReason ?? "",
+                Description = GetStringOrNull(item, "disputeDescription"),
+                EvidenceRefs = evidenceRefs,
+                Resolution = GetStringOrNull(item, "disputeResolution"),
+                ResolvedBy = GetStringOrNull(item, "disputeResolvedBy"),
+                ResolvedAt = GetStringOrNull(item, "disputeResolvedAt"),
+                CreatedAt = GetString(item, "disputeCreatedAt")
+            };
+        }
+
         return new EscrowDto
         {
             EscrowId = GetString(item, "escrowId"),
@@ -1674,7 +1709,7 @@ public class AdminFunction
             TelebirrHoldRef = GetStringOrNull(item, "telebirrHoldRef"),
             TelebirrReleaseRef = GetStringOrNull(item, "telebirrReleaseRef"),
             TelebirrRefundRef = GetStringOrNull(item, "telebirrRefundRef"),
-            Dispute = null,
+            Dispute = dispute,
             BuyerFaydaVerified = GetBool(item, "buyerFaydaVerified"),
             FarmerFaydaVerified = GetBool(item, "farmerFaydaVerified"),
             CreatedAt = GetString(item, "createdAt"),

@@ -59,7 +59,12 @@ export function DisputesPage() {
       header: t("escrows.amount"),
       render: (row: Record<string, unknown>) => formatETB(Number(row.amount) || 0, locale),
     },
-    { key: "reason", header: t("disputes.reason") },
+    {
+      key: "reason",
+      header: t("disputes.reason"),
+      render: (row: Record<string, unknown>) =>
+        String((row.dispute as Record<string, unknown> | undefined)?.reason ?? ""),
+    },
     {
       key: "createdAt",
       header: t("common.date"),

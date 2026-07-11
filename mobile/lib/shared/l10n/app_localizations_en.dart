@@ -283,6 +283,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get invalidCredentials => 'Invalid phone number or password';
 
   @override
+  String get resetCodeInvalid =>
+      'The verification code is incorrect. Please check it and try again.';
+
+  @override
+  String get resetCodeExpired =>
+      'The verification code has expired. Please request a new one.';
+
+  @override
   String get phoneAlreadyRegistered =>
       'This phone number is already registered';
 
@@ -1250,6 +1258,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conflictEntityTrip => 'Trip';
 
   @override
+  String get conflictEntityOrder => 'Order';
+
+  @override
+  String get conflictEntityRating => 'Rating';
+
+  @override
+  String get conflictEntityPayment => 'Payment';
+
+  @override
   String get conflictServerValues => 'Updated values from server:';
 
   @override
@@ -1852,6 +1869,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fieldRequired => 'This field is required';
+
+  @override
+  String get back => 'Back';
 
   @override
   String get clearAll => 'Clear all';

@@ -178,7 +178,9 @@ void main() {
       );
     });
 
-    testWidgets('shows error for short password', (tester) async {
+    testWidgets(
+        'requires a non-empty password but does NOT enforce a min length on login',
+        (tester) async {
       setMobileSize(tester);
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
@@ -193,25 +195,32 @@ void main() {
       phoneController.text = '+251911234567';
       await tester.pumpAndSettle();
 
-      // Enter short password
+      // Enter a short password (leave it short on purpose).
       final passwordField = find.byType(TextFormField).at(1);
       await tester.enterText(passwordField, 'short');
       await tester.pumpAndSettle();
 
-      // Tap login
       final loginButton = find.byType(ElevatedButton);
       await tester.ensureVisible(loginButton);
       await tester.pumpAndSettle();
       await tester.tap(loginButton);
       await tester.pumpAndSettle();
 
-      // Should show password requirements error
+      // Login must NOT enforce a client-side min-length rule (the server validates
+      // credentials; a length rule leaks the policy and can reject valid passwords).
       expect(
         find.text(
           'Password must be at least 8 characters with a lowercase letter and a number',
         ),
-        findsOneWidget,
+        findsNothing,
       );
+
+      // An empty password is still rejected with a required-field message.
+      await tester.enterText(passwordField, '');
+      await tester.pumpAndSettle();
+      await tester.tap(loginButton);
+      await tester.pumpAndSettle();
+      expect(find.text('This field is required'), findsOneWidget);
     });
 
     testWidgets('password visibility toggle works', (tester) async {

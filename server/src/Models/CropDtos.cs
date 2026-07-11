@@ -100,9 +100,11 @@ public sealed record CropDto
     public required string Woreda { get; init; }
 
     /// <summary>
-    /// Quantity available in kilograms.
+    /// Quantity available in kilograms. Decimal to preserve fractional
+    /// quantities (contract allows 0.01–10,000, e.g. 50.5); the store
+    /// persists values like "45.00".
     /// </summary>
-    public required int QuantityKg { get; init; }
+    public required decimal QuantityKg { get; init; }
 
     /// <summary>
     /// Price per kilogram in Ethiopian Birr.

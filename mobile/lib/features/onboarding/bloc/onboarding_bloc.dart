@@ -56,6 +56,8 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     ShowWelcomeScreen event,
     Emitter<OnboardingState> emit,
   ) {
-    emit(const FirstLaunch());
+    // splashDismissed:true so tapping back from Login lands on the WelcomeScreen,
+    // not the branded splash again (FirstLaunch() defaults splashDismissed:false).
+    emit(const FirstLaunch(splashDismissed: true));
   }
 }

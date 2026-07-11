@@ -15,6 +15,17 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
+/// Wait (bounded) until [states] holds at least [count] emissions. A fixed
+/// 100ms sleep is flaky on slow CI runners — CreateTrip was observed emitting
+/// only Loading within the window. Falls through on timeout so the following
+/// expect reports the actual emissions.
+Future<void> waitForStates(List<TripListingState> states, int count) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (states.length < count && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 void main() {
   group('TripListingBloc', () {
     late Isar isar;
@@ -64,7 +75,7 @@ void main() {
       final subscription = bloc.stream.listen(states.add);
 
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
@@ -92,7 +103,7 @@ void main() {
           pricePerQuintal: 120.0,
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
@@ -122,7 +133,7 @@ void main() {
 
       // Load trips first so the BLoC has them in state for optimistic update
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       states.clear();
 
@@ -132,7 +143,7 @@ void main() {
           truckerId: 'trucker-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
@@ -180,7 +191,7 @@ void main() {
           fromWoreda: 'Bishoftu',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
@@ -215,7 +226,7 @@ void main() {
       bloc.add(
         const FilterTrips(truckerId: 'trucker-001'),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[1], isA<TripsLoaded>());
@@ -234,7 +245,7 @@ void main() {
       final subscription = bloc.stream.listen(states.add);
 
       bloc.add(const LoadTrips(truckerId: 'nonexistent-trucker'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<TripListingLoading>());
@@ -265,11 +276,11 @@ void main() {
           pricePerQuintal: 120.0,
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       // Now load trips
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 4);
 
       // Should have: Loading, Created, Loading, Loaded(1 trip)
       expect(states.length, 4);
@@ -326,7 +337,7 @@ void main() {
           toWoreda: 'Addis Ababa',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[1], isA<TripsLoaded>());
@@ -379,7 +390,7 @@ void main() {
         bloc.add(
           const FilterTrips(truckerId: 'trucker-001', toWoreda: 'Addis Ababa'),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await waitForStates(states, 2);
 
         expect(states.last, isA<TripsLoaded>());
         final loaded = states.last as TripsLoaded;
@@ -428,7 +439,7 @@ void main() {
         final subscription = bloc.stream.listen(states.add);
 
         bloc.add(const FilterTrips(truckerId: 'trucker-001'));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await waitForStates(states, 2);
 
         expect(states.last, isA<TripsLoaded>());
         final loaded = states.last as TripsLoaded;
@@ -461,7 +472,7 @@ void main() {
 
       // Load trips first so the BLoC has them in state for optimistic update
       bloc.add(const LoadTrips(truckerId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       states.clear();
 
@@ -471,7 +482,7 @@ void main() {
           truckerId: 'trucker-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       // CancelTrip uses optimistic update from loaded state
       expect(states.length, 2);
@@ -503,7 +514,7 @@ void main() {
           pricePerQuintal: 120.0,
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states[1], isA<TripCreated>());
       final created = states[1] as TripCreated;

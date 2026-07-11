@@ -68,4 +68,13 @@ public interface ICognitoAuthService
     /// Returns true on success.
     /// </summary>
     Task<AuthResult<bool>> ConfirmForgotPasswordAsync(string phone, string confirmationCode, string newPassword);
+
+    /// <summary>
+    /// Delete a Cognito user — used to roll back registration when a later step
+    /// (e.g. the DynamoDB profile write) fails, so the phone number is not left
+    /// bricked (a confirmed user with no profile can neither log in nor
+    /// re-register). Best-effort; a no-op when the user pool is not configured or
+    /// the user no longer exists.
+    /// </summary>
+    Task DeleteUserAsync(string phone);
 }

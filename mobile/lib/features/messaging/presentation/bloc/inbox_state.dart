@@ -26,8 +26,18 @@ class InboxLoaded extends InboxState {
   const InboxLoaded({required this.conversations, required this.totalUnread});
 
   @override
-  List<Object?> get props =>
-      [conversations.map((c) => c.conversationId).toList(), totalUnread];
+  List<Object?> get props => [
+        // Include preview/time/unread per conversation, not just the id set:
+        // a follow-up message changes the last-message preview without changing
+        // the id set, and equal-state suppression would leave a stale preview.
+        conversations
+            .map(
+              (c) =>
+                  '${c.conversationId}|${c.lastMessageBody}|${c.lastMessageAt.toIso8601String()}|${c.unreadCount}',
+            )
+            .toList(),
+        totalUnread,
+      ];
 }
 
 class InboxError extends InboxState {

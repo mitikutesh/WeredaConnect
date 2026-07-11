@@ -2168,6 +2168,60 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderUpdate_FundedToRejected_IsAllowedForFarmer()
+    {
+        // The farmer responds to a funded order with accept OR reject; the
+        // funded -> rejected entry was missing from the transition map, so a
+        // farmer's rejection bounced as an invalid transition. Pin it, including
+        // the server-stamped respondedAt side-effect.
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "funded" },
+            { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" },
+                { "status", "rejected" },
+                { "version", "2" }
+            }));
+
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-reject",
+            IdempotencyKey = "farmer-001:order:order-001:update:12345",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "rejected" }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("Invalid status transition", response.Body);
+        Assert.Contains("success", response.Body);
+        // Reject is a farmer response: the server stamps respondedAt.
+        await orderRepo.Received(1).UpdateAsync(
+            "order-001",
+            Arg.Is<Dictionary<string, object>>(d =>
+                d["status"].ToString() == "rejected" && d.ContainsKey("respondedAt")),
+            Arg.Any<int>());
+    }
+
+    [Fact]
     public async Task OrderUpdate_PaymentSubmitted_MockMode_AutoFundsOrder()
     {
         // In mock mode there is no real gateway to verify the transfer, so a

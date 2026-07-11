@@ -119,7 +119,10 @@
     "totalCommission": "Total Commission",
     "monthlyRevenue": "Monthly Revenue",
     "avgTransaction": "Avg. Transaction",
-    "commissionRate": "Commission Rate"
+    "commissionRate": "Commission Rate",
+    "totalVolume": "Total Volume",
+    "transactionCount": "Transactions",
+    "avgCommission": "Avg. Commission"
   },
   "transactions": {
     "title": "Transactions",
@@ -223,7 +226,13 @@
     "totalVolume": "Total Volume",
     "dailyAvg": "Daily Average",
     "peakHour": "Peak Hour",
-    "successRate": "Success Rate"
+    "successRate": "Success Rate",
+    "totalTransactions": "Total Transactions",
+    "completed": "Completed",
+    "pending": "Pending",
+    "disputed": "Disputed",
+    "refunded": "Refunded",
+    "statusBreakdown": "Status Breakdown"
   },
   "audit": {
     "title": "Audit Log",
@@ -243,7 +252,11 @@
     "healthy": "Healthy",
     "degraded": "Degraded",
     "down": "Down",
-    "services": "Services"
+    "services": "Services",
+    "status": "Status",
+    "region": "Region",
+    "activeTables": "Active Tables",
+    "uptime": "Uptime"
   },
   "compliance": {
     "title": "Compliance",
@@ -252,7 +265,12 @@
     "verified": "Verified",
     "unverified": "Unverified",
     "dailyLimit": "Daily Limit",
-    "monthlyLimit": "Monthly Limit"
+    "monthlyLimit": "Monthly Limit",
+    "overview": "Overview",
+    "totalTransactions": "Total Transactions",
+    "totalVolume": "Total Volume",
+    "disputesOpen": "Open Disputes",
+    "disputesResolved": "Resolved Disputes"
   },
   "common": {
     "search": "Search",

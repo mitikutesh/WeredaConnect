@@ -73,21 +73,48 @@
     "subtitle": "Tarkaanfii salphaa sadii fayyadamaa hundaaf",
     "farmer": {
       "title": "Qonnaan Bultootaaf",
-      "step1": { "title": "Oomisha Kee Galmeessi", "description": "Maal akka gurgurtu itti dabali — gosa, hamma fi gatii. Oflaayiniin hojjeta." },
-      "step2": { "title": "Walsimuu Argadhu", "description": "Bitooti tarree kee ilaalu. Dhiyeessii siif ta'u fudhuu." },
-      "step3": { "title": "Nageenya'n Kaffalamuu", "description": "Kaffaltiin iskiroowii Telebirriin qabama. Bitaan yeroo mirkaneessutti gadhiifama." }
+      "step1": {
+        "title": "Oomisha Kee Galmeessi",
+        "description": "Maal akka gurgurtu itti dabali — gosa, hamma fi gatii. Oflaayiniin hojjeta."
+      },
+      "step2": {
+        "title": "Walsimuu Argadhu",
+        "description": "Bitooti tarree kee ilaalu. Dhiyeessii siif ta'u fudhuu."
+      },
+      "step3": {
+        "title": "Nageenya'n Kaffalamuu",
+        "description": "Kaffaltiin iskiroowii Telebirriin qabama. Bitaan yeroo mirkaneessutti gadhiifama."
+      }
     },
     "trucker": {
       "title": "Konkolaachisaaf",
-      "step1": { "title": "Imalawwan Ilaali", "description": "Fe'umsawwan karaa kee bira jiran ilaali. Bakka ga'umsaa fi ulfaatinaan calalii." },
-      "step2": { "title": "Fudhuu fi Geejjibsuu", "description": "Bal'ina fudhannaa mirkaneessi. Adeemsa imala kee hordofi." },
-      "step3": { "title": "Geessitee Argadhu", "description": "Yeroo geessitutti kaffaltiin ni mirkanaa'a. Sadarkaa kennamuun maqaa kee ijaari." }
+      "step1": {
+        "title": "Imala Kee Maxxansi",
+        "description": "Karaa, dandeettii fi gatii kee tarreessi. Bitootni imalawwan hunda ilaalanii si qacaru."
+      },
+      "step2": {
+        "title": "Fudhuu fi Geejjibsuu",
+        "description": "Bal'ina fudhannaa mirkaneessi. Adeemsa imala kee hordofi."
+      },
+      "step3": {
+        "title": "Geessitee Argadhu",
+        "description": "Yeroo geessitutti kaffaltiin ni mirkanaa'a. Sadarkaa kennamuun maqaa kee ijaari."
+      }
     },
     "buyer": {
       "title": "Bitootaaf",
-      "step1": { "title": "Oomisha Barbaadi", "description": "Qonnaan bultoota gosa midhaan, naannoo fi gatiitiin barbaadi. Madda irraa qulqulluu." },
-      "step2": { "title": "Geejjiba Qopheessi", "description": "Kallattiin konkolaataa galmeessi yookaan qonnaan bultooti akka geessan godhuu." },
-      "step3": { "title": "Fudhuu fi Kaffaluu", "description": "Yeroo ga'utti sakatta'i. Geejjibni mirkanaa'uu isaa mirkaneessuun kaffaltii gadhiisi." }
+      "step1": {
+        "title": "Oomisha Barbaadi",
+        "description": "Qonnaan bultoota gosa midhaan, naannoo fi gatiitiin barbaadi. Madda irraa qulqulluu."
+      },
+      "step2": {
+        "title": "Geejjiba Qopheessi",
+        "description": "Kallattiin konkolaataa galmeessi yookaan qonnaan bultooti akka geessan godhuu."
+      },
+      "step3": {
+        "title": "Fudhuu fi Kaffaluu",
+        "description": "Yeroo ga'utti sakatta'i. Geejjibni mirkanaa'uu isaa mirkaneessuun kaffaltii gadhiisi."
+      }
     }
   },
   "downloadCta": {
@@ -113,10 +140,22 @@
     "values": {
       "title": "Duudhaalee Keenya",
       "items": [
-        { "title": "Oflaayinii Dursa", "text": "Teknooloojii bakka namoonni jiran hojjetu, bakka neetwoorkiin jiru miti." },
-        { "title": "Afaan Biyyaa", "text": "Afaan kee, sagalee kee, karaa daldalaa kee." },
-        { "title": "Gabaa Haqa Qabu", "text": "Gatii ifaa qonnaan bultootaa fi bitootaa walqixa fayyaduu." },
-        { "title": "Qaqqabummaa Baadiyyaa", "text": "Bilbila $50 fi walqunnamtii 2G'f kan qophaa'e." }
+        {
+          "title": "Oflaayinii Dursa",
+          "text": "Teknooloojii bakka namoonni jiran hojjetu, bakka neetwoorkiin jiru miti."
+        },
+        {
+          "title": "Afaan Biyyaa",
+          "text": "Afaan kee, sagalee kee, karaa daldalaa kee."
+        },
+        {
+          "title": "Gabaa Haqa Qabu",
+          "text": "Gatii ifaa qonnaan bultootaa fi bitootaa walqixa fayyaduu."
+        },
+        {
+          "title": "Qaqqabummaa Baadiyyaa",
+          "text": "Bilbila $50 fi walqunnamtii 2G'f kan qophaa'e."
+        }
       ]
     }
   },
@@ -144,6 +183,7 @@
     "legal": "Seeraa",
     "privacy": "Imaammata Dhuunfaa",
     "terms": "Haala Tajaajilaa",
-    "copyright": "WeredaConnect. Mirgi hunduu kan eegameedha."
+    "copyright": "WeredaConnect. Mirgi hunduu kan eegameedha.",
+    "language": "Afaan"
   }
 }

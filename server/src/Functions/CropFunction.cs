@@ -240,7 +240,7 @@ public class CropFunction
             FarmerPhone = GetStringOrNull(item, "farmerPhone"),
             CropType = GetString(item, "cropType"),
             Woreda = GetString(item, "woreda"),
-            QuantityKg = GetInt(item, "quantity"),
+            QuantityKg = GetDecimal(item, "quantity"),
             PricePerKg = GetDecimal(item, "pricePerKg"),
             Status = GetString(item, "status"),
             CreatedAt = GetString(item, "createdAt"),

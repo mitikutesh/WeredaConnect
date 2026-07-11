@@ -231,6 +231,7 @@ Authenticate with phone number and password. Returns access, refresh, and ID tok
 | `401` | `AUTH_014` | Invalid credentials (wrong phone or password) |
 | `403` | `AUTH_015` | Account locked (too many failed attempts -- 15 minute lockout) |
 | `403` | `AUTH_016` | Phone number not verified (OTP not completed) |
+| `403` | `AUTH_025` | Account suspended by an administrator |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
 | `503` | `AUTH_008` | Cognito service unavailable |

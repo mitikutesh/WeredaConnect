@@ -58,6 +58,7 @@ export class MonitoringStack extends cdk.Stack {
       { label: 'Sync', nameSuffix: 'sync' },
       { label: 'Escrow', nameSuffix: 'escrow' },
       { label: 'Escrow Cron', nameSuffix: 'escrow-cron' },
+      { label: 'Order Cron', nameSuffix: 'order-cron' },
       { label: 'Crops', nameSuffix: 'crops' },
       { label: 'Trips', nameSuffix: 'trips' },
       { label: 'Orders', nameSuffix: 'orders' },
@@ -455,6 +456,9 @@ export class MonitoringStack extends cdk.Stack {
       { label: 'Trips', nameSuffix: 'trips' },
       { label: 'Orders', nameSuffix: 'orders' },
       { label: 'Deliveries', nameSuffix: 'deliveries' },
+      // NOTE: order-cron is monitored by its own dedicated alarm (Alarm 7 below),
+      // not this aggregate — a CloudWatch math-expression alarm caps at 10 metrics
+      // and this list is already at 10.
     ];
     const lambdaErrorMetrics: Record<string, cloudwatch.IMetric> = {};
     const metricIds: string[] = [];
@@ -643,6 +647,35 @@ export class MonitoringStack extends cdk.Stack {
     authBruteForceAlarm.addAlarmAction(snsAction);
     authBruteForceAlarm.addOkAction(snsAction);
 
+    // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
+    // fail silently (mirrors escrow-cron). It gets a dedicated alarm rather than
+    // joining the aggregate LambdaErrors alarm, which is capped at 10 metrics.
+    const orderCronErrorsAlarm = new cloudwatch.Alarm(
+      this,
+      'OrderCronErrors',
+      {
+        alarmName: `${prefix}-order-cron-errors`,
+        alarmDescription:
+          'The scheduled order auto-cancel (order-cron) reported errors. Unpaid ' +
+          'orders may not be expiring; investigate the Lambda logs.',
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/Lambda',
+          metricName: 'Errors',
+          dimensionsMap: { FunctionName: `${prefix}-order-cron` },
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(5),
+          label: 'Order Cron Errors',
+        }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    orderCronErrorsAlarm.addAlarmAction(snsAction);
+    orderCronErrorsAlarm.addOkAction(snsAction);
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -654,6 +687,7 @@ export class MonitoringStack extends cdk.Stack {
           coldStartAlarm,
           escrowDisputeAlarm,
           authBruteForceAlarm,
+          orderCronErrorsAlarm,
         ],
         width: 24,
         height: 3,

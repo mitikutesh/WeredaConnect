@@ -143,7 +143,8 @@ void main() {
 
       // Delivery-specific fields
       expect(find.text('Status'), findsOneWidget);
-      expect(find.text('delivered'), findsOneWidget);
+      // Status wire tokens are humanized for display (no raw snake/camel tokens).
+      expect(find.text('Delivered'), findsOneWidget);
       expect(find.text('Trip'), findsOneWidget);
       // tripId truncated to 8 chars
       expect(find.text('trip-abc'), findsOneWidget);
@@ -317,7 +318,8 @@ void main() {
       expect(find.text('Price/kg'), findsOneWidget);
       expect(find.text('35.0'), findsOneWidget);
       expect(find.text('Status'), findsOneWidget);
-      expect(find.text('sold'), findsOneWidget);
+      // Status wire tokens are humanized for display.
+      expect(find.text('Sold'), findsOneWidget);
     });
 
     testWidgets('explanation text is displayed', (WidgetTester tester) async {

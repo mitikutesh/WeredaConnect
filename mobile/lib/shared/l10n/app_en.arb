@@ -351,6 +351,14 @@
   "@invalidCredentials": {
     "description": "Error message for invalid credentials"
   },
+  "resetCodeInvalid": "The verification code is incorrect. Please check it and try again.",
+  "@resetCodeInvalid": {
+    "description": "Password reset: verification code mismatch (AUTH_022)"
+  },
+  "resetCodeExpired": "The verification code has expired. Please request a new one.",
+  "@resetCodeExpired": {
+    "description": "Password reset: verification code expired (AUTH_023)"
+  },
   "phoneAlreadyRegistered": "This phone number is already registered",
   "@phoneAlreadyRegistered": {
     "description": "Error message for duplicate phone number"
@@ -1653,6 +1661,18 @@
   "@conflictEntityTrip": {
     "description": "Entity type label for trip in conflict dialog"
   },
+  "conflictEntityOrder": "Order",
+  "@conflictEntityOrder": {
+    "description": "Entity type label for order in conflict dialog"
+  },
+  "conflictEntityRating": "Rating",
+  "@conflictEntityRating": {
+    "description": "Entity type label for rating in conflict dialog"
+  },
+  "conflictEntityPayment": "Payment",
+  "@conflictEntityPayment": {
+    "description": "Entity type label for payment/escrow in conflict dialog"
+  },
   "conflictServerValues": "Updated values from server:",
   "@conflictServerValues": {
     "description": "Section header showing server-side field values"
@@ -2506,6 +2526,10 @@
   "fieldRequired": "This field is required",
   "@fieldRequired": {
     "description": "Generic validation error for empty required fields"
+  },
+  "back": "Back",
+  "@back": {
+    "description": "Back navigation label"
   },
   "clearAll": "Clear all",
   "@clearAll": {

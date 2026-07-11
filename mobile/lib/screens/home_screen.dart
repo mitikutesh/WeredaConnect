@@ -1348,7 +1348,11 @@ class _OverviewStatsState extends State<_OverviewStats> {
             '/trips',
             queryParameters: {'truckerId': userId, 'status': 'matched'},
           ),
-          safeGet('/deliveries', queryParameters: {'truckerId': userId}),
+          // The server has no truckerId delivery index, so /deliveries?truckerId=
+          // is ignored and falls through to the global newest list — yielding a
+          // silent undercount of the trucker's deliveries. Don't issue it; the
+          // count needs a TruckerIdCreatedAtIndex GSI (documented follow-up).
+          Future<Map<String, dynamic>>.value(<String, dynamic>{}),
         ]);
         result['trips'] = _countApiItems(responses[0], alt: 'trips');
         result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
@@ -1747,11 +1751,23 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           '/orders',
           queryParameters: {'farmerId': userId, 'limit': '3'},
         ).catchError((_) => <String, dynamic>{}),
-        // Deliveries (all roles)
-        api.get<Map<String, dynamic>>(
-          '/deliveries',
-          queryParameters: {'limit': '5'},
-        ).catchError((_) => <String, dynamic>{}),
+        // Deliveries — MUST be scoped to the caller. The server supports farmerId
+        // (FarmerIdCreatedAtIndex) and mine=true (buyer via ParticipantIndex) but
+        // NOT truckerId (no GSI yet — documented follow-up). Issuing an unscoped
+        // query for a trucker falls through to the global newest-PENDING list,
+        // leaking other users' deliveries, so skip the fetch for truckers until
+        // the truckerId GSI exists (trucker Recent Activity uses trips + orders).
+        if (role == UserRole.trucker)
+          Future<Map<String, dynamic>>.value(<String, dynamic>{})
+        else
+          api
+              .get<Map<String, dynamic>>(
+                '/deliveries',
+                queryParameters: role == UserRole.farmer
+                    ? {'farmerId': userId, 'limit': '5'}
+                    : {'mine': 'true', 'limit': '5'},
+              )
+              .catchError((_) => <String, dynamic>{}),
       ];
 
       // Role-specific: trips for truckers, crops for farmers

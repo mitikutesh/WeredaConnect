@@ -229,8 +229,9 @@ public class FraudDetectionServiceTests
     [Fact]
     public async Task CheckPaymentVelocity_UnderLimit_ReturnsAllowed()
     {
+        // Contract limit is 5 payment initiations per hour; 4 is under.
         _mockRateLimitRepo.GetAsync(Arg.Any<string>())
-            .Returns(new RateLimitEntry { Pk = "test", Count = 5, Ttl = 0 });
+            .Returns(new RateLimitEntry { Pk = "test", Count = 4, Ttl = 0 });
 
         var result = await _service.CheckPaymentVelocityAsync(UserId);
 
@@ -240,8 +241,9 @@ public class FraudDetectionServiceTests
     [Fact]
     public async Task CheckPaymentVelocity_AtLimit_ReturnsRejected()
     {
+        // 5 initiations already recorded this hour → the 6th is rejected.
         _mockRateLimitRepo.GetAsync(Arg.Any<string>())
-            .Returns(new RateLimitEntry { Pk = "test", Count = 10, Ttl = 0 });
+            .Returns(new RateLimitEntry { Pk = "test", Count = 5, Ttl = 0 });
 
         var result = await _service.CheckPaymentVelocityAsync(UserId);
 

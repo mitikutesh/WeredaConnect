@@ -285,6 +285,14 @@ class AppLocalizationsOm extends AppLocalizations {
       'Lakkoofsi bilbilaa ykn jecha icciitii sirrii miti';
 
   @override
+  String get resetCodeInvalid =>
+      'Koodiin mirkaneessaa sirrii miti. Maaloo mirkaneessitanii irra deebi\'aa yaalaa.';
+
+  @override
+  String get resetCodeExpired =>
+      'Koodiin mirkaneessaa yeroon isaa darbeera. Maaloo kan haaraa gaafadhaa.';
+
+  @override
   String get phoneAlreadyRegistered =>
       'Lakkoofsi bilbilaa kun duraanuu galmaa\'eera';
 
@@ -1256,6 +1264,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get conflictEntityTrip => 'Imala';
 
   @override
+  String get conflictEntityOrder => 'Ajaja';
+
+  @override
+  String get conflictEntityRating => 'Madaallii';
+
+  @override
+  String get conflictEntityPayment => 'Kaffaltii';
+
+  @override
   String get conflictServerValues => 'Gatii Ammaa';
 
   @override
@@ -1866,6 +1883,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get fieldRequired => 'Dirreen kun dirqama';
+
+  @override
+  String get back => 'Deebi\'i';
 
   @override
   String get clearAll => 'Hunda haqi';

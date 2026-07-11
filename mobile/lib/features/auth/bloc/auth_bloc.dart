@@ -509,8 +509,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ///
   /// Always clears user-specific business data (deliveries, payments, listings)
   /// from the local Isar database to prevent data leakage on shared devices.
-  /// Preserves offline credentials (clearCache: false) so the user can re-login
-  /// offline — critical for Ethiopian rural connectivity.
+  /// Honors [AuthLogoutRequested.clearCache] (default true) for the offline
+  /// credential cache: an explicit logout clears the cached tokens + PBKDF2
+  /// password hash (auth-api.md invariant 7), while callers that want to keep
+  /// offline re-login can pass clearCache: false.
   Future<void> _onAuthLogoutRequested(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
@@ -522,13 +524,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       final userId = currentState.userId;
 
-      // Preserve offline credentials (password hash, tokens) so user can
-      // re-login offline. Only server-side token invalidation is attempted.
+      // Clear offline credentials by default (event.clearCache); server-side
+      // token invalidation is attempted regardless. Hardcoding false left the
+      // password hash + tokens on the device after an explicit logout.
       await _authService.logout(
         phoneNumber: _currentPhoneNumber ?? '',
         accessToken: currentState.tokens.accessToken,
         refreshToken: currentState.tokens.refreshToken,
-        clearCache: false,
+        clearCache: event.clearCache,
       );
 
       // Always clear business data to prevent data leakage on shared devices

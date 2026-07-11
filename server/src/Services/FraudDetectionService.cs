@@ -14,8 +14,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
     // Thresholds (internal for testing)
     internal const int MaxListingsPerHour = 5;
     internal const int ListingVelocityTtlSeconds = 3600;      // 1 hour
-    internal const int MaxPaymentsPerDay = 10;
-    internal const int PaymentVelocityTtlSeconds = 86400;      // 24 hours
+    // Contract (escrow-protocol.md): max 5 escrow initiations per buyer per hour.
+    internal const int MaxPaymentsPerHour = 5;
+    internal const int PaymentVelocityTtlSeconds = 3600;       // 1 hour
     internal const double DuplicateListingWindowHours = 1.0;
     internal const double PriceTolerancePercent = 0.05;        // ±5%
     internal const int PriceAnomalyMinSamples = 5;
@@ -104,15 +105,15 @@ public sealed class FraudDetectionService : IFraudDetectionService
     // ── CheckPaymentVelocityAsync ──────────────────────────
     public async Task<FraudCheckResult> CheckPaymentVelocityAsync(string userId)
     {
-        var dateBucket = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var velocityKey = $"FRAUD_PAYMENT#{userId}#{dateBucket}";
+        var hourBucket = DateTime.UtcNow.ToString("yyyy-MM-ddTHH");
+        var velocityKey = $"FRAUD_PAYMENT#{userId}#{hourBucket}";
         var entry = await _rateLimitRepo.GetAsync(velocityKey);
 
-        if (entry != null && entry.Count >= MaxPaymentsPerDay)
+        if (entry != null && entry.Count >= MaxPaymentsPerHour)
         {
             return FraudCheckResult.Rejected(
                 "FRAUD_VELOCITY_EXCEEDED",
-                $"Maximum {MaxPaymentsPerDay} payment initiations per day exceeded.");
+                $"Maximum {MaxPaymentsPerHour} payment initiations per hour exceeded.");
         }
 
         return FraudCheckResult.Allowed();
@@ -169,8 +170,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
     public async Task RecordPaymentInitiatedAsync(string userId)
     {
-        var dateBucket = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var key = $"FRAUD_PAYMENT#{userId}#{dateBucket}";
+        // Hourly bucket must match CheckPaymentVelocityAsync's key format.
+        var hourBucket = DateTime.UtcNow.ToString("yyyy-MM-ddTHH");
+        var key = $"FRAUD_PAYMENT#{userId}#{hourBucket}";
         await _rateLimitRepo.IncrementAsync(key, PaymentVelocityTtlSeconds);
     }
 

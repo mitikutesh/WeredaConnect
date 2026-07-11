@@ -370,11 +370,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: _obscurePassword,
                 maxLength: 128,
                 validator: (value) {
+                  // Login only requires a non-empty password. Do NOT enforce a
+                  // minimum length here: the server validates credentials, and a
+                  // client-side rule both leaks the policy and could reject a valid
+                  // existing password. (Returning l10n.password showed the field
+                  // label "Password" as the error.)
                   if (value == null || value.isEmpty) {
-                    return l10n.password;
-                  }
-                  if (value.length < 8) {
-                    return l10n.passwordRequirements;
+                    return l10n.fieldRequired;
                   }
                   return null;
                 },

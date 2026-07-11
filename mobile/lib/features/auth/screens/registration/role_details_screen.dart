@@ -1,6 +1,8 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -130,12 +132,24 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(11),
-                                child: Image.file(
-                                  File(widget.drivingLicensePath!),
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  height: double.infinity,
-                                ),
+                                // dart:io File is unavailable on web (throws at
+                                // runtime). On web the picker yields a blob URL, so
+                                // render it via Image.network; File path only on IO.
+                                child: kIsWeb
+                                    ? Image.network(
+                                        widget.drivingLicensePath!,
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        height: double.infinity,
+                                        errorBuilder: (_, __, ___) =>
+                                            const Icon(Icons.broken_image),
+                                      )
+                                    : Image.file(
+                                        File(widget.drivingLicensePath!),
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        height: double.infinity,
+                                      ),
                               ),
                               Positioned(
                                 top: 8,

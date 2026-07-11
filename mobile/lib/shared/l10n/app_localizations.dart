@@ -628,6 +628,18 @@ abstract class AppLocalizations {
   /// **'Invalid phone number or password'**
   String get invalidCredentials;
 
+  /// Password reset: verification code mismatch (AUTH_022)
+  ///
+  /// In en, this message translates to:
+  /// **'The verification code is incorrect. Please check it and try again.'**
+  String get resetCodeInvalid;
+
+  /// Password reset: verification code expired (AUTH_023)
+  ///
+  /// In en, this message translates to:
+  /// **'The verification code has expired. Please request a new one.'**
+  String get resetCodeExpired;
+
   /// Error message for duplicate phone number
   ///
   /// In en, this message translates to:
@@ -2410,6 +2422,24 @@ abstract class AppLocalizations {
   /// **'Trip'**
   String get conflictEntityTrip;
 
+  /// Entity type label for order in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get conflictEntityOrder;
+
+  /// Entity type label for rating in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Rating'**
+  String get conflictEntityRating;
+
+  /// Entity type label for payment/escrow in conflict dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Payment'**
+  String get conflictEntityPayment;
+
   /// Section header showing server-side field values
   ///
   /// In en, this message translates to:
@@ -3513,6 +3543,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This field is required'**
   String get fieldRequired;
+
+  /// Back navigation label
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get back;
 
   /// Button label to clear all notifications
   ///

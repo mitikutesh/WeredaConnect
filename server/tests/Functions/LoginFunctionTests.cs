@@ -120,6 +120,30 @@ public class LoginFunctionTests
     }
 
     [Fact]
+    public async Task FunctionHandler_SuspendedAccount_Returns403WithoutTokens()
+    {
+        // Admin-suspended accounts must not authenticate even with valid
+        // credentials: Cognito succeeds, but the profile's Suspended flag blocks
+        // the login with AUTH_025 and no tokens may leak in the response.
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(TestTokens));
+        _mockRepo.GetUserByPhoneAsync("+251912345678")
+            .Returns(TestUser with { Suspended = true });
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_025", response.Body);
+        Assert.DoesNotContain("access-tok", response.Body);
+    }
+
+    [Fact]
     public async Task FunctionHandler_InvalidCredentials_RecordsFailedAttempt()
     {
         _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())

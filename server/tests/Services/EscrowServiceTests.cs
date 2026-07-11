@@ -370,6 +370,77 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task ReleaseAsync_TransientReleasedWriteFailure_RetriesAndCompletes()
+    {
+        // By the time the 'released' CAS write runs, Telebirr has ALREADY disbursed
+        // the funds — a transient DynamoDB failure must be retried, not surfaced,
+        // or the escrow is stranded in 'escrowed' with the settlement lock held
+        // (a later retry would 409 on the lock with no recovery path).
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var releasedWrites = 0;
+        _mockEscrowRepo.UpdateStatusAsync("escrow-001", Arg.Any<string>(), "released",
+                Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>())
+            .Returns(_ =>
+            {
+                releasedWrites++;
+                if (releasedWrites == 1)
+                {
+                    throw new InvalidOperationException("transient DynamoDB failure");
+                }
+                return Task.CompletedTask;
+            });
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        };
+
+        var result = await _service.ReleaseAsync(request, "system");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("completed", result.Value!.Status);
+        Assert.Equal(2, releasedWrites); // first attempt failed, retry succeeded
+        // The retry is a plain DB write — funds must NOT be disbursed again.
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_ReleasedWriteCasFailure_SurfacesWithoutRetry()
+    {
+        // A CAS failure on the 'released' write means the escrow state genuinely
+        // moved under us — retrying can never succeed and would only mask the
+        // anomaly, so it must surface immediately (one attempt, no retry loop).
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var releasedWrites = 0;
+        _mockEscrowRepo.UpdateStatusAsync("escrow-001", Arg.Any<string>(), "released",
+                Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>())
+            .Returns<Task>(_ =>
+            {
+                releasedWrites++;
+                throw new ConditionalCheckFailedException("escrow state moved");
+            });
+
+        var request = new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = DeliveryId,
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        };
+
+        await Assert.ThrowsAsync<ConditionalCheckFailedException>(
+            () => _service.ReleaseAsync(request, "system"));
+        Assert.Equal(1, releasedWrites);
+    }
+
+    [Fact]
     public async Task ReleaseAsync_FromDisputed_ReturnsCompleted()
     {
         var escrowItem = MakeEscrowItem(status: "disputed");

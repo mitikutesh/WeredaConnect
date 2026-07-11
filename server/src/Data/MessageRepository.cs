@@ -164,29 +164,49 @@ public sealed class MessageRepository : IMessageRepository
             { ":val", new AttributeValue { S = keyValue } }
         };
 
+        // Only declare #ca when the createdAt clause is actually present: DynamoDB
+        // rejects a request whose ExpressionAttributeNames contains an unused key
+        // (ValidationException). Empty `since` (the recipient-bootstrap case) has no
+        // createdAt clause, so #ca must NOT be declared then.
+        var names = new Dictionary<string, string> { { "#k", keyAttr } };
         var keyCondition = "#k = :val";
         if (!string.IsNullOrEmpty(since))
         {
             keyCondition += " AND #ca > :since";
+            names["#ca"] = "createdAt";
             values[":since"] = new AttributeValue { S = since };
         }
 
-        var request = new QueryRequest
+        // Drain ALL pages since the cursor. A single capped page is unsafe here: the
+        // sync-down caller merges the recipient and sender results and advances the
+        // client's `since` cursor to the merged max createdAt. If one direction were
+        // truncated at one page while the other carried later timestamps, the cursor
+        // would jump past the truncated direction's unreturned range and permanently
+        // drop those messages. `limit` is used as the per-page size.
+        var results = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
         {
-            TableName = _tableName,
-            IndexName = indexName,
-            KeyConditionExpression = keyCondition,
-            ExpressionAttributeNames = new Dictionary<string, string>
+            var request = new QueryRequest
             {
-                { "#k", keyAttr },
-                { "#ca", "createdAt" }
-            },
-            ExpressionAttributeValues = values,
-            ScanIndexForward = true, // oldest first
-            Limit = limit
-        };
+                TableName = _tableName,
+                IndexName = indexName,
+                KeyConditionExpression = keyCondition,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values,
+                ScanIndexForward = true, // oldest first
+                Limit = limit
+            };
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
 
-        var response = await _dynamoDb.QueryAsync(request);
-        return response.Items.Select(DynamoDbHelper.FromItem).ToList();
+            var response = await _dynamoDb.QueryAsync(request);
+            results.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            startKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
+        } while (startKey != null);
+
+        return results;
     }
 }

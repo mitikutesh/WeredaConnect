@@ -709,8 +709,17 @@ class SyncExecutor {
           );
         }
 
-        // 4xx client errors or 5xx server errors
-        await _markBatchFailed(operations);
+        // 400/422 are permanent client rejections (malformed/invalid request):
+        // retrying can never succeed, so mark them rejected (fail immediately)
+        // instead of burning 3 retries with exponential backoff. Other 4xx/5xx
+        // stay retryable.
+        if (statusCode == 400 || statusCode == 422) {
+          for (final op in operations) {
+            await _syncQueue.markAsRejected(op.operationId);
+          }
+        } else {
+          await _markBatchFailed(operations);
+        }
         return SyncBatchResult(
           total: operations.length,
           failed: operations.length,

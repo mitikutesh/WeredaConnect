@@ -186,11 +186,20 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
     // idempotent (a no-op if the create op hasn't synced yet), whereas an update
     // would 404 against a not-yet-created server row. The app has no intent-edit
     // path, so the server row is never needed again once fulfilled.
-    await _enqueueIntent(
-      'delete',
-      intent.intentId,
-      {'buyerId': intent.buyerId},
-    );
+    // Local write above is authoritative; a sync-enqueue failure must not surface
+    // as an operation error (matches createIntent). The sync layer reconciles later.
+    try {
+      await _enqueueIntent(
+        'delete',
+        intent.intentId,
+        {'buyerId': intent.buyerId},
+      );
+    } on Object catch (e) {
+      debugPrint(
+        '[BuyerIntentRepository] intent fulfilled locally but sync enqueue '
+        'failed: $e',
+      );
+    }
   }
 
   /// Delete an intent.
@@ -206,6 +215,13 @@ class BuyerIntentRepository extends BaseBuyerIntentRepository {
       await _isar.buyerIntents.delete(intent.id);
     });
 
-    await _enqueueIntent('delete', intentId, {'buyerId': buyerId});
+    try {
+      await _enqueueIntent('delete', intentId, {'buyerId': buyerId});
+    } on Object catch (e) {
+      debugPrint(
+        '[BuyerIntentRepository] intent deleted locally but sync enqueue '
+        'failed: $e',
+      );
+    }
   }
 }
