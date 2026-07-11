@@ -3280,11 +3280,11 @@ abstract class AppLocalizations {
   /// **'Rating'**
   String get rating;
 
-  /// Stat label for escrow percentage
+  /// Stat label for the total ETB currently held in escrow on the user's active orders
   ///
   /// In en, this message translates to:
-  /// **'Escrow %'**
-  String get escrowPercent;
+  /// **'In Escrow (ETB)'**
+  String get inEscrowEtb;
 
   /// Profile menu item for wallet
   ///

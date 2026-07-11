@@ -3,9 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:intl/intl.dart';
+// The device build gets isar via isar_service.dart's re-export, but the web
+// build swaps in isar_service_web.dart which does NOT re-export it — keep the
+// direct import so QAfterFilterCondition resolves on both platforms.
+// ignore: unnecessary_import
+import 'package:isar/isar.dart' show QAfterFilterCondition;
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
+import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/trip.dart';
@@ -34,6 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final int _rebuildKey = 0;
   Future<Map<String, String>>? _statsFuture;
   String? _statsUserId;
+  UserRole? _statsRole;
 
   @override
   Widget build(BuildContext context) {
@@ -238,10 +248,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
                 child: FutureBuilder<Map<String, String>>(
-                  future: _getStatsFuture(authState.userId),
+                  future: _getStatsFuture(authState.userId, authState.role),
                   builder: (context, snap) {
                     final stats = snap.data ??
-                        {'trades': '0', 'rating': '-', 'escrow': '0%'};
+                        {'trades': '0', 'rating': '-', 'escrow': '0'};
                     return Row(
                       children: [
                         _StatColumn(
@@ -256,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _verticalDivider(),
                         _StatColumn(
                           value: stats['escrow']!,
-                          label: l10n.escrowPercent,
+                          label: l10n.inEscrowEtb,
                         ),
                       ],
                     );
@@ -270,7 +280,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               context,
               authState,
               l10n,
-              _getStatsFuture(authState.userId),
+              _getStatsFuture(authState.userId, authState.role),
             ),
           ],
         ),
@@ -415,13 +425,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(height: 16),
                       // Stats row
                       FutureBuilder<Map<String, String>>(
-                        future: _getStatsFuture(authState.userId),
+                        future:
+                            _getStatsFuture(authState.userId, authState.role),
                         builder: (context, snap) {
                           final stats = snap.data ??
                               {
                                 'trades': '0',
                                 'rating': '-',
-                                'escrow': '0%',
+                                'escrow': '0',
                               };
                           return Row(
                             children: [
@@ -437,7 +448,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               _verticalDivider(),
                               _StatColumn(
                                 value: stats['escrow']!,
-                                label: l10n.escrowPercent,
+                                label: l10n.inEscrowEtb,
                               ),
                             ],
                           );
@@ -455,7 +466,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   authState,
                   l10n,
                   isDesktop,
-                  _getStatsFuture(authState.userId),
+                  _getStatsFuture(authState.userId, authState.role),
                 ),
               ],
             ),
@@ -476,7 +487,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       future: statsFuture,
       builder: (context, snap) {
         final stats =
-            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0%'};
+            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
         final items = _menuItemWidgets(context, l10n, stats);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -508,7 +519,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       future: statsFuture,
       builder: (context, snap) {
         final stats =
-            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0%'};
+            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
         final items = _menuItemWidgets(context, l10n, stats);
 
         if (isDesktop) {
@@ -592,7 +603,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _ProfileMenuItem(
         icon: Icons.history,
         title: l10n.escrowHistory,
-        subtitle: stats['escrow'] ?? '0%',
+        subtitle: '${stats['escrow'] ?? '0'} ETB',
         onTap: () {
           Navigator.push(
             context,
@@ -719,10 +730,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<Map<String, String>> _getStatsFuture(String userId) {
-    if (_statsFuture == null || _statsUserId != userId) {
+  Future<Map<String, String>> _getStatsFuture(String userId, UserRole role) {
+    if (_statsFuture == null || _statsUserId != userId || _statsRole != role) {
       _statsUserId = userId;
-      _statsFuture = _loadProfileStats(userId);
+      _statsRole = role;
+      _statsFuture = _loadProfileStats(userId, role);
     }
     return _statsFuture!;
   }
@@ -740,11 +752,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<Map<String, String>> _loadProfileStats(String userId) async {
-    if (kIsWeb) {
-      // Web doesn't have Isar for stats; home screen handles web stats
-      return {'trades': '0', 'rating': '-', 'escrow': '0%'};
-    }
+  static final NumberFormat _etbFormat = NumberFormat('#,##0');
+
+  static String _formatEtb(double amount) => _etbFormat.format(amount);
+
+  /// ETB this user has locked in escrow on one order: full order value for
+  /// farmer/buyer, only the transport fee for a trucker.
+  static double _escrowStake(UserRole role, Order order) =>
+      role == UserRole.trucker
+          ? (order.transportCost ?? 0)
+          : orderEscrowValue(
+              orderTotal: order.orderTotal,
+              subtotal: order.quantity * order.pricePerUnit,
+            );
+
+  Future<Map<String, String>> _loadProfileStats(
+    String userId,
+    UserRole role,
+  ) async {
+    if (kIsWeb) return _loadWebProfileStats(userId, role);
     try {
       final isar = IsarService.instance.db;
       // Count deliveries involving this user (any role)
@@ -766,14 +792,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .buyerIdEqualTo(userId)
           .count();
       final total = deliveries + payments;
-      final escrowPct = total > 0 ? ((payments / total) * 100).round() : 0;
+      // ETB currently locked in escrow on this user's orders, scoped to the
+      // role's own id field (mirrors the web path's idParam scoping).
+      final base = isar.orders.filter();
+      final scoped = switch (role) {
+        UserRole.farmer => base.farmerIdEqualTo(userId),
+        UserRole.buyer => base.buyerIdEqualTo(userId),
+        UserRole.trucker => base.truckerIdEqualTo(userId),
+      };
+      final escrowOrders = await scoped
+          .anyOf<OrderStatus, QAfterFilterCondition>(
+            escrowHeldOrderStatuses,
+            (q, s) => q.statusEqualTo(s),
+          )
+          .findAll();
+      final escrowEtb = escrowOrders.fold<double>(
+        0,
+        (sum, o) => sum + _escrowStake(role, o),
+      );
       return {
         'trades': '$total',
         'rating': '-',
-        'escrow': '$escrowPct%',
+        'escrow': _formatEtb(escrowEtb),
       };
     } on Object {
-      return {'trades': '0', 'rating': '-', 'escrow': '0%'};
+      return {'trades': '0', 'rating': '-', 'escrow': '0'};
+    }
+  }
+
+  /// Web has no Isar — sum escrow-held order values from the API instead.
+  /// Trades/rating stay placeholders (no local history on web).
+  Future<Map<String, String>> _loadWebProfileStats(
+    String userId,
+    UserRole role,
+  ) async {
+    const fallback = {'trades': '0', 'rating': '-', 'escrow': '0'};
+    try {
+      final api = ApiClient();
+      if (!api.isInitialized) return fallback;
+      final idParam = switch (role) {
+        UserRole.farmer => 'farmerId',
+        UserRole.buyer => 'buyerId',
+        UserRole.trucker => 'truckerId',
+      };
+      // Follow nextToken pagination so the money sum doesn't silently
+      // truncate at one page; 5 pages (250 orders) bounds the cost on 3G.
+      final items = <dynamic>[];
+      String? nextToken;
+      for (var page = 0; page < 5; page++) {
+        final data = await api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: {
+            idParam: userId,
+            'limit': '50',
+            if (nextToken != null) 'nextToken': nextToken,
+          },
+        );
+        final list = data['orders'] ?? data['items'];
+        if (list is List) items.addAll(list);
+        final token = data['nextToken'];
+        if (token is! String || token.isEmpty) break;
+        nextToken = token;
+      }
+      var escrowEtb = 0.0;
+      for (final item in items) {
+        if (item is! Map) continue;
+        final status = item['status'];
+        if (status is! String) continue;
+        if (!escrowHeldOrderStatusNames.contains(orderStatusFromWire(status))) {
+          continue;
+        }
+        escrowEtb += role == UserRole.trucker
+            ? wireDouble(item['transportCost'])
+            : orderEscrowValue(
+                orderTotal: wireDouble(item['orderTotal']),
+                subtotal: wireDouble(item['quantity']) *
+                    wireDouble(item['pricePerUnit']),
+              );
+      }
+      return {'trades': '0', 'rating': '-', 'escrow': _formatEtb(escrowEtb)};
+    } on Object {
+      return fallback;
     }
   }
 
@@ -896,17 +995,23 @@ class _StatColumn extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textDark,
+          // Scale down instead of wrapping — escrow ETB sums can be long.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textDark,
+              ),
             ),
           ),
           const SizedBox(height: 2),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 12,
               color: AppTheme.textMuted,

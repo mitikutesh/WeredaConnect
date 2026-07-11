@@ -4,12 +4,19 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+// The device build gets isar via isar_service.dart's re-export, but the web
+// build swaps in isar_service_web.dart which does NOT re-export it — keep the
+// direct import so QAfterFilterCondition resolves on both platforms.
+// ignore: unnecessary_import
+import 'package:isar/isar.dart' show QAfterFilterCondition;
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
@@ -1313,30 +1320,32 @@ class _OverviewStatsState extends State<_OverviewStats> {
       }
 
       if (role == UserRole.farmer) {
-        final responses = await Future.wait([
-          safeGet('/crops', queryParameters: {'farmerId': userId}),
-          safeGet('/escrow/history', queryParameters: {'farmerId': userId}),
-          safeGet(
-            '/orders',
-            queryParameters: {'farmerId': userId, 'status': 'funded'},
-          ),
-          safeGet('/deliveries', queryParameters: {'farmerId': userId}),
-        ]);
-        result['listings'] = _countApiItems(responses[0], alt: 'crops');
-        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
-        result['pendingOrders'] = _countApiItems(responses[2], alt: 'orders');
-        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
+        final cropsFuture =
+            safeGet('/crops', queryParameters: {'farmerId': userId});
+        final deliveriesFuture =
+            safeGet('/deliveries', queryParameters: {'farmerId': userId});
+        final orderItems =
+            await _fetchOrderPages(safeGet, {'farmerId': userId});
+        result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
+        result['pendingOrders'] =
+            _countOrdersByStatus(orderItems, const {'funded'});
+        result['payments'] =
+            _countOrdersByStatus(orderItems, escrowHeldOrderStatusNames);
+        result['deliveries'] =
+            _countApiItems(await deliveriesFuture, alt: 'deliveries');
       } else if (role == UserRole.buyer) {
-        final responses = await Future.wait([
-          safeGet('/deliveries', queryParameters: {'buyerId': userId}),
-          safeGet('/escrow/history', queryParameters: {'buyerId': userId}),
-          safeGet('/orders', queryParameters: {'buyerId': userId}),
-          safeGet('/crops', queryParameters: {'status': 'available'}),
-        ]);
-        result['deliveries'] = _countApiItems(responses[0], alt: 'deliveries');
-        result['payments'] = _countApiItems(responses[1], alt: 'escrows');
-        result['activeOrders'] = _countApiItems(responses[2], alt: 'orders');
-        result['listings'] = _countApiItems(responses[3], alt: 'crops');
+        final deliveriesFuture =
+            safeGet('/deliveries', queryParameters: {'buyerId': userId});
+        final cropsFuture =
+            safeGet('/crops', queryParameters: {'status': 'available'});
+        final orderItems = await _fetchOrderPages(safeGet, {'buyerId': userId});
+        result['deliveries'] =
+            _countApiItems(await deliveriesFuture, alt: 'deliveries');
+        result['activeOrders'] =
+            _countOrdersByStatus(orderItems, activeOrderStatusNames);
+        result['payments'] =
+            _countOrdersByStatus(orderItems, escrowHeldOrderStatusNames);
+        result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
       } else if (role == UserRole.trucker) {
         final responses = await Future.wait([
           safeGet('/trips', queryParameters: {'truckerId': userId}),
@@ -1373,6 +1382,51 @@ class _OverviewStatsState extends State<_OverviewStats> {
     return items.length;
   }
 
+  /// Fetch the user's orders following nextToken pagination so counts don't
+  /// silently truncate at one page. Bounded at 5 pages (250 orders) to cap
+  /// dashboard cost on 3G.
+  static Future<List<dynamic>> _fetchOrderPages(
+    Future<Map<String, dynamic>> Function(
+      String path, {
+      Map<String, dynamic>? queryParameters,
+    }) get,
+    Map<String, String> params,
+  ) async {
+    final items = <dynamic>[];
+    String? nextToken;
+    for (var page = 0; page < 5; page++) {
+      final data = await get(
+        '/orders',
+        queryParameters: {
+          ...params,
+          'limit': '50',
+          if (nextToken != null) 'nextToken': nextToken,
+        },
+      );
+      final list = data['orders'] ?? data['items'];
+      if (list is List) items.addAll(list);
+      final token = data['nextToken'];
+      if (token is! String || token.isEmpty) break;
+      nextToken = token;
+    }
+    return items;
+  }
+
+  /// Count orders whose wire status (snake_case, order_status_wire.dart)
+  /// normalizes to one of [statusNames]. Malformed rows are skipped rather
+  /// than zeroing the whole stats load.
+  static int _countOrdersByStatus(
+    List<dynamic> items,
+    Set<String> statusNames,
+  ) {
+    return items.where((item) {
+      if (item is! Map) return false;
+      final status = item['status'];
+      return status is String &&
+          statusNames.contains(orderStatusFromWire(status));
+    }).length;
+  }
+
   Future<Map<String, int>> _loadIsarStats(
     String userId,
     UserRole role,
@@ -1384,7 +1438,14 @@ class _OverviewStatsState extends State<_OverviewStats> {
       if (role == UserRole.farmer) {
         final futures = await Future.wait<int>([
           isar.cropListings.filter().farmerIdEqualTo(userId).count(),
-          isar.payments.filter().farmerIdEqualTo(userId).count(),
+          isar.orders
+              .filter()
+              .farmerIdEqualTo(userId)
+              .anyOf<OrderStatus, QAfterFilterCondition>(
+                escrowHeldOrderStatuses,
+                (q, s) => q.statusEqualTo(s),
+              )
+              .count(),
           isar.orders
               .filter()
               .farmerIdEqualTo(userId)
@@ -1399,21 +1460,20 @@ class _OverviewStatsState extends State<_OverviewStats> {
       } else if (role == UserRole.buyer) {
         final futures = await Future.wait<int>([
           isar.deliverys.filter().buyerIdEqualTo(userId).count(),
-          isar.payments.filter().buyerIdEqualTo(userId).count(),
           isar.orders
               .filter()
               .buyerIdEqualTo(userId)
-              .group(
-                (q) => q
-                    .statusEqualTo(OrderStatus.created)
-                    .or()
-                    .statusEqualTo(OrderStatus.pendingPayment)
-                    .or()
-                    .statusEqualTo(OrderStatus.paymentSubmitted)
-                    .or()
-                    .statusEqualTo(OrderStatus.funded)
-                    .or()
-                    .statusEqualTo(OrderStatus.accepted),
+              .anyOf<OrderStatus, QAfterFilterCondition>(
+                escrowHeldOrderStatuses,
+                (q, s) => q.statusEqualTo(s),
+              )
+              .count(),
+          isar.orders
+              .filter()
+              .buyerIdEqualTo(userId)
+              .anyOf<OrderStatus, QAfterFilterCondition>(
+                activeOrderStatuses,
+                (q, s) => q.statusEqualTo(s),
               )
               .count(),
           isar.cropListings

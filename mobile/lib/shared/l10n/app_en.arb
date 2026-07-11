@@ -2322,9 +2322,9 @@
   "@rating": {
     "description": "Stat label for user rating"
   },
-  "escrowPercent": "Escrow %",
-  "@escrowPercent": {
-    "description": "Stat label for escrow percentage"
+  "inEscrowEtb": "In Escrow (ETB)",
+  "@inEscrowEtb": {
+    "description": "Stat label for the total ETB currently held in escrow on the user's active orders"
   },
   "wallet": "Wallet",
   "@wallet": {
