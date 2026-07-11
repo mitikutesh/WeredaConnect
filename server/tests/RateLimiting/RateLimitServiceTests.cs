@@ -83,6 +83,27 @@ public class RateLimitServiceTests
     }
 
     [Fact]
+    public async Task CheckLoginAllowed_NotLockedButCountWindowExpired_ResetsCounter()
+    {
+        // Regression for the if_not_exists anchoring: a not-locked counter whose
+        // window has elapsed must reset in code. DynamoDB TTL deletion lags, so
+        // without this the stale count keeps accumulating across windows and
+        // locks the user out earlier than the intended 15-minute window.
+        _mockRepo.GetAsync("LOGIN#+251912345678").Returns(new RateLimitEntry
+        {
+            Pk = "LOGIN#+251912345678",
+            Count = 2,
+            LockedUntil = null,
+            Ttl = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()
+        });
+
+        var result = await _service.CheckLoginAllowedAsync("+251912345678");
+
+        Assert.True(result.IsSuccess);
+        await _mockRepo.Received(1).DeleteAsync("LOGIN#+251912345678");
+    }
+
+    [Fact]
     public async Task RecordFailedLogin_BelowThreshold_DoesNotLock()
     {
         _mockRepo.IncrementAsync("LOGIN#+251912345678", RateLimitService.LoginLockoutSeconds)

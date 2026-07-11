@@ -52,6 +52,17 @@ public sealed class RateLimitService : IRateLimitService
 
             // Lockout expired — reset counter so user gets fresh attempts
             await _repository.DeleteAsync(key);
+            return AuthResult<bool>.Success(true);
+        }
+
+        // Not locked, but the failed-attempt window may have elapsed. DynamoDB
+        // TTL deletion is best-effort and lags, so reset the stale counter in
+        // code — otherwise the count accumulates across windows (the LOGIN# key
+        // is reused, unlike the date/hour-bucketed REGISTER#/FRAUD_ keys) and
+        // locks the user out earlier than the intended window. See IsWindowExpired.
+        if (IsWindowExpired(entry))
+        {
+            await _repository.DeleteAsync(key);
         }
 
         return AuthResult<bool>.Success(true);
