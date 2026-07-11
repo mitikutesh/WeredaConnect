@@ -21,21 +21,38 @@ against a dedicated **AdminUserPool** (`infra/lib/stacks/api-stack.ts`), and
 authorization is by membership in the Cognito **`admin` group** — the three
 marketplace users above are not admins and cannot log in to the dashboard.
 
-No admin user is seeded by default. Create one with:
+No admin user is seeded by default. Create one with `scripts/seed-admin-user.sh`.
+The script is idempotent (safe to re-run; also resets a forgotten password) and
+verifies at the end that login works and the token carries the `admin` group.
+
+**First-time setup (dev) — the command that works today:**
 
 ```bash
-./scripts/seed-admin-user.sh          # auto-discovers the admin pool from CFN outputs
+ADMIN_USER_POOL_ID=eu-north-1_hSYkEt6nd ADMIN_CLIENT_ID=4dntti20l1if7jfutdskjdkrmm bash seed-admin-user.sh
 ```
+
+Passing the IDs explicitly skips CFN-output auto-discovery, which fails when the
+CloudShell/CLI identity lacks `cloudformation:DescribeStacks`. These are the
+**dev** AdminUserPool values; if the pool is ever replaced, re-read them from the
+ApiStack outputs `AdminUserPoolId` / `AdminClientId` (also printed in every
+`deploy-server.yml` CI run log).
+
+**No AWS CLI on your machine?** Run it in CloudShell:
+
+1. AWS Console (account `471112574693`) → region `eu-north-1` → open **CloudShell**.
+2. **Actions → Upload file** → pick `scripts/seed-admin-user.sh`.
+3. Run the command above. Success ends with `Login OK, token carries 'admin' group.`
 
 | Role | Phone | Password | Notes |
 |------|-------|----------|-------|
-| **admin** | `+251900100009` | `AdminPass1dev` | member of the `admin` group |
+| **admin** | `+251900100009` | `AdminPass1dev` | member of the `admin` group (override via `ADMIN_PHONE` / `ADMIN_PASSWORD` env vars) |
 
-The admin app also needs a local `admin/.env` (never committed) with
-`VITE_COGNITO_ADMIN_USER_POOL_ID`, `VITE_COGNITO_ADMIN_CLIENT_ID`,
-`VITE_API_BASE_URL`, and `VITE_COGNITO_REGION` — the seeder prints the pool/client
-values on completion. Without this env, admin login fails with a generic
-"service unavailable" before any credential check.
+The deployed admin app (`dev-admin.weredaconnect.com`) gets its Cognito config
+baked in by CI from the GitHub secrets `COGNITO_ADMIN_USER_POOL_ID` /
+`COGNITO_ADMIN_CLIENT_ID` — keep those in sync with the pool too. For running
+the admin app **locally**, create `admin/.env` (never committed) — see
+`admin/README.md` for the dev values. Without this env, admin login fails with
+a generic "service unavailable" before any credential check.
 
 ## API Details
 

@@ -1,5 +1,37 @@
 # WeredaConnect Admin Dashboard
 
+## First-Time Setup (dev)
+
+Two one-time steps before the dashboard is usable:
+
+**1. Create `admin/.env`** (never committed) with the dev values:
+
+```bash
+VITE_API_BASE_URL=https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com
+VITE_COGNITO_ADMIN_USER_POOL_ID=eu-north-1_hSYkEt6nd
+VITE_COGNITO_ADMIN_CLIENT_ID=4dntti20l1if7jfutdskjdkrmm
+VITE_COGNITO_REGION=eu-north-1
+```
+
+Without this, login fails with a generic "Service temporarily unavailable"
+before any credential check (Vite bakes these in at build time).
+
+**2. Seed the admin user** — no admin exists by default. From CloudShell
+(Console → `eu-north-1` → CloudShell → Actions → Upload file →
+`scripts/seed-admin-user.sh`) or any shell with AWS credentials:
+
+```bash
+ADMIN_USER_POOL_ID=eu-north-1_hSYkEt6nd ADMIN_CLIENT_ID=4dntti20l1if7jfutdskjdkrmm bash seed-admin-user.sh
+```
+
+Idempotent; also resets a forgotten password. Then log in with
+`+251900100009` / `AdminPass1dev`. Full details: `.ai/test-users.md`.
+
+If the AdminUserPool is ever replaced, the IDs above change — re-read them from
+the ApiStack outputs `AdminUserPoolId` / `AdminClientId` and update this file,
+`.ai/test-users.md`, and the GitHub secrets (`COGNITO_ADMIN_USER_POOL_ID`,
+`COGNITO_ADMIN_CLIENT_ID`) used by `deploy-admin.yml`.
+
 ## Environment Variables
 
 Create a local `.env` (never committed) with:
