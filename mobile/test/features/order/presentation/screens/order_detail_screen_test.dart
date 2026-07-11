@@ -155,7 +155,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final button = find.widgetWithText(FilledButton, 'Create Delivery');
+      // Match on the label text, not the button type: `FilledButton.icon`'s
+      // concrete runtime type differs across Flutter versions, so
+      // `find.byType(FilledButton)` (exact-type) is not portable.
+      final button = find.text('Create Delivery');
       expect(button, findsOneWidget);
 
       await tester.ensureVisible(button);
@@ -173,7 +176,7 @@ void main() {
       await tester.pumpWidget(buildScreen(_makeOrder()));
       await tester.pumpAndSettle();
 
-      final button = find.widgetWithText(FilledButton, 'Collect it myself');
+      final button = find.text('Collect it myself');
       expect(button, findsOneWidget);
 
       await tester.ensureVisible(button);
