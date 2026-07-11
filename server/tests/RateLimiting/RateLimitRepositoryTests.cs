@@ -242,6 +242,25 @@ public class RateLimitRepositoryTests
     }
 
     [Fact]
+    public void FromItem_MalformedTtl_DefaultsToZeroWithoutThrowing()
+    {
+        // A single bad row (attribute present but not a valid number, e.g. stored
+        // as a String so `.N` is null) must not throw and 500 every rate-limit
+        // check for the key.
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "pk", new AttributeValue { S = "SYNC#user-1" } },
+            { "count", new AttributeValue { N = "3" } },
+            { "expiresAt", new AttributeValue { S = "not-a-number" } }
+        };
+
+        var entry = RateLimitRepository.FromItem(item);
+
+        Assert.Equal(0L, entry.Ttl);
+        Assert.Equal(3, entry.Count);
+    }
+
+    [Fact]
     public void FromItem_FallsBackToLegacyTtlAttribute()
     {
         // Rows written by older builds only have "ttl"; they must still report
