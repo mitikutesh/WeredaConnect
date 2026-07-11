@@ -76,10 +76,22 @@ Mobile pulls incrementally using its newest local message time as the cursor
 pulls incrementally with the same newest-cached-time cursor.
 
 While the app is foregrounded, both clients poll `GET /messages?since=` every
-60 s (`InboxBloc.pollInterval`); newly discovered inbound messages surface as an
-in-app arrival banner (suppressed for the thread currently on screen, and on the
-very first hydration of an empty store — bootstrapping history is not an
+60 s (`InboxBloc.defaultPollInterval`); newly discovered inbound messages surface
+as an in-app arrival banner (suppressed for the thread currently on screen, and
+on the very first hydration of an empty store — bootstrapping history is not an
 arrival). Background timeliness remains FCM's job.
+
+The poll is lifecycle-aware and push-accelerated:
+
+- **Foreground push (native)**: an FCM `onMessage` whose `data.type == "message"`
+  dispatches an immediate poll (plus one 3 s follow-up — the recipient GSI is
+  eventually consistent), so arrival is effectively instant while the app is
+  open. Concurrent poll requests coalesce to at most an in-flight + one trailing
+  pull.
+- **Lifecycle**: `paused`/`hidden` stops the poll timer (backgrounded apps and
+  hidden web tabs stop burning data); `resumed` restarts it with an immediate
+  catch-up pull, throttled to skip when the last pull is <10 s old.
+- **Sign-out** resets the inbox (timer stopped, per-user state dropped).
 
 ---
 
@@ -132,7 +144,7 @@ available" snackbar. Order/delivery tags stay label-only.
 
 ## Known limitations / deferrals
 
-- Near-real-time in-app only (60 s poll while foregrounded; push is the background timeliness signal).
+- Foreground arrival is push-instant on native once FCM is configured (falls back to the 60 s poll on non-GMS devices); web has no push — its floor is the 60 s poll plus the instant resume/tab-refocus catch-up.
 - Cross-device / web sent-message history relies on the `SenderIdCreatedAtIndex` pull.
 - Tap-to-thread deep-linking from a push is deferred (no global navigator key yet); the notification still delivers and the inbox badge updates.
 - Order/delivery-scoped chat is reachable from the inbox once started; dedicated "Message" buttons on the order/delivery detail screens are a follow-up (crop→farmer and trip→trucker entry points ship now).

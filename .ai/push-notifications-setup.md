@@ -235,12 +235,28 @@ class PushNotificationService {
 }
 ```
 
-Wire it after login (e.g. in `run_mobile.dart`, once the user is a buyer):
+Wire-up (IMPLEMENTED — `run_mobile.dart`, on every auth transition, all roles):
 ```dart
-await PushNotificationService(api: ApiClient()).init();
+PushNotificationService(api: ApiClient()).init(
+  onMessagePush: () { /* dispatches InboxPollRequested (+ one 3s follow-up) */ },
+);
 ```
 
-Tap-to-open routing — register a background handler in `main()` and handle taps:
+**Foreground chat pushes (IMPLEMENTED):** `init()` subscribes to
+`FirebaseMessaging.onMessage`. Android suppresses the tray notification while the
+app is in the foreground, so this is the only foreground signal — when the payload
+is a chat message the callback nudges `InboxBloc` to pull immediately, and the
+existing in-app banner + unread badges make arrival feel instant (no more waiting
+for the 60s poll). The subscriptions are static and replaced on each `init()` so
+repeated logins don't stack listeners.
+
+**Payload contract (must stay in sync with `MessageStreamFunction.cs`):** chat
+pushes carry `data.type == "message"` plus `conversationId`/`messageId`/`senderId`/
+`contextType`/`contextId`; buyer-match pushes carry `{intentId, cropId}` and no
+`type`. The client filter is `PushNotificationService.isMessagePush`.
+
+Tap-to-open routing — still DEFERRED (needs a global navigator key). When built,
+register a background handler in `main()` and handle taps:
 ```dart
 @pragma('vm:entry-point')
 Future<void> _firebaseBgHandler(RemoteMessage message) async {}
@@ -252,10 +268,17 @@ Future<void> _firebaseBgHandler(RemoteMessage message) async {}
 // });
 ```
 
-**Behavior once activated**: on buyer login the app requests permission, gets its FCM
-token, and `POST /device-tokens`. Buyer intents already sync (`buyer_intent`), so the
-backend matches new crops and pushes `{intentId, cropId}`; tapping opens that intent's
-match results.
+**Behavior once activated**: on login the app requests permission, gets its FCM
+token, and `POST /device-tokens`. New chat messages push instantly (tray when
+backgrounded, in-app banner via the onMessage → pull path when foregrounded).
+Buyer intents already sync (`buyer_intent`), so the backend matches new crops and
+pushes `{intentId, cropId}`; tapping opens the app (deep-link deferred).
+
+**Related client behavior (no FCM needed):** the inbox poll is lifecycle-aware —
+paused/hidden stops the 60s timer (3G data budget), resume/tab-refocus restarts it
+with an immediate throttled catch-up pull, and sign-out resets it. See
+`InboxPaused`/`InboxResumed`/`InboxReset` in `inbox_bloc.dart` and the
+`WidgetsBindingObserver` in `message_arrival_listener.dart`.
 
 ---
 

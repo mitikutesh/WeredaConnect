@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -39,6 +41,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/messaging/data/isar_conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -352,13 +355,32 @@ class WeredaConnectApp extends StatelessWidget {
               themeMode: ThemeMode.light,
               // Register for push once the user is authenticated (all roles
               // receive message alerts). Best-effort: no-ops if FCM isn't set up.
-              // MessageArrivalListener shows the in-app banner when a chat
-              // message lands while the app is in the foreground.
+              // A foreground chat push nudges the inbox to pull immediately —
+              // MessageArrivalListener then shows the in-app banner, so arrival
+              // feels instant instead of waiting for the next 60s poll.
               home: BlocListener<AuthBloc, AuthState>(
                 listenWhen: (prev, curr) =>
                     curr is AuthAuthenticated && prev is! AuthAuthenticated,
                 listener: (context, state) {
-                  PushNotificationService(api: ApiClient()).init();
+                  // Capture blocs, not context: the callbacks outlive builds.
+                  final inbox = context.read<InboxBloc>();
+                  final auth = context.read<AuthBloc>();
+                  PushNotificationService(api: ApiClient()).init(
+                    onMessagePush: () {
+                      // A push for the PREVIOUS user can arrive after logout
+                      // (tokens aren't deregistered yet) — ignore it.
+                      if (auth.state is! AuthAuthenticated) return;
+                      inbox.add(const InboxPollRequested());
+                      // The pull reads a DynamoDB GSI, which is eventually
+                      // consistent — one short follow-up catches a row the
+                      // instant pull missed.
+                      Timer(const Duration(seconds: 3), () {
+                        if (auth.state is AuthAuthenticated) {
+                          inbox.add(const InboxPollRequested());
+                        }
+                      });
+                    },
+                  );
                 },
                 child: const MessageArrivalListener(child: AuthGate()),
               ),

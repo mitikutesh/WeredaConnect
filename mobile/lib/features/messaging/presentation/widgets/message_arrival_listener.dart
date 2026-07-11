@@ -40,7 +40,8 @@ class MessageArrivalListener extends StatefulWidget {
   State<MessageArrivalListener> createState() => _MessageArrivalListenerState();
 }
 
-class _MessageArrivalListenerState extends State<MessageArrivalListener> {
+class _MessageArrivalListenerState extends State<MessageArrivalListener>
+    with WidgetsBindingObserver {
   StreamSubscription<AuthState>? _authSubscription;
   StreamSubscription<List<Message>>? _subscription;
   OverlayEntry? _banner;
@@ -55,6 +56,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Subscribe only while authenticated: reading InboxBloc forces its lazy
     // creation, which touches the local store — and signed-out sessions have
     // no arrivals to announce anyway.
@@ -80,15 +82,40 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener> {
         context.read<InboxBloc>().add(LoadInbox(state.userId));
       }
     } else {
-      _subscription?.cancel();
-      _subscription = null;
+      // Only touch InboxBloc when a user WAS signed in (we had subscribed) —
+      // reading it while signed out forces lazy creation and touches the
+      // local store for nothing.
+      if (_subscription != null) {
+        _subscription?.cancel();
+        _subscription = null;
+        // Stop the poll timer and drop per-user state; the app-global bloc
+        // would otherwise keep polling as the signed-out user forever.
+        context.read<InboxBloc>().add(const InboxReset());
+      }
       _inboxLoadedFor = null;
       _removeBanner();
     }
   }
 
+  /// Pause the poll while backgrounded/hidden (3G data budget), catch up the
+  /// moment the app (or web tab) is visible again. `hidden` covers web tab
+  /// switches, where `paused` never fires; `inactive` (permission dialogs,
+  /// notification shade) is deliberately ignored.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_subscription == null) return; // Not signed in — nothing polls.
+    final inbox = context.read<InboxBloc>();
+    if (state == AppLifecycleState.resumed) {
+      inbox.add(const InboxResumed());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      inbox.add(const InboxPaused());
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
     _subscription?.cancel();
     _removeBanner();
