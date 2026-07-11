@@ -107,13 +107,20 @@ class RatingRepository extends BaseRatingRepository {
     required String rateeId,
   }) async {
     final targetId = ratingIdFor(orderId, rateeId);
-    // Check the server first (ratings are immutable, one per order+ratee, so a
-    // rating made on another device must gate the button here too). Local-only
-    // check let a cross-device re-rate through, ending in a silent failed create.
-    // getRatingsForRatee already falls back to the local store when offline.
-    final ratings = await getRatingsForRatee(rateeId);
-    if (ratings.any((r) => r.ratingId == targetId || r.orderId == orderId)) {
-      return true;
+    // Ratings are immutable (one per order+ratee), so a rating made on another
+    // device must gate the button here too. Check the server by the EXACT id via
+    // GET /ratings/{id} (cheap, authoritative) — mirrors the web repo. A paged
+    // rateeId list scan could miss the rating past page 1. Fall back to the local
+    // store when offline (create is idempotent server-side either way).
+    final api = _apiClient;
+    if (api != null) {
+      try {
+        final data = await api.get<Map<String, dynamic>>('/ratings/$targetId');
+        if (data['rating'] != null) return true;
+      } on Object catch (e) {
+        // 404 → not rated; network error → fall through to the local check.
+        debugPrint('[RatingRepository] hasRated server check: $e');
+      }
     }
     final existing =
         await _isar.ratings.filter().ratingIdEqualTo(targetId).findFirst();

@@ -567,4 +567,26 @@ public sealed class CognitoAuthService : ICognitoAuthService
                 "Authentication service temporarily unavailable.");
         }
     }
+
+    /// <inheritdoc />
+    public async Task DeleteUserAsync(string phone)
+    {
+        if (_userPoolId == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _cognito.AdminDeleteUserAsync(new AdminDeleteUserRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone
+            });
+        }
+        catch (UserNotFoundException)
+        {
+            // Already gone — nothing to roll back.
+        }
+    }
 }

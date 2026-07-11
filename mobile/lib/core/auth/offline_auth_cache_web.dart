@@ -171,6 +171,13 @@ class OfflineAuthCache {
       key: _tokensKey(phoneNumber),
       value: jsonEncode(tokens.toJson()),
     );
+    // Re-stamp the session timestamp on refresh so an actively-used session is
+    // not force-logged-out 48h after the ORIGINAL login (mirrors the mobile
+    // cache's updateTokens, which resets the TTL on refresh).
+    await _storage.write(
+      key: _cachedAtKey(phoneNumber),
+      value: DateTime.now().toUtc().toIso8601String(),
+    );
   }
 
   Future<bool> hasCachedCredentials(String phoneNumber) async {
@@ -181,6 +188,7 @@ class OfflineAuthCache {
   Future<void> clearCredentials(String phoneNumber) async {
     await _storage.delete(key: _tokensKey(phoneNumber));
     await _storage.delete(key: _userKey(phoneNumber));
+    await _storage.delete(key: _cachedAtKey(phoneNumber));
   }
 
   Future<void> clearAllCredentials() async {

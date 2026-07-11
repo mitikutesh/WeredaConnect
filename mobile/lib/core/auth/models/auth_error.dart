@@ -49,6 +49,9 @@ class AuthErrorCode {
   static const resetCodeExpired = 'AUTH_023';
   static const resetPasswordRequirements = 'AUTH_024';
 
+  // Login: account suspended by an administrator (server returns 403 AUTH_025).
+  static const accountSuspended = 'AUTH_025';
+
   // Aliases for backward compatibility within mobile code
   static const tokenExpired = 'AUTH_018';
   static const accountDisabled = 'AUTH_015'; // Reuse accountLocked code

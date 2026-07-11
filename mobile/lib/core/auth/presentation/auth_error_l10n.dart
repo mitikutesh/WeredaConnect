@@ -44,6 +44,7 @@ String localizeAuthError(
     // Login errors
     AuthErrorCode.invalidCredentials => l10n.invalidCredentials,
     AuthErrorCode.accountLocked => l10n.authAccountDisabled,
+    AuthErrorCode.accountSuspended => l10n.authAccountDisabled,
     AuthErrorCode.userNotConfirmed => l10n.authErrorUserNotConfirmed,
     AuthErrorCode.userNotFound => l10n.invalidCredentials,
 

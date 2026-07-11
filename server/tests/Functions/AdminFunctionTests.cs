@@ -495,4 +495,64 @@ public class AdminFunctionTests
         response.Body.Should().Contain("order_created");
         response.Body.Should().Contain("203.0.113.7");
     }
+
+    // Regression: role counts filtered on capitalized 'Farmer'/'Trucker'/'Buyer'
+    // (stored lowercase) so every per-role count was 0. Pin the lowercase values.
+    [Fact]
+    public async Task DashboardStats_FiltersUserRoles_UsingLowercaseValues()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        var scans = new List<ScanRequest>();
+        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
+            .Returns(new ScanResponse
+            {
+                Count = 0,
+                Items = new List<Dictionary<string, AttributeValue>>(),
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
+            });
+
+        var fn = new AdminFunction(
+            db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var response = await fn.FunctionHandler(AdminGet("/admin/dashboard/stats"), _context);
+
+        response.StatusCode.Should().Be(200);
+        var roleValues = scans
+            .Where(s => s.TableName == UsersTable
+                && s.ExpressionAttributeNames.TryGetValue("#field", out var f)
+                && f == "role")
+            .Select(s => s.ExpressionAttributeValues[":value"].S)
+            .ToList();
+        roleValues.Should().Contain(new[] { "farmer", "trucker", "buyer" });
+        roleValues.Should().NotContain("Farmer");
+        roleValues.Should().NotContain("Buyer");
+    }
+
+    // Regression: revenue analytics counted the transient 'released' state; the
+    // terminal settled state is 'completed'. Pin the escrow filter value.
+    [Fact]
+    public async Task RevenueAnalytics_CountsCompletedEscrows_NotReleased()
+    {
+        var db = Substitute.For<IAmazonDynamoDB>();
+        var scans = new List<ScanRequest>();
+        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
+            .Returns(new ScanResponse
+            {
+                Count = 0,
+                Items = new List<Dictionary<string, AttributeValue>>(),
+                LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
+            });
+
+        var fn = new AdminFunction(
+            db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var response = await fn.FunctionHandler(AdminGet("/admin/analytics/revenue"), _context);
+
+        response.StatusCode.Should().Be(200);
+        var escrowStatusValues = scans
+            .Where(s => s.TableName == EscrowsTable
+                && s.ExpressionAttributeNames.ContainsValue("status"))
+            .Select(s => s.ExpressionAttributeValues[":value"].S)
+            .ToList();
+        escrowStatusValues.Should().Contain("completed");
+        escrowStatusValues.Should().NotContain("released");
+    }
 }

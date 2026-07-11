@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -59,12 +60,17 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       );
       // ...then pull from the server so a fresh device (empty local cache) isn't
       // stuck on an empty history. refreshHistory falls back to the cache offline.
-      bloc.add(
-        RefreshPaymentHistory(
-          userId: authState.userId,
-          roleFilter: _roleFilter,
-        ),
-      );
+      // On web there is NO local cache — LoadPaymentHistory already hits the server
+      // (getHistory delegates to refreshHistory), so a second refresh here would be
+      // a duplicate network call; skip it on web.
+      if (!kIsWeb) {
+        bloc.add(
+          RefreshPaymentHistory(
+            userId: authState.userId,
+            roleFilter: _roleFilter,
+          ),
+        );
+      }
     }
   }
 

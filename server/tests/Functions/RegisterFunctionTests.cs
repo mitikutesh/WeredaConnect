@@ -256,6 +256,8 @@ public class RegisterFunctionTests
         // must NOT report success when the profile write fails.
         Assert.Equal(500, response.StatusCode);
         Assert.Contains("AUTH_007", response.Body);
+        // ...and it must roll back the orphaned Cognito user so the phone isn't bricked.
+        await _mockAuth.Received(1).DeleteUserAsync("+251912345678");
     }
 
     [Fact]
