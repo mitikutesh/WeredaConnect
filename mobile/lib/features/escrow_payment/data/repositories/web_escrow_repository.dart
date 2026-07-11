@@ -54,7 +54,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
   /// Map a typed [ApiException] to a domain EscrowError, mirroring the mobile
   /// EscrowRepository so web surfaces the same specific, localizable codes.
   EscrowError _mapApiException(ApiException e) {
-    if (e is ValidationException) return EscrowError('ESCROW_VALIDATION', e.message);
+    if (e is ValidationException) {
+      return EscrowError('ESCROW_VALIDATION', e.message);
+    }
     if (e is AuthException) {
       return const EscrowError('ESCROW_005', 'Please log in to continue.');
     }
@@ -70,10 +72,16 @@ class WebEscrowRepository extends BaseEscrowRepository {
     }
     if (e is ServerException) {
       if (e.statusCode == 502) {
-        return const EscrowError('ESCROW_013', 'Telebirr service error. Please try again.');
+        return const EscrowError(
+          'ESCROW_013',
+          'Telebirr service error. Please try again.',
+        );
       }
       if (e.statusCode == 503) {
-        return const EscrowError('ESCROW_014', 'Telebirr is currently unavailable. Please try later.');
+        return const EscrowError(
+          'ESCROW_014',
+          'Telebirr is currently unavailable. Please try later.',
+        );
       }
       return EscrowError('ESCROW_SERVER', e.message);
     }
@@ -245,12 +253,12 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..completedAt = DateTime.tryParse(m['completedAt'] as String? ?? '')
       // Server nests dispute fields under a `dispute` object (EscrowDto.Dispute);
       // fall back to the flat keys for any legacy/summary shape.
-      ..disputeReason = (m['dispute'] as Map<String, dynamic>?)?['reason']
-              as String? ??
-          m['disputeReason'] as String?
-      ..disputeDescription = (m['dispute'] as Map<String, dynamic>?)?['description']
-              as String? ??
-          m['disputeDescription'] as String?
+      ..disputeReason =
+          (m['dispute'] as Map<String, dynamic>?)?['reason'] as String? ??
+              m['disputeReason'] as String?
+      ..disputeDescription =
+          (m['dispute'] as Map<String, dynamic>?)?['description'] as String? ??
+              m['disputeDescription'] as String?
       ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 
