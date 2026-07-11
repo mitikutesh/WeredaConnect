@@ -513,8 +513,10 @@ class AuthService {
           );
         }
       }
-    } on Exception {
-      // Ignore logout errors (tokens will expire anyway)
+    } on Object {
+      // Ignore logout errors (tokens will expire anyway). `on Object` so a
+      // TypeError from response parsing (an Error, not an Exception) cannot
+      // escape and abort the caller's logout flow.
     } finally {
       // Clear cached credentials if requested
       if (clearCache) {

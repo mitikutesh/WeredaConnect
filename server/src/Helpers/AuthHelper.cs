@@ -96,6 +96,52 @@ public static class AuthHelper
     }
 
     /// <summary>
+    /// Extract the "sub" claim from a raw JWT string. Decodes the payload only —
+    /// call this ONLY on tokens whose authenticity is already established
+    /// (e.g. tokens Cognito itself just issued to us). Returns null for
+    /// anything that isn't a parseable JWT.
+    /// </summary>
+    public static string? GetSubFromJwt(string? jwt)
+    {
+        if (string.IsNullOrEmpty(jwt))
+        {
+            return null;
+        }
+
+        var parts = jwt.Split('.');
+        if (parts.Length != 3)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Decode JWT payload (base64url): pad to a multiple of 4
+            var payload = parts[1];
+            switch (payload.Length % 4)
+            {
+                case 2: payload += "=="; break;
+                case 3: payload += "="; break;
+            }
+            payload = payload.Replace('-', '+').Replace('_', '/');
+            var bytes = Convert.FromBase64String(payload);
+            using var doc = JsonDocument.Parse(bytes);
+
+            if (doc.RootElement.TryGetProperty("sub", out var sub)
+                && sub.ValueKind == JsonValueKind.String)
+            {
+                return sub.GetString();
+            }
+        }
+        catch
+        {
+            // Malformed payload — treat as "no sub available"
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Extract a claim value from a claims object, which may be a JsonElement
     /// (production deserialization) or a Dictionary (unit tests).
     /// </summary>

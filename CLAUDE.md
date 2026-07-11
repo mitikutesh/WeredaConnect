@@ -265,6 +265,7 @@ Update `STATE.md` → run `scripts/checkpoint.sh` → commit WIP.
 | Workflows & branch naming | `.ai/workflows.md` |
 | AOT compliance (server) | `server/AOT_COMPLIANCE.md` |
 | API contracts | `specs/contracts/` |
+| Order lifecycle & status levels (escrow semantics) | `specs/contracts/order-lifecycle.md` |
 | Push notifications setup | `.ai/push-notifications-setup.md` |
 | Push notifications design | `specs/architecture/push-notifications-architecture.md` |
 | Session state | `STATE.md` |

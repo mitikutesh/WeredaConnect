@@ -279,4 +279,104 @@ public class LoginFunctionTests
 
         Assert.Equal(400, response.StatusCode);
     }
+
+    /// <summary>
+    /// Build a structurally valid JWT whose payload carries the given sub.
+    /// Signature is garbage — the function only decodes the payload of a
+    /// token Cognito itself just issued.
+    /// </summary>
+    private static string MakeJwt(string sub)
+    {
+        var payload = Convert.ToBase64String(
+                System.Text.Encoding.UTF8.GetBytes($"{{\"sub\":\"{sub}\"}}"))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return $"header.{payload}.signature";
+    }
+
+    [Fact]
+    public async Task FunctionHandler_ResolvesProfileByTokenSub_NotByPhone()
+    {
+        // The profile row matching the Cognito sub must win: a phone lookup
+        // can hit a stale duplicate row whose userId the server would then
+        // reject on every authenticated write (e.g. message sends).
+        var tokens = new CognitoAuthTokens
+        {
+            AccessToken = "access-tok",
+            IdToken = MakeJwt("sub-42"),
+            RefreshToken = "refresh-tok",
+            ExpiresIn = 3600
+        };
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(tokens));
+        _mockRepo.GetUserByIdAsync("sub-42").Returns(new UserDto
+        {
+            UserId = "sub-42",
+            PhoneNumber = "+251912345678",
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("sub-42", response.Body);
+        await _mockRepo.DidNotReceive().GetUserByPhoneAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_SubRowMissing_FallsBackToPhoneLookup()
+    {
+        var tokens = new CognitoAuthTokens
+        {
+            AccessToken = "access-tok",
+            IdToken = MakeJwt("sub-42"),
+            RefreshToken = "refresh-tok",
+            ExpiresIn = 3600
+        };
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(tokens));
+        _mockRepo.GetUserByIdAsync("sub-42").Returns((UserDto?)null);
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(TestUser);
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("user-123", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_NonJwtIdToken_StillResolvesByPhone()
+    {
+        // Existing behavior for opaque test tokens: no sub → phone lookup.
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(TestTokens));
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(TestUser);
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = "+251912345678",
+            password = "secure123"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("user-123", response.Body);
+    }
 }

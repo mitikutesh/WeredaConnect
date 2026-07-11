@@ -1,9 +1,49 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
 import 'package:wereda_connect/core/network/auth_interceptor.dart';
+
+/// Adapter that replies 401 unless the request carries [validBearer].
+///
+/// Mirrors a server with an expired token: every request 401s until the
+/// interceptor refreshes and retries with the new bearer.
+class TokenAwareAdapter implements HttpClientAdapter {
+  TokenAwareAdapter({required this.validBearer});
+
+  final String validBearer;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final auth = options.headers['Authorization'];
+    if (auth == 'Bearer $validBearer') {
+      return ResponseBody.fromString(
+        '{"data":"ok"}',
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    return ResponseBody.fromString(
+      '{"message":"expired"}',
+      401,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 /// Fake FlutterSecureStorage for testing
 class FakeSecureStorage implements FlutterSecureStorage {
@@ -386,6 +426,82 @@ void main() {
     });
 
     group('concurrent request handling', () {
+      test('a burst of concurrent 401s all complete after a single refresh',
+          () async {
+        // Regression: the old _isRefreshing/_pendingRequests logic dropped a
+        // queued handler when several requests hit 401 together, permanently
+        // jamming the QueuedInterceptor error queue — every later request
+        // that got an error response hung forever (Safari logout bug).
+        var refreshCalls = 0;
+        final testStorage = FakeSecureStorage();
+        await testStorage.write(key: 'id_token', value: 'expired-token');
+        await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
+
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'))
+          // Set the adapter before constructing the interceptor: the
+          // interceptor's retry Dio copies the adapter at construction.
+          ..httpClientAdapter = TokenAwareAdapter(validBearer: 'fresh-token');
+        final interceptor = AuthInterceptor(
+          storage: testStorage,
+          dio: testDio,
+          refreshTokenCallback: (_) async {
+            refreshCalls++;
+            return 'fresh-token';
+          },
+        );
+        testDio.interceptors.add(interceptor);
+
+        // Fire all requests before any completes so their 401s queue up
+        // on the interceptor's serialized error queue together.
+        final responses = await Future.wait([
+          testDio.get<dynamic>('/r1'),
+          testDio.get<dynamic>('/r2'),
+          testDio.get<dynamic>('/r3'),
+        ]).timeout(const Duration(seconds: 10));
+
+        expect(responses.map((r) => r.statusCode), everyElement(200));
+        // Later 401s see the already-refreshed stored token and retry with
+        // it directly instead of refreshing again.
+        expect(refreshCalls, 1);
+      });
+
+      test('concurrent 401s with a rejected refresh all complete (no jam)',
+          () async {
+        // Regression: with the refresh token rejected, the old code dropped
+        // the second queued 401's handler on the floor — its request never
+        // completed and the error queue jammed forever.
+        final testStorage = FakeSecureStorage();
+        await testStorage.write(key: 'id_token', value: 'expired-token');
+        await testStorage.write(key: 'refresh_token', value: 'bad-refresh');
+
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'));
+        final interceptor = AuthInterceptor(
+          storage: testStorage,
+          dio: testDio,
+          refreshTokenCallback: (_) async => null, // server rejects refresh
+        );
+        final adapter = DioAdapter(dio: testDio);
+        testDio.interceptors.add(interceptor);
+
+        adapter
+          ..onGet('/a', (server) => server.reply(401, {'message': 'x'}))
+          ..onGet('/b', (server) => server.reply(401, {'message': 'x'}))
+          ..onGet('/c', (server) => server.reply(401, {'message': 'x'}));
+
+        final results = await Future.wait<Object?>([
+          for (final path in ['/a', '/b', '/c'])
+            testDio
+                .get<dynamic>(path)
+                .then<Object?>((r) => r, onError: (Object e) => e),
+        ]).timeout(const Duration(seconds: 10));
+
+        // Every request completes — with an error, not a hang.
+        expect(results, everyElement(isA<DioException>()));
+        // Tokens cleared so the app can force re-authentication.
+        expect(await testStorage.read(key: 'id_token'), isNull);
+        expect(await testStorage.read(key: 'refresh_token'), isNull);
+      });
+
       test('invokes refresh callback on 401', () async {
         await fakeStorage.write(key: 'id_token', value: 'expired-token');
         await fakeStorage.write(key: 'refresh_token', value: 'valid-refresh');

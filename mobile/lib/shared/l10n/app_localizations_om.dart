@@ -2064,6 +2064,65 @@ class AppLocalizationsOm extends AppLocalizations {
   String get statusDisputeResolved => 'Falmiin Furameera';
 
   @override
+  String get statusCreatedInfo =>
+      'Bitataan ajaja kana galcheera. Hanga ammaatti maallaqni hin kaffalamne.';
+
+  @override
+  String get statusPendingPaymentInfo =>
+      'Bitataan kaffaltii akka jalqabu eegamaa jira. Ajajni hin kaffalamin sa\'aatii 24 booda ofumaan haqama.';
+
+  @override
+  String get statusPaymentSubmittedInfo =>
+      'Bitataan kaffaltii ergeera; mirkanaa\'aa jira. Maallaqni ammallee eskiroo keessatti hin mirkanoofne.';
+
+  @override
+  String get statusFundedInfo =>
+      'Kaffaltiin mirkanaa\'ee eskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.';
+
+  @override
+  String get orderAcceptedInfo =>
+      'Qonnaan bulaan ajaja fudhatee midhaan fuudhamuuf qopheessa.';
+
+  @override
+  String get statusPickupConfirmedInfo =>
+      'Qonnaan bulaa irraa fuudhuun iskaanii koodii QR tiin mirkanaa\'eera.';
+
+  @override
+  String get statusInTransitInfo => 'Midhaan gara bitataatti imalaa jira.';
+
+  @override
+  String get statusDeliveredInfo =>
+      'Ga\'umsi bitataadhaan mirkanaa\'eera. Eskiroon kaffaltii qonnaan bulaaf gadhiisa.';
+
+  @override
+  String get statusDisbursingInfo =>
+      'Maallaqni eskiroo irraa gara qonnaan bulaatti gadhiifamaa jira.';
+
+  @override
+  String get statusSettledInfo =>
+      'Qonnaan bulaan maallaqa fudhateera. Ajajni xumurameera.';
+
+  @override
+  String get orderCancelledInfo =>
+      'Ajajni haqameera. Maallaqni eskiroo keessatti qabame yoo jiraate bitataaf deebi\'a.';
+
+  @override
+  String get orderRejectedInfo =>
+      'Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eskiroo keessatti qabame bitataaf deebi\'a.';
+
+  @override
+  String get statusPaymentFailedInfo =>
+      'Kaffaltiin mirkaneessuun hin dandeenye. Bitataan irra deebi\'ee kaffaluu ni danda\'a.';
+
+  @override
+  String get statusDisputedInfo =>
+      'Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eskiroo keessatti qabamee tura.';
+
+  @override
+  String get statusDisputeResolvedInfo =>
+      'Falmiin furameera; maallaqni gara garee mo\'ateetti darbeera.';
+
+  @override
   String get cancelOrder => 'Ajaja Haquu';
 
   @override

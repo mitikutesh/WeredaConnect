@@ -132,16 +132,31 @@ public class LoginFunction
 
         var tokens = loginResult.Value!;
 
-        // Get user from DynamoDB
+        // Get user from DynamoDB. Resolve by the authenticated Cognito sub
+        // first — every downstream authorization check (sync writes, /messages)
+        // compares against the token's sub, so the profile we hand the client
+        // MUST be that row. A phone lookup alone can return a stale duplicate
+        // (e.g. a re-created account whose old profile row still holds the
+        // phone number), giving the client a userId the server then rejects.
         UserDto? user;
         try
         {
-            user = await _userRepository.GetUserByPhoneAsync(loginRequest.PhoneNumber);
+            var sub = AuthHelper.GetSubFromJwt(tokens.IdToken);
+            user = sub != null ? await _userRepository.GetUserByIdAsync(sub) : null;
+            if (user == null)
+            {
+                user = await _userRepository.GetUserByPhoneAsync(loginRequest.PhoneNumber);
+                if (user != null && sub != null && user.UserId != sub)
+                {
+                    context.Logger.LogWarning(
+                        $"Login profile mismatch: phone row userId={user.UserId} != token sub={sub}");
+                }
+            }
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to fetch user by phone: {ex.Message}");
+                $"Failed to fetch user profile: {ex.Message}");
             user = null;
         }
 

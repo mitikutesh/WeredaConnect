@@ -2049,6 +2049,65 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statusDisputeResolved => 'Dispute Resolved';
 
   @override
+  String get statusCreatedInfo =>
+      'The buyer placed this order. No money has been paid yet.';
+
+  @override
+  String get statusPendingPaymentInfo =>
+      'Waiting for the buyer to start the payment. Orders left unpaid are cancelled automatically after 24 hours.';
+
+  @override
+  String get statusPaymentSubmittedInfo =>
+      'The buyer sent the payment and it is being verified. The money is not yet confirmed in escrow.';
+
+  @override
+  String get statusFundedInfo =>
+      'The payment is confirmed and held safely in escrow. The ordered quantity is now reserved from the farmer\'s listing.';
+
+  @override
+  String get orderAcceptedInfo =>
+      'The farmer accepted the order and will prepare the crops for pickup.';
+
+  @override
+  String get statusPickupConfirmedInfo =>
+      'Pickup from the farmer was confirmed with a QR code scan.';
+
+  @override
+  String get statusInTransitInfo => 'The crops are on their way to the buyer.';
+
+  @override
+  String get statusDeliveredInfo =>
+      'Delivery was confirmed by the buyer. Escrow will now release the payment to the farmer.';
+
+  @override
+  String get statusDisbursingInfo =>
+      'The money is being released from escrow to the farmer.';
+
+  @override
+  String get statusSettledInfo =>
+      'The farmer has received the money. The order is complete.';
+
+  @override
+  String get orderCancelledInfo =>
+      'The order was cancelled. Any money held in escrow is refunded to the buyer.';
+
+  @override
+  String get orderRejectedInfo =>
+      'The farmer declined this order. Money held in escrow is refunded to the buyer.';
+
+  @override
+  String get statusPaymentFailedInfo =>
+      'The payment could not be verified. The buyer can try paying again.';
+
+  @override
+  String get statusDisputedInfo =>
+      'A dispute was raised. Escrow keeps holding the money until the dispute is resolved.';
+
+  @override
+  String get statusDisputeResolvedInfo =>
+      'The dispute was resolved and the money went to the winning side.';
+
+  @override
   String get cancelOrder => 'Cancel Order';
 
   @override

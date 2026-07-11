@@ -670,11 +670,34 @@ class _StatusTimeline extends StatelessWidget {
         final isCurrent = stepIndex == currentIndex;
 
         return Step(
-          title: Text(
-            step.label,
-            style: TextStyle(
-              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-            ),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  step.label,
+                  style: TextStyle(
+                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // What this step means: hover on web/desktop, tap on touch.
+              Tooltip(
+                message: step.info,
+                triggerMode: TooltipTriggerMode.tap,
+                showDuration: const Duration(seconds: 8),
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.45),
+                ),
+              ),
+            ],
           ),
           content: const SizedBox.shrink(),
           isActive: isActive,
@@ -688,34 +711,79 @@ class _StatusTimeline extends StatelessWidget {
     // Show different flows based on terminal status
     if (status == OrderStatus.cancelled) {
       return [
-        _TimelineStep(OrderStatus.created, l10n.statusCreated),
-        _TimelineStep(OrderStatus.cancelled, l10n.orderCancelled),
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.cancelled,
+          l10n.orderCancelled,
+          l10n.orderCancelledInfo,
+        ),
       ];
     }
     if (status == OrderStatus.rejected) {
       return [
-        _TimelineStep(OrderStatus.created, l10n.statusCreated),
-        _TimelineStep(OrderStatus.rejected, l10n.orderRejected),
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.rejected,
+          l10n.orderRejected,
+          l10n.orderRejectedInfo,
+        ),
       ];
     }
     if (status == OrderStatus.paymentFailed) {
       return [
-        _TimelineStep(OrderStatus.created, l10n.statusCreated),
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
         _TimelineStep(
           OrderStatus.paymentSubmitted,
           l10n.statusPaymentSubmitted,
+          l10n.statusPaymentSubmittedInfo,
         ),
-        _TimelineStep(OrderStatus.paymentFailed, l10n.statusPaymentFailed),
+        _TimelineStep(
+          OrderStatus.paymentFailed,
+          l10n.statusPaymentFailed,
+          l10n.statusPaymentFailedInfo,
+        ),
       ];
     }
     if (status == OrderStatus.disputed ||
         status == OrderStatus.disputeResolved) {
       return [
-        _TimelineStep(OrderStatus.created, l10n.statusCreated),
-        _TimelineStep(OrderStatus.funded, l10n.statusFunded),
-        _TimelineStep(OrderStatus.delivered, l10n.statusDelivered),
-        _TimelineStep(OrderStatus.disputed, l10n.statusDisputed),
-        _TimelineStep(OrderStatus.disputeResolved, l10n.statusDisputeResolved),
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.funded,
+          l10n.statusFunded,
+          l10n.statusFundedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.delivered,
+          l10n.statusDelivered,
+          l10n.statusDeliveredInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.disputed,
+          l10n.statusDisputed,
+          l10n.statusDisputedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.disputeResolved,
+          l10n.statusDisputeResolved,
+          l10n.statusDisputeResolvedInfo,
+        ),
       ];
     }
 
@@ -723,22 +791,56 @@ class _StatusTimeline extends StatelessWidget {
     // state highlights the right step instead of collapsing to step 0 (the
     // Stepper falls back to index 0 when the status isn't in this list).
     return [
-      _TimelineStep(OrderStatus.created, l10n.statusCreated),
-      _TimelineStep(OrderStatus.pendingPayment, l10n.statusPendingPayment),
+      _TimelineStep(
+        OrderStatus.created,
+        l10n.statusCreated,
+        l10n.statusCreatedInfo,
+      ),
+      _TimelineStep(
+        OrderStatus.pendingPayment,
+        l10n.statusPendingPayment,
+        l10n.statusPendingPaymentInfo,
+      ),
       _TimelineStep(
         OrderStatus.paymentSubmitted,
         l10n.statusPaymentSubmitted,
+        l10n.statusPaymentSubmittedInfo,
       ),
-      _TimelineStep(OrderStatus.funded, l10n.statusFunded),
-      _TimelineStep(OrderStatus.accepted, l10n.orderAccepted),
+      _TimelineStep(
+        OrderStatus.funded,
+        l10n.statusFunded,
+        l10n.statusFundedInfo,
+      ),
+      _TimelineStep(
+        OrderStatus.accepted,
+        l10n.orderAccepted,
+        l10n.orderAcceptedInfo,
+      ),
       _TimelineStep(
         OrderStatus.pickupConfirmed,
         l10n.statusPickupConfirmed,
+        l10n.statusPickupConfirmedInfo,
       ),
-      _TimelineStep(OrderStatus.inTransit, l10n.statusInTransit),
-      _TimelineStep(OrderStatus.delivered, l10n.statusDelivered),
-      _TimelineStep(OrderStatus.disbursing, l10n.statusDisbursing),
-      _TimelineStep(OrderStatus.settled, l10n.statusSettled),
+      _TimelineStep(
+        OrderStatus.inTransit,
+        l10n.statusInTransit,
+        l10n.statusInTransitInfo,
+      ),
+      _TimelineStep(
+        OrderStatus.delivered,
+        l10n.statusDelivered,
+        l10n.statusDeliveredInfo,
+      ),
+      _TimelineStep(
+        OrderStatus.disbursing,
+        l10n.statusDisbursing,
+        l10n.statusDisbursingInfo,
+      ),
+      _TimelineStep(
+        OrderStatus.settled,
+        l10n.statusSettled,
+        l10n.statusSettledInfo,
+      ),
     ];
   }
 }
@@ -747,7 +849,10 @@ class _TimelineStep {
   final OrderStatus status;
   final String label;
 
-  const _TimelineStep(this.status, this.label);
+  /// Plain-language explanation of what the step means, shown in a tooltip.
+  final String info;
+
+  const _TimelineStep(this.status, this.label, this.info);
 }
 
 class _InfoRow extends StatelessWidget {
