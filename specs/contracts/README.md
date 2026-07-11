@@ -60,6 +60,7 @@ Each contract file follows this structure:
 | Authentication API | `auth-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
 | User Entity | `user-entity.md` | 1.0.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.0.0 | Mobile, Backend, Admin |
 
 ---
 
