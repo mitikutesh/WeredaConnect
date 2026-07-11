@@ -64,14 +64,14 @@ public class AdminFunction
     /// handler can be exercised without a live AWS client. Other table names default to
     /// empty (their handlers short-circuit on empty table names).
     /// </summary>
-    internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable)
+    internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable, string fraudSignalsTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
         _escrowsTable = "";
         _escrowAuditTable = "";
         _transactionAuditTable = "";
-        _fraudSignalsTable = "";
+        _fraudSignalsTable = fraudSignalsTable;
         _cropsTable = "";
         _tripsTable = "";
         _ordersTable = "";
@@ -498,34 +498,53 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        // The path id encodes the table's composite key (userId + signalKey).
+        if (!Services.FraudDetectionService.TryParseSignalId(signalId, out var signalUserId, out var signalKey))
+        {
+            return LambdaResponse.Error(400, "ADMIN_005", "Invalid fraud signal id.");
+        }
+
         var now = DateTime.UtcNow.ToString("o");
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
+        // status becomes "reviewed" (the admin UI keys on that value); the
+        // chosen verb (approve/reject/whitelist) is kept in "resolution".
         var updateRequest = new UpdateItemRequest
         {
             TableName = _fraudSignalsTable,
             Key = new Dictionary<string, AttributeValue>
             {
-                { "signalId", new AttributeValue { S = signalId } }
+                { "userId", new AttributeValue { S = signalUserId } },
+                { "signalKey", new AttributeValue { S = signalKey } }
             },
-            UpdateExpression = "SET #status = :status, #reviewedBy = :reviewedBy, #reviewedAt = :reviewedAt, #reviewNotes = :notes",
+            ConditionExpression = "attribute_exists(userId)",
+            UpdateExpression = "SET #status = :status, #resolution = :resolution, #reviewedBy = :reviewedBy, #reviewedAt = :reviewedAt, #reviewNotes = :notes",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#status", "status" },
+                { "#resolution", "resolution" },
                 { "#reviewedBy", "reviewedBy" },
                 { "#reviewedAt", "reviewedAt" },
                 { "#reviewNotes", "reviewNotes" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
-                { ":status", new AttributeValue { S = body.Action } },
+                { ":status", new AttributeValue { S = "reviewed" } },
+                { ":resolution", new AttributeValue { S = body.Action } },
                 { ":reviewedBy", new AttributeValue { S = adminUserId } },
                 { ":reviewedAt", new AttributeValue { S = now } },
                 { ":notes", body.Notes != null ? new AttributeValue { S = body.Notes } : new AttributeValue { NULL = true } }
             }
         };
 
-        await _dynamoDb.UpdateItemAsync(updateRequest);
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(updateRequest);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
+        }
 
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, signalId, "fraud", signalId,
@@ -538,9 +557,9 @@ public class AdminFunction
         var response = new FraudActionResponse
         {
             SignalId = signalId,
-            Status = body.Action,
+            Status = "reviewed",
             ReviewedAt = now,
-            Message = "Fraud signal reviewed successfully."
+            Message = $"Fraud signal reviewed successfully ({body.Action})."
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.FraudActionResponse);

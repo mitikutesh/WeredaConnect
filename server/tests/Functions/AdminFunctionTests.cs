@@ -555,4 +555,80 @@ public class AdminFunctionTests
         escrowStatusValues.Should().Contain("completed");
         escrowStatusValues.Should().NotContain("released");
     }
+
+    // ──────────────────────────────────────────────
+    // Fraud signal review (POST /admin/fraud-signals/{id}/action)
+    // ──────────────────────────────────────────────
+
+    private const string FraudSignalsTable = "fraud-signals-test";
+
+    private static APIGatewayProxyRequest FraudActionRequest(string signalId, string action)
+    {
+        var authorizer = new APIGatewayCustomAuthorizerContext
+        {
+            { "sub", "admin-1" },
+            { "role", "admin" },
+        };
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = $"/admin/fraud-signals/{signalId}/action",
+            Body = JsonSerializer.Serialize(new { action }),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+    }
+
+    [Fact]
+    public async Task FraudAction_UpdatesByCompositeKey_AndSetsStatusReviewed()
+    {
+        var signalKey = "2026-07-11T10:00:00.0000000Z#PRICE_ANOMALY";
+        var signalId = WeredaConnect.Server.Services.FraudDetectionService
+            .BuildSignalId("farmer-1", signalKey);
+        var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
+
+        var response = await fn.FunctionHandler(
+            FraudActionRequest(signalId, "approve"), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"status\":\"reviewed\"");
+        await _dynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.TableName == FraudSignalsTable
+                && r.Key["userId"].S == "farmer-1"
+                && r.Key["signalKey"].S == signalKey
+                && r.ExpressionAttributeValues[":status"].S == "reviewed"
+                && r.ExpressionAttributeValues[":resolution"].S == "approve"
+                && r.ConditionExpression == "attribute_exists(userId)"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FraudAction_MalformedSignalId_Returns400_AndDoesNotWrite()
+    {
+        var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
+
+        var response = await fn.FunctionHandler(
+            FraudActionRequest("not-a-valid-id!!", "approve"), _context);
+
+        response.StatusCode.Should().Be(400);
+        response.Body.Should().Contain("ADMIN_005");
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(
+            Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FraudAction_UnknownSignal_Returns404()
+    {
+        var signalId = WeredaConnect.Server.Services.FraudDetectionService
+            .BuildSignalId("farmer-1", "2026-07-11T10:00:00.0000000Z#GPS_ANOMALY");
+        _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("no item"));
+        var fn = new AdminFunction(_dynamoDb, UsersTable, FraudSignalsTable);
+
+        var response = await fn.FunctionHandler(
+            FraudActionRequest(signalId, "reject"), _context);
+
+        response.StatusCode.Should().Be(404);
+        response.Body.Should().Contain("ADMIN_006");
+    }
 }

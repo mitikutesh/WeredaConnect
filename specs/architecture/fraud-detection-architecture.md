@@ -406,16 +406,35 @@ All fraud queries for Rules 1-4 reuse existing tables:
 | **TTL attribute** | `expiresAt` — auto-deletes signals after 30 days |
 | **Billing** | PAY_PER_REQUEST |
 
-**Attributes per item**:
+**Attributes per item** (as written by `FraudDetectionService.RecordFraudSignalAsync`):
 ```
 userId:      "farmer-123"
 signalKey:   "2026-02-23T14:00:00Z#FRAUD_DUPLICATE_LISTING"
+signalId:    base64url("{userId}|{signalKey}")   — opaque single id for the admin API path
 signalType:  "FRAUD_DUPLICATE_LISTING"
-entityId:    "crop-456"
+severity:    "high" | "medium" | "low"           — derived from weight (≥20 high, ≥10 medium)
+description: "A similar listing already exists…" — human-readable check message
+status:      "pending"                           — becomes "reviewed" after admin action
+entityId:    "crop-456"                          (omitted when unknown)
+entityType:  "crop" | "delivery" | "escrow"
 weight:      20
 createdAt:   "2026-02-23T14:00:00Z"
 expiresAt:   1743868800  (Unix epoch, 30 days from creation)
 ```
+
+**Admin review semantics**: the admin API addresses a signal by `signalId`
+(base64url of `userId|signalKey`) so `POST /admin/fraud-signals/{id}/action`
+can reconstruct the composite table key without a scan. The review action
+sets `status = "reviewed"` (the admin UI keys on that value) and records the
+chosen verb (`approve`/`reject`/`whitelist`) in `resolution`, plus
+`reviewedBy`/`reviewedAt`/`reviewNotes`.
+
+**Producers**: signals are recorded best-effort (never blocking the underlying
+operation) at three sites — listing creation in `SyncFunction` (hard rejects
+`FRAUD_VELOCITY_EXCEEDED`/`FRAUD_DUPLICATE_LISTING` and the soft
+`PRICE_ANOMALY` flag), delivery GPS checks in `SyncFunction` (`GPS_ANOMALY`),
+and escrow initiation velocity rejections in `EscrowFunction`
+(`FRAUD_VELOCITY_EXCEEDED`).
 
 **Why a separate table instead of an attribute on UsersTable**: Individual fraud signals need a time-series query pattern (PK=userId, SK=timestamp) that doesn't fit the UsersTable schema (PK=userId, no SK). Storing signals as a list attribute would require read-modify-write which is not atomic. A separate table allows clean TTL-based expiry and efficient range queries.
 

@@ -314,9 +314,12 @@ public partial class SyncFunction
         _cropRepo = new CropRepository(_dynamoDb, cropsTable);
         _orderRepo = new OrderRepository(_dynamoDb, ordersTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(_dynamoDb, rateLimitTable));
+        // Fraud signals feed the admin review queue; absent env → writes no-op.
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE") ?? "";
         _fraudService = new FraudDetectionService(
             _dynamoDb,
             cropsTable,
+            fraudSignalsTable,
             new RateLimitRepository(_dynamoDb, rateLimitTable));
         _userRepo = new UserRepository(_dynamoDb, usersTable);
 
@@ -1599,6 +1602,33 @@ public partial class SyncFunction
         }
     }
 
+    /// <summary>
+    /// Persist a fraud signal for admin review. Best-effort: signals feed the
+    /// admin review queue, so a write failure must never block or fail the
+    /// underlying sync operation. Skips silently when the user id is unknown
+    /// (the table's partition key cannot be empty).
+    /// </summary>
+    private async Task TryRecordFraudSignalAsync(
+        string userId, string signalType, string? entityId, string entityType,
+        string? description, ILambdaContext context)
+    {
+        if (_fraudService == null || string.IsNullOrEmpty(userId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _fraudService.RecordFraudSignalAsync(
+                userId, signalType, entityId, entityType, description);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to record fraud signal {signalType} for user {userId}: {ex.Message}");
+        }
+    }
+
     /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
     private const int MinListingsForReliability = 3;
 
@@ -1751,6 +1781,10 @@ public partial class SyncFunction
 
                         if (!fraudCheck.IsAllowed)
                         {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
+                                operation.EntityId, "crop", fraudCheck.Message, context);
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -1765,6 +1799,9 @@ public partial class SyncFunction
                             operation.Data["flagReason"] = fraudCheck.FlagReason ?? "UNKNOWN";
                             context.Logger.LogWarning(
                                 $"Fraud flag on listing {operation.EntityId}: {fraudCheck.FlagReason} — {fraudCheck.Message}");
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, fraudCheck.FlagReason ?? "UNKNOWN",
+                                operation.EntityId, "crop", fraudCheck.Message, context);
                         }
                     }
 
@@ -3876,6 +3913,9 @@ public partial class SyncFunction
                             operation.Data["gpsAnomalyFlag"] = true;
                             context.Logger.LogWarning(
                                 $"GPS anomaly on delivery {operation.EntityId}: {gpsCheck.Message}");
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId ?? "", gpsCheck.FlagReason ?? "GPS_ANOMALY",
+                                operation.EntityId, "delivery", gpsCheck.Message, context);
                         }
                     }
 
