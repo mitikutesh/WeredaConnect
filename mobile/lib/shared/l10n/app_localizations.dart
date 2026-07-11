@@ -2530,11 +2530,11 @@ abstract class AppLocalizations {
   /// **'A similar listing already exists. Please update your existing listing instead.'**
   String get fraudDuplicateListing;
 
-  /// Error when velocity limit exceeded by server fraud check
+  /// Error when the hourly listing limit is exceeded; minutes = time until the limit resets at the next UTC hour
   ///
   /// In en, this message translates to:
-  /// **'Too many requests. Please wait a moment and try again.'**
-  String get fraudVelocityExceeded;
+  /// **'Too many listings created. You can try again in {minutes, plural, =1{1 minute} other{{minutes} minutes}}.'**
+  String fraudVelocityExceeded(int minutes);
 
   /// Snackbar message after profile is saved successfully
   ///

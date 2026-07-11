@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -5,7 +7,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 
 /// Registers the device's FCM token with the backend (`POST /device-tokens`) so
 /// the server can deliver push notifications (new-message alerts and buyer match
-/// alerts) to this device.
+/// alerts) to this device, and listens for foreground pushes.
 ///
 /// Best-effort and fully optional: if Firebase isn't configured (no
 /// `google-services.json`, or the SNS platform app isn't set up) it silently
@@ -17,10 +19,27 @@ class PushNotificationService {
 
   final ApiClient _api;
 
+  /// Live subscriptions — static because every auth transition constructs a
+  /// fresh service; a second `init()` must REPLACE the listeners, not stack
+  /// them (N logins would otherwise mean N callbacks per push).
+  static StreamSubscription<RemoteMessage>? _onMessageSubscription;
+  static StreamSubscription<String>? _tokenRefreshSubscription;
+
+  /// Whether a push payload is a chat-message alert. The same FCM pipe also
+  /// carries buyer-match alerts; MessageStreamFunction stamps its payloads
+  /// with `data.type == "message"`.
+  static bool isMessagePush(Map<String, dynamic> data) =>
+      data['type'] == 'message';
+
   /// Initialize Firebase, request the notification permission (Android 13+),
   /// register the current token, and re-register on rotation. Call after the
   /// user is authenticated (the `/device-tokens` endpoint requires auth).
-  Future<void> init() async {
+  ///
+  /// [onMessagePush] fires when a chat-message push arrives while the app is
+  /// in the FOREGROUND (Android suppresses the tray notification then, so
+  /// this is the only signal) — the caller nudges the inbox to pull
+  /// immediately, which drives the in-app banner and unread badges.
+  Future<void> init({void Function()? onMessagePush}) async {
     try {
       await Firebase.initializeApp();
       final messaging = FirebaseMessaging.instance;
@@ -32,7 +51,13 @@ class PushNotificationService {
       if (token != null) await _register(token);
 
       // Re-register whenever FCM rotates the token.
-      messaging.onTokenRefresh.listen(_register);
+      await _tokenRefreshSubscription?.cancel();
+      _tokenRefreshSubscription = messaging.onTokenRefresh.listen(_register);
+
+      await _onMessageSubscription?.cancel();
+      _onMessageSubscription = FirebaseMessaging.onMessage.listen((message) {
+        if (isMessagePush(message.data)) onMessagePush?.call();
+      });
     } on Object catch (_) {
       // Firebase not configured / unavailable — push disabled, app continues.
     }

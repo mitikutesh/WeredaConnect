@@ -134,5 +134,83 @@ void main() {
       verify(() => inboxBloc.add(const LoadInbox('user-1'))).called(1);
       verify(() => inboxBloc.add(const LoadInbox('user-2'))).called(1);
     });
+
+    testWidgets('sign-out resets the inbox (stops the signed-out poll)',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(_userOne);
+
+      await tester.pumpWidget(buildTestWidget());
+      authStates.add(const AuthUnauthenticated());
+      await tester.pump();
+
+      verify(() => inboxBloc.add(const InboxReset())).called(1);
+    });
+
+    testWidgets('never touches InboxBloc when nobody was signed in',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(const AuthInitial());
+
+      await tester.pumpWidget(buildTestWidget());
+      authStates.add(const AuthUnauthenticated());
+      await tester.pump();
+
+      // Reading the bloc while signed out would lazily create it and touch
+      // the local store for nothing (broke smoke tests before).
+      verifyNever(() => inboxBloc.add(any()));
+    });
+  });
+
+  group('MessageArrivalListener lifecycle-aware polling', () {
+    // NOTE: the binding synthesizes intermediate lifecycle states (resumed →
+    // paused walks through inactive and hidden), so InboxPaused may fire more
+    // than once per transition — the event is idempotent, and these tests
+    // assert "at least once", not exact counts.
+    testWidgets('pauses and resumes the inbox poll with the app lifecycle',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(_userOne);
+      await tester.pumpWidget(buildTestWidget());
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      verify(() => inboxBloc.add(const InboxPaused()))
+          .called(greaterThanOrEqualTo(1));
+
+      clearInteractions(inboxBloc);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      verify(() => inboxBloc.add(const InboxResumed())).called(1);
+    });
+
+    testWidgets('hidden pauses too (web tab switch has no paused state)',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(_userOne);
+      await tester.pumpWidget(buildTestWidget());
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump();
+
+      verify(() => inboxBloc.add(const InboxPaused()))
+          .called(greaterThanOrEqualTo(1));
+      verifyNever(() => inboxBloc.add(const InboxResumed()));
+
+      // Restore for subsequent tests.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+    });
+
+    testWidgets('ignores lifecycle changes while signed out', (tester) async {
+      when(() => authBloc.state).thenReturn(const AuthInitial());
+      await tester.pumpWidget(buildTestWidget());
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      verifyNever(() => inboxBloc.add(any()));
+
+      // Leave the binding in the resumed state for any later suites.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+    });
   });
 }

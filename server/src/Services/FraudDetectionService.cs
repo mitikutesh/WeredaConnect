@@ -9,6 +9,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
 {
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _cropsTable;
+    private readonly string _fraudSignalsTable;
     private readonly IRateLimitRepository _rateLimitRepo;
 
     // Thresholds (internal for testing)
@@ -23,14 +24,17 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int PriceAnomalySampleSize = 50;
     internal const double PriceAnomalyStdDevMultiplier = 3.0;
     internal const double GpsSpoofingThresholdKm = 1.0;
+    internal const int SignalTtlDays = 30;
 
     public FraudDetectionService(
         IAmazonDynamoDB dynamoDb,
         string cropsTable,
+        string fraudSignalsTable,
         IRateLimitRepository rateLimitRepo)
     {
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _cropsTable = cropsTable ?? throw new ArgumentNullException(nameof(cropsTable));
+        _fraudSignalsTable = fraudSignalsTable ?? throw new ArgumentNullException(nameof(fraudSignalsTable));
         _rateLimitRepo = rateLimitRepo ?? throw new ArgumentNullException(nameof(rateLimitRepo));
     }
 
@@ -158,6 +162,99 @@ public sealed class FraudDetectionService : IFraudDetectionService
         }
 
         return FraudCheckResult.Allowed();
+    }
+
+    // ── RecordFraudSignalAsync ─────────────────────────────
+    // Writes the item the admin Fraud Review reader expects
+    // (signalId/severity/description/status) on top of the spec
+    // schema (userId/signalKey/weight/expiresAt).
+    public async Task RecordFraudSignalAsync(
+        string userId, string signalType, string? entityId,
+        string entityType, string? description)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable) || string.IsNullOrEmpty(userId))
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var createdAt = now.ToString("o");
+        var signalKey = $"{createdAt}#{signalType}";
+        var weight = SignalWeight(signalType);
+        var expiresAt = new DateTimeOffset(now).AddDays(SignalTtlDays).ToUnixTimeSeconds();
+
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "userId", new AttributeValue { S = userId } },
+            { "signalKey", new AttributeValue { S = signalKey } },
+            { "signalId", new AttributeValue { S = BuildSignalId(userId, signalKey) } },
+            { "signalType", new AttributeValue { S = signalType } },
+            { "severity", new AttributeValue { S = SignalSeverity(weight) } },
+            { "weight", new AttributeValue { N = weight.ToString() } },
+            { "description", new AttributeValue { S = description ?? "" } },
+            { "status", new AttributeValue { S = "pending" } },
+            { "entityType", new AttributeValue { S = entityType } },
+            { "createdAt", new AttributeValue { S = createdAt } },
+            { "expiresAt", new AttributeValue { N = expiresAt.ToString() } }
+        };
+
+        if (!string.IsNullOrEmpty(entityId))
+        {
+            item["entityId"] = new AttributeValue { S = entityId };
+        }
+
+        await _dynamoDb.PutItemAsync(new PutItemRequest
+        {
+            TableName = _fraudSignalsTable,
+            Item = item
+        });
+    }
+
+    // Weights per fraud-detection-architecture.md §2 Rule 5.
+    internal static int SignalWeight(string signalType) => signalType switch
+    {
+        "GPS_ANOMALY" => 25,
+        "FRAUD_DUPLICATE_LISTING" => 20,
+        "FRAUD_VELOCITY_EXCEEDED" => 15,
+        "PRICE_ANOMALY" => 10,
+        _ => 10
+    };
+
+    internal static string SignalSeverity(int weight) =>
+        weight >= 20 ? "high" : weight >= 10 ? "medium" : "low";
+
+    // The admin API addresses signals by a single opaque path id, but the
+    // table key is composite (userId + signalKey) — encode both into the id
+    // so review actions can reconstruct the key without a table scan.
+    internal static string BuildSignalId(string userId, string signalKey)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes($"{userId}|{signalKey}");
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    internal static bool TryParseSignalId(string signalId, out string userId, out string signalKey)
+    {
+        userId = "";
+        signalKey = "";
+        try
+        {
+            var base64 = signalId.Replace('-', '+').Replace('_', '/');
+            base64 = base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
+            var decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(base64));
+            var separator = decoded.IndexOf('|');
+            if (separator <= 0 || separator == decoded.Length - 1)
+            {
+                return false;
+            }
+
+            userId = decoded[..separator];
+            signalKey = decoded[(separator + 1)..];
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     // ── Record methods (post-success velocity tracking) ────

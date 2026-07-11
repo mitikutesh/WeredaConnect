@@ -15,6 +15,7 @@ public class FraudDetectionServiceTests
     private readonly FraudDetectionService _service;
 
     private const string CropsTable = "test-crops-table";
+    private const string FraudSignalsTable = "test-fraud-signals-table";
     private const string FarmerId = "farmer-123";
     private const string UserId = "user-456";
 
@@ -22,7 +23,7 @@ public class FraudDetectionServiceTests
     {
         _mockDynamoDb = Substitute.For<IAmazonDynamoDB>();
         _mockRateLimitRepo = Substitute.For<IRateLimitRepository>();
-        _service = new FraudDetectionService(_mockDynamoDb, CropsTable, _mockRateLimitRepo);
+        _service = new FraudDetectionService(_mockDynamoDb, CropsTable, FraudSignalsTable, _mockRateLimitRepo);
 
         // Default: no velocity entries, no duplicate listings, no price history
         _mockRateLimitRepo.GetAsync(Arg.Any<string>()).Returns((RateLimitEntry?)null);
@@ -339,6 +340,111 @@ public class FraudDetectionServiceTests
         await _mockRateLimitRepo.Received(1).IncrementAsync(
             Arg.Is<string>(k => k.StartsWith($"FRAUD_PAYMENT#{UserId}#")),
             FraudDetectionService.PaymentVelocityTtlSeconds);
+    }
+
+    // ===== Fraud Signal Persistence Tests =====
+
+    [Fact]
+    public async Task RecordFraudSignal_WritesItemWithCompositeKeyAndAdminFields()
+    {
+        PutItemRequest? captured = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _service.RecordFraudSignalAsync(
+            FarmerId, "PRICE_ANOMALY", "crop-1", "crop", "Price 999 ETB/kg is unusual for teff");
+
+        Assert.NotNull(captured);
+        Assert.Equal(FraudSignalsTable, captured!.TableName);
+        Assert.Equal(FarmerId, captured.Item["userId"].S);
+        Assert.EndsWith("#PRICE_ANOMALY", captured.Item["signalKey"].S);
+        Assert.Equal("PRICE_ANOMALY", captured.Item["signalType"].S);
+        Assert.Equal("medium", captured.Item["severity"].S);
+        Assert.Equal("10", captured.Item["weight"].N);
+        Assert.Equal("pending", captured.Item["status"].S);
+        Assert.Equal("crop-1", captured.Item["entityId"].S);
+        Assert.Equal("crop", captured.Item["entityType"].S);
+        Assert.Equal("Price 999 ETB/kg is unusual for teff", captured.Item["description"].S);
+
+        // signalId must round-trip back to the composite key
+        Assert.True(FraudDetectionService.TryParseSignalId(
+            captured.Item["signalId"].S, out var userId, out var signalKey));
+        Assert.Equal(FarmerId, userId);
+        Assert.Equal(captured.Item["signalKey"].S, signalKey);
+
+        // TTL ~30 days out (epoch seconds)
+        var expiresAt = long.Parse(captured.Item["expiresAt"].N);
+        var expected = DateTimeOffset.UtcNow.AddDays(FraudDetectionService.SignalTtlDays).ToUnixTimeSeconds();
+        Assert.InRange(expiresAt, expected - 60, expected + 60);
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_HighSeverityForGpsAnomaly()
+    {
+        PutItemRequest? captured = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _service.RecordFraudSignalAsync(
+            UserId, "GPS_ANOMALY", "delivery-1", "delivery", "Identical coordinates");
+
+        Assert.Equal("high", captured!.Item["severity"].S);
+        Assert.Equal("25", captured.Item["weight"].N);
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_EmptyTable_NoOp()
+    {
+        var service = new FraudDetectionService(_mockDynamoDb, CropsTable, "", _mockRateLimitRepo);
+
+        await service.RecordFraudSignalAsync(FarmerId, "PRICE_ANOMALY", null, "crop", "msg");
+
+        await _mockDynamoDb.DidNotReceive()
+            .PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_EmptyUserId_NoOp()
+    {
+        await _service.RecordFraudSignalAsync("", "PRICE_ANOMALY", null, "crop", "msg");
+
+        await _mockDynamoDb.DidNotReceive()
+            .PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordFraudSignal_NullEntityId_OmitsAttribute()
+    {
+        PutItemRequest? captured = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => captured = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _service.RecordFraudSignalAsync(UserId, "FRAUD_VELOCITY_EXCEEDED", null, "escrow", "msg");
+
+        Assert.False(captured!.Item.ContainsKey("entityId"));
+        Assert.Equal("medium", captured.Item["severity"].S);
+        Assert.Equal("15", captured.Item["weight"].N);
+    }
+
+    [Theory]
+    [InlineData("not-base64!!")]
+    [InlineData("")]
+    [InlineData("bm9zZXBhcmF0b3I")] // "noseparator"
+    [InlineData("fHRyYWlsaW5n")] // "|trailing" — empty userId
+    public void TryParseSignalId_InvalidInput_ReturnsFalse(string signalId)
+    {
+        Assert.False(FraudDetectionService.TryParseSignalId(signalId, out _, out _));
+    }
+
+    [Fact]
+    public void SignalId_RoundTrips()
+    {
+        var signalKey = $"{DateTime.UtcNow:o}#FRAUD_DUPLICATE_LISTING";
+        var id = FraudDetectionService.BuildSignalId(FarmerId, signalKey);
+
+        Assert.True(FraudDetectionService.TryParseSignalId(id, out var userId, out var parsedKey));
+        Assert.Equal(FarmerId, userId);
+        Assert.Equal(signalKey, parsedKey);
     }
 
     // ===== Helper Methods =====

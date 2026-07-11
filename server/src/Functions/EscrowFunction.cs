@@ -74,10 +74,11 @@ public class EscrowFunction
         // Fraud detection (F-14)
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
         var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE") ?? "";
+        var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE") ?? "";
         if (!string.IsNullOrEmpty(rateLimitTable))
         {
             _fraudService = new FraudDetectionService(
-                dynamoDb, cropsTable,
+                dynamoDb, cropsTable, fraudSignalsTable,
                 new RateLimitRepository(dynamoDb, rateLimitTable));
         }
     }
@@ -158,6 +159,20 @@ public class EscrowFunction
             var fraudCheck = await _fraudService.CheckPaymentVelocityAsync(userId);
             if (!fraudCheck.IsAllowed)
             {
+                // Best-effort: the signal feeds the admin review queue; a write
+                // failure must not mask the rate-limit response.
+                try
+                {
+                    await _fraudService.RecordFraudSignalAsync(
+                        userId, fraudCheck.ErrorCode ?? "FRAUD_VELOCITY_EXCEEDED",
+                        body.DeliveryId, "escrow", fraudCheck.Message);
+                }
+                catch (Exception ex)
+                {
+                    context.Logger.LogWarning(
+                        $"Failed to record fraud signal for user {userId}: {ex.Message}");
+                }
+
                 // Contract maps rate-limit rejection to ESCROW_011 (429); the mobile client keys
                 // on this code. The fraud service's internal code is preserved in the log context.
                 return LambdaResponse.Error(429, "ESCROW_011",

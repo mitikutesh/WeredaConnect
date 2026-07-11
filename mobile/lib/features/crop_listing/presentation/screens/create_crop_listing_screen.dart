@@ -150,9 +150,12 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
               ),
             );
           } else if (state.message.contains('FRAUD_VELOCITY_EXCEEDED')) {
+            // Server buckets listing velocity by fixed UTC clock-hour, so the
+            // limit resets at the next UTC hour boundary.
+            final minutesToReset = 60 - DateTime.now().toUtc().minute;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(l10n.fraudVelocityExceeded),
+                content: Text(l10n.fraudVelocityExceeded(minutesToReset)),
                 backgroundColor: AppTheme.statusWarning,
               ),
             );

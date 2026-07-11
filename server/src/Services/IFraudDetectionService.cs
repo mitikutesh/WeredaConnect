@@ -32,6 +32,17 @@ public interface IFraudDetectionService
         string fromWoreda, string toWoreda);
 
     /// <summary>
+    /// Persist a fraud signal to the FraudSignalsTable for admin review.
+    /// Call when a check rejects (hard) or flags (soft) an operation.
+    /// No-op when the signals table is not configured. Callers must treat
+    /// this as best-effort: wrap in try/catch so a signal-write failure
+    /// never blocks the underlying operation.
+    /// </summary>
+    Task RecordFraudSignalAsync(
+        string userId, string signalType, string? entityId,
+        string entityType, string? description);
+
+    /// <summary>
     /// Record a successful listing creation for velocity tracking.
     /// Call AFTER _cropRepo.CreateAsync() succeeds.
     /// </summary>

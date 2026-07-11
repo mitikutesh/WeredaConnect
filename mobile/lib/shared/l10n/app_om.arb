@@ -1735,9 +1735,15 @@
   "@fraudDuplicateListing": {
     "description": "Error when duplicate crop listing detected by server fraud check"
   },
-  "fraudVelocityExceeded": "Gaaffiin baay'een ergameera. Maaloo yeroo xiqqoo eegaatii irra deebi'ii yaali.",
+  "fraudVelocityExceeded": "Tarreewwan baay'ee uumteetta. Maaloo daqiiqaa {minutes} booda irra deebi'ii yaali.",
   "@fraudVelocityExceeded": {
-    "description": "Error when velocity limit exceeded by server fraud check"
+    "description": "Error when the hourly listing limit is exceeded; minutes = time until the limit resets at the next UTC hour",
+    "placeholders": {
+      "minutes": {
+        "type": "int",
+        "example": "23"
+      }
+    }
   },
 
   "profileSaved": "Profaayiliin haaromfame",

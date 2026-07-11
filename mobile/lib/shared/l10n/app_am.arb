@@ -1729,9 +1729,15 @@
   "@fraudDuplicateListing": {
     "description": "Error when duplicate crop listing detected by server fraud check"
   },
-  "fraudVelocityExceeded": "በጣም ብዙ ጥያቄዎች። እባክዎ ትንሽ ይጠብቁ እና ደግመው ይሞክሩ።",
+  "fraudVelocityExceeded": "በጣም ብዙ ዝርዝሮች ፈጥረዋል። እባክዎ ከ{minutes} ደቂቃ በኋላ ደግመው ይሞክሩ።",
   "@fraudVelocityExceeded": {
-    "description": "Error when velocity limit exceeded by server fraud check"
+    "description": "Error when the hourly listing limit is exceeded; minutes = time until the limit resets at the next UTC hour",
+    "placeholders": {
+      "minutes": {
+        "type": "int",
+        "example": "23"
+      }
+    }
   },
   "profileSaved": "መገለጫ ተዘምኗል",
   "@profileSaved": {
