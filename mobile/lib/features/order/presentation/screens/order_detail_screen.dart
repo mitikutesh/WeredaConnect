@@ -1,11 +1,8 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:wereda_connect/core/database/isar_service.dart'
-    if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
+import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
-import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -14,7 +11,6 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/screens/create_delivery_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -313,32 +309,62 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Trucker + accepted + has tripId → Create Delivery
+    // Trucker + accepted + has trip → Create Delivery.
+    // The order already carries the matched trip, trucker, farmer and buyer
+    // (set when the buyer placed the order against this trucker's trip), so we
+    // materialize the delivery straight from the order's own fields instead of
+    // re-collecting them on a separate form. This is what lets it work on web,
+    // where there is no local Isar to resolve the listing from.
     if (userRole == UserRole.trucker &&
         order.status == OrderStatus.accepted &&
         order.tripId != null) {
       widgets.add(
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () => _navigateToCreateDelivery(context, order, l10n),
-            icon: const Icon(Icons.local_shipping),
-            label: Text(l10n.createDelivery),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
+        BlocConsumer<DeliveryBloc, DeliveryState>(
+          listenWhen: (_, curr) =>
+              curr is DeliveryCreated &&
+              curr.delivery.deliveryType !=
+                  DeliveryConstants.selfPickupDeliveryType,
+          listener: (context, state) {
+            if (state is DeliveryCreated) {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => DeliveryDetailScreen(
+                    delivery: state.delivery,
+                    currentUserId: userId,
+                  ),
+                ),
+              );
+            }
+          },
+          builder: (context, state) {
+            final isLoading = state is DeliveryLoading;
+            return SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: isLoading
+                    ? null
+                    : () => _createTruckerDelivery(context, order, userId),
+                icon: const Icon(Icons.local_shipping),
+                label: Text(l10n.createDelivery),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+              ),
+            );
+          },
         ),
       );
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Buyer + paid + no trucker/trip → "Collect it myself" (self-pickup).
-    // Creates a self-pickup delivery the buyer confirms at the farm by scanning
-    // the farmer's QR. Only offered when no trucker is arranging transport.
+    // Buyer + farmer-accepted + no trucker/trip → "Collect it myself"
+    // (self-pickup). Creates a self-pickup delivery the buyer confirms at the
+    // farm by scanning the farmer's QR. Offered once the farmer has accepted
+    // (so the crop can actually move) and only when no trucker is arranging
+    // transport — mirroring the trucker's "Create Delivery" gate above.
     if (userRole == UserRole.buyer &&
-        (order.status == OrderStatus.funded ||
-            order.status == OrderStatus.paymentSubmitted) &&
+        order.status == OrderStatus.accepted &&
         order.truckerId == null &&
         order.tripId == null) {
       widgets.add(
@@ -427,50 +453,42 @@ class _OrderDetailBody extends StatelessWidget {
     return widgets;
   }
 
-  Future<void> _navigateToCreateDelivery(
+  /// Trucker materializes a delivery from an accepted, trip-matched order.
+  ///
+  /// Everything the delivery needs is already on the order — trip, trucker,
+  /// farmer, buyer and listing were all bound when the buyer placed the order
+  /// against this trip — so we dispatch straight to the [DeliveryBloc] rather
+  /// than routing through a form that re-reads the listing from local Isar
+  /// (which does not exist on web). The [DeliveryBloc] repository handles the
+  /// backend call: enqueue-and-sync on mobile, a direct `/sync` POST on web.
+  void _createTruckerDelivery(
     BuildContext context,
     Order order,
-    AppLocalizations l10n,
-  ) async {
-    // Isar is unavailable on web (IsarService.instance.db is null), so this
-    // offline-first delivery-creation flow cannot resolve the listing locally
-    // there — degrade gracefully instead of dereferencing a null db.
-    if (kIsWeb) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.listingNotFound)),
-        );
-      }
-      return;
-    }
-    final isar = IsarService.instance.db;
-    final listing = await isar.cropListings
-        .filter()
-        .listingIdEqualTo(order.listingId)
-        .findFirst();
+    String userId,
+  ) {
+    // truckerName is a required, non-empty field server-side. It is normally
+    // carried on the order from the matched trip; fall back to the signed-in
+    // trucker's own name if it is somehow absent.
+    final authState = context.read<AuthBloc>().state;
+    final authName = authState is AuthAuthenticated ? authState.userName : '';
+    final truckerName = (order.truckerName?.trim().isNotEmpty ?? false)
+        ? order.truckerName!.trim()
+        : authName;
 
-    if (listing == null) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.listingNotFound)),
+    context.read<DeliveryBloc>().add(
+          CreateDelivery(
+            tripId: order.tripId!,
+            listingId: order.listingId,
+            farmerId: order.farmerId,
+            farmerName:
+                order.farmerName.isNotEmpty ? order.farmerName : order.farmerId,
+            truckerId: order.truckerId ?? userId,
+            truckerName: truckerName,
+            buyerId: order.buyerId,
+            buyerName: order.buyerName,
+            qrToken: const Uuid().v4(),
+          ),
         );
-      }
-      return;
-    }
-
-    if (context.mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => CreateDeliveryScreen(listing: listing),
-        ),
-      );
-      // Reload so the newly created delivery (and the order's status change) is
-      // reflected instead of leaving the stale pre-delivery order on screen.
-      if (context.mounted) {
-        context.read<OrderBloc>().add(LoadOrderById(orderId: order.orderId));
-      }
-    }
   }
 
   void _showCancelDialog(
