@@ -3886,6 +3886,96 @@ abstract class AppLocalizations {
   /// **'Dispute Resolved'**
   String get statusDisputeResolved;
 
+  /// Timeline explanation for the created status
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer placed this order. No money has been paid yet.'**
+  String get statusCreatedInfo;
+
+  /// Timeline explanation for the pending payment status
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the buyer to start the payment. Orders left unpaid are cancelled automatically after 24 hours.'**
+  String get statusPendingPaymentInfo;
+
+  /// Timeline explanation for the payment submitted status
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer sent the payment and it is being verified. The money is not yet confirmed in escrow.'**
+  String get statusPaymentSubmittedInfo;
+
+  /// Timeline explanation for the funded status
+  ///
+  /// In en, this message translates to:
+  /// **'The payment is confirmed and held safely in escrow. The ordered quantity is now reserved from the farmer\'s listing.'**
+  String get statusFundedInfo;
+
+  /// Timeline explanation for the accepted status
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer accepted the order and will prepare the crops for pickup.'**
+  String get orderAcceptedInfo;
+
+  /// Timeline explanation for the pickup confirmed status
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup from the farmer was confirmed with a QR code scan.'**
+  String get statusPickupConfirmedInfo;
+
+  /// Timeline explanation for the in transit status
+  ///
+  /// In en, this message translates to:
+  /// **'The crops are on their way to the buyer.'**
+  String get statusInTransitInfo;
+
+  /// Timeline explanation for the delivered status
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery was confirmed by the buyer. Escrow will now release the payment to the farmer.'**
+  String get statusDeliveredInfo;
+
+  /// Timeline explanation for the disbursing status
+  ///
+  /// In en, this message translates to:
+  /// **'The money is being released from escrow to the farmer.'**
+  String get statusDisbursingInfo;
+
+  /// Timeline explanation for the settled status
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer has received the money. The order is complete.'**
+  String get statusSettledInfo;
+
+  /// Timeline explanation for the cancelled status
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled. Any money held in escrow is refunded to the buyer.'**
+  String get orderCancelledInfo;
+
+  /// Timeline explanation for the rejected status
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer declined this order. Money held in escrow is refunded to the buyer.'**
+  String get orderRejectedInfo;
+
+  /// Timeline explanation for the payment failed status
+  ///
+  /// In en, this message translates to:
+  /// **'The payment could not be verified. The buyer can try paying again.'**
+  String get statusPaymentFailedInfo;
+
+  /// Timeline explanation for the disputed status
+  ///
+  /// In en, this message translates to:
+  /// **'A dispute was raised. Escrow keeps holding the money until the dispute is resolved.'**
+  String get statusDisputedInfo;
+
+  /// Timeline explanation for the dispute resolved status
+  ///
+  /// In en, this message translates to:
+  /// **'The dispute was resolved and the money went to the winning side.'**
+  String get statusDisputeResolvedInfo;
+
   /// Button label to cancel an order
   ///
   /// In en, this message translates to:

@@ -1998,6 +1998,60 @@ class AppLocalizationsAm extends AppLocalizations {
   String get statusDisputeResolved => 'ክርክር ተፈቷል';
 
   @override
+  String get statusCreatedInfo =>
+      'ገዢው ይህን ትዕዛዝ አስገብቷል። እስካሁን ምንም ገንዘብ አልተከፈለም።';
+
+  @override
+  String get statusPendingPaymentInfo =>
+      'ገዢው ክፍያ እንዲጀምር በመጠበቅ ላይ። ያልተከፈሉ ትዕዛዞች ከ24 ሰዓት በኋላ በራስ-ሰር ይሰረዛሉ።';
+
+  @override
+  String get statusPaymentSubmittedInfo =>
+      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኤስክሮ) አልተረጋገጠም።';
+
+  @override
+  String get statusFundedInfo =>
+      'ክፍያው ተረጋግጦ በአደራ (ኤስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
+
+  @override
+  String get orderAcceptedInfo => 'ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።';
+
+  @override
+  String get statusPickupConfirmedInfo => 'ከገበሬው መረከብ በQR ኮድ ስካን ተረጋግጧል።';
+
+  @override
+  String get statusInTransitInfo => 'ሰብሉ ወደ ገዢው በመጓዝ ላይ ነው።';
+
+  @override
+  String get statusDeliveredInfo =>
+      'ርክክብ በገዢው ተረጋግጧል። አደራው (ኤስክሮ) ክፍያውን ለገበሬው ይለቃል።';
+
+  @override
+  String get statusDisbursingInfo => 'ገንዘቡ ከአደራ (ኤስክሮ) ወደ ገበሬው በመለቀቅ ላይ ነው።';
+
+  @override
+  String get statusSettledInfo => 'ገበሬው ገንዘቡን ተቀብሏል። ትዕዛዙ ተጠናቅቋል።';
+
+  @override
+  String get orderCancelledInfo =>
+      'ትዕዛዙ ተሰርዟል። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+
+  @override
+  String get orderRejectedInfo =>
+      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
+
+  @override
+  String get statusPaymentFailedInfo =>
+      'ክፍያውን ማረጋገጥ አልተቻለም። ገዢው እንደገና መክፈል ይችላል።';
+
+  @override
+  String get statusDisputedInfo =>
+      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኤስክሮ) ተይዞ ይቆያል።';
+
+  @override
+  String get statusDisputeResolvedInfo => 'ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።';
+
+  @override
   String get cancelOrder => 'ትዕዛዝ ሰርዝ';
 
   @override
