@@ -2083,7 +2083,7 @@
   "ordersWillAppear": "ንግዶችዎ እዚህ ይታያሉ",
   "trades": "ንግዶች",
   "rating": "ደረጃ",
-  "escrowPercent": "ኢስክሮ %",
+  "inEscrowEtb": "በኢስክሮ ውስጥ (ብር)",
   "wallet": "ዋሌት",
   "escrowHistory": "የኢስክሮ ታሪክ",
   "ratings": "ደረጃዎች",

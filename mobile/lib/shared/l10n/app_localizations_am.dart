@@ -1678,7 +1678,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get rating => 'ደረጃ';
 
   @override
-  String get escrowPercent => 'ኢስክሮ %';
+  String get inEscrowEtb => 'በኢስክሮ ውስጥ (ብር)';
 
   @override
   String get wallet => 'ዋሌት';

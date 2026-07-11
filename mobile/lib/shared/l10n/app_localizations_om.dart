@@ -1734,7 +1734,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get rating => 'Sadarkaa';
 
   @override
-  String get escrowPercent => 'Eeskiroo %';
+  String get inEscrowEtb => 'Eeskiroo Keessaa (ETB)';
 
   @override
   String get wallet => 'Waaleetii';

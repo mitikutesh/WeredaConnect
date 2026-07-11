@@ -2102,7 +2102,7 @@
   "ordersWillAppear": "Daldalaan kee as ni mul'ata",
   "trades": "Daldalaa",
   "rating": "Sadarkaa",
-  "escrowPercent": "Eeskiroo %",
+  "inEscrowEtb": "Eeskiroo Keessaa (ETB)",
   "wallet": "Waaleetii",
   "escrowHistory": "Seenaa Eeskiroo",
   "ratings": "Sadarkaalee",

@@ -1728,7 +1728,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get rating => 'Rating';
 
   @override
-  String get escrowPercent => 'Escrow %';
+  String get inEscrowEtb => 'In Escrow (ETB)';
 
   @override
   String get wallet => 'Wallet';
