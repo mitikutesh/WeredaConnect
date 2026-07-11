@@ -378,8 +378,8 @@ class _SidebarItem extends StatefulWidget {
 class _SidebarItemState extends State<_SidebarItem> {
   bool _hovered = false;
 
-  /// The item's icon; the Messages item carries a solid unread dot whenever
-  /// the inbox has unread messages.
+  /// The item's icon; the Messages item carries an unread-count badge
+  /// whenever the inbox has unread messages.
   Widget _icon(Color color, double size) {
     final icon = Icon(
       widget.selected ? widget.item.selectedIcon : widget.item.icon,
@@ -392,8 +392,9 @@ class _SidebarItemState extends State<_SidebarItem> {
         final unread = state is InboxLoaded ? state.totalUnread : 0;
         if (unread <= 0) return icon;
         return Badge(
-          smallSize: 9,
+          label: Text('$unread'),
           backgroundColor: AppTheme.accentGold,
+          textColor: Colors.black87,
           child: icon,
         );
       },

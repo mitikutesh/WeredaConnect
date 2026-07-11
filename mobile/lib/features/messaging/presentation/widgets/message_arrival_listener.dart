@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/conversation_context_tag.dart';
@@ -45,6 +46,10 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener> {
   OverlayEntry? _banner;
   Timer? _dismissTimer;
 
+  /// Which user the inbox was last bootstrapped for — guards against
+  /// re-dispatching [LoadInbox] on every auth re-emission (token refresh).
+  String? _inboxLoadedFor;
+
   static const _autoDismissAfter = Duration(seconds: 6);
 
   @override
@@ -65,9 +70,19 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener> {
           .repository
           .watchInbound()
           .listen(_onArrivals);
+      // Bootstrap the inbox as soon as we're signed in: LoadInbox starts the
+      // poll that feeds watchInbound() and the unread badges. Without this,
+      // layouts that never mount MessagesBadgeButton (the web/desktop shell)
+      // get no arrival banners and no unread counts until the user happens
+      // to open the Messages screen.
+      if (_inboxLoadedFor != state.userId) {
+        _inboxLoadedFor = state.userId;
+        context.read<InboxBloc>().add(LoadInbox(state.userId));
+      }
     } else {
       _subscription?.cancel();
       _subscription = null;
+      _inboxLoadedFor = null;
       _removeBanner();
     }
   }
