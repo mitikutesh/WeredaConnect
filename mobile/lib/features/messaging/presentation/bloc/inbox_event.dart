@@ -22,3 +22,9 @@ class LoadInbox extends InboxEvent {
 class InboxRefreshRequested extends InboxEvent {
   const InboxRefreshRequested();
 }
+
+/// Periodic background poll: pull new messages from the server, refresh
+/// silently, and never surface an error (offline polls keep the last state).
+class InboxPollRequested extends InboxEvent {
+  const InboxPollRequested();
+}

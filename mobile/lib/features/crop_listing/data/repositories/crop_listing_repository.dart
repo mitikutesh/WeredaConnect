@@ -124,6 +124,11 @@ class CropListingRepository extends BaseCropListingRepository {
         .findAll();
   }
 
+  @override
+  Future<CropListing?> getListingById(String listingId) {
+    return _isar.cropListings.filter().listingIdEqualTo(listingId).findFirst();
+  }
+
   /// Get listings for a farmer, optionally filtered by status and crop type.
   @override
   Future<List<CropListing>> getListingsByFarmerFiltered({

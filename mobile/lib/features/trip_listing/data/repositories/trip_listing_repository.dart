@@ -455,4 +455,9 @@ class TripListingRepository extends BaseTripListingRepository {
         .findFirst();
     return delivered;
   }
+
+  @override
+  Future<Trip?> getTripById(String tripId) {
+    return _isar.trips.filter().tripIdEqualTo(tripId).findFirst();
+  }
 }

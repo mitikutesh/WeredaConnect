@@ -75,17 +75,27 @@ abstract class BaseMessageRepository {
   /// The current user's conversations, most-recent first (best-effort).
   Future<List<ConversationSummary>> loadConversations(String currentUserId);
 
-  /// Total unread messages across all conversations (0 on web / when caught up).
+  /// Total unread messages across all conversations (0 when caught up).
   Future<int> totalUnread(String currentUserId);
 
-  /// Mark a conversation read up to now (no-op on web).
+  /// Mark a conversation read up to now. Idempotent: implementations skip the
+  /// write (and any change event) when the marker already covers the newest
+  /// message — the thread bloc calls this on every refresh AND refreshes on
+  /// every change event, so a repeated write would loop forever.
   Future<void> markConversationRead(String conversationId);
 
-  /// Pull messages addressed to / from the current user from the server into the
-  /// local store. Returns the number of new messages stored (0 on web / offline).
+  /// Pull messages addressed to / from the current user from the server into
+  /// the local store (Isar on mobile, the session cache on web). Returns the
+  /// number of new messages stored (0 when offline — never throws).
   Future<int> pullMessages(String currentUserId);
 
   /// Fires whenever the local message store changes (native only; an empty
   /// stream on web). BLoCs listen to this to refresh reactively.
   Stream<void> watchChanges();
+
+  /// Emits each batch of messages addressed to the current user that a pull
+  /// newly discovered — i.e. "a message just arrived". The very first
+  /// hydration of an empty store is NOT emitted (bootstrapping a device must
+  /// not replay the whole history as notifications).
+  Stream<List<Message>> watchInbound();
 }

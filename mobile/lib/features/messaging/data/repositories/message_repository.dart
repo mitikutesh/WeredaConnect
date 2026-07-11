@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:async/async.dart';
@@ -28,6 +29,8 @@ class MessageRepository extends BaseMessageRepository {
   final ApiClient? _apiClient;
 
   static const _uuid = Uuid();
+
+  final _inboundController = StreamController<List<Message>>.broadcast();
 
   MessageRepository({
     required Isar isar,
@@ -143,6 +146,23 @@ class MessageRepository extends BaseMessageRepository {
 
   @override
   Future<void> markConversationRead(String conversationId) async {
+    // Idempotent: skip the write when the marker already covers every message
+    // we hold. The thread bloc marks read on every refresh AND refreshes on
+    // every store change — an unconditional write here would fire
+    // watchChanges and spin refresh → write → refresh forever.
+    final newest = await _isar.messages
+        .filter()
+        .conversationIdEqualTo(conversationId)
+        .sortByCreatedAtDesc()
+        .findFirst();
+    if (newest == null) return;
+    final existing = await _isar.conversationReads
+        .filter()
+        .conversationIdEqualTo(conversationId)
+        .findFirst();
+    if (existing != null && !newest.createdAt.isAfter(existing.lastReadAt)) {
+      return;
+    }
     await _isar.writeTxn(() async {
       await _setLastReadAt(conversationId, DateTime.now().toUtc());
     });
@@ -172,6 +192,7 @@ class MessageRepository extends BaseMessageRepository {
       if (list.isEmpty) return 0;
 
       var newCount = 0;
+      final newInbound = <Message>[];
       await _isar.writeTxn(() async {
         for (final raw in list) {
           final parsed = parseMessage(raw as Map<String, dynamic>);
@@ -185,16 +206,24 @@ class MessageRepository extends BaseMessageRepository {
                 existing.id; // idempotent upsert (messages are immutable)
           } else {
             newCount++;
+            if (parsed.recipientId == currentUserId) newInbound.add(parsed);
           }
           await _isar.messages.put(parsed);
         }
       });
+      // First hydration of an empty store bootstraps history — not "arrivals".
+      if (newestLocal != null && newInbound.isNotEmpty) {
+        _inboundController.add(newInbound);
+      }
       return newCount;
     } on Object catch (e) {
       debugPrint('[MessageRepository] pullMessages failed: $e');
       return 0;
     }
   }
+
+  @override
+  Stream<List<Message>> watchInbound() => _inboundController.stream;
 
   @override
   Stream<void> watchChanges() => StreamGroup.merge<void>([

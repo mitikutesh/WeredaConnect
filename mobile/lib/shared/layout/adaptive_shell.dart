@@ -7,6 +7,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -43,6 +45,7 @@ class AdaptiveShell extends StatelessWidget {
     return [
       for (final tab in tabs)
         _NavDestination(
+          tab,
           tab.icon,
           tab.activeIcon,
           tab.label(l10n),
@@ -375,6 +378,28 @@ class _SidebarItem extends StatefulWidget {
 class _SidebarItemState extends State<_SidebarItem> {
   bool _hovered = false;
 
+  /// The item's icon; the Messages item carries a solid unread dot whenever
+  /// the inbox has unread messages.
+  Widget _icon(Color color, double size) {
+    final icon = Icon(
+      widget.selected ? widget.item.selectedIcon : widget.item.icon,
+      color: color,
+      size: size,
+    );
+    if (widget.item.tab != RoleTab.messages) return icon;
+    return BlocBuilder<InboxBloc, InboxState>(
+      builder: (context, state) {
+        final unread = state is InboxLoaded ? state.totalUnread : 0;
+        if (unread <= 0) return icon;
+        return Badge(
+          smallSize: 9,
+          backgroundColor: AppTheme.accentGold,
+          child: icon,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bgColor = widget.selected
@@ -419,13 +444,7 @@ class _SidebarItemState extends State<_SidebarItem> {
               child: widget.expanded
                   ? Row(
                       children: [
-                        Icon(
-                          widget.selected
-                              ? widget.item.selectedIcon
-                              : widget.item.icon,
-                          color: iconColor,
-                          size: 22,
-                        ),
+                        _icon(iconColor, 22),
                         const SizedBox(width: 14),
                         Text(
                           widget.item.label,
@@ -442,13 +461,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                   : Center(
                       child: Tooltip(
                         message: widget.item.label,
-                        child: Icon(
-                          widget.selected
-                              ? widget.item.selectedIcon
-                              : widget.item.icon,
-                          color: iconColor,
-                          size: 24,
-                        ),
+                        child: _icon(iconColor, 24),
                       ),
                     ),
             ),
@@ -657,10 +670,17 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
 
 /// Navigation destination with route info for role-aware navigation.
 class _NavDestination {
+  final RoleTab tab;
   final IconData icon;
   final IconData selectedIcon;
   final String label;
   final String route;
 
-  const _NavDestination(this.icon, this.selectedIcon, this.label, this.route);
+  const _NavDestination(
+    this.tab,
+    this.icon,
+    this.selectedIcon,
+    this.label,
+    this.route,
+  );
 }

@@ -4653,6 +4653,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Contact'**
   String get contact;
+
+  /// Title of the in-app banner shown when a chat message arrives
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get newMessage;
+
+  /// Banner title when several chat messages arrive at once
+  ///
+  /// In en, this message translates to:
+  /// **'{count} new messages'**
+  String newMessagesCount(int count);
+
+  /// Fallback label for a chat linked to a crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Crop'**
+  String get messageContextCrop;
+
+  /// Fallback label for a chat linked to a trip
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get messageContextTrip;
+
+  /// Fallback label for a chat linked to an order
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get messageContextOrder;
+
+  /// Fallback label for a chat linked to a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery'**
+  String get messageContextDelivery;
+
+  /// Shown when tapping a chat's linked crop/trip that can't be loaded (offline / not synced / not visible)
+  ///
+  /// In en, this message translates to:
+  /// **'Details aren\'t available right now'**
+  String get contextUnavailable;
 }
 
 class _AppLocalizationsDelegate

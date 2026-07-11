@@ -2408,5 +2408,12 @@
   "messageFarmer": "ለገበሬው መልእክት ላክ",
   "messageTrucker": "ለአሽከርካሪው መልእክት ላክ",
   "messageBuyer": "ለገዢው መልእክት ላክ",
-  "contact": "አግኝ"
+  "contact": "አግኝ",
+  "newMessage": "አዲስ መልእክት",
+  "newMessagesCount": "{count} አዲስ መልእክቶች",
+  "messageContextCrop": "ሰብል",
+  "messageContextTrip": "ጉዞ",
+  "messageContextOrder": "ትዕዛዝ",
+  "messageContextDelivery": "ማድረሻ",
+  "contextUnavailable": "ዝርዝሮች አሁን አይገኙም"
 }

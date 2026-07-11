@@ -83,6 +83,25 @@ void main() {
       expect(fromDb!.fromWoreda, 'Bishoftu');
     });
 
+    test('getTripById returns the trip or null when absent', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+
+      final found = await repository.getTripById(trip.tripId);
+      expect(found, isNotNull);
+      expect(found!.fromWoreda, 'Bishoftu');
+
+      expect(await repository.getTripById('missing-id'), isNull);
+    });
+
     test('createTrip enqueues sync operation', () async {
       await repository.createTrip(
         truckerId: 'trucker-001',

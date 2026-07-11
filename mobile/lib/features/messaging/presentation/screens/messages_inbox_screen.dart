@@ -3,11 +3,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/domain/repositories/base_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/widgets/conversation_context_tag.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
@@ -36,7 +38,16 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
     final me = authState is AuthAuthenticated ? authState.userId : '';
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.messages)),
+      appBar: AppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.chat_bubble_outline),
+            const SizedBox(width: 8),
+            Text(l10n.messages),
+          ],
+        ),
+      ),
       body: BlocBuilder<InboxBloc, InboxState>(
         builder: (context, state) {
           if (state is InboxLoaded) {
@@ -58,6 +69,7 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
                     summary: c,
                     prefixYou: l10n.messageContact,
                     lastFromMePrefix: l10n.send,
+                    resolver: context.read<InboxBloc>().contextResolver,
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute<void>(
@@ -89,6 +101,7 @@ class _ConversationTile extends StatelessWidget {
   final ConversationSummary summary;
   final String prefixYou;
   final String lastFromMePrefix;
+  final ConversationContextResolver? resolver;
   final VoidCallback onTap;
 
   const _ConversationTile({
@@ -96,6 +109,7 @@ class _ConversationTile extends StatelessWidget {
     required this.prefixYou,
     required this.lastFromMePrefix,
     required this.onTap,
+    this.resolver,
   });
 
   String get _title => (summary.counterpartName?.trim().isNotEmpty ?? false)
@@ -132,11 +146,25 @@ class _ConversationTile extends StatelessWidget {
           fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
         ),
       ),
-      subtitle: Text(
-        summary.lastMessageBody,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // What the thread is about — the linked crop or trip.
+          ConversationContextTag(
+            contextType: summary.contextType,
+            contextId: summary.contextId,
+            resolver: resolver,
+            color: AppTheme.primary,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            summary.lastMessageBody,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
+      isThreeLine: true,
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
