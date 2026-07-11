@@ -20,8 +20,7 @@ class WebConversationContextResolver extends ConversationContextResolver {
       case 'crop':
         return _cropInfo(contextType, contextId);
       case 'trip':
-        final data =
-            await _api.get<Map<String, dynamic>>('/trips/$contextId');
+        final data = await _api.get<Map<String, dynamic>>('/trips/$contextId');
         final trip = _unwrap(data, 'trip');
         if (trip == null) return null;
         return ConversationContextInfo(
@@ -31,8 +30,7 @@ class WebConversationContextResolver extends ConversationContextResolver {
         );
       case 'order':
         // Orders denormalize their crop on the wire (cropType + quantity).
-        final data =
-            await _api.get<Map<String, dynamic>>('/orders/$contextId');
+        final data = await _api.get<Map<String, dynamic>>('/orders/$contextId');
         final order = _unwrap(data, 'order');
         if (order == null) return null;
         return ConversationContextInfo(
