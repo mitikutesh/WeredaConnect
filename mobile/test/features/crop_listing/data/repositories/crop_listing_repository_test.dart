@@ -87,6 +87,25 @@ void main() {
       expect(fromDb.farmerName, 'Abebe Kebede');
     });
 
+    test('getListingById returns the listing or null when absent', () async {
+      final listing = await repository.createListing(
+        farmerId: 'farmer-001',
+        cropType: 'teff',
+        quantity: 50.0,
+        pricePerKg: 45.0,
+        latitude: 9.0192,
+        longitude: 38.7525,
+        locationName: 'Ada',
+        description: 'High quality teff',
+      );
+
+      final found = await repository.getListingById(listing.listingId);
+      expect(found, isNotNull);
+      expect(found!.cropType, 'teff');
+
+      expect(await repository.getListingById('missing-id'), isNull);
+    });
+
     test('createListing defaults farmerName to empty string when omitted',
         () async {
       final listing = await repository.createListing(

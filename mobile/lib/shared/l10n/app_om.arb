@@ -2401,5 +2401,12 @@
   "messageFarmer": "Qonnaan bulaaf ergaa ergi",
   "messageTrucker": "Konkolaachisaaf ergaa ergi",
   "messageBuyer": "Bittaaf ergaa ergi",
-  "contact": "Quunnamtii"
+  "contact": "Quunnamtii",
+  "newMessage": "Ergaa haaraa",
+  "newMessagesCount": "Ergaawwan haaraa {count}",
+  "messageContextCrop": "Midhaan",
+  "messageContextTrip": "Imala",
+  "messageContextOrder": "Ajaja",
+  "messageContextDelivery": "Geejjiba",
+  "contextUnavailable": "Bal'inaaleen amma hin argaman"
 }

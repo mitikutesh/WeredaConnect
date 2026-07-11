@@ -191,39 +191,60 @@ class WebCropListingRepository extends BaseCropListingRepository {
     ensureSyncSucceeded(response);
   }
 
+  @override
+  Future<CropListing?> getListingById(String listingId) async {
+    try {
+      final data = await _api.get<Map<String, dynamic>>('/crops/$listingId');
+      // GET /crops/{id} returns {"crop": {...}} (GetCropResponse, camelCase).
+      // Accept the `item` envelope and a bare object too, so a response-shape
+      // change never silently degrades into a spurious "not found".
+      final envelope = data['crop'] ?? data['item'];
+      if (envelope is Map<String, dynamic>) return _parseListingMap(envelope);
+      if (data.containsKey('cropId') || data.containsKey('listingId')) {
+        return _parseListingMap(data);
+      }
+      return null;
+    } on Exception {
+      return null;
+    }
+  }
+
   List<CropListing> _parseListings(Map<String, dynamic> data) {
     // API returns listings under "crops" key (not "items")
     final items = data['crops'] as List<dynamic>? ??
         data['items'] as List<dynamic>? ??
         [];
-    return items.map((item) {
-      final m = item as Map<String, dynamic>;
-      return CropListing()
-        // API uses "cropId"; sync-created listings use "listingId"
-        ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
-        ..farmerId = m['farmerId'] as String? ?? ''
-        ..farmerName = m['farmerName'] as String? ?? ''
-        ..farmerPhone = m['farmerPhone'] as String? ?? ''
-        ..cropType = m['cropType'] as String? ?? ''
-        // API uses "quantityKg"; sync payload uses "quantity"
-        ..quantity = (m['quantity'] as num?)?.toDouble() ??
-            (m['quantityKg'] as num?)?.toDouble() ??
-            0
-        ..pricePerKg = (m['pricePerKg'] as num?)?.toDouble() ?? 0
-        ..location = (LatLng()
-          ..latitude = (m['latitude'] as num?)?.toDouble() ?? 0
-          ..longitude = (m['longitude'] as num?)?.toDouble() ?? 0)
-        ..locationName =
-            m['locationName'] as String? ?? m['woreda'] as String? ?? ''
-        ..description = m['description'] as String? ?? ''
-        ..audioNoteRef = m['audioNoteRef'] as String?
-        ..status = _parseListingStatus(m['status'] as String?)
-        ..createdAt =
-            DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
-        ..updatedAt =
-            DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
-        ..version = (m['version'] as num?)?.toInt() ?? 1;
-    }).toList();
+    return items
+        .map((item) => _parseListingMap(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  CropListing _parseListingMap(Map<String, dynamic> m) {
+    return CropListing()
+      // API uses "cropId"; sync-created listings use "listingId"
+      ..listingId = m['listingId'] as String? ?? m['cropId'] as String? ?? ''
+      ..farmerId = m['farmerId'] as String? ?? ''
+      ..farmerName = m['farmerName'] as String? ?? ''
+      ..farmerPhone = m['farmerPhone'] as String? ?? ''
+      ..cropType = m['cropType'] as String? ?? ''
+      // API uses "quantityKg"; sync payload uses "quantity"
+      ..quantity = (m['quantity'] as num?)?.toDouble() ??
+          (m['quantityKg'] as num?)?.toDouble() ??
+          0
+      ..pricePerKg = (m['pricePerKg'] as num?)?.toDouble() ?? 0
+      ..location = (LatLng()
+        ..latitude = (m['latitude'] as num?)?.toDouble() ?? 0
+        ..longitude = (m['longitude'] as num?)?.toDouble() ?? 0)
+      ..locationName =
+          m['locationName'] as String? ?? m['woreda'] as String? ?? ''
+      ..description = m['description'] as String? ?? ''
+      ..audioNoteRef = m['audioNoteRef'] as String?
+      ..status = _parseListingStatus(m['status'] as String?)
+      ..createdAt =
+          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()
+      ..updatedAt =
+          DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
+      ..version = (m['version'] as num?)?.toInt() ?? 1;
   }
 
   ListingStatus _parseListingStatus(String? s) {

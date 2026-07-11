@@ -2417,4 +2417,27 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get contact => 'አግኝ';
+
+  @override
+  String get newMessage => 'አዲስ መልእክት';
+
+  @override
+  String newMessagesCount(int count) {
+    return '$count አዲስ መልእክቶች';
+  }
+
+  @override
+  String get messageContextCrop => 'ሰብል';
+
+  @override
+  String get messageContextTrip => 'ጉዞ';
+
+  @override
+  String get messageContextOrder => 'ትዕዛዝ';
+
+  @override
+  String get messageContextDelivery => 'ማድረሻ';
+
+  @override
+  String get contextUnavailable => 'ዝርዝሮች አሁን አይገኙም';
 }

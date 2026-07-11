@@ -41,4 +41,9 @@ abstract class BaseCropListingRepository {
     required String listingId,
     required String farmerId,
   });
+
+  /// A single listing by id, or null when it isn't reachable (not synced
+  /// locally / not visible to the caller / offline on web). Used by chat
+  /// threads to open the crop they're linked to.
+  Future<CropListing?> getListingById(String listingId);
 }

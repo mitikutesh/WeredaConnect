@@ -278,6 +278,16 @@ class WebTripListingRepository extends BaseTripListingRepository {
     return null;
   }
 
+  @override
+  Future<Trip?> getTripById(String tripId) async {
+    try {
+      final data = await _api.get<Map<String, dynamic>>('/trips/$tripId');
+      return _parseSingleTrip(data);
+    } on Exception {
+      return null;
+    }
+  }
+
   List<Trip> _parseTrips(Map<String, dynamic> data) {
     final items = data['trips'] as List<dynamic>? ??
         data['items'] as List<dynamic>? ??

@@ -14,6 +14,10 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   final BaseCropListingRepository _repository;
 
+  /// Exposed so screens outside this feature (e.g. a chat thread opening the
+  /// crop it's linked to) can do targeted reads without new events/states.
+  BaseCropListingRepository get repository => _repository;
+
   /// Mobile-only: pulls all active crops into Isar before the Buyer browses
   /// the marketplace ([LoadActiveListings]). Null on web (API-backed reads).
   /// Owner-scoped events (a Farmer's own listings) never trigger a pull.

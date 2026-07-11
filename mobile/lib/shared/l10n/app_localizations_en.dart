@@ -2477,4 +2477,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get contact => 'Contact';
+
+  @override
+  String get newMessage => 'New message';
+
+  @override
+  String newMessagesCount(int count) {
+    return '$count new messages';
+  }
+
+  @override
+  String get messageContextCrop => 'Crop';
+
+  @override
+  String get messageContextTrip => 'Trip';
+
+  @override
+  String get messageContextOrder => 'Order';
+
+  @override
+  String get messageContextDelivery => 'Delivery';
+
+  @override
+  String get contextUnavailable => 'Details aren\'t available right now';
 }

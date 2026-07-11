@@ -45,6 +45,7 @@ import 'package:wereda_connect/features/delivery_verification/data/repositories/
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
+import 'package:wereda_connect/features/messaging/data/web_conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
@@ -209,6 +210,7 @@ Future<void> main() async {
           BlocProvider<InboxBloc>(
             create: (_) => InboxBloc(
               repository: WebMessageRepository(api: api),
+              contextResolver: WebConversationContextResolver(api: api),
             ),
           ),
           BlocProvider<ConflictBloc>(

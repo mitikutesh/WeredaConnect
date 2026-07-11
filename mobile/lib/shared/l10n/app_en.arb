@@ -3155,5 +3155,39 @@
   "contact": "Contact",
   "@contact": {
     "description": "Generic contact button / sheet title"
+  },
+  "newMessage": "New message",
+  "@newMessage": {
+    "description": "Title of the in-app banner shown when a chat message arrives"
+  },
+  "newMessagesCount": "{count} new messages",
+  "@newMessagesCount": {
+    "description": "Banner title when several chat messages arrive at once",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "messageContextCrop": "Crop",
+  "@messageContextCrop": {
+    "description": "Fallback label for a chat linked to a crop listing"
+  },
+  "messageContextTrip": "Trip",
+  "@messageContextTrip": {
+    "description": "Fallback label for a chat linked to a trip"
+  },
+  "messageContextOrder": "Order",
+  "@messageContextOrder": {
+    "description": "Fallback label for a chat linked to an order"
+  },
+  "messageContextDelivery": "Delivery",
+  "@messageContextDelivery": {
+    "description": "Fallback label for a chat linked to a delivery"
+  },
+  "contextUnavailable": "Details aren't available right now",
+  "@contextUnavailable": {
+    "description": "Shown when tapping a chat's linked crop/trip that can't be loaded (offline / not synced / not visible)"
   }
 }

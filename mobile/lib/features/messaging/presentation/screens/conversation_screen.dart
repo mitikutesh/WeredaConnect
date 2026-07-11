@@ -3,11 +3,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
 import 'package:wereda_connect/features/messaging/domain/repositories/base_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/conversation_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/widgets/conversation_context_tag.dart';
+import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
@@ -51,6 +57,7 @@ class ConversationScreen extends StatelessWidget {
         repository: ctx.read<InboxBloc>().repository,
       )..add(LoadThread(conversationId)),
       child: _ConversationView(
+        conversationId: conversationId,
         contextType: contextType,
         contextId: contextId,
         me: me,
@@ -65,6 +72,7 @@ class ConversationScreen extends StatelessWidget {
 }
 
 class _ConversationView extends StatefulWidget {
+  final String conversationId;
   final String contextType;
   final String contextId;
   final String me;
@@ -75,6 +83,7 @@ class _ConversationView extends StatefulWidget {
   final String? counterpartPhone;
 
   const _ConversationView({
+    required this.conversationId,
     required this.contextType,
     required this.contextId,
     required this.me,
@@ -94,10 +103,69 @@ class _ConversationViewState extends State<_ConversationView> {
   final _scrollController = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    // Suppress arrival banners for the thread the user is looking at.
+    ActiveConversation.id = widget.conversationId;
+  }
+
+  @override
   void dispose() {
+    if (ActiveConversation.id == widget.conversationId) {
+      ActiveConversation.id = null;
+    }
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Only crop and trip threads have a detail screen to open; order/delivery
+  /// tags stay label-only for now.
+  bool get _contextOpensDetail =>
+      widget.contextType == 'crop' || widget.contextType == 'trip';
+
+  /// Open the crop/trip this thread is linked to. Loads the entity through
+  /// the marketplace repositories (Isar on mobile, HTTP on web) — the detail
+  /// screens need the full model, not just the tag's label info.
+  Future<void> _openLinkedContext() async {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthAuthenticated) return;
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.of(context);
+
+    Widget? screen;
+    switch (widget.contextType) {
+      case 'crop':
+        final listing = await context
+            .read<CropListingBloc>()
+            .repository
+            .getListingById(widget.contextId);
+        if (listing != null) {
+          screen = CropListingDetailScreen(
+            listing: listing,
+            currentUserId: authState.userId,
+            currentUserRole: authState.role,
+          );
+        }
+      case 'trip':
+        final trip = await context
+            .read<TripListingBloc>()
+            .repository
+            .getTripById(widget.contextId);
+        if (trip != null) screen = TripDetailScreen(trip: trip);
+    }
+
+    if (!mounted) return;
+    if (screen == null) {
+      // Not synced locally / not visible to this role / offline on web.
+      messenger.showSnackBar(SnackBar(content: Text(l10n.contextUnavailable)));
+      return;
+    }
+    final target = screen;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => target),
+    );
   }
 
   void _send() {
@@ -128,7 +196,21 @@ class _ConversationViewState extends State<_ConversationView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            // The crop/trip this thread is linked to — tap to open it.
+            ConversationContextTag(
+              contextType: widget.contextType,
+              contextId: widget.contextId,
+              resolver: context.read<InboxBloc>().contextResolver,
+              color: Colors.white70,
+              onTap: _contextOpensDetail ? _openLinkedContext : null,
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.call_outlined),

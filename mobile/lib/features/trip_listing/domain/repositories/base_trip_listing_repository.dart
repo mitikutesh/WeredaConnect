@@ -48,4 +48,9 @@ abstract class BaseTripListingRepository {
   });
 
   Future<Trip?> getMostRelevantTrip(String truckerId);
+
+  /// A single trip by id, or null when it isn't reachable (not synced
+  /// locally / offline on web). Used by chat threads to open the trip
+  /// they're linked to.
+  Future<Trip?> getTripById(String tripId);
 }

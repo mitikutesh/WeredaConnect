@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/auth/screens/reset_password_screen.dart'
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -68,9 +69,11 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         ),
       ),
 
-      // Authenticated routes with adaptive shell
+      // Authenticated routes with adaptive shell. The arrival listener shows
+      // an in-app banner when a chat message lands while the web app is open.
       ShellRoute(
-        builder: (context, state, child) => AdaptiveShell(child: child),
+        builder: (context, state, child) =>
+            MessageArrivalListener(child: AdaptiveShell(child: child)),
         routes: [
           GoRoute(
             path: '/',

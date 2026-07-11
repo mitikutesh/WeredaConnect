@@ -2499,4 +2499,27 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get contact => 'Quunnamtii';
+
+  @override
+  String get newMessage => 'Ergaa haaraa';
+
+  @override
+  String newMessagesCount(int count) {
+    return 'Ergaawwan haaraa $count';
+  }
+
+  @override
+  String get messageContextCrop => 'Midhaan';
+
+  @override
+  String get messageContextTrip => 'Imala';
+
+  @override
+  String get messageContextOrder => 'Ajaja';
+
+  @override
+  String get messageContextDelivery => 'Geejjiba';
+
+  @override
+  String get contextUnavailable => 'Bal\'inaaleen amma hin argaman';
 }
