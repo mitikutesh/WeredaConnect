@@ -28,6 +28,20 @@ class WebMessageRepository extends BaseMessageRepository {
   final Map<String, Message> _cache = {};
   bool _hydrated = false;
 
+  /// Whose messages the cache holds. The repository outlives logout/login on
+  /// web (created once at app start), so a user switch in the same browser
+  /// session MUST drop the previous account's cache — otherwise the next user
+  /// sees stale conversations/unread and the `since` cursor skips their
+  /// older history.
+  String? _cacheOwnerId;
+
+  void _ensureCacheOwner(String userId) {
+    if (_cacheOwnerId == userId) return;
+    _cache.clear();
+    _hydrated = false;
+    _cacheOwnerId = userId;
+  }
+
   final _changesController = StreamController<void>.broadcast();
   final _inboundController = StreamController<List<Message>>.broadcast();
 
@@ -100,6 +114,7 @@ class WebMessageRepository extends BaseMessageRepository {
       ..createdAt = now
       ..version = 1;
 
+    _ensureCacheOwner(senderId);
     _cache[messageId] = message;
     // Sending counts as reading up to now (mirrors the native repository).
     await markConversationRead(conversationId);
@@ -139,15 +154,23 @@ class WebMessageRepository extends BaseMessageRepository {
   Future<List<ConversationSummary>> loadConversations(
     String currentUserId,
   ) async {
+    _ensureCacheOwner(currentUserId);
     // First call must hydrate from the server; a failure here should surface
     // (an empty inbox and a dead connection are different states). Once
     // hydrated, serve the cache — pullMessages keeps it fresh.
     if (!_hydrated) {
-      await _fetchInto(currentUserId, since: '');
+      await _fetchInto(since: '');
       _hydrated = true;
     }
+    // Belt-and-braces participant filter on top of the owner check: only
+    // conversations the current user is actually part of.
+    final mine = _cache.values
+        .where(
+          (m) => m.senderId == currentUserId || m.recipientId == currentUserId,
+        )
+        .toList();
     return buildConversationSummaries(
-      _cache.values.toList(),
+      mine,
       currentUserId,
       lastRead: await _lastReadMap(),
     );
@@ -175,15 +198,22 @@ class WebMessageRepository extends BaseMessageRepository {
       prefs.getString('$_readKeyPrefix$conversationId') ?? '',
     );
     if (existing != null && !newest.isAfter(existing.toUtc())) return;
+    // The marker must cover the newest message even when the client clock
+    // lags the server timestamps — a plain now() could stay behind forever,
+    // so unread would never clear and the idempotence guard above would stop
+    // holding (write → change event → refresh → write ...).
+    final nowUtc = DateTime.now().toUtc();
+    final at = newest.isAfter(nowUtc) ? newest : nowUtc;
     await prefs.setString(
       '$_readKeyPrefix$conversationId',
-      DateTime.now().toUtc().toIso8601String(),
+      at.toIso8601String(),
     );
     _changesController.add(null);
   }
 
   @override
   Future<int> pullMessages(String currentUserId) async {
+    _ensureCacheOwner(currentUserId);
     final firstHydration = !_hydrated;
     // Stateless cursor: everything newer than the newest cached message
     // (server compares createdAt strictly greater; empty = no lower bound).
@@ -195,13 +225,18 @@ class WebMessageRepository extends BaseMessageRepository {
         firstHydration ? '' : (newest?.toUtc().toIso8601String() ?? '');
 
     try {
-      final newInbound = await _fetchInto(currentUserId, since: since);
+      final fresh = await _fetchInto(since: since);
       _hydrated = true;
+      // Only messages addressed to me are "arrivals" — but the returned
+      // count covers every newly-stored message (an outbound message sent
+      // from another device is new to this cache too).
+      final newInbound =
+          fresh.where((m) => m.recipientId == currentUserId).toList();
       // Bootstrapping the session cache is history, not "arrivals".
       if (!firstHydration && newInbound.isNotEmpty) {
         _inboundController.add(newInbound);
       }
-      return newInbound.length;
+      return fresh.length;
     } on Object {
       // Best-effort like the native pull: offline polling must not throw.
       return 0;
@@ -209,30 +244,23 @@ class WebMessageRepository extends BaseMessageRepository {
   }
 
   /// Fetch messages newer than [since] and merge them into the cache.
-  /// Returns the newly-seen messages addressed to [currentUserId].
+  /// Returns every newly-seen message (inbound and outbound).
   /// Throws on network/API failure — callers decide whether that surfaces.
-  Future<List<Message>> _fetchInto(
-    String currentUserId, {
-    required String since,
-  }) async {
+  Future<List<Message>> _fetchInto({required String since}) async {
     final data = await _api.get<Map<String, dynamic>>(
       '/messages',
       queryParameters: {'since': since},
     );
     final list = (data['messages'] as List?) ?? const [];
-    final newInbound = <Message>[];
-    var changed = false;
+    final fresh = <Message>[];
     for (final raw in list) {
       final parsed = parseMessage(raw as Map<String, dynamic>);
       if (parsed.messageId.isEmpty) continue;
-      if (!_cache.containsKey(parsed.messageId)) {
-        changed = true;
-        if (parsed.recipientId == currentUserId) newInbound.add(parsed);
-      }
+      if (!_cache.containsKey(parsed.messageId)) fresh.add(parsed);
       _cache[parsed.messageId] = parsed;
     }
-    if (changed) _changesController.add(null);
-    return newInbound;
+    if (fresh.isNotEmpty) _changesController.add(null);
+    return fresh;
   }
 
   Future<Map<String, DateTime>> _lastReadMap() async {

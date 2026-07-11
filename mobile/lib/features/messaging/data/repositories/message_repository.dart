@@ -163,8 +163,14 @@ class MessageRepository extends BaseMessageRepository {
     if (existing != null && !newest.createdAt.isAfter(existing.lastReadAt)) {
       return;
     }
+    // The marker must cover the newest message even when the device clock
+    // lags the server timestamps — a plain now() could stay behind forever,
+    // so unread would never clear and the idempotence guard above would stop
+    // holding (write → watch event → refresh → write ...).
+    final nowUtc = DateTime.now().toUtc();
+    final at = newest.createdAt.isAfter(nowUtc) ? newest.createdAt : nowUtc;
     await _isar.writeTxn(() async {
-      await _setLastReadAt(conversationId, DateTime.now().toUtc());
+      await _setLastReadAt(conversationId, at);
     });
   }
 

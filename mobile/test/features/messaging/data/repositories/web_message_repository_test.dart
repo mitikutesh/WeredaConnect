@@ -125,5 +125,59 @@ void main() {
       ).thenThrow(Exception('offline'));
       expect(await repository.pullMessages('buyer-1'), 0);
     });
+
+    test('a user switch in the same session drops the previous cache',
+        () async {
+      stubMessages([wireMessage('in-1', DateTime.utc(2026, 7, 9, 10))]);
+      final first = await repository.loadConversations('buyer-1');
+      expect(first.length, 1);
+
+      // Same browser session, different account: buyer-1's conversations
+      // must not leak into farmer-9's inbox, and the cache must re-hydrate.
+      stubMessages(const []);
+      final second = await repository.loadConversations('farmer-9');
+      expect(second, isEmpty);
+    });
+
+    test(
+        'read marker covers messages whose server timestamp is ahead of '
+        'the client clock', () async {
+      // Server-stamped createdAt an hour ahead of this machine's clock.
+      final skewed = DateTime.now().toUtc().add(const Duration(hours: 1));
+      stubMessages([wireMessage('in-1', skewed)]);
+
+      final before = await repository.loadConversations('buyer-1');
+      expect(before.single.unreadCount, 1);
+
+      await repository.markConversationRead(before.single.conversationId);
+      final after = await repository.loadConversations('buyer-1');
+      expect(after.single.unreadCount, 0);
+    });
+
+    test(
+        'pullMessages counts new outbound messages (other device) without '
+        'emitting arrivals', () async {
+      final arrivals = <List<Message>>[];
+      final subscription = repository.watchInbound().listen(arrivals.add);
+      addTearDown(subscription.cancel);
+
+      // Hydrate first so the next pull is not first-hydration.
+      stubMessages([wireMessage('in-1', DateTime.utc(2026, 7, 9, 10))]);
+      await repository.pullMessages('buyer-1');
+
+      // A message I sent from another device: new to the cache (counted),
+      // but not an arrival for me.
+      stubMessages([
+        wireMessage(
+          'out-1',
+          DateTime.utc(2026, 7, 9, 11),
+          senderId: 'buyer-1',
+          recipientId: 'farmer-1',
+        ),
+      ]);
+      expect(await repository.pullMessages('buyer-1'), 1);
+      await Future<void>.delayed(Duration.zero);
+      expect(arrivals, isEmpty);
+    });
   });
 }

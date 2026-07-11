@@ -189,6 +189,33 @@ void main() {
     });
 
     test(
+        'markConversationRead clears unread even when the message timestamp '
+        'is ahead of the device clock', () async {
+      final conversationId = BaseMessageRepository.conversationIdFor(
+        contextType: 'crop',
+        contextId: 'crop-1',
+        userA: 'buyer-1',
+        userB: 'farmer-1',
+      );
+      // Server-stamped createdAt an hour ahead of this device's clock.
+      final inbound = Message()
+        ..messageId = 'in-skew'
+        ..conversationId = conversationId
+        ..contextType = 'crop'
+        ..contextId = 'crop-1'
+        ..senderId = 'farmer-1'
+        ..recipientId = 'buyer-1'
+        ..body = 'from the future'
+        ..createdAt = DateTime.now().toUtc().add(const Duration(hours: 1))
+        ..version = 1;
+      await isar.writeTxn(() async => isar.messages.put(inbound));
+
+      await repository.markConversationRead(conversationId);
+      final conversations = await repository.loadConversations('buyer-1');
+      expect(conversations.single.unreadCount, 0);
+    });
+
+    test(
         'pullMessages emits inbound arrivals on watchInbound — '
         'but not on first hydration and not for own messages', () async {
       final api = _MockApiClient();
