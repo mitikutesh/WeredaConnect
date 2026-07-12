@@ -84,6 +84,7 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     try {
       final delivery = await _repository.createDelivery(
         tripId: event.tripId,
+        orderId: event.orderId,
         listingId: event.listingId,
         farmerId: event.farmerId,
         farmerName: event.farmerName,

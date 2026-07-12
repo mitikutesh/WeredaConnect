@@ -340,6 +340,11 @@ export class ApiStack extends cdk.Stack {
         // can pay the farmer. Without this env var (+ grant below) _escrowRepo is
         // null and the delivery-confirmation -> escrow payout bridge is disabled.
         ESCROWS_TABLE: props.escrowsTable.tableName,
+        // Order-funded escrow leg: funding materializes an escrow record, delivery
+        // creation links it, reject/cancel schedules its refund — every mutation
+        // lands in the immutable escrow-audit ledger. Without this env the leg is
+        // disabled (orders still fund; escrow records aren't created here).
+        ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
         ...(syncTelebirrMock ? { TELEBIRR_MOCK: "true" } : {}),
       },
       timeout: cdk.Duration.seconds(30),
@@ -371,6 +376,8 @@ export class ApiStack extends cdk.Stack {
     // Escrows: on delivery confirmation sync looks up the linked escrow by deliveryId
     // and stamps it for the auto-release cron. Read-write (CAS status update) + indexes.
     props.escrowsTable.grantReadWriteData(syncFn.function);
+    // Escrow audit is append-only: write-only grant (order-funded escrow leg).
+    props.escrowAuditTable.grantWriteData(syncFn.function);
 
     // ─── Pagination Secret (Secrets Manager) ──────────────────────────
     // SECURITY: Generated at deploy time, never hardcoded in source.
@@ -876,6 +883,10 @@ export class ApiStack extends cdk.Stack {
         ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
         ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
+        // Order-aware auto-refund: an ORDER-funded escrow is only refunded when
+        // its order is stale-funded or terminal; live orders get the expiry
+        // pushed. Without this env, order-sourced escrows are skipped (fail-safe).
+        ORDERS_TABLE: props.ordersTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -892,6 +903,9 @@ export class ApiStack extends cdk.Stack {
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
     props.escrowIdempotencyTable.grantReadWriteData(escrowCronFn.function);
     props.deliveriesTable.grantReadData(escrowCronFn.function);
+    // Read the order behind an order-funded escrow before refunding; write to
+    // cancel a stale-funded order after its escrow refunds.
+    props.ordersTable.grantReadWriteData(escrowCronFn.function);
     commissionRateParam.grantRead(escrowCronFn.function);
     disputeWindowParam.grantRead(escrowCronFn.function);
     escrowTimeoutParam.grantRead(escrowCronFn.function);

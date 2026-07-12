@@ -20,6 +20,7 @@ public class SyncFunctionTests
     private readonly ICropRepository _mockCropRepo;
     private readonly IAmazonDynamoDB _mockDynamoDb;
     private readonly IUserRepository _mockUserRepo;
+    private readonly IOrderRepository _mockOrderRepo;
     private readonly SyncFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -34,9 +35,20 @@ public class SyncFunctionTests
         _mockCropRepo = Substitute.For<ICropRepository>();
         _mockDynamoDb = Substitute.For<IAmazonDynamoDB>();
         _mockUserRepo = Substitute.For<IUserRepository>();
+        _mockOrderRepo = Substitute.For<IOrderRepository>();
         _function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
-            userRepo: _mockUserRepo);
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo);
         _context = new TestLambdaContext();
+
+        // Default: delivery creates reference a live order with matching participants.
+        _mockOrderRepo.GetByIdAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId },
+            { "buyerId", TestBuyerId },
+            { "farmerId", TestFarmerId },
+            { "status", "accepted" },
+            { "version", "1" }
+        });
 
         // Default: no duplicate idempotency keys
         _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -1821,6 +1833,7 @@ public class SyncFunctionTests
     private const string TestBuyerId = "00000000-0000-0000-0000-000000000003";
     private const string TestListingId = "00000000-0000-0000-0000-000000000004";
     private const string TestTripId = "00000000-0000-0000-0000-000000000005";
+    private const string TestOrderId = "00000000-0000-0000-0000-000000000006";
 
     private static SyncOperationRequest MakeDeliveryCreateOp(
         string? truckerId = null,
@@ -1840,6 +1853,7 @@ public class SyncFunctionTests
             Data = new Dictionary<string, object>
             {
                 { "tripId", TestTripId },
+                { "orderId", TestOrderId },
                 { "listingId", listingId ?? TestListingId },
                 { "farmerId", farmerId ?? TestFarmerId },
                 { "farmerName", "Abebe" },
@@ -2219,6 +2233,199 @@ public class SyncFunctionTests
             Arg.Is<Dictionary<string, object>>(d =>
                 d["status"].ToString() == "rejected" && d.ContainsKey("respondedAt")),
             Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PaymentSubmitted_MockMode_CreatesOrderEscrow()
+    {
+        // Funding is the moment money becomes escrow-held: the order-funded escrow
+        // record must be materialized so /escrow/history and the Payments screen
+        // reflect it (escrow-protocol.md §Order-funded escrow).
+        Environment.SetEnvironmentVariable("TELEBIRR_MOCK", "true");
+        try
+        {
+            var orderRepo = Substitute.For<IOrderRepository>();
+            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" },
+                { "buyerId", "buyer-001" },
+                { "farmerId", "farmer-001" },
+                { "status", "created" },
+                { "version", "1" }
+            });
+            orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+                .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+                {
+                    { "orderId", "order-001" },
+                    { "buyerId", "buyer-001" },
+                    { "farmerId", "farmer-001" },
+                    { "status", "funded" },
+                    { "orderTotal", "1000.00" },
+                    { "cropCost", "950.00" },
+                    { "paymentVerifiedAt", "2026-03-01T10:00:00.0000000Z" },
+                    { "version", "3" }
+                }));
+
+            var escrowRepo = Substitute.For<IEscrowRepository>();
+            escrowRepo.QueryByOrderIdAsync(Arg.Any<string>(), Arg.Any<int>())
+                .Returns(new List<Dictionary<string, object>>());
+            var orderEscrowService = new EscrowService(
+                escrowRepo, Substitute.For<IEscrowAuditRepository>(),
+                idempotencyRepo: null, telebirrGateway: null);
+
+            var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+                "test-trips-table", "test-deliveries-table",
+                userRepo: _mockUserRepo, orderRepo: orderRepo,
+                orderEscrowService: orderEscrowService);
+
+            var op = new SyncOperationRequest
+            {
+                OperationId = "op-pay-escrow",
+                IdempotencyKey = "user:order:order-001:update:12345",
+                EntityType = "order",
+                EntityId = "order-001",
+                Action = "update",
+                Data = new Dictionary<string, object>
+                {
+                    { "status", "payment_submitted" },
+                    { "paymentMethod", "telebirr" }
+                }
+            };
+            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+            var response = await function.FunctionHandler(request, _context);
+
+            Assert.Equal(200, response.StatusCode);
+            Assert.Contains("success", response.Body);
+            await escrowRepo.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(r =>
+                (string)r["escrowId"] == "escrow-order-order-001"
+                && (string)r["status"] == "escrowed"
+                && (string)r["source"] == "order"
+                && !r.ContainsKey("deliveryId")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
+        }
+    }
+
+    [Fact]
+    public async Task OrderUpdate_FundedToRejected_SchedulesEscrowRefund()
+    {
+        // Rejecting a funded order must send the buyer's money back: the escrow is
+        // expired NOW so the hourly auto-refund cron pays it out (order-lifecycle.md
+        // invariant 2).
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "funded" },
+            { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" },
+                { "status", "rejected" },
+                { "version", "2" }
+            }));
+
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        escrowRepo.QueryByOrderIdAsync("order-001", Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>
+            {
+                new()
+                {
+                    { "escrowId", "escrow-order-order-001" },
+                    { "orderId", "order-001" },
+                    { "status", "escrowed" },
+                    { "source", "order" },
+                    { "createdAt", "2026-03-01T10:00:00.0000000Z" }
+                }
+            });
+        var orderEscrowService = new EscrowService(
+            escrowRepo, Substitute.For<IEscrowAuditRepository>(),
+            idempotencyRepo: null, telebirrGateway: null);
+
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo,
+            orderEscrowService: orderEscrowService);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-reject-refund",
+            IdempotencyKey = "farmer-001:order:order-001:update:12345",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "rejected" } }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await escrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-order-order-001", "2026-03-01T10:00:00.0000000Z", "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                (string)f["refundReason"] == "order_rejected" && f.ContainsKey("expiresAt")));
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_MissingOrderId_ReturnsError()
+    {
+        var op = MakeDeliveryCreateOp();
+        op.Data!.Remove("orderId");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_ORDER_REQUIRED", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_WrongTrucker_ReturnsError()
+    {
+        // The order was matched to a different trucker: an arbitrary authenticated
+        // trucker must not be able to attach a delivery (escrow-linkage hijack).
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId },
+            { "buyerId", TestBuyerId },
+            { "farmerId", TestFarmerId },
+            { "truckerId", "00000000-0000-0000-0000-000000000077" },
+            { "status", "accepted" },
+            { "version", "1" }
+        });
+
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("matched trucker", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_TerminalOrder_ReturnsError()
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId },
+            { "buyerId", TestBuyerId },
+            { "farmerId", TestFarmerId },
+            { "status", "cancelled" },
+            { "version", "2" }
+        });
+
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("no delivery can be created", response.Body);
     }
 
     [Fact]

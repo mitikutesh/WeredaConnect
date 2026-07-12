@@ -24,6 +24,10 @@ class LoadDeliveries extends DeliveryEvent {
 /// Create a new delivery.
 class CreateDelivery extends DeliveryEvent {
   final String tripId;
+
+  /// The order this delivery fulfils. The server requires it so the
+  /// order-funded escrow can be linked to the delivery at creation.
+  final String orderId;
   final String listingId;
   final String farmerId;
   final String farmerName;
@@ -35,6 +39,7 @@ class CreateDelivery extends DeliveryEvent {
 
   const CreateDelivery({
     required this.tripId,
+    required this.orderId,
     required this.listingId,
     required this.farmerId,
     required this.farmerName,
@@ -48,6 +53,7 @@ class CreateDelivery extends DeliveryEvent {
   @override
   List<Object?> get props => [
         tripId,
+        orderId,
         listingId,
         farmerId,
         farmerName,

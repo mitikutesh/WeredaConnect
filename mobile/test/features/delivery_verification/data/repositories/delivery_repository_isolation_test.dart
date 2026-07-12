@@ -52,6 +52,7 @@ void main() {
       // Delivery 1: farmer-A, trucker-1, buyer-1
       final d1 = await repository.createDelivery(
         tripId: tripId,
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-A',
         farmerName: 'Farmer A',
@@ -66,6 +67,7 @@ void main() {
       // Delivery 2: farmer-B, trucker-2, buyer-2
       await repository.createDelivery(
         tripId: tripId,
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-B',
         farmerName: 'Farmer B',

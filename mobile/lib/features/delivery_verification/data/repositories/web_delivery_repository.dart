@@ -16,6 +16,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   @override
   Future<Delivery> createDelivery({
     required String tripId,
+    required String orderId,
     required String listingId,
     required String farmerId,
     required String farmerName,
@@ -44,6 +45,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
             'idempotencyKey': 'web_create_$deliveryId',
             'data': {
               'tripId': tripId,
+              'orderId': orderId,
               'listingId': listingId,
               'farmerId': farmerId,
               'farmerName': farmerName,

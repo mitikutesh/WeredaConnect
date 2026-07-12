@@ -108,6 +108,7 @@ void main() {
     test('createDelivery saves to Isar with correct fields', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe Kebede',
@@ -144,6 +145,7 @@ void main() {
     test('createDelivery enqueues sync operation', () async {
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe Kebede',
@@ -165,6 +167,7 @@ void main() {
     test('createDelivery generates unique deliveryId', () async {
       final d1 = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -176,6 +179,7 @@ void main() {
       );
       final d2 = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-002',
         farmerName: 'Kebede',
@@ -195,6 +199,7 @@ void main() {
         () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -232,6 +237,7 @@ void main() {
     test('confirmPickup enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -258,6 +264,7 @@ void main() {
         'release from silent conflict/revert)', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -291,6 +298,7 @@ void main() {
     test('confirmDelivery updates status to delivered', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -339,6 +347,7 @@ void main() {
       // never releases to the farmer.
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -379,6 +388,7 @@ void main() {
     test('confirmDelivery enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -410,6 +420,7 @@ void main() {
     test('raiseDispute updates status to disputed with reason', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -449,6 +460,7 @@ void main() {
     test('raiseDispute enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -485,6 +497,7 @@ void main() {
     test('cancelDelivery updates status to cancelled', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -511,6 +524,7 @@ void main() {
     test('cancelDelivery enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -534,6 +548,7 @@ void main() {
     test('cancelDelivery by farmer (participant) succeeds', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -559,6 +574,7 @@ void main() {
     test('cancelDelivery by buyer (participant) succeeds', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -586,6 +602,7 @@ void main() {
     test('getDeliveriesByTrip returns only deliveries for that trip', () async {
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -597,6 +614,7 @@ void main() {
       );
       await repository.createDelivery(
         tripId: 'trip-002',
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-002',
         farmerName: 'Kebede',
@@ -608,6 +626,7 @@ void main() {
       );
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-003',
         farmerId: 'farmer-003',
         farmerName: 'Taye',
@@ -633,6 +652,7 @@ void main() {
         () async {
       final d1 = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -644,6 +664,7 @@ void main() {
       );
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-002',
         farmerName: 'Kebede',
@@ -674,6 +695,7 @@ void main() {
     test('getDeliveryById returns correct delivery', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -760,6 +782,7 @@ void main() {
     test('createDelivery preserves Amharic names', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'ታደሰ ወርቁ',
@@ -788,6 +811,7 @@ void main() {
     test('GPS boundary values for Ethiopian coordinates', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -835,6 +859,7 @@ void main() {
     test('version increments correctly through lifecycle', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -1065,6 +1090,7 @@ void main() {
       test('accepts reason at max length (500 chars)', () async {
         final delivery = await repository.createDelivery(
           tripId: 'trip-001',
+          orderId: 'order-test-001',
           listingId: 'listing-001',
           farmerId: 'farmer-001',
           farmerName: 'Abebe',
@@ -1141,6 +1167,7 @@ void main() {
     test('markInTransit updates status to inTransit', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -1173,6 +1200,7 @@ void main() {
     test('markInTransit enqueues sync operation', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',

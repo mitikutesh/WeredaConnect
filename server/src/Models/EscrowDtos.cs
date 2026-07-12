@@ -263,7 +263,20 @@ public sealed record DisputeDto
 public sealed record EscrowSummaryDto
 {
     public required string EscrowId { get; init; }
+
+    /// <summary>Empty string until an order-funded escrow is linked to a delivery.</summary>
     public required string DeliveryId { get; init; }
+
+    /// <summary>Set on order-funded escrows and order-linked initiations.</summary>
+    public string? OrderId { get; init; }
+
+    /// <summary>
+    /// Party ids let offline clients cache history rows they did not initiate
+    /// (device local reads filter by own-party id).
+    /// </summary>
+    public required string BuyerId { get; init; }
+
+    public required string FarmerId { get; init; }
     public required string CounterpartyName { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }

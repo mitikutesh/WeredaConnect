@@ -29,6 +29,31 @@ public class EscrowCronFunction
     // Optional: lets the auto-refund sweep verify a delivery's real status so a
     // confirmed-but-unstamped escrow is never refunded to the buyer.
     private readonly IDeliveryRepository? _deliveryRepo;
+    // Optional: lets the auto-refund sweep check an ORDER-funded escrow's order
+    // before refunding — a 7-day expiry can pass while the trade is legitimately
+    // still in flight. Absent env → order-sourced escrows are skipped (fail-safe),
+    // never refunded blind.
+    private readonly IOrderRepository? _orderRepo;
+
+    /// <summary>
+    /// Order statuses that mean the trade is actively progressing toward delivery —
+    /// its escrow must NOT be refunded by the 7-day sweep; push the expiry instead.
+    /// </summary>
+    private static readonly HashSet<string> ProgressingOrderStatuses = new()
+    {
+        "accepted", "pickup_confirmed", "in_transit", "delivered", "disbursing"
+    };
+
+    /// <summary>
+    /// Order statuses whose escrow may be refunded: stale-funded (farmer never
+    /// responded within the expiry window) or terminated by a party.
+    /// </summary>
+    private static readonly HashSet<string> RefundableOrderStatuses = new()
+    {
+        "funded", "rejected", "cancelled"
+    };
+
+    private const int OrderEscrowExpiryExtensionHours = 48;
 
     private const int ReconciliationStaleMinutes = 30;
 
@@ -68,6 +93,13 @@ public class EscrowCronFunction
             ? new DeliveryRepository(dynamoDb, deliveriesTable)
             : null;
 
+        // Optional: only wired when the orders table is provisioned for this Lambda.
+        // Enables the order-aware refund gate for order-funded escrows.
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
+        _orderRepo = ordersTable != null
+            ? new OrderRepository(dynamoDb, ordersTable)
+            : null;
+
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway);
     }
 
@@ -79,13 +111,15 @@ public class EscrowCronFunction
         IEscrowRepository escrowRepo,
         IEscrowAuditRepository auditRepo,
         ITelebirrGateway telebirrGateway,
-        IDeliveryRepository? deliveryRepo = null)
+        IDeliveryRepository? deliveryRepo = null,
+        IOrderRepository? orderRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
         _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
         _deliveryRepo = deliveryRepo;
+        _orderRepo = orderRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -287,18 +321,83 @@ public class EscrowCronFunction
                 }
 
                 var escrowId = GetString(escrow, "escrowId");
+                var escrowCreatedAt = GetString(escrow, "createdAt");
+
+                // Order-funded escrows: the 7-day expiry started at FUNDING, so it can
+                // lapse while the trade is legitimately still in flight (rural
+                // logistics). Gate the refund on the order's real state; fail-safe
+                // (skip, never refund blind) when the order can't be checked.
+                var isOrderSourced = string.Equals(
+                    GetStringOrNull(escrow, "source"), "order", StringComparison.Ordinal);
+                var escrowOrderId = GetStringOrNull(escrow, "orderId");
+                Dictionary<string, object>? fundedOrder = null;
+                var refundedOrderWasFunded = false;
+                if (isOrderSourced && !string.IsNullOrEmpty(escrowOrderId))
+                {
+                    if (_orderRepo == null)
+                    {
+                        context.Logger.LogWarning(
+                            $"Order-funded escrow {escrowId} expired but ORDERS_TABLE is not "
+                            + "wired — skipping refund (fail-safe).");
+                        continue;
+                    }
+
+                    fundedOrder = await _orderRepo.GetByIdAsync(escrowOrderId);
+                    var orderStatus = fundedOrder != null
+                        ? GetStringOrNull(fundedOrder, "status") : null;
+
+                    if (orderStatus != null && ProgressingOrderStatuses.Contains(orderStatus))
+                    {
+                        // Trade is live — push the expiry forward and re-check next sweep.
+                        await _escrowRepo.UpdateStatusAsync(
+                            escrowId, escrowCreatedAt, "escrowed", "escrowed",
+                            new Dictionary<string, object>
+                            {
+                                { "expiresAt", now.AddHours(OrderEscrowExpiryExtensionHours).ToString("o") }
+                            });
+                        continue;
+                    }
+
+                    if (orderStatus == null || !RefundableOrderStatuses.Contains(orderStatus))
+                    {
+                        context.Logger.LogWarning(
+                            $"Order-funded escrow {escrowId} expired but its order "
+                            + $"{escrowOrderId} is '{orderStatus ?? "missing"}' — skipping "
+                            + "refund; needs reconciliation.");
+                        continue;
+                    }
+
+                    refundedOrderWasFunded = orderStatus == "funded";
+
+                    // Cancel-then-refund: the version-CAS cancel fences out a
+                    // farmer accepting in the read→refund window. On conflict,
+                    // skip — the next sweep re-reads the order and (now
+                    // 'accepted') pushes the expiry instead of refunding. If the
+                    // refund below fails transiently, the order is already
+                    // cancelled and the next sweep retries the refund (terminal
+                    // orders stay refundable).
+                    if (refundedOrderWasFunded && fundedOrder != null
+                        && !await TryCancelRefundedOrderAsync(fundedOrder, context))
+                    {
+                        continue;
+                    }
+                }
+
                 // Hourly-bucketed key allows safe re-drive after a crash; Telebirr dedupes on the
                 // stable per-escrow ref (refund:{id}), so re-driving never double-refunds.
                 var hourBucket = now.ToString("yyyyMMddHH");
 
                 context.Logger.LogInformation($"Auto-refunding expired escrow {escrowId}.");
 
+                var scheduledReason = GetStringOrNull(escrow, "refundReason");
                 var result = await _escrowService.RefundAsync(
                     new RefundEscrowRequest
                     {
                         EscrowId = escrowId,
                         Trigger = "delivery_timeout",
-                        Reason = "Escrow expired: delivery not completed within 7 days.",
+                        Reason = scheduledReason != null
+                            ? $"Order escrow refund: {scheduledReason}."
+                            : "Escrow expired: delivery not completed within 7 days.",
                         IdempotencyKey = $"system:{escrowId}:auto_refund:{hourBucket}"
                     },
                     authenticatedUserId: "system");
@@ -321,6 +420,51 @@ public class EscrowCronFunction
         }
 
         return refundCount;
+    }
+
+    /// <summary>
+    /// Cancel a stale-funded order BEFORE refunding its escrow. The version-CAS
+    /// write doubles as the race fence: if the farmer accepted in the meantime,
+    /// the version moved, the cancel conflicts, and the caller skips the refund
+    /// (the next sweep re-reads the order and pushes the expiry instead).
+    /// Returns true only when the order is now cancelled.
+    /// </summary>
+    private async Task<bool> TryCancelRefundedOrderAsync(
+        Dictionary<string, object> order, ILambdaContext context)
+    {
+        var orderId = GetString(order, "orderId");
+        try
+        {
+            var version = 1;
+            if (order.TryGetValue("version", out var vObj))
+            {
+                _ = int.TryParse(vObj?.ToString(), out version);
+            }
+
+            var result = await _orderRepo!.UpdateAsync(orderId, new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "cancelledAt", DateTime.UtcNow.ToString("o") },
+                { "cancelReason", "escrow_refunded" }
+            }, version);
+
+            if (!result.IsSuccess)
+            {
+                context.Logger.LogWarning(
+                    $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={orderId}: "
+                    + $"{result.Error?.Message} — refund deferred to the next sweep.");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={orderId}: "
+                + $"[{ex.GetType().Name}] — refund deferred to the next sweep.");
+            return false;
+        }
     }
 
     /// <summary>

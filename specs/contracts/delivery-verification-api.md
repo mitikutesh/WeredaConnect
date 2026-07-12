@@ -44,6 +44,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
       "data": {
         "deliveryId": "del-101",
         "tripId": "trip-101",
+        "orderId": "order-101",
         "listingId": "crop-456",
         "farmerId": "farmer-123",
         "truckerId": "trucker-789",
@@ -56,6 +57,13 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
   ]
 }
 ```
+
+`orderId` is **required on every create** (v1.2.0; previously only self-pickup).
+The server validates the order exists, is not terminal
+(`rejected`/`cancelled`/`settled`/`payment_failed`/`dispute_resolved`), and that
+the delivery's buyer/farmer match the order's; it then links the order's escrow
+to the new delivery (`escrow-protocol.md` §Order-Funded Escrow). An order-less
+create is rejected with `DELIVERY_ORDER_REQUIRED`.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -816,9 +824,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
+| 1.2.0 | 2026-07-12 | `orderId` required on ALL delivery creates (was self-pickup only): order must exist, be non-terminal, and match the delivery's buyer/farmer; the order's escrow is linked to the delivery at creation (`DELIVERY_ORDER_REQUIRED` error). |
 
 ---
 
-**Last Updated**: 2026-02-17
-**Version**: 1.0.0
+**Last Updated**: 2026-07-12
+**Version**: 1.2.0
 **Status**: Draft (Phase R4.2)

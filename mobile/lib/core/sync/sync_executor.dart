@@ -742,10 +742,14 @@ class SyncExecutor {
   ///
   /// Permanent rejections (fraud detection, validation) will never succeed
   /// on retry, so these operations should not be retried on reconnect.
+  /// DELIVERY_ORDER_REQUIRED is deterministic: the queued payload lacks an
+  /// orderId and replaying the identical payload can never succeed (delivery
+  /// creates enqueued before the orderId requirement shipped).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
-        message.startsWith('SYNC_VALIDATION');
+        message.startsWith('SYNC_VALIDATION') ||
+        message.startsWith('DELIVERY_ORDER_REQUIRED');
   }
 
   /// Mark all operations in a batch as failed (increments retry count).

@@ -369,12 +369,14 @@ class EscrowRepository extends BaseEscrowRepository {
               .findFirst();
           if (existing != null) {
             payment.id = existing.id;
-            // Summary DTO carries no buyer/farmer IDs or detail-only fields.
-            // Preserve previously cached values so offline getHistory (which
-            // matches on farmerId/buyerId == userId) keeps the record and we
-            // don't drop telebirr/dispute/expiry data on refresh.
-            payment.buyerId = existing.buyerId;
-            payment.farmerId = existing.farmerId;
+            // The summary DTO carries no detail-only fields. Preserve previously
+            // cached values so offline getHistory (which matches on
+            // farmerId/buyerId == userId) keeps the record and we don't drop
+            // telebirr/dispute/expiry data on refresh. Party ids now arrive on
+            // the summary itself — fall back to the cache only when absent
+            // (older server payloads).
+            if (payment.buyerId.isEmpty) payment.buyerId = existing.buyerId;
+            if (payment.farmerId.isEmpty) payment.farmerId = existing.farmerId;
             payment.commissionRate = existing.commissionRate;
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt = existing.expiresAt;
@@ -580,8 +582,10 @@ class EscrowRepository extends BaseEscrowRepository {
     return Payment()
       ..paymentId = summary.escrowId
       ..deliveryId = summary.deliveryId
-      ..buyerId = '' // Not available in summary
-      ..farmerId = '' // Not available in summary
+      // Server-created rows (order-funded escrow) carry the party ids so they
+      // survive offline getHistory's own-party filter; older servers send none.
+      ..buyerId = summary.buyerId
+      ..farmerId = summary.farmerId
       ..amount = summary.amount
       ..commission = summary.commission
       ..commissionRate =

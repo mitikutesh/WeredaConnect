@@ -274,7 +274,18 @@ class EscrowHistoryResponse {
 /// Summary DTO for payment history listings.
 class EscrowSummary {
   final String escrowId;
+
+  /// Empty until an order-funded escrow is linked to its delivery.
   final String deliveryId;
+
+  /// Set on order-funded escrows and order-linked initiations.
+  final String? orderId;
+
+  /// Party ids let the device cache history rows it did not initiate
+  /// (offline getHistory filters by own-party id). Empty on responses from
+  /// servers that predate the order-funded escrow leg.
+  final String buyerId;
+  final String farmerId;
   final double amount;
   final double commission;
   final String currency;
@@ -291,6 +302,9 @@ class EscrowSummary {
     required this.currency,
     required this.status,
     required this.createdAt,
+    this.orderId,
+    this.buyerId = '',
+    this.farmerId = '',
     this.counterpartyName,
     this.completedAt,
   });
@@ -298,7 +312,12 @@ class EscrowSummary {
   factory EscrowSummary.fromJson(Map<String, dynamic> json) {
     return EscrowSummary(
       escrowId: json['escrowId'] as String,
-      deliveryId: json['deliveryId'] as String,
+      // Order-funded escrows have no delivery until one is created and linked;
+      // the server sends "" but be tolerant of a null from older payloads.
+      deliveryId: json['deliveryId'] as String? ?? '',
+      orderId: json['orderId'] as String?,
+      buyerId: json['buyerId'] as String? ?? '',
+      farmerId: json['farmerId'] as String? ?? '',
       amount: (json['amount'] as num).toDouble(),
       commission: (json['commission'] as num).toDouble(),
       currency: json['currency'] as String,
