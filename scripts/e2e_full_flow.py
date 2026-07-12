@@ -332,9 +332,24 @@ def delivery_and_escrow(s: State):
     b0, tr = USERS["buyer0"], USERS["trucker"]
     cid, farmer, _ = s.crops[0]
     tid, _ = s.trips[0]
+    # Deliveries require an orderId (delivery-verification-api.md v1.2.0) with
+    # matching buyer/farmer/trucker — create the backing order for THIS crop
+    # (Phase 6's order may target a different listing/farmer).
+    oid = uid()
+    r = sync_create(b0, "order", oid, {
+        "listingId": cid, "buyerId": b0.user_id, "farmerId": farmer.user_id,
+        "buyerName": b0.name, "farmerName": farmer.name, "cropType": "teff",
+        "quantity": 10.0, "pricePerUnit": 50.0,
+        "tripId": tid, "truckerId": tr.user_id, "truckerName": tr.name, "transportCost": 200.0,
+        "paymentMethod": "telebirr", "status": "created",
+    })
+    order_ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
+    s.check("backing order for delivery", order_ok, "" if order_ok else r.body[:140])
+    if not order_ok:
+        return
     did = uid()
     r = sync_create(tr, "delivery", did, {
-        "tripId": tid, "listingId": cid, "farmerId": farmer.user_id, "farmerName": farmer.name,
+        "tripId": tid, "orderId": oid, "listingId": cid, "farmerId": farmer.user_id, "farmerName": farmer.name,
         "farmerPhone": farmer.phone, "truckerId": tr.user_id, "truckerName": tr.name,
         "truckerPhone": tr.phone, "buyerId": b0.user_id, "buyerName": b0.name, "buyerPhone": b0.phone,
         "qrToken": f"qr-{did[:8]}", "status": "pending",

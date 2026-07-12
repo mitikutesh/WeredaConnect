@@ -216,6 +216,30 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    public async Task<List<Dictionary<string, object>>> QueryByOrderIdAsync(string orderId, int limit = 5)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "OrderIndex",
+            KeyConditionExpression = "#orderId = :orderId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#orderId", "orderId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":orderId", new AttributeValue { S = orderId } }
+            },
+            Limit = limit,
+            ScanIndexForward = false
+        };
+
+        var response = await _dynamoDb.QueryAsync(request);
+        return response.Items.Select(CropRepository.FromItem).ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByBuyerAsync(
         string buyerId, string? status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
     {

@@ -173,6 +173,23 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
+    // ESCROW: Order-funded escrow record creation failed (sync Lambda). A funded
+    // order without an escrow record is invisible money — the delivery-time
+    // linkage self-heals it, but a spike means the leg is broken.
+    const syncLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'SyncLogGroup',
+      `/aws/lambda/${prefix}-sync`,
+    );
+    new logs.MetricFilter(this, 'OrderEscrowCreateFailedFilter', {
+      logGroup: syncLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ORDER_ESCROW_CREATE_FAILED"'),
+      metricNamespace,
+      metricName: 'OrderEscrowCreateFailed',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
     // ─── CloudWatch Dashboard ────────────────────────────────────────
     const dashboard = new cloudwatch.Dashboard(this, 'Dashboard', {
       dashboardName: `wereda-connect-${envConfig.name}`,
@@ -646,6 +663,35 @@ export class MonitoringStack extends cdk.Stack {
     );
     authBruteForceAlarm.addAlarmAction(snsAction);
     authBruteForceAlarm.addOkAction(snsAction);
+
+    // Alarm: Order-funded escrow creation failures — any occurrence means a
+    // funded order's money is not reflected in the escrow subsystem.
+    const orderEscrowCreateFailedAlarm = new cloudwatch.Alarm(
+      this,
+      'OrderEscrowCreateFailed',
+      {
+        alarmName: `${prefix}-order-escrow-create-failed`,
+        alarmDescription:
+          'A funded order failed to materialize its escrow record ' +
+          '(ORDER_ESCROW_CREATE_FAILED in the sync Lambda). The buyer\'s money ' +
+          'is held but invisible to /escrow/history and refund scheduling. ' +
+          'Delivery-time linkage self-heals; verify via the OrderIndex GSI.',
+        metric: new cloudwatch.Metric({
+          namespace: metricNamespace,
+          metricName: 'OrderEscrowCreateFailed',
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(15),
+          label: 'Order Escrow Create Failures',
+        }),
+        threshold: 0,
+        evaluationPeriods: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      },
+    );
+    orderEscrowCreateFailedAlarm.addAlarmAction(snsAction);
+    orderEscrowCreateFailedAlarm.addOkAction(snsAction);
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
     // fail silently (mirrors escrow-cron). It gets a dedicated alarm rather than

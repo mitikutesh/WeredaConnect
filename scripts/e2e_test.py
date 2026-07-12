@@ -580,6 +580,46 @@ def phase_create_deliveries(state: TestState):
 
         print_step(f"Creating delivery {i+1}: {farmer.display_name} -> {trucker.display_name} -> {buyer.display_name}")
 
+        # Deliveries require an orderId (delivery-verification-api.md v1.2.0):
+        # the buyer creates the backing order first. truckerId/tripId are set so
+        # the server's trucker-binding check matches the delivery creator.
+        order_id = uid()
+        order_body = {
+            "syncBatchId": uid(),
+            "clientId": uid(),
+            "operations": [{
+                "operationId": uid(),
+                "idempotencyKey": f"{buyer.user_id}:order:{order_id}:create:{now}",
+                "entityType": "order",
+                "entityId": order_id,
+                "action": "create",
+                "data": {
+                    "listingId": crop_id,
+                    "buyerId": buyer.user_id,
+                    "buyerName": buyer.display_name,
+                    "farmerId": farmer.user_id,
+                    "farmerName": farmer.display_name,
+                    "cropType": "teff",
+                    "quantity": 10.0,
+                    "pricePerUnit": 50.0,
+                    "tripId": trip_id,
+                    "truckerId": trucker.user_id,
+                    "truckerName": trucker.display_name,
+                    "transportCost": 200.0,
+                    "paymentMethod": "telebirr",
+                    "status": "created",
+                },
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }]
+        }
+        order_resp = api("POST", "/sync", token=buyer.access_token, json_body=order_body)
+        order_ok = (order_resp.status_code == 200
+                    and order_resp.json().get("results", [{}])[0].get("status") == "success")
+        if not order_ok:
+            state.record(f"Create delivery {i+1}", False,
+                         f"backing order failed: {order_resp.body[:160]}")
+            continue
+
         sync_body = {
             "syncBatchId": uid(),
             "clientId": uid(),
@@ -591,6 +631,7 @@ def phase_create_deliveries(state: TestState):
                 "action": "create",
                 "data": {
                     "tripId": trip_id,
+                    "orderId": order_id,
                     "listingId": crop_id,
                     "farmerId": farmer.user_id,
                     "farmerName": farmer.display_name,

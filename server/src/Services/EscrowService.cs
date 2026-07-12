@@ -16,11 +16,25 @@ public sealed class EscrowService
 {
     private readonly IEscrowRepository _escrowRepo;
     private readonly IEscrowAuditRepository _auditRepo;
-    private readonly IEscrowIdempotencyRepository _idempotencyRepo;
-    private readonly ITelebirrGateway _telebirrGateway;
+    private readonly IEscrowIdempotencyRepository? _idempotencyRepoOrNull;
+    private readonly ITelebirrGateway? _telebirrGatewayOrNull;
     private readonly IUserRepository? _userRepo;
     private readonly IOrderRepository? _orderRepo;
     private readonly IDeliveryRepository? _deliveryRepo;
+
+    // Money-moving entry points (initiate/release/dispute/refund) require the
+    // Telebirr + idempotency wiring. The order-funded escrow paths
+    // (CreateFromFundedOrderAsync / LinkDeliveryToOrderEscrowAsync /
+    // ScheduleRefundForOrderAsync) never touch them, so SyncFunction constructs
+    // this service without those deps; calling a money-moving method on such an
+    // instance is a programming error surfaced by these guards.
+    private IEscrowIdempotencyRepository _idempotencyRepo =>
+        _idempotencyRepoOrNull ?? throw new InvalidOperationException(
+            "EscrowService constructed without idempotency wiring — money-moving operations unavailable.");
+
+    private ITelebirrGateway _telebirrGateway =>
+        _telebirrGatewayOrNull ?? throw new InvalidOperationException(
+            "EscrowService constructed without a Telebirr gateway — money-moving operations unavailable.");
 
     // Who/where for the current operation, set at each public entry point. Lambda
     // runs one invocation per instance at a time, so a per-call field is safe.
@@ -70,19 +84,37 @@ public sealed class EscrowService
         "dispute_resolved", "delivery_timeout", "admin_override"
     };
 
+    /// <summary>
+    /// Escrow statuses that still hold or govern money (mirrors the 6b
+    /// duplicate-initiation check). refunded/completed/cancelled are inert.
+    /// </summary>
+    private static readonly HashSet<string> ActiveEscrowStatuses = new()
+    {
+        "initiated", "escrowed", "released", "disputed"
+    };
+
+    /// <summary>
+    /// Order statuses that end the order's life — no escrow may be created for
+    /// or linked to a terminal order (order-lifecycle.md terminal states).
+    /// </summary>
+    private static readonly HashSet<string> TerminalOrderStatuses = new()
+    {
+        "rejected", "cancelled", "settled", "payment_failed", "dispute_resolved"
+    };
+
     public EscrowService(
         IEscrowRepository escrowRepo,
         IEscrowAuditRepository auditRepo,
-        IEscrowIdempotencyRepository idempotencyRepo,
-        ITelebirrGateway telebirrGateway,
+        IEscrowIdempotencyRepository? idempotencyRepo,
+        ITelebirrGateway? telebirrGateway,
         IUserRepository? userRepo = null,
         IOrderRepository? orderRepo = null,
         IDeliveryRepository? deliveryRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
-        _idempotencyRepo = idempotencyRepo ?? throw new ArgumentNullException(nameof(idempotencyRepo));
-        _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
+        _idempotencyRepoOrNull = idempotencyRepo;
+        _telebirrGatewayOrNull = telebirrGateway;
         _userRepo = userRepo;
         _orderRepo = orderRepo;
         _deliveryRepo = deliveryRepo;
@@ -205,6 +237,7 @@ public sealed class EscrowService
         //     than falling back to the raw UUID in MapToEscrowSummaryDto.
         string? counterpartyBuyerName = null;
         string? counterpartyFarmerName = null;
+        string? deliveryOrderId = null;
         if (_deliveryRepo != null)
         {
             var delivery = await _deliveryRepo.GetByIdAsync(request.DeliveryId);
@@ -225,6 +258,24 @@ public sealed class EscrowService
 
             counterpartyBuyerName = GetStringOrNull(delivery, "buyerName");
             counterpartyFarmerName = GetStringOrNull(delivery, "farmerName");
+            deliveryOrderId = GetStringOrNull(delivery, "orderId");
+        }
+
+        // 6e. Double-charge guard: when the delivery's order already holds an active
+        //     escrow (the order-funded leg created at order funding), a second payment
+        //     for the same goods must be rejected → ESCROW_024. The delivery's own
+        //     orderId is authoritative; the request's orderId is the fallback.
+        var guardOrderId = deliveryOrderId ?? request.OrderId;
+        if (!string.IsNullOrEmpty(guardOrderId))
+        {
+            var orderEscrow = await GetActiveEscrowByOrderIdAsync(guardOrderId);
+            if (orderEscrow != null)
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    409, "ESCROW_024",
+                    "Funds for this order are already held in escrow.",
+                    "orderId");
+            }
         }
 
         // 7. User validation + Fayda ID verification for high-value transactions → ESCROW_007
@@ -494,6 +545,312 @@ public sealed class EscrowService
         return EscrowResult<InitiateEscrowResponse>.Failure(
             502, "ESCROW_013",
             holdResponse.ErrorMessage ?? "Telebirr gateway error during fund hold.");
+    }
+
+    /// <summary>
+    /// Create the escrow record for an order that just became "funded" — the payment
+    /// leg has already verified and holds the money, so the record is born "escrowed"
+    /// and no Telebirr call is made (escrow-protocol.md §Order-funded escrow).
+    ///
+    /// Idempotent by key design: escrowId = "escrow-order-{orderId}" and
+    /// createdAt = the order's paymentVerifiedAt, so retries and races collapse onto
+    /// the same (PK, SK) and CreateAsync's attribute_not_exists condition rejects
+    /// duplicates. No deliveryId is written — the sparse DeliveryIndex gains the
+    /// record only once LinkDeliveryToOrderEscrowAsync attaches a delivery.
+    ///
+    /// Returns true when an active escrow exists for the order after this call
+    /// (created now, or already present).
+    /// </summary>
+    public async Task<bool> CreateFromFundedOrderAsync(
+        Dictionary<string, object> order, string actor, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        var orderId = GetString(order, "orderId");
+        var buyerId = GetString(order, "buyerId");
+        var farmerId = GetString(order, "farmerId");
+        if (orderId.Length == 0 || buyerId.Length == 0 || farmerId.Length == 0)
+        {
+            return false;
+        }
+
+        // Self-trade orders must never mint an escrow (mirrors InitiateAsync step 6).
+        if (string.Equals(buyerId, farmerId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var amount = RoundMoney(GetDecimal(order, "orderTotal"));
+        if (amount <= 0)
+        {
+            // Legacy orders without the cost breakdown: crop subtotal.
+            amount = RoundMoney(GetDecimal(order, "quantity") * GetDecimal(order, "pricePerUnit"));
+        }
+
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        // Fast path — funding retried, or a delivery-leg escrow already covers it.
+        if (await GetActiveEscrowByOrderIdAsync(orderId) != null)
+        {
+            return true;
+        }
+
+        // Split from the order's own cost fields; commission is the exact remainder so
+        // farmerPayout + truckerPayout + commission always reconciles to the held
+        // amount (release pays the payouts, refund pays the amount — drift would
+        // over- or under-release).
+        var truckerPayout = RoundMoney(Math.Clamp(GetDecimalOrNull(order, "transportCost") ?? 0m, 0m, amount));
+        var truckerId = GetStringOrNull(order, "truckerId");
+        var farmerPayout = RoundMoney(GetDecimalOrNull(order, "cropCost") ?? 0m);
+        if (farmerPayout <= 0m || farmerPayout + truckerPayout > amount)
+        {
+            // Legacy/inconsistent split: default commission rule, farmer takes the rest.
+            var defaultCommission = RoundMoney(Math.Max(amount * DefaultCommissionRate, MinCommission));
+            farmerPayout = Math.Max(amount - truckerPayout - defaultCommission, 0m);
+        }
+
+        var commission = amount - farmerPayout - truckerPayout;
+
+        // Fayda flags are best-effort here: the money is ALREADY held by the payment
+        // leg, so refusing the record would only hide it. KYC enforcement for the
+        // order-payment leg is a contract-documented follow-up.
+        var buyerFaydaVerified = false;
+        var farmerFaydaVerified = false;
+        if (_userRepo != null)
+        {
+            var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+            var farmer = await _userRepo.GetUserByIdAsync(farmerId);
+            buyerFaydaVerified = buyer?.FaydaVerified == true;
+            farmerFaydaVerified = farmer?.FaydaVerified == true;
+        }
+
+        var createdAt = GetStringOrNull(order, "paymentVerifiedAt")
+            ?? DateTime.UtcNow.ToString("o");
+        var expiresAt = (DateTime.TryParse(
+                createdAt, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var createdAtUtc)
+                ? createdAtUtc
+                : DateTime.UtcNow)
+            .AddDays(EscrowExpiryDays).ToString("o");
+        var paymentRef = GetStringOrNull(order, "cbeTransactionId") ?? $"ORDER-FUND-{orderId}";
+        var escrowId = $"escrow-order-{orderId}";
+
+        var record = new Dictionary<string, object>
+        {
+            { "escrowId", escrowId },
+            { "orderId", orderId },
+            { "buyerId", buyerId },
+            { "farmerId", farmerId },
+            { "amount", amount },
+            { "commission", commission },
+            { "commissionRate", GetDecimalOrNull(order, "commissionRate") ?? DefaultCommissionRate },
+            { "farmerPayout", farmerPayout },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "source", "order" },
+            { "telebirrRef", paymentRef },
+            { "telebirrHoldRef", paymentRef },
+            { "buyerFaydaVerified", buyerFaydaVerified },
+            { "farmerFaydaVerified", farmerFaydaVerified },
+            { "createdAt", createdAt },
+            { "updatedAt", DateTime.UtcNow.ToString("o") },
+            { "expiresAt", expiresAt },
+            { "version", 1 }
+        };
+
+        if (truckerPayout > 0)
+            record["truckerPayout"] = truckerPayout;
+        if (!string.IsNullOrEmpty(truckerId))
+            record["truckerId"] = truckerId;
+        var buyerName = GetStringOrNull(order, "buyerName");
+        var farmerName = GetStringOrNull(order, "farmerName");
+        if (!string.IsNullOrEmpty(buyerName))
+            record["buyerName"] = buyerName;
+        if (!string.IsNullOrEmpty(farmerName))
+            record["farmerName"] = farmerName;
+
+        try
+        {
+            await _escrowRepo.CreateAsync(record);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Same deterministic key already written by a concurrent attempt.
+            return true;
+        }
+
+        await AppendAuditAsync(
+            escrowId, "order_funded", "", "escrowed", actor,
+            telebirrRef: paymentRef, metadata: $"orderId={orderId}");
+
+        return true;
+    }
+
+    /// <summary>
+    /// Attach a newly created delivery to its order's escrow so every by-delivery
+    /// mechanism (delivered-confirmation stamping, auto-release cron, self-pickup
+    /// fail-closed QR gate, GET /escrow/by-delivery) applies to order-funded money.
+    ///
+    /// Self-heals a missing record (funding-time create failed, or the order predates
+    /// the order-funded leg) while the order still holds money; re-links when the
+    /// previously linked delivery was cancelled; refuses terminal orders.
+    /// Returns true when the order's escrow is linked to deliveryId on return.
+    /// </summary>
+    public async Task<bool> LinkDeliveryToOrderEscrowAsync(
+        string orderId, string deliveryId, Dictionary<string, object> order, string actor,
+        AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (string.IsNullOrEmpty(orderId) || string.IsNullOrEmpty(deliveryId))
+        {
+            return false;
+        }
+
+        var orderStatus = GetString(order, "status");
+        if (TerminalOrderStatuses.Contains(orderStatus))
+        {
+            return false;
+        }
+
+        var escrow = await GetActiveEscrowByOrderIdAsync(orderId);
+        if (escrow == null)
+        {
+            // Self-heal: only while the order is still in a money-holding state.
+            if (orderStatus is not ("funded" or "accepted"))
+            {
+                return false;
+            }
+
+            if (!await CreateFromFundedOrderAsync(order, actor, auditContext))
+            {
+                return false;
+            }
+
+            escrow = await GetActiveEscrowByOrderIdAsync(orderId);
+            if (escrow == null)
+            {
+                return false;
+            }
+        }
+
+        if (!string.Equals(GetString(escrow, "status"), "escrowed", StringComparison.Ordinal))
+        {
+            // released/disputed escrows must not be re-pointed at a new delivery.
+            return false;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        var createdAt = GetString(escrow, "createdAt");
+        var linkedDeliveryId = GetStringOrNull(escrow, "deliveryId");
+        if (!string.IsNullOrEmpty(linkedDeliveryId))
+        {
+            if (string.Equals(linkedDeliveryId, deliveryId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            // Re-link only when the currently linked delivery is dead; an active
+            // linked delivery keeps the escrow (prevents hijacking a live handoff).
+            if (_deliveryRepo == null)
+            {
+                return false;
+            }
+
+            var linkedDelivery = await _deliveryRepo.GetByIdAsync(linkedDeliveryId);
+            if (linkedDelivery != null
+                && !string.Equals(GetString(linkedDelivery, "status"), "cancelled", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        await _escrowRepo.UpdateStatusAsync(
+            escrowId, createdAt, "escrowed", expectedCurrentStatus: "escrowed",
+            additionalFields: new Dictionary<string, object> { { "deliveryId", deliveryId } });
+
+        await AppendAuditAsync(
+            escrowId, "delivery_linked", "escrowed", "escrowed", actor,
+            metadata: $"deliveryId={deliveryId}");
+
+        return true;
+    }
+
+    /// <summary>
+    /// Schedule a buyer refund for an order's escrow by expiring it now: the hourly
+    /// auto-refund cron (StatusExpiresIndex) picks it up and pays the buyer through
+    /// the standard gateway path in mock and live alike. Only applies while the
+    /// escrow is "escrowed" and its delivery is unconfirmed — confirmed money is
+    /// governed by the dispute window / release flow instead.
+    /// Returns true when a refund was scheduled.
+    /// </summary>
+    public async Task<bool> ScheduleRefundForOrderAsync(
+        string orderId, string reason, string actor, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return false;
+        }
+
+        var escrow = await GetActiveEscrowByOrderIdAsync(orderId);
+        if (escrow == null
+            || !string.Equals(GetString(escrow, "status"), "escrowed", StringComparison.Ordinal)
+            || !string.IsNullOrEmpty(GetStringOrNull(escrow, "deliveryConfirmedAt")))
+        {
+            return false;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        var createdAt = GetString(escrow, "createdAt");
+
+        await _escrowRepo.UpdateStatusAsync(
+            escrowId, createdAt, "escrowed", expectedCurrentStatus: "escrowed",
+            additionalFields: new Dictionary<string, object>
+            {
+                { "expiresAt", DateTime.UtcNow.ToString("o") },
+                { "refundReason", reason }
+            });
+
+        await AppendAuditAsync(
+            escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: reason);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Newest active escrow for an order via the sparse OrderIndex GSI. An order may
+    /// legitimately have inert rows (refunded/cancelled) next to one active one.
+    ///
+    /// The GSI is eventually consistent and can miss a just-written record — which
+    /// would leave a delivery permanently unlinked (money never released). The
+    /// order-funded escrow has a deterministic id, so a base-table read closes
+    /// that window.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> GetActiveEscrowByOrderIdAsync(string orderId)
+    {
+        var escrows = await _escrowRepo.QueryByOrderIdAsync(orderId)
+            ?? new List<Dictionary<string, object>>();
+        foreach (var escrow in escrows)
+        {
+            if (ActiveEscrowStatuses.Contains(GetString(escrow, "status")))
+            {
+                return escrow;
+            }
+        }
+
+        var deterministic = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}");
+        if (deterministic != null
+            && ActiveEscrowStatuses.Contains(GetString(deterministic, "status")))
+        {
+            return deterministic;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1277,7 +1634,11 @@ public sealed class EscrowService
         return new EscrowSummaryDto
         {
             EscrowId = GetString(item, "escrowId"),
+            // Empty until an order-funded escrow is linked to its delivery.
             DeliveryId = GetString(item, "deliveryId"),
+            OrderId = GetStringOrNull(item, "orderId"),
+            BuyerId = GetString(item, "buyerId"),
+            FarmerId = GetString(item, "farmerId"),
             CounterpartyName = counterpartyName,
             Amount = GetDecimal(item, "amount"),
             Commission = GetDecimal(item, "commission"),

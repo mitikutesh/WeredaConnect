@@ -219,6 +219,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
   @override
   Future<Delivery> createDelivery({
     required String tripId,
+    required String orderId,
     required String listingId,
     required String farmerId,
     required String farmerName,
@@ -255,6 +256,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     // operation entityId; createdAt/updatedAt are server-managed timestamps.
     final data = jsonEncode({
       'tripId': tripId,
+      'orderId': orderId,
       'listingId': listingId,
       'farmerId': farmerId,
       'farmerName': farmerName,

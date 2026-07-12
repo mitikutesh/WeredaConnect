@@ -478,6 +478,7 @@ class _OrderDetailBody extends StatelessWidget {
     context.read<DeliveryBloc>().add(
           CreateDelivery(
             tripId: order.tripId!,
+            orderId: order.orderId,
             listingId: order.listingId,
             farmerId: order.farmerId,
             farmerName:

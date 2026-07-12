@@ -69,6 +69,7 @@ Future<void> _createAtStatus(
 
   final delivery = await repo.createDelivery(
     tripId: _uuid.v4(),
+    orderId: 'order-test-001',
     listingId: _uuid.v4(),
     farmerId: userId,
     farmerName: 'You (Farmer)',

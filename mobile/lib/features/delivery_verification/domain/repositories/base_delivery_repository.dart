@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 abstract class BaseDeliveryRepository {
   Future<Delivery> createDelivery({
     required String tripId,
+    required String orderId,
     required String listingId,
     required String farmerId,
     required String farmerName,

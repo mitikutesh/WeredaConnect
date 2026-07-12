@@ -543,6 +543,84 @@ void main() {
       });
     });
 
+    // ── refreshHistory upsert tests (order-funded escrow party ids) ──
+
+    group('refreshHistory', () {
+      Map<String, dynamic> summaryJson({
+        String escrowId = 'escrow-order-ord-1',
+        String deliveryId = '',
+        String buyerId = 'buyer-001',
+        String farmerId = 'farmer-001',
+      }) =>
+          {
+            'escrows': [
+              {
+                'escrowId': escrowId,
+                'deliveryId': deliveryId,
+                'orderId': 'ord-1',
+                'buyerId': buyerId,
+                'farmerId': farmerId,
+                'counterpartyName': 'Abebe',
+                'amount': 1500.0,
+                'commission': 37.5,
+                'currency': 'ETB',
+                'status': 'escrowed',
+                'createdAt': '2026-03-01T10:00:00.0000000Z',
+              },
+            ],
+            'hasMore': false,
+            'total': 1,
+          };
+
+      test(
+          'caches a server-created row with its party ids so it survives '
+          'offline getHistory (order-funded escrow, empty deliveryId)',
+          () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => summaryJson());
+
+        await repository.refreshHistory(userId: 'farmer-001');
+
+        // The farmer never initiated this payment locally, yet the offline
+        // read must keep it — the summary's party ids make the own-party
+        // filter match (regression: rows used to be cached with empty ids
+        // and vanish from every subsequent local read).
+        final cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.length, 1);
+        expect(cached.first.paymentId, 'escrow-order-ord-1');
+        expect(cached.first.buyerId, 'buyer-001');
+        expect(cached.first.farmerId, 'farmer-001');
+        expect(cached.first.deliveryId, isEmpty);
+      });
+
+      test('preserves cached party ids when an older server sends none',
+          () async {
+        await _insertTestPayment(isar, paymentId: 'escrow-order-ord-1');
+
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => summaryJson(buyerId: '', farmerId: ''));
+
+        await repository.refreshHistory(userId: 'farmer-001');
+
+        final cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.length, 1);
+        expect(cached.first.buyerId, 'buyer-001');
+        expect(cached.first.farmerId, 'farmer-001');
+      });
+    });
+
     // ── cancelIntent tests ──
 
     group('cancelIntent', () {

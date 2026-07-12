@@ -78,10 +78,13 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | Trigger | Effect | Where |
 |---|---|---|
 | `→ funded` | Crop listing quantity decreases by the ordered amount; at 0 the listing becomes `reserved` (off the market). Best-effort — failure logs a warning, never blocks the order. | `TryDecreaseListingQuantityAsync`, `SyncFunction.cs` |
+| `→ funded` | An escrow record is materialized for the held money (`escrow-order-{orderId}`, status `escrowed`, `source: order`). Best-effort with alarmable `ORDER_ESCROW_CREATE_FAILED` token; delivery-time linkage self-heals. | `TryCreateOrderEscrowAsync` → `EscrowService.CreateFromFundedOrderAsync`; `escrow-protocol.md` §Order-Funded Escrow |
+| `funded → rejected\|cancelled` | The order's escrow is expired NOW (+`refundReason`) so the hourly auto-refund cron pays the buyer back (≤1h). | `TryScheduleOrderEscrowRefundAsync`; `escrow-protocol.md` |
+| delivery created | The delivery (which now REQUIRES `orderId`) is linked to the order's escrow, activating confirmation-stamping / auto-release / the self-pickup QR gate. | `TryLinkOrderEscrowAsync`; `delivery-verification-api.md` |
 | `payment_submitted` + `TELEBIRR_MOCK=true` | Server auto-advances to `funded` as a system actor (audited as `payment_verified`). Never active in prod / live gateway. | `TryAutoFundMockOrderAsync` |
 | `created`/`pending_payment` older than 24h | Auto-cancelled by cron. | `OrderCronFunction.cs` |
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
-| escrowed + 7 days no delivery | Escrow refunds the buyer. | `escrow-protocol.md` |
+| escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`); progressing orders get the expiry pushed +48h. | `escrow-protocol.md` §Order-Funded Escrow |
 | every applied transition | Append-only audit row (who/when/prior→new). | `EmitTxAuditAsync` → `transaction-audit` table |
 
 ### Known gap (deliberate, tracked)
@@ -102,4 +105,5 @@ risk). A quantity guard at funding time is a candidate follow-up; do not
 
 ## Changelog
 
+- **1.1.0 (2026-07-12)** — Order-funded escrow leg: funding materializes an escrow record; reject/cancel of a funded order schedules the buyer's refund (invariant 2 is now implemented, not aspirational); deliveries require `orderId`; order-aware 7-day refund cancels stale-funded orders.
 - **1.0.0 (2026-07-11)** — Initial version, extracted from `SyncFunction.cs` / `OrderCronFunction.cs` / `escrow-protocol.md` behavior while adding the timeline step tooltips.

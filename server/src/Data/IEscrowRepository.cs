@@ -53,6 +53,14 @@ public interface IEscrowRepository
     Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId);
 
     /// <summary>
+    /// Query escrows by their associated order ID using the sparse OrderIndex GSI,
+    /// newest first. An order can carry several rows over its life (an inert
+    /// refunded/cancelled row next to an active one), so this returns a small list
+    /// for the caller to filter by status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByOrderIdAsync(string orderId, int limit = 5);
+
+    /// <summary>
     /// Query escrows by buyer ID using the BuyerStatusIndex GSI.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByBuyerAsync(

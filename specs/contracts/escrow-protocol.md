@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -96,8 +96,59 @@ Also:
 | `disputed` | `released` | Dispute resolved in farmer's favor | Admin |
 | `disputed` | `refunded` | Dispute resolved in buyer's favor | Admin |
 | `released` | `completed` | Telebirr ReleaseFunds confirmed | System |
+| *(created as)* `escrowed` | — | Order funding verified (order-funded escrow, below) | System |
 
 Invalid transitions return `422 Unprocessable Entity` with error code `ESCROW_INVALID_TRANSITION`.
+
+---
+
+## Order-Funded Escrow (v1.1.0)
+
+The order-payment leg (order `payment_submitted` → `funded`, see
+`order-lifecycle.md`) verifies and holds the buyer's money BEFORE any delivery
+exists. The server materializes an escrow record at that moment so
+`GET /escrow/history`, refunds, and release all flow through this protocol:
+
+- **Creation**: applied by the funding path (`EscrowService.CreateFromFundedOrderAsync`,
+  called from the sync Lambda's auto-fund today; the live gateway leg MUST call the
+  same method). The record is born `escrowed` — the hold already happened on the
+  payment leg, so no Telebirr HoldFunds call is made.
+- **Identity & idempotency**: `escrowId = "escrow-order-{orderId}"` and
+  `createdAt = order.paymentVerifiedAt` — a deterministic (PK, SK) pair, so retries
+  and races collapse onto one conditional put.
+- **Fields**: `source: "order"`, `orderId`, NO `deliveryId` (the sparse
+  DeliveryIndex gains the record only at linkage), `telebirrRef`/`telebirrHoldRef` =
+  the order's payment reference (`cbeTransactionId`, else `ORDER-FUND-{orderId}`),
+  `amount = orderTotal`, `farmerPayout = cropCost`, `truckerPayout = transportCost`,
+  `commission = amount − farmerPayout − truckerPayout` (exact remainder — the split
+  always reconciles), `expiresAt = createdAt + 7 days`.
+- **Delivery linkage**: creating a delivery REQUIRES `orderId`
+  (see `delivery-verification-api.md`); after the delivery write the server
+  backfills `escrow.deliveryId`, which activates every by-delivery mechanism
+  (confirmation stamping, auto-release, the self-pickup fail-closed QR gate,
+  `GET /escrow/by-delivery`). Linkage re-points only when the previously linked
+  delivery is `cancelled`; it refuses terminal orders; and it SELF-HEALS a missing
+  record while the order is still `funded`/`accepted`.
+- **Refund on reject/cancel**: `funded → rejected|cancelled` stamps the escrow
+  `expiresAt = now` (+`refundReason`); the hourly auto-refund cron then pays the
+  buyer through the standard gateway path (≤1h latency, mock and live alike).
+- **Order-aware auto-refund**: for `source == "order"` escrows the 7-day sweep
+  loads the order first. It refunds only a stale-`funded` (farmer never responded)
+  or terminal (`rejected`/`cancelled`) order; a progressing order
+  (`accepted` … `disbursing`) gets `expiresAt` pushed +48h instead. Fail-safe: if
+  the orders table isn't wired, order-sourced escrows are skipped, never refunded
+  blind. A stale-funded order is cancelled FIRST via version-CAS
+  (`cancelReason: escrow_refunded`) — the CAS fences out a concurrent farmer
+  accept (on conflict the refund is skipped and the next sweep re-classifies) —
+  and only then is the money refunded, so money and order state agree.
+- **Double-charge guard**: `POST /escrow/initiate` returns `409 ESCROW_024`
+  ("Funds for this order are already held in escrow") when the delivery's order
+  already carries an active escrow.
+- **Documented divergences**: order-funded records carry
+  `buyerFaydaVerified/farmerFaydaVerified = false` unless a users table is wired
+  (KYC enforcement belongs on the order-payment leg — follow-up); amounts outside
+  the initiate API's 100–500,000 ETB band are still recorded (they reflect money
+  actually held). Listing-stock restore on refund remains a known gap.
 
 ---
 
@@ -207,6 +258,7 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `403` | `ESCROW_007` | Fayda ID verification required (amount > 10,000 ETB) |
 | `404` | `ESCROW_008` | Delivery not found |
 | `409` | `ESCROW_009` | Escrow already exists for this delivery |
+| `409` | `ESCROW_024` | Funds for this order are already held in escrow (order-funded escrow — see §Order-Funded Escrow) |
 | `422` | `ESCROW_010` | Delivery is not in a valid state for payment (must be pending or pickedUp) |
 | `429` | `ESCROW_011` | Rate limit exceeded |
 | `500` | `ESCROW_012` | Internal server error |
@@ -505,6 +557,9 @@ Get the authenticated user's payment history.
     {
       "escrowId": "escrow-789",
       "deliveryId": "delivery-001",
+      "orderId": "order-123",
+      "buyerId": "buyer-456",
+      "farmerId": "farmer-123",
       "counterpartyName": "Alemayehu Bekele",
       "amount": 15000.00,
       "commission": 375.00,
@@ -1088,10 +1143,11 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-07-12 | Order-funded escrow leg: record created at order funding (deterministic escrow-order-{orderId} key, source=order, no deliveryId until linkage), delivery linkage + self-heal, reject/cancel refund scheduling via expiresAt, order-aware auto-refund, ESCROW_024 double-charge guard, EscrowSummaryDto gains orderId/buyerId/farmerId |
 | 1.0.0 | 2026-02-17 | Initial contract: escrow lifecycle, endpoints, data models, Telebirr integration, idempotency, DynamoDB design, security, Ethiopian context, offline behavior, error handling, automated processes |
 
 ---
 
-**Last Updated**: 2026-02-17
-**Version**: 1.0.0
+**Last Updated**: 2026-07-12
+**Version**: 1.1.0
 **Status**: Draft (Phase R4)

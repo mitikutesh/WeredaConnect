@@ -49,6 +49,12 @@ public partial class SyncFunction
     // Optional: when the escrows table is provisioned, confirming a delivery
     // stamps the linked escrow so the auto-release cron can pay the farmer.
     private readonly IEscrowRepository? _escrowRepo;
+    // Optional: the order-funded escrow leg (escrow record at order funding,
+    // delivery linkage, refund scheduling). Constructed WITHOUT Telebirr wiring —
+    // these paths never move money themselves (escrow-protocol.md §Order-funded
+    // escrow). Needs both ESCROWS_TABLE and ESCROW_AUDIT_TABLE; absent → null
+    // (orders still fund; the escrow record simply isn't materialized here).
+    private readonly EscrowService? _orderEscrowService;
     // Optional: when the ratings table is provisioned, buyers can rate
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
@@ -345,6 +351,20 @@ public partial class SyncFunction
             ? new EscrowRepository(_dynamoDb, escrowsTable)
             : null;
 
+        // Order-funded escrow leg. Reuses _escrowRepo; the audit table is required
+        // because every escrow record mutation must land in the immutable ledger.
+        var escrowAuditTable = Environment.GetEnvironmentVariable("ESCROW_AUDIT_TABLE");
+        _orderEscrowService = _escrowRepo != null && escrowAuditTable != null
+            ? new EscrowService(
+                _escrowRepo,
+                new EscrowAuditRepository(_dynamoDb, escrowAuditTable),
+                idempotencyRepo: null,
+                telebirrGateway: null,
+                userRepo: _userRepo,
+                orderRepo: _orderRepo,
+                deliveryRepo: new DeliveryRepository(_dynamoDb, _deliveriesTable))
+            : null;
+
         // Ratings are optional in the same way: the rating sync handler is only
         // reachable once the ratings table is provisioned.
         var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
@@ -388,7 +408,8 @@ public partial class SyncFunction
         IRatingRepository? ratingRepo = null,
         ITransactionAuditRepository? transactionAuditRepo = null,
         IDeliveryQrSecretRepository? qrSecretRepo = null,
-        IMessageRepository? messageRepo = null)
+        IMessageRepository? messageRepo = null,
+        EscrowService? orderEscrowService = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -406,6 +427,7 @@ public partial class SyncFunction
         _transactionAuditRepo = transactionAuditRepo;
         _qrSecretRepo = qrSecretRepo;
         _messageRepo = messageRepo;
+        _orderEscrowService = orderEscrowService;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -3051,6 +3073,10 @@ public partial class SyncFunction
                         }
                     }
 
+                    // The order backing this delivery, loaded once and reused for the
+                    // escrow-linkage step after the write.
+                    Dictionary<string, object>? createOrder = null;
+
                     // Self-pickup integrity: no self-trade, and the linked order must carry no
                     // transport cost / trucker — otherwise escrow would try to settle a trucker
                     // leg with no trucker, or block on a split that can't reconcile 2-way.
@@ -3143,6 +3169,99 @@ public partial class SyncFunction
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = "DELIVERY_VALIDATION: Self-pickup is not allowed for an order that already has transport or a trucker."
+                            };
+                        }
+
+                        createOrder = spOrder;
+                    }
+
+                    // Every delivery must reference its order so the order-funded escrow
+                    // can be linked to it (previously only self-pickup required orderId —
+                    // an orderId-less trucker delivery would silently skip escrow linkage
+                    // and the QR gate would fail open as "cash").
+                    var createOrderId = operation.Data.TryGetValue("orderId", out var coObj)
+                        ? coObj?.ToString() : null;
+                    if (string.IsNullOrWhiteSpace(createOrderId))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_ORDER_REQUIRED: A delivery must reference its orderId."
+                        };
+                    }
+
+                    createOrder ??= await _orderRepo.GetByIdAsync(createOrderId);
+                    if (createOrder == null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_VALIDATION: Referenced order not found."
+                        };
+                    }
+
+                    // A delivery for a dead order would re-point escrow money at a
+                    // finished trade (e.g. created inside the reject→refund window and
+                    // later releasing a rejected order's money to the farmer).
+                    var createOrderStatus = createOrder.TryGetValue("status", out var cosObj)
+                        ? cosObj?.ToString() : null;
+                    if (createOrderStatus is "rejected" or "cancelled" or "settled"
+                        or "payment_failed" or "dispute_resolved")
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: Order is {createOrderStatus}; no delivery can be created for it."
+                        };
+                    }
+
+                    // Participant binding for the trucker flow (self-pickup already binds
+                    // buyer/farmer/listing to the order above).
+                    if (!isSelfPickupCreate)
+                    {
+                        var dBuyerId = operation.Data.TryGetValue("buyerId", out var dB)
+                            ? dB?.ToString() : null;
+                        var dFarmerId = operation.Data.TryGetValue("farmerId", out var dF)
+                            ? dF?.ToString() : null;
+                        if (createOrder.TryGetValue("buyerId", out var coB)
+                            && coB?.ToString() != dBuyerId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: buyerId does not match the order."
+                            };
+                        }
+
+                        if (createOrder.TryGetValue("farmerId", out var coF)
+                            && coF?.ToString() != dFarmerId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match the order."
+                            };
+                        }
+
+                        // When the order was matched to a trucker, only THAT trucker
+                        // may create its delivery — otherwise any authenticated
+                        // trucker who learns an orderId could attach a bogus delivery
+                        // and hijack the escrow linkage.
+                        var coTrucker = createOrder.TryGetValue("truckerId", out var coT)
+                            ? coT?.ToString() : null;
+                        if (!string.IsNullOrWhiteSpace(coTrucker)
+                            && coTrucker != authenticatedUserId)
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: Only the order's matched trucker can create this delivery."
                             };
                         }
                     }
@@ -3296,6 +3415,11 @@ public partial class SyncFunction
                             ? dCreateOid.S : operation.EntityId;
                         await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
                             "delivery_created", null, "pending");
+
+                        // Attach the order's escrow to this delivery so confirm-stamping,
+                        // auto-release, and the self-pickup QR gate all see the money.
+                        await TryLinkOrderEscrowAsync(
+                            createOrderId!, operation.EntityId, createOrder, context);
 
                         var result = ScrubSyncSecrets(CropRepository.FromItem(item));
                         return new SyncOperationResult
@@ -4686,6 +4810,18 @@ public partial class SyncFunction
                     : null;
                 await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
                     OrderActionFor(appliedStatus), priorStatus, appliedStatus);
+
+                // A funded order that gets rejected/cancelled holds the buyer's money
+                // in escrow — schedule the refund (expiresAt=now) so the hourly
+                // auto-refund cron pays it back through the standard gateway path
+                // (order-lifecycle.md invariant 2). Only the funded→terminal hop
+                // carries unreleased money; later statuses are governed by the
+                // delivery-confirm/dispute machinery.
+                if (priorStatus == "funded" && appliedStatus is "rejected" or "cancelled")
+                {
+                    await TryScheduleOrderEscrowRefundAsync(
+                        operation.EntityId, $"order_{appliedStatus}", context);
+                }
             }
 
             // 6D: When order transitions to "funded", decrease listing quantity
@@ -4833,6 +4969,7 @@ public partial class SyncFunction
             }
 
             await TryDecreaseListingQuantityAsync(existingOrder, context);
+            await TryCreateOrderEscrowAsync(result.Value, orderId, context);
             context.Logger.LogInformation($"Order {orderId} auto-funded (mock payments).");
             return result.Value;
         }
@@ -4841,6 +4978,100 @@ public partial class SyncFunction
             context.Logger.LogWarning(
                 $"Mock auto-fund failed for order {orderId}: [{ex.GetType().Name}]");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Materialize the escrow record for a just-funded order — the money is verified
+    /// held, so the escrow subsystem must reflect it (escrow-protocol.md §Order-funded
+    /// escrow). Best-effort: order funding never rolls back because of this, but a
+    /// failure is a money-visibility gap, so it logs the alarmable
+    /// ORDER_ESCROW_CREATE_FAILED token (delivery-time linkage self-heals it later).
+    /// Call this from every path that applies "funded" (mock auto-fund today; the
+    /// live gateway leg must reuse it).
+    /// </summary>
+    private async Task TryCreateOrderEscrowAsync(
+        Dictionary<string, object>? fundedOrder, string orderId, ILambdaContext context)
+    {
+        if (_orderEscrowService == null || fundedOrder == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var created = await _orderEscrowService.CreateFromFundedOrderAsync(
+                fundedOrder, "system", _batchAudit);
+            if (!created)
+            {
+                context.Logger.LogError(
+                    $"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=validation");
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=[{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort refund scheduling for a rejected/cancelled funded order: expires
+    /// the order's escrow so the hourly auto-refund cron pays the buyer back. A
+    /// failure here is money stuck in escrow — alarmable token, needs reconciliation.
+    /// </summary>
+    private async Task TryScheduleOrderEscrowRefundAsync(
+        string orderId, string reason, ILambdaContext context)
+    {
+        if (_orderEscrowService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var scheduled = await _orderEscrowService.ScheduleRefundForOrderAsync(
+                orderId, reason, "system", _batchAudit);
+            context.Logger.LogInformation(scheduled
+                ? $"Order escrow refund scheduled: orderId={orderId} reason={reason}"
+                : $"No refundable order escrow for orderId={orderId} ({reason}) — "
+                  + "either none exists or delivery already confirmed.");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={orderId} reason=[{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// Best-effort escrow↔delivery linkage after a delivery create. Self-heals a
+    /// missing order escrow while the order still holds money; "not linked" is a
+    /// normal outcome for pre-escrow legacy orders.
+    /// </summary>
+    private async Task TryLinkOrderEscrowAsync(
+        string orderId, string deliveryId, Dictionary<string, object> order, ILambdaContext context)
+    {
+        if (_orderEscrowService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var linked = await _orderEscrowService.LinkDeliveryToOrderEscrowAsync(
+                orderId, deliveryId, order, "system", _batchAudit);
+            if (!linked)
+            {
+                context.Logger.LogInformation(
+                    $"No order escrow linked for delivery {deliveryId} (orderId={orderId}).");
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"ORDER_ESCROW_LINK_FAILED orderId={orderId} deliveryId={deliveryId} "
+                + $"reason=[{ex.GetType().Name}]");
         }
     }
 

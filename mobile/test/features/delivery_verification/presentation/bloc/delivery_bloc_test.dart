@@ -83,6 +83,7 @@ void main() {
       bloc.add(
         const CreateDelivery(
           tripId: 'trip-001',
+          orderId: 'order-test-001',
           listingId: 'listing-001',
           farmerId: 'farmer-001',
           farmerName: 'Abebe Kebede',
@@ -141,6 +142,7 @@ void main() {
       // Create a delivery first
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -172,6 +174,7 @@ void main() {
     test('emits [Loading, DeliveryConfirmed] on ConfirmDelivery', () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -261,6 +264,7 @@ void main() {
         () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -322,6 +326,7 @@ void main() {
         () async {
       final delivery = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -361,6 +366,7 @@ void main() {
       // Create deliveries
       final d1 = await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -372,6 +378,7 @@ void main() {
       );
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-002',
         farmerName: 'Kebede',
@@ -416,6 +423,7 @@ void main() {
     test('FilterDeliveries with no status filter loads all for trip', () async {
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-001',
         farmerId: 'farmer-001',
         farmerName: 'Abebe',
@@ -427,6 +435,7 @@ void main() {
       );
       await repository.createDelivery(
         tripId: 'trip-001',
+        orderId: 'order-test-001',
         listingId: 'listing-002',
         farmerId: 'farmer-002',
         farmerName: 'Kebede',
@@ -487,6 +496,7 @@ void main() {
       bloc.add(
         const CreateDelivery(
           tripId: 'trip-001',
+          orderId: 'order-test-001',
           listingId: 'listing-001',
           farmerId: 'farmer-001',
           farmerName: 'Abebe',
@@ -521,6 +531,7 @@ void main() {
       bloc.add(
         const CreateDelivery(
           tripId: 'trip-001',
+          orderId: 'order-test-001',
           listingId: 'listing-001',
           farmerId: 'farmer-001',
           farmerName: 'ታደሰ ወርቁ',

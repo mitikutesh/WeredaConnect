@@ -5,6 +5,7 @@ import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/initiate_payment_screen.dart';
@@ -827,6 +828,7 @@ class _EscrowPayButton extends StatefulWidget {
 class _EscrowPayButtonState extends State<_EscrowPayButton> {
   double? _amount;
   bool _loading = true;
+  bool _alreadyPaid = false;
 
   @override
   void initState() {
@@ -836,12 +838,17 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
 
   Future<void> _loadAmount() async {
     try {
+      // Money already held? Both legs count: a delivery escrow initiated here
+      // earlier, or an order-funded escrow (the buyer paid at order time — a
+      // second payment would bounce off the server's ESCROW_024 guard anyway).
+      final paid = await _moneyAlreadyHeld();
       final listing = await IsarService.instance.db.cropListings
           .where()
           .listingIdEqualTo(widget.delivery.listingId)
           .findFirst();
       if (mounted) {
         setState(() {
+          _alreadyPaid = paid;
           _amount = listing != null
               ? listing.quantity * 100 * listing.pricePerKg
               : null;
@@ -856,6 +863,42 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
     }
   }
 
+  Future<bool> _moneyAlreadyHeld() async {
+    // NOT 'initiated': a stale abandoned initiation would hide the button
+    // forever (this screen never refreshes history), and the server's
+    // ESCROW_009 guard already blocks a genuine double-initiation.
+    final payment = await IsarService.instance.db.payments
+        .filter()
+        .deliveryIdEqualTo(widget.delivery.deliveryId)
+        .findFirst();
+    final paymentStatus = payment?.status.name;
+    if (paymentStatus == 'escrowed' ||
+        paymentStatus == 'released' ||
+        paymentStatus == 'completed' ||
+        paymentStatus == 'disputed') {
+      return true;
+    }
+
+    // The delivery record carries no orderId locally — resolve the order via
+    // the delivery's trip (a matched order shares the delivery's tripId).
+    // Matching on listing+buyer alone could pick a DIFFERENT order of the
+    // same buyer on the same listing and wrongly hide the button; when no
+    // trip-matched order exists, showing the button is safe (the server's
+    // ESCROW_024 guard rejects a true double-charge).
+    final order = await IsarService.instance.db.orders
+        .filter()
+        .listingIdEqualTo(widget.delivery.listingId)
+        .buyerIdEqualTo(widget.currentUserId)
+        .tripIdEqualTo(widget.delivery.tripId)
+        .findFirst();
+    final orderStatus = order?.status.name;
+    return orderStatus == 'funded' ||
+        orderStatus == 'accepted' ||
+        orderStatus == 'pickupConfirmed' ||
+        orderStatus == 'inTransit' ||
+        orderStatus == 'delivered';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -864,6 +907,8 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
         child: Center(child: CircularProgressIndicator()),
       );
     }
+    // Money already in escrow — never offer a second payment path.
+    if (_alreadyPaid) return const SizedBox.shrink();
     if (_amount == null) return const SizedBox.shrink();
 
     final l10n = AppLocalizations.of(context)!;
@@ -932,9 +977,33 @@ class _SelfPickupScanButtonState extends State<_SelfPickupScanButton> {
       // Read the enum name dynamically to avoid importing the Isar schema into
       // shared UI (keeps the web build clean). `escrowed`+ mean funds are held.
       final statusName = payment?.status.name;
-      final funded = statusName == 'escrowed' ||
+      var funded = statusName == 'escrowed' ||
           statusName == 'released' ||
           statusName == 'completed';
+      // Order-funded escrow: the buyer already paid when the order was funded,
+      // so the local Payment row may not exist yet (it appears after a history
+      // refresh). ANY escrow-held order on this listing counts as paid — the
+      // delivery record carries no orderId locally (self-pickup orders have no
+      // trip to match on), and both wrong directions are safe: the server QR
+      // gate fail-closes an unpaid scan, and a wrongly disabled button only
+      // asks the buyer to pay first.
+      if (!funded) {
+        final orders = await IsarService.instance.db.orders
+            .filter()
+            .listingIdEqualTo(widget.delivery.listingId)
+            .buyerIdEqualTo(widget.currentUserId)
+            .findAll();
+        for (final order in orders) {
+          final orderStatus = order.status.name;
+          if (orderStatus == 'funded' ||
+              orderStatus == 'accepted' ||
+              orderStatus == 'pickupConfirmed' ||
+              orderStatus == 'inTransit') {
+            funded = true;
+            break;
+          }
+        }
+      }
       if (mounted) {
         setState(() {
           _escrowFunded = funded;

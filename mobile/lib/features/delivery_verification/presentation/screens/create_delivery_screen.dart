@@ -113,6 +113,11 @@ class _CreateDeliveryScreenState extends State<CreateDeliveryScreen> {
     context.read<DeliveryBloc>().add(
           CreateDelivery(
             tripId: trip.tripId,
+            // Legacy screen (no live callers) predating order-linked deliveries:
+            // it has no order context, and the server now rejects order-less
+            // creates (DELIVERY_ORDER_REQUIRED). Live creates come from the
+            // order detail screen, which passes the real orderId.
+            orderId: '',
             listingId: widget.listing.listingId,
             farmerId: widget.listing.farmerId,
             farmerName: widget.listing.farmerName.isNotEmpty
