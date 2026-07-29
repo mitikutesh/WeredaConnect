@@ -44,6 +44,66 @@ export interface ApiStackProps extends cdk.StackProps {
 }
 
 /**
+ * Reference to a secret value in its per-environment backend: a Secrets
+ * Manager ARN in prod, an SSM parameter name in dev/staging.
+ */
+interface SecretRef {
+  readonly reference: string;
+  grantRead(grantee: iam.IGrantable): iam.Grant;
+}
+
+/**
+ * Per-environment secret backend (cost: SM is ~$0.40/secret/mo, SSM standard
+ * tier is free).
+ *   prod        → creates a Secrets Manager secret (construct IDs and props
+ *                 unchanged from the pre-migration layout — the prod template
+ *                 is untouched by this switch).
+ *   dev/staging → REFERENCES an SSM SecureString parameter with the same
+ *                 path. CloudFormation cannot CREATE SecureStrings, so the
+ *                 parameter is seeded out-of-band by
+ *                 scripts/seed-ssm-secrets.sh (CI runs it before every
+ *                 non-prod deploy). Parameters must use the default aws/ssm
+ *                 KMS key: grantRead() emits no kms:Decrypt statement.
+ * Either way `reference` lands in the same *_ARN env var; the server routes
+ * on the value's shape (AwsParameterResolver.GetSecretOrParameterValue).
+ */
+function envScopedSecret(
+  scope: Construct,
+  id: string,
+  props: {
+    isProd: boolean;
+    /** Full path, e.g. `/wereda-connect-dev/pagination-secret`. */
+    name: string;
+    /** Used only in prod; non-prod descriptions come from the seed script. */
+    description: string;
+    /** Used only in prod; non-prod values come from the seed script. */
+    generateSecretString?: secretsmanager.SecretStringGenerator;
+  },
+): SecretRef {
+  if (props.isProd) {
+    const secret = new secretsmanager.Secret(scope, id, {
+      secretName: props.name,
+      description: props.description,
+      generateSecretString: props.generateSecretString,
+    });
+    return {
+      reference: secret.secretArn,
+      grantRead: (grantee) => secret.grantRead(grantee),
+    };
+  }
+
+  const parameter = ssm.StringParameter.fromSecureStringParameterAttributes(
+    scope,
+    id,
+    { parameterName: props.name },
+  );
+  return {
+    reference: parameter.parameterName,
+    grantRead: (grantee) => parameter.grantRead(grantee),
+  };
+}
+
+/**
  * API stack: Cognito User Pool, HTTP API Gateway, Lambda functions, and auth routes.
  * Everything in one stack to avoid cross-stack cyclic references from API routes.
  */
@@ -379,22 +439,20 @@ export class ApiStack extends cdk.Stack {
     // Escrow audit is append-only: write-only grant (order-funded escrow leg).
     props.escrowAuditTable.grantWriteData(syncFn.function);
 
-    // ─── Pagination Secret (Secrets Manager) ──────────────────────────
-    // SECURITY: Generated at deploy time, never hardcoded in source.
+    // ─── Pagination Secret (Secrets Manager prod / SSM dev+staging) ───
+    // SECURITY: Generated at deploy time (prod) or by the seed script
+    // (non-prod), never hardcoded in source.
 
-    const paginationSecret = new secretsmanager.Secret(
-      this,
-      "PaginationSecret",
-      {
-        secretName: `/${prefix}/pagination-secret`,
-        description:
-          "HMAC signing key for pagination tokens — auto-generated at deploy time",
-        generateSecretString: {
-          excludePunctuation: true,
-          passwordLength: 64,
-        },
+    const paginationSecret = envScopedSecret(this, "PaginationSecret", {
+      isProd: envConfig.isProd,
+      name: `/${prefix}/pagination-secret`,
+      description:
+        "HMAC signing key for pagination tokens — auto-generated at deploy time",
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 64,
       },
-    );
+    });
 
     // ─── Crop Function ───────────────────────────────────────────────
 
@@ -404,7 +462,7 @@ export class ApiStack extends cdk.Stack {
       handlerName: "CropFunction",
       environment: {
         CROPS_TABLE: props.cropsTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -422,7 +480,7 @@ export class ApiStack extends cdk.Stack {
       handlerName: "TripFunction",
       environment: {
         TRIPS_TABLE: props.tripsTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -613,40 +671,33 @@ export class ApiStack extends cdk.Stack {
       },
     );
 
-    // ─── Fayda Secrets (Secrets Manager) ─────────────────────────────
+    // ─── Fayda Secrets (Secrets Manager prod / SSM dev+staging) ───────
 
-    const faydaClientSecret = new secretsmanager.Secret(
-      this,
-      "FaydaClientSecret",
-      {
-        secretName: `/${prefix}/fayda/client-secret`,
-        description:
-          "Fayda OIDC client secret — update after registration",
-        generateSecretString: {
-          excludePunctuation: true,
-          passwordLength: 64,
-        },
+    const faydaClientSecret = envScopedSecret(this, "FaydaClientSecret", {
+      isProd: envConfig.isProd,
+      name: `/${prefix}/fayda/client-secret`,
+      description: "Fayda OIDC client secret — update after registration",
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 64,
       },
-    );
+    });
 
-    const faydaSigningSecret = new secretsmanager.Secret(
-      this,
-      "FaydaSigningSecret",
-      {
-        secretName: `/${prefix}/fayda/signing-secret`,
-        description:
-          "HMAC signing key for Fayda verification JWTs — auto-generated at deploy time",
-        generateSecretString: {
-          excludePunctuation: true,
-          passwordLength: 64,
-        },
+    const faydaSigningSecret = envScopedSecret(this, "FaydaSigningSecret", {
+      isProd: envConfig.isProd,
+      name: `/${prefix}/fayda/signing-secret`,
+      description:
+        "HMAC signing key for Fayda verification JWTs — auto-generated at deploy time",
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 64,
       },
-    );
+    });
 
     // Grant RegisterFunction access to Fayda signing secret
     registerFn.function.addEnvironment(
       "FAYDA_SIGNING_SECRET_ARN",
-      faydaSigningSecret.secretArn,
+      faydaSigningSecret.reference,
     );
     faydaSigningSecret.grantRead(registerFn.function);
 
@@ -661,8 +712,8 @@ export class ApiStack extends cdk.Stack {
         USERS_TABLE: props.usersTable.tableName,
         FAYDA_CLIENT_ID_PARAM: faydaClientIdParam.parameterName,
         FAYDA_ISSUER_URL_PARAM: faydaIssuerUrlParam.parameterName,
-        FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.secretArn,
-        FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.secretArn,
+        FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.reference,
+        FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.reference,
         ...(envConfig.name === 'dev' ? { DEV_FAYDA_BYPASS: "true" } : {}),
       },
       reservedConcurrentExecutions: 20,
@@ -685,7 +736,7 @@ export class ApiStack extends cdk.Stack {
         TRIPS_TABLE: props.tripsTable.tableName,
         UPLOADS_BUCKET: props.uploadsBucket.bucketName,
         USERS_TABLE: props.usersTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
@@ -707,21 +758,24 @@ export class ApiStack extends cdk.Stack {
       (envConfig.enableTelebirrLive ?? false) ||
       this.node.tryGetContext("enableTelebirrLive") === "true";
 
-    let telebirrSecret: secretsmanager.Secret | undefined;
+    let telebirrSecret: SecretRef | undefined;
     let telebirrVpc: ec2.Vpc | undefined;
     let telebirrWebhookFn: WeredaLambda | undefined;
     // Spread into the escrow Lambdas so they egress via the NAT's stable IP.
     let escrowVpcProps: { vpc?: ec2.IVpc; vpcSubnets?: ec2.SubnetSelection } = {};
 
     if (enableTelebirrLive) {
-      // Merchant credentials JSON. Populate real values OUT-OF-BAND via
-      // `aws secretsmanager put-secret-value` (see .ai/telebirr-testing.md).
-      // generateSecretString seeds placeholders ONCE at create, so the Lambdas
-      // cold-start before population and later redeploys never clobber the real
-      // values. All keys are non-empty so TelebirrConfig.FromJson won't throw;
-      // signing/verifying fails cleanly until real creds are set.
-      telebirrSecret = new secretsmanager.Secret(this, "TelebirrCredentials", {
-        secretName: `/${prefix}/telebirr/credentials`,
+      // Merchant credentials JSON. Populate real values OUT-OF-BAND — prod via
+      // `aws secretsmanager put-secret-value`, dev/staging via
+      // `aws ssm put-parameter --overwrite` (see .ai/telebirr-testing.md).
+      // generateSecretString seeds placeholders ONCE at create (prod; the seed
+      // script does the same for non-prod), so the Lambdas cold-start before
+      // population and later redeploys never clobber the real values. All keys
+      // are non-empty so TelebirrConfig.FromJson won't throw; signing/verifying
+      // fails cleanly until real creds are set.
+      telebirrSecret = envScopedSecret(this, "TelebirrCredentials", {
+        isProd: envConfig.isProd,
+        name: `/${prefix}/telebirr/credentials`,
         description:
           "Telebirr merchant credentials (JSON). Populate via put-secret-value; do not edit inline.",
         generateSecretString: {
@@ -847,7 +901,7 @@ export class ApiStack extends cdk.Stack {
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
         ...(envConfig.isProd || enableTelebirrLive ? {} : { TELEBIRR_MOCK: "true" }),
       },
       timeout: cdk.Duration.seconds(30),
@@ -976,7 +1030,7 @@ export class ApiStack extends cdk.Stack {
       handlerName: "OrderFunction",
       environment: {
         ORDERS_TABLE: props.ordersTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -993,7 +1047,7 @@ export class ApiStack extends cdk.Stack {
       handlerName: "RatingFunction",
       environment: {
         RATINGS_TABLE: props.ratingsTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -1010,7 +1064,7 @@ export class ApiStack extends cdk.Stack {
       handlerName: "MessageFunction",
       environment: {
         MESSAGES_TABLE: props.messagesTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
@@ -1518,7 +1572,7 @@ export class ApiStack extends cdk.Stack {
       for (const fn of liveFns) {
         fn.function.addEnvironment(
           "TELEBIRR_SECRET_ARN",
-          telebirrSecret.secretArn,
+          telebirrSecret.reference,
         );
         fn.function.addEnvironment("TELEBIRR_NOTIFY_URL", notifyUrl);
         if (envConfig.telebirrAllowedIps) {
@@ -1565,7 +1619,7 @@ export class ApiStack extends cdk.Stack {
         ORDERS_TABLE: props.ordersTable.tableName,
         DELIVERIES_TABLE: props.deliveriesTable.tableName,
         PAYMENTS_TABLE: props.paymentsTable.tableName,
-        PAGINATION_SECRET_ARN: paginationSecret.secretArn,
+        PAGINATION_SECRET_ARN: paginationSecret.reference,
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,

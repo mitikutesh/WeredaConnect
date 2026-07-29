@@ -37,8 +37,8 @@ public class FaydaVerifyFunction
         // Resolve SSM params and secrets to actual values
         var clientId = Helpers.AwsParameterResolver.GetSsmParameterValue(clientIdParam);
         var issuerUrl = Helpers.AwsParameterResolver.GetSsmParameterValue(issuerUrlParam);
-        var clientSecret = Helpers.AwsParameterResolver.GetSecretValue(clientSecretArn);
-        var signingSecret = Helpers.AwsParameterResolver.GetSecretValue(signingSecretArn);
+        var clientSecret = Helpers.AwsParameterResolver.GetSecretOrParameterValue(clientSecretArn);
+        var signingSecret = Helpers.AwsParameterResolver.GetSecretOrParameterValue(signingSecretArn);
 
         var dynamoDb = new AmazonDynamoDBClient();
 

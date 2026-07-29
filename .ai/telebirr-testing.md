@@ -259,7 +259,22 @@ Their answers → drop their public key + `signPadding` into the secret; set
    route + credentials secret; escrow/cron switch off the mock. Confirm the
    `TelebirrNatEipOut` output matches the IP you gave Telebirr.
 4. **Populate the secret** with real values (JSON shape below). Use `pkcs1` for
-   `signPadding` — real Telebirr's `SHA256WithRSA` is PKCS#1, not the code default PSS:
+   `signPadding` — real Telebirr's `SHA256WithRSA` is PKCS#1, not the code default PSS.
+
+   **dev/staging** (SSM Parameter Store — where non-prod secrets live):
+   ```bash
+   aws ssm put-parameter \
+     --name /wereda-connect-<env>/telebirr/credentials \
+     --type SecureString --overwrite \
+     --value file://telebirr-credentials.<env>.json \
+     --region <region>
+   ```
+   Note: SSM standard tier caps values at 4 KB — use an **RSA-2048** merchant key
+   (a 4096-bit key pushes the JSON past the limit; `--tier Advanced` at $0.05/mo
+   is the escape hatch). Never pass `--key-id`: the Lambdas' IAM only covers the
+   default `aws/ssm` key.
+
+   **prod** (Secrets Manager):
    ```bash
    aws secretsmanager put-secret-value \
      --secret-id /wereda-connect-<env>/telebirr/credentials \

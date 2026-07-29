@@ -116,7 +116,7 @@ Logs: Structured JSON, correlation IDs, retention 7d (dev) / 30d (prod)
 
 - **IAM**: Least privilege, no wildcard policies, explicit resource ARNs
 - **Encryption**: At rest (DynamoDB, S3 AWS-managed keys), in transit (TLS 1.2+)
-- **Secrets**: AWS Secrets Manager for API keys/credentials
+- **Secrets**: AWS Secrets Manager (prod) / SSM Parameter Store SecureString (dev+staging, free tier — seeded by `scripts/seed-ssm-secrets.sh`); readers cache per Lambda container. See `specs/decisions/secrets-backend-per-environment.md`
 - **Network**: VPC optional (adds cost), WAF optional for production
 
 ---

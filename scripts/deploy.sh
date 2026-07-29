@@ -58,6 +58,16 @@ npx tsc
 echo "CDK ready."
 echo ""
 
+# Step 3b: Seed non-prod SSM SecureString secrets (idempotent). MUST run
+# before `cdk deploy`: the migration deploy removes the legacy Secrets
+# Manager secrets from the template and CloudFormation force-deletes them
+# without a recovery window — the verified SSM copy is the only net.
+if [[ "$ENV" != "prod" ]]; then
+  echo "[3b/6] Seeding SSM secrets ($ENV)..."
+  "$SCRIPT_DIR/seed-ssm-secrets.sh" "$ENV"
+  echo ""
+fi
+
 # Step 4: Deploy with CDK
 echo "[4/6] Deploying infrastructure to AWS ($ENV)..."
 npx cdk deploy --all --context environment="$ENV" --require-approval broadening

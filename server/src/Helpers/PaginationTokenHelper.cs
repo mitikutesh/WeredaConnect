@@ -2,8 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Amazon.DynamoDBv2.Model;
-using Amazon.SecretsManager;
-using Amazon.SecretsManager.Model;
 using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Helpers;
@@ -40,19 +38,14 @@ public static class PaginationTokenHelper
                 return _signingKey;
             }
 
-            // Load from Secrets Manager at runtime
-            var secretArn = Environment.GetEnvironmentVariable("PAGINATION_SECRET_ARN")
+            // Load from Secrets Manager (prod) or SSM Parameter Store (dev/staging)
+            var secretRef = Environment.GetEnvironmentVariable("PAGINATION_SECRET_ARN")
                 ?? throw new InvalidOperationException(
                     "PAGINATION_SECRET_ARN environment variable is required. " +
-                    "Set via CDK infrastructure (Secrets Manager ARN).");
+                    "Set via CDK infrastructure (Secrets Manager ARN or SSM parameter name).");
 
-            using var client = new AmazonSecretsManagerClient();
-            var response = client.GetSecretValueAsync(new GetSecretValueRequest
-            {
-                SecretId = secretArn,
-            }).GetAwaiter().GetResult();
-
-            _signingKey = SHA256.HashData(Encoding.UTF8.GetBytes(response.SecretString));
+            var secretValue = AwsParameterResolver.GetSecretOrParameterValue(secretRef);
+            _signingKey = SHA256.HashData(Encoding.UTF8.GetBytes(secretValue));
             return _signingKey;
         }
     }

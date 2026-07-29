@@ -1,6 +1,5 @@
 using System.Net;
-using Amazon.SecretsManager;
-using Amazon.SecretsManager.Model;
+using WeredaConnect.Server.Helpers;
 
 namespace WeredaConnect.Server.Services;
 
@@ -8,7 +7,8 @@ namespace WeredaConnect.Server.Services;
 /// Loads Telebirr configuration and builds the real gateway. Config source:
 ///   - TELEBIRR_LOCAL_CREDENTIALS_FILE : path to the simulator's
 ///     credentials.local.json (local dev), OR
-///   - TELEBIRR_SECRET_ARN : AWS Secrets Manager secret (same JSON shape).
+///   - TELEBIRR_SECRET_ARN : Secrets Manager ARN (prod) or SSM Parameter Store
+///     name (dev/staging) holding the same JSON shape.
 /// notify_url and allowed source IPs come from env (deployment-specific).
 /// </summary>
 public static class TelebirrGatewayFactory
@@ -33,16 +33,11 @@ public static class TelebirrGatewayFactory
             return TelebirrConfig.FromJson(File.ReadAllText(localFile), notifyUrl, allowedIps, httpProxy);
         }
 
-        var secretArn = Environment.GetEnvironmentVariable("TELEBIRR_SECRET_ARN")
+        var secretRef = Environment.GetEnvironmentVariable("TELEBIRR_SECRET_ARN")
             ?? throw new InvalidOperationException(
                 "No Telebirr config source: set TELEBIRR_LOCAL_CREDENTIALS_FILE (local) or TELEBIRR_SECRET_ARN (AWS).");
 
-        using var client = new AmazonSecretsManagerClient(
-            new AmazonSecretsManagerConfig { Timeout = TimeSpan.FromSeconds(10) });
-        var secret = client.GetSecretValueAsync(new GetSecretValueRequest { SecretId = secretArn })
-            .GetAwaiter().GetResult();
-        var json = secret.SecretString
-            ?? throw new InvalidOperationException("Telebirr secret is empty.");
+        var json = AwsParameterResolver.GetSecretOrParameterValue(secretRef);
         return TelebirrConfig.FromJson(json, notifyUrl, allowedIps, httpProxy);
     }
 
