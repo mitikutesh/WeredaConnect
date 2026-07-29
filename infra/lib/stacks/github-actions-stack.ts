@@ -149,6 +149,43 @@ export class GithubActionsStack extends cdk.Stack {
       }),
     );
 
+    // Non-prod only: the deploy workflow seeds SSM SecureString secrets
+    // (scripts/seed-ssm-secrets.sh) before `cdk deploy`, copying values out of
+    // the legacy Secrets Manager secrets on first migration. Scoped to the
+    // four secret paths the script touches — NOT parameter/${prefix}/* — so
+    // this role cannot rewrite the CDK-managed config parameters (commission
+    // rate, dispute window, …). Prod secrets stay in Secrets Manager and are
+    // never readable by this role.
+    if (!envConfig.isProd) {
+      const seededSecretPaths = [
+        "pagination-secret",
+        "fayda/client-secret",
+        "fayda/signing-secret",
+        "telebirr/credentials",
+      ];
+      deployRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: "SeedSsmSecrets",
+          effect: iam.Effect.ALLOW,
+          actions: ["ssm:GetParameter", "ssm:PutParameter"],
+          resources: seededSecretPaths.map(
+            (p) => `arn:aws:ssm:*:${this.account}:parameter/${prefix}/${p}`,
+          ),
+        }),
+      );
+      deployRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: "ReadLegacySecretsForMigration",
+          effect: iam.Effect.ALLOW,
+          actions: ["secretsmanager:GetSecretValue"],
+          resources: seededSecretPaths.map(
+            (p) =>
+              `arn:aws:secretsmanager:*:${this.account}:secret:/${prefix}/${p}-??????`,
+          ),
+        }),
+      );
+    }
+
     this.deployRoleArn = deployRole.roleArn;
 
     new cdk.CfnOutput(this, "DeployRoleArn", {

@@ -40,8 +40,8 @@ public class RegisterFunction
         var faydaSigningSecretArn = Environment.GetEnvironmentVariable("FAYDA_SIGNING_SECRET_ARN")
                                     ?? throw new InvalidOperationException("FAYDA_SIGNING_SECRET_ARN is not set.");
 
-        // Resolve Secrets Manager ARN to actual signing secret
-        var faydaSigningSecret = Helpers.AwsParameterResolver.GetSecretValue(faydaSigningSecretArn);
+        // Resolve the signing secret from Secrets Manager (prod) or SSM (dev/staging)
+        var faydaSigningSecret = Helpers.AwsParameterResolver.GetSecretOrParameterValue(faydaSigningSecretArn);
 
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();

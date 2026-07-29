@@ -128,6 +128,39 @@ describe('ApiStack', () => {
       AuthorizerType: 'JWT',
     });
   });
+
+  test('dev: no Secrets Manager secrets — env vars reference SSM parameters', () => {
+    // Non-prod secrets live in SSM Parameter Store (free tier); the SecureString
+    // parameters are seeded out-of-band by scripts/seed-ssm-secrets.sh.
+    template.resourceCountIs('AWS::SecretsManager::Secret', 0);
+    // The *_ARN env vars carry the SSM parameter NAME in non-prod — the server
+    // routes on the value's shape (AwsParameterResolver).
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-crops',
+      Environment: {
+        Variables: Match.objectLike({
+          PAGINATION_SECRET_ARN: '/wereda-connect-dev/pagination-secret',
+        }),
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-auth-fayda-verify',
+      Environment: {
+        Variables: Match.objectLike({
+          FAYDA_CLIENT_SECRET_ARN: '/wereda-connect-dev/fayda/client-secret',
+          FAYDA_SIGNING_SECRET_ARN: '/wereda-connect-dev/fayda/signing-secret',
+        }),
+      },
+    });
+  });
+
+  test('dev: lambda roles are granted ssm:GetParameter on the secret parameters', () => {
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('ssm:GetParameter');
+    expect(policies).toContain('parameter/wereda-connect-dev/pagination-secret');
+    expect(policies).toContain('parameter/wereda-connect-dev/fayda/client-secret');
+    expect(policies).toContain('parameter/wereda-connect-dev/fayda/signing-secret');
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {
@@ -195,9 +228,23 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
-  test('ON: creates the Telebirr credentials secret', () => {
-    buildTemplate(true).hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: '/wereda-connect-dev/telebirr/credentials',
+  test('ON (dev): references the Telebirr SSM parameter — no Secrets Manager secret', () => {
+    const t = buildTemplate(true);
+    t.resourceCountIs('AWS::SecretsManager::Secret', 0);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-escrow',
+      Environment: {
+        Variables: Match.objectLike({
+          TELEBIRR_SECRET_ARN: '/wereda-connect-dev/telebirr/credentials',
+        }),
+      },
+    });
+  });
+
+  test('ON (prod): creates the Telebirr credentials secret in Secrets Manager', () => {
+    const t = buildTemplate(true, { isProd: true, name: 'prod' });
+    t.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: '/wereda-connect-prod/telebirr/credentials',
     });
   });
 
@@ -302,6 +349,19 @@ describe('ApiStack (prod security)', () => {
         expect(accessValidity).toBeLessThanOrEqual(60); // minutes — CDK may use different units
       }
     }
+  });
+
+  test('prod: secrets stay in Secrets Manager (3 always-on, unchanged names)', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 3);
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: '/wereda-connect-prod/pagination-secret',
+    });
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: '/wereda-connect-prod/fayda/client-secret',
+    });
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: '/wereda-connect-prod/fayda/signing-secret',
+    });
   });
 });
 
@@ -421,5 +481,52 @@ describe('GithubActionsStack', () => {
         ]),
       },
     });
+  });
+
+  test('dev role can seed SSM secrets and read legacy secrets; prod role cannot', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Sid: 'SeedSsmSecrets',
+            Action: ['ssm:GetParameter', 'ssm:PutParameter'],
+            Resource: [
+              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/pagination-secret',
+              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/fayda/client-secret',
+              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/fayda/signing-secret',
+              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/telebirr/credentials',
+            ],
+          }),
+          Match.objectLike({
+            Sid: 'ReadLegacySecretsForMigration',
+            Action: 'secretsmanager:GetSecretValue',
+            Resource: [
+              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/pagination-secret-??????',
+              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/fayda/client-secret-??????',
+              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/fayda/signing-secret-??????',
+              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/telebirr/credentials-??????',
+            ],
+          }),
+        ]),
+      }),
+    });
+
+    const app = new cdk.App();
+    const prodStack = new GithubActionsStack(app, 'ProdGithubActionsStack', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+      githubRepo: 'mitikutesh/WeredaConnect',
+      websiteBucketName: 'wereda-connect-prod-me-south-1-website',
+      webappBucketName: 'wereda-connect-prod-me-south-1-webapp',
+      adminBucketName: 'wereda-connect-prod-me-south-1-admin',
+      websiteDistributionId: 'ETEST101',
+      webappDistributionId: 'ETEST102',
+      adminDistributionId: 'ETEST103',
+    });
+    const prodPolicies = JSON.stringify(
+      Template.fromStack(prodStack).findResources('AWS::IAM::Policy'),
+    );
+    expect(prodPolicies).not.toContain('SeedSsmSecrets');
+    expect(prodPolicies).not.toContain('secretsmanager:GetSecretValue');
   });
 });

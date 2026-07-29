@@ -24,8 +24,8 @@ Quick reference for deploying WeredaConnect and understanding all API endpoints.
                      |
               DynamoDB (12 tables)
               S3 (uploads bucket)
-              Secrets Manager
-              SSM Parameter Store
+              Secrets Manager (prod secrets only)
+              SSM Parameter Store (config + dev/staging secrets)
 ```
 
 **Region**: `eu-north-1` (Stockholm) for dev; `me-south-1` (Bahrain) for staging/prod
@@ -67,6 +67,13 @@ Config source: `infra/lib/config/environments.ts`
 cd infra
 npm install
 npx cdk bootstrap aws://<ACCOUNT_ID>/eu-north-1
+
+# NON-PROD ONLY, BEFORE cdk deploy: seed the SSM SecureString secrets.
+# dev/staging secrets live in SSM Parameter Store, not Secrets Manager, and
+# CloudFormation cannot create SecureStrings. Skipping this leaves every
+# secret-reading Lambda failing with ParameterNotFound at cold start.
+../scripts/seed-ssm-secrets.sh dev
+
 npx cdk deploy --all --context environment=dev
 
 # Configure GitHub secrets from CDK outputs
@@ -76,7 +83,7 @@ npx cdk deploy --all --context environment=dev
 ### 2. Full Backend Deploy (Server + Infra)
 
 ```bash
-# One command does it all: test → Docker build → CDK deploy
+# One command does it all: test → Docker build → seed → CDK deploy
 ./scripts/deploy.sh dev       # or staging, prod
 ```
 
@@ -84,7 +91,8 @@ Steps performed by `deploy.sh`:
 1. `dotnet test` — run server tests
 2. Docker build — .NET 10 AOT for linux-arm64 via `mcr.microsoft.com/dotnet/sdk:10.0`
 3. `npx tsc` — compile CDK TypeScript
-4. `npx cdk deploy --all --context environment=$ENV --require-approval broadening`
+4. `./scripts/seed-ssm-secrets.sh $ENV` (non-prod) — seed/verify SSM SecureString secrets
+5. `npx cdk deploy --all --context environment=$ENV --require-approval broadening`
 
 ### 3. Manual Backend Deploy (without script)
 
@@ -92,6 +100,11 @@ Steps performed by `deploy.sh`:
 # Build server
 cd server
 dotnet publish -c Release -r linux-arm64 --self-contained
+
+# NON-PROD ONLY: seed SSM secrets BEFORE cdk deploy — see §1. This step is
+# MANDATORY: deploying without it deletes the legacy Secrets Manager secrets
+# (no recovery window) and leaves the Lambdas pointing at missing parameters.
+../scripts/seed-ssm-secrets.sh dev
 
 # Deploy infra
 cd ../infra
@@ -163,7 +176,7 @@ flutter build appbundle --release
 | Stack | Key | Resources |
 |-------|-----|-----------|
 | **DatabaseStack** | `{prefix}-db` | 12 DynamoDB tables, 2 S3 buckets (uploads, access-logs) |
-| **ApiStack** | `{prefix}-api` | 14 Lambdas, API Gateway, 2 Cognito pools, EventBridge rules, Secrets Manager, SSM params |
+| **ApiStack** | `{prefix}-api` | 14 Lambdas, API Gateway, 2 Cognito pools, EventBridge rules, Secrets Manager (prod) / SSM SecureString refs (dev+staging), SSM params |
 | **WebStack** | `{prefix}-web` | 3 S3 buckets + 3 CloudFront distributions (website, webapp, admin) |
 | **CertificateStack** | `{prefix}-cert` | ACM wildcard cert (`*.weredaconnect.com`) in us-east-1 |
 | **MonitoringStack** | `{prefix}-monitoring` | CloudWatch dashboard + alarms |
@@ -399,7 +412,11 @@ All functions receive:
 - `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_REGION`
 - `{TABLE}_TABLE` — DynamoDB table names (e.g., `USERS_TABLE`, `CROPS_TABLE`)
 - `{PARAM}_PARAM` — SSM parameter names (commission rate, dispute window, escrow timeout)
-- `{SECRET}_ARN` — Secrets Manager ARNs (pagination secret, Fayda secrets)
+- `{SECRET}_ARN` — secret references (pagination secret, Fayda secrets): a Secrets
+  Manager ARN in prod, an SSM SecureString parameter name in dev/staging (free tier;
+  seeded by `scripts/seed-ssm-secrets.sh`, which CI runs before every non-prod deploy).
+  The server routes on the value's shape — see
+  `specs/decisions/secrets-backend-per-environment.md`.
 
 Dev-only flags (blocked in prod by CDK guard):
 - `DEV_FAYDA_BYPASS=true` — skip real Fayda verification

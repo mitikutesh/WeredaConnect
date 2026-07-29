@@ -108,6 +108,31 @@ jobs:
         working-directory: infra
         run: npm ci
 
+      # Non-prod secrets live in SSM Parameter Store (free) instead of Secrets
+      # Manager. Ordering here is load-bearing:
+      #   1. Deploy ONLY the GithubActions stack so the seed step's IAM grants
+      #      (ssm:PutParameter + legacy secretsmanager:GetSecretValue) exist —
+      #      under `--all` that stack deploys last, after the seed step needs it.
+      #   2. Seed/copy-verify the SSM parameters. A failure aborts the job
+      #      BEFORE the full deploy can remove the legacy Secrets Manager
+      #      secrets from the template (CloudFormation force-deletes them with
+      #      NO recovery window).
+      #   3. Then the normal full deploy.
+      - name: Deploy CI role grants needed by the seed step (non-prod)
+        if: ${{ (github.event.inputs.environment || 'dev') != 'prod' }}
+        working-directory: infra
+        env:
+          LAMBDA_BOOTSTRAP_PATH: ${{ github.workspace }}/server/bin/Release/net10.0/linux-arm64/publish/bootstrap
+        run: |
+          npx cdk deploy WeredaConnect-${{ github.event.inputs.environment || 'dev' }}-GithubActions \
+            --exclusively \
+            --context environment=${{ github.event.inputs.environment || 'dev' }} \
+            --require-approval never
+
+      - name: Seed SSM secrets (non-prod)
+        if: ${{ (github.event.inputs.environment || 'dev') != 'prod' }}
+        run: ./scripts/seed-ssm-secrets.sh ${{ github.event.inputs.environment || 'dev' }}
+
       - name: CDK deploy (server + infrastructure)
         working-directory: infra
         env:
