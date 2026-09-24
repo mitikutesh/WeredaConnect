@@ -251,6 +251,56 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 
 ---
 
+## Synthetic Fleet Simulation Bugs (2026-09-24) - @Scope tasks
+
+Source: 13-agent synthetic-user fleet against deployed dev (server `dc95aca`, webapp `881c64d`).
+Full report with root causes, evidence pointers and what passed: `specs/reports/synthetic-fleet-2026-09-24.md`.
+One task per deduplicated bug. Severity: P0 money/ownership/data breach or app unusable; P1 role flow
+broken or money rule unenforced; P2 wrong behaviour or contract deviation a conformant client hits; P3 cosmetic/docs/tests.
+Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair, tests, contracts).
+
+| ID | Sev | Scope | Task | Done when |
+|---|---|---|---|---|
+| SIM-01 | P0 | @Mobile | Fix certificate pinning: leaf pin stale since the 2026-06-26 API Gateway rotation AND `cert_pinning_io.dart` only ever sees the root cert (no trusted roots), so the intermediate pin can never match; Android app cannot log in. | Debug + release Android builds log in against dev; pin check evaluates the served chain (leaf/intermediate), pins documented with a rotation runbook and a CI check against the live chain. |
+| SIM-02 | P0 | @Server | Crop update: strip/reject identity fields (`farmerId`, `farmerName`, `farmerPhone`) on update; ownership is immutable. | Update with a different `farmerId` -> `CROP_UNAUTHORIZED`/validation error; test in `server/tests`. |
+| SIM-03 | P0 | @Server | Trip update: same for `truckerId`, `truckerName`, `truckerPhone`. | Reassign attempt rejected; test added. |
+| SIM-04 | P0 | @Server | `POST /escrow/initiate`: require caller == delivery.buyerId, `buyerId`/`farmerId` == delivery's, amount == order total (or reject when an order-funded escrow exists), buyer role only. | Farmer/trucker/stranger initiate -> 403; mismatched parties/amount -> 4xx; legitimate buyer path unchanged; tests. |
+| SIM-05 | P1 | @Server | Order create: load listing (+trip): enforce `farmerId` == listing owner, `cropType` == listing, `pricePerUnit` == listing price (or server-set), 0 < `quantity` <= stock, `transportCost` >= 0 and derived from trip x quantity, `tripId` required with `truckerId`, referenced ids must exist. | Each invalid case rejected with `ORDER_VALIDATION`; server computes the money fields. |
+| SIM-06 | P1 | @Server | Order update: field allow-list + immutability for `listingId`, `buyerId`, `farmerId`, `truckerId`, `tripId`, `quantity`, `pricePerUnit`, `transportCost` after create (and all money fields after `funded`); reject unknown fields. | Mutation attempts rejected; `orderTotal` never drifts from its inputs; tests incl. post-funding. |
+| SIM-07 | P1 | @Server @Docs | Unit mismatch on funding: `TryDecreaseListingQuantityAsync` subtracts kg order quantity from quintal stock. Pick one wire unit for order quantity, document it in `order-lifecycle.md`/`data-models.md`, convert consistently (pricing, stock, transport, match). | A 5-quintal in-app order reduces a 60-quintal listing to 55; unit documented; mobile/web/server tests. |
+| SIM-08 | P1 | @Server @Docs | Sync versioning: honour op-level `clientVersion` (contract) or update `sync-protocol.md` to `data.version`; never apply an order update without a version check (no fallback to stored version). | Contract-conformant update succeeds; versionless order update -> validation error; tests. |
+| SIM-09 | P1 | @Server | Delivery guards: creator must be the order's `truckerId` (or the buyer for self-pickup), at most one active delivery per order, participant ids immutable on update, and require order status >= `accepted` (decide: `funded` allowed?) before delivery create. | Each gap covered by a rejected test case; contract `delivery-verification-api.md` updated. |
+| SIM-10 | P2 | @Server @Docs | Accept the contract's delivery payload (`deliveryId`, `confirmedAt`, `pickedUpAt`) or fix the contract examples; align mobile/web clients. | Contract example payloads succeed end to end. |
+| SIM-11 | P2 | @Server @Docs | Order/delivery lifecycle coupling: advance the order on delivery transitions (or let the trucker set logistics statuses as the contract says); gate order `delivered` on delivery state; self-pickup path must not require `in_transit`. | Full with-truck and self-pickup flows leave order and delivery consistent without manual stepping; ratings unblock automatically. |
+| SIM-12 | P2 | @Server | Dispute propagation: set order (and delivery) to `disputed`; block ratings while disputed. | Dispute -> order `disputed`, rating -> `RATING_FORBIDDEN`. |
+| SIM-13 | P2 | @Server | Restore listing stock when a funded order is cancelled/rejected/refunded (idempotent, conditional update). | Stock returns to pre-order value; race-safe test. |
+| SIM-14 | P2 | @Server | Add `orderId` to the delivery DTO (list + detail) and to `data-models.md`; check mobile/admin models. | Field present on both endpoints; clients link delivery -> order. |
+| SIM-15 | P2 | @Server @Mobile | Escrow money views: map `truckerPayout`, store/index `truckerId` on escrow rows so `GET /escrow/history?role=trucker` and by-delivery work for the trucker; farmer/trucker Payments and Profile show their own share only. | Trucker sees payout; farmer view reconciles (amount = farmer + trucker + commission). |
+| SIM-16 | P2 | @Server @Docs | Default list scoping: `GET /orders`, `/escrow/history`, `/deliveries` scope by the caller's role (farmer/trucker/buyer) when no filter is given; include self-pickup escrows in farmer history. | Unfiltered reads return the caller's own rows for all 3 roles; contracts updated. |
+| SIM-17 | P2 | @Server | Run the same geo/date validation on crop update as on create (Ethiopia bounds, no future dates). | latitude 20 / createdAt 2027 on update -> `CROP_VALIDATION`. |
+| SIM-18 | P2 | @Infra | Seed the dev admin user (`scripts/seed-admin-user.sh` in CloudShell) and add it to the CI deploy or a documented post-deploy step; then run the admin dashboard e2e functionally. | Admin login works on dev-admin; Dashboard/Users/Escrows/Transactions/Audit/Fraud/Disputes render fleet data. |
+| SIM-19 | P2 | @Mobile | Replace the hardcoded 4.5-star rating and Escrow badge on crop cards with real `GET /ratings?rateeId=` data (or hide when none). | Cards show actual averages; test. |
+| SIM-20 | P2 | @Mobile | Farmer Payments/Profile must show farmer payout only (not gross incl. transport); cancelled-order escrows must not display as "Funds Held Safely". | Values match `farmerPayout`; refunded/expiring escrows labelled correctly. |
+| SIM-21 | P2 | @Mobile | Add a client-side role guard to the web router (redirect wrong-role routes) and stop wrong-role/duplicate API calls on Home and Inbox (trucker inbox 403 crop lookups). | No 403s in the browser network log for any role; one call per resource per load. |
+| SIM-22 | P2 | @Mobile @l10n | Fix clipped Amharic filter chips; localize crop type names on listing/order cards in am/om (keys exist in `app_en.arb`?). | Chips readable at 360 px; no raw English crop names in am/om. |
+| SIM-23 | P2 | @Mobile | Error mapping: TLS/pin or 403 failures must not be reported as "offline"; show a network/security or permission message. | `/error-mapping` audit passes for these paths. |
+| SIM-24 | P2 | @Server | Return `ESCROW_024` (funds already held for this order) when a delivery's order already has an active order-funded escrow, before the `ESCROW_009` check. | Buyer initiate on a funded order -> 409 `ESCROW_024`. |
+| SIM-25 | P3 | @Server | Serialize `serverData` numbers/arrays with proper JSON types in `/sync` success and conflict results. | `version`, prices, `matchedListings` typed; mobile conflict resolver tests still pass. |
+| SIM-26 | P3 | @Server @Docs | Reconcile crop read model with `crop-listing-api.md`: `quantityKg` naming, `{crop}` wrapper, default status filter (`available`), `nextToken`/`hasMore`, `limit` max 50. | Contract and server agree; e2e/webapp specs updated. |
+| SIM-27 | P3 | @Server @Docs | Auth/escrow error codes: field-specific codes for missing fields (not `AUTH_007 Invalid JSON`), `AUTH_019` for revoked refresh tokens, phone-format rule (accept and document `09...` normalisation or reject), Fayda token requirement per environment. | Contract tables match responses. |
+| SIM-28 | P3 | @Server | Idempotency: a reused key with a different payload -> error (not silent `duplicate`); race loser gets `conflict` + `serverData`. | Tests for both. |
+| SIM-29 | P3 | @Server | Escrow record hygiene: bump version on link/confirm, `409 ESCROW_020` on second dispute, expose `refundReason`. | Per `escrow-protocol.md`. |
+| SIM-30 | P3 | @Server @Docs | Commission: round to 2 dp; align contract (2.5 % deducted) with implementation (5 % added) or vice versa. | One documented rule; rounding test. |
+| SIM-31 | P3 | @Server | Exclude cancelled/deleted trips from `GET /trips` list (consistent with detail 404). | List and detail agree. |
+| SIM-32 | P3 | @Mobile | Login form: clear validation errors on edit (Android); make the web error visible and in the accessibility tree. | Manual + widget test. |
+| SIM-33 | P3 | @Mobile | Display hygiene: guard impossible money/quantity values, count "Available Crops" across pages, never show raw ids/junk location, show trucker name on trip cards. | Screens verified for all 3 roles on web. |
+| SIM-34 | P3 | @Server | Validate `since` on `GET /messages` (400 on non-ISO). | Test. |
+| SIM-35 | P3 | @Infra | Serve `/version.json` on the dev webapp (or drop it from the cache strategy docs). | 200 with build info. |
+| SIM-36 | P3 | @Tests | Fix stale e2e assertions: admin nav count (10 vs 11), webapp listing-flow invalid crop type, login spec passing on redirect timeout. | `e2e` suites green for the right reasons. |
+| SIM-37 | P3 | @Mobile @Server | Sync `preferredLanguage` to the server profile when changed in Settings. | Language persists across devices. |
+
+---
+
 ## Deployment
 
 - **API:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
@@ -261,4 +311,4 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 
 ---
 
-**Last Updated:** 2026-03-19 (PO audit with validated findings)
+**Last Updated:** 2026-09-24 (synthetic fleet simulation bug tasks SIM-01..SIM-37 added; prior PO audit 2026-03-19)
