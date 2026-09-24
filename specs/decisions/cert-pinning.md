@@ -1,6 +1,6 @@
 # Certificate Pinning - Decision Record
 
-**Status**: Foundation Implemented (Not Active)
+**Status**: Active since 2026-09-24 as CA pinning (Amazon Trust Services roots); SPKI leaf/intermediate pinning retired, see Addendum
 **Date**: 2026-02-14
 **Sprint**: Sprint 3
 **Related**: F-16 (Lambda Deployment), F-04 (Security)
@@ -158,3 +158,19 @@ SSL certificates expire (typically 1 year for AWS ACM). To prevent app breakage 
 4. **Sprint 4**: Implement actual SHA-256 verification (use package:crypto)
 5. **Sprint 4**: Enable pinning in production builds
 6. **Sprint 5**: Add monitoring and alerting for pinning failures
+
+## Addendum 2026-09-24: switch from SPKI pins to CA pinning
+
+- **Decision**: trust only the five Amazon Trust Services root CAs (bundled PEM in
+  `mobile/lib/core/network/amazon_trust_roots.dart`) via `SecurityContext.setTrustedCertificatesBytes`;
+  `badCertificateCallback` always returns false.
+- **Why**: SIM-01 (synthetic fleet, `specs/reports/synthetic-fleet-2026-09-24.md`). The leaf pin went
+  stale within three months of extraction and bricked the Android app, and the empty-trust-store
+  callback design could only ever see the root certificate, so intermediate pins were dead code.
+- **Alternatives rejected**: (a) dio `validateCertificate` leaf pinning with system roots: secure but
+  breaks on every AWS leaf rotation; (b) root SPKI compared inside `badCertificateCallback`:
+  bypassable because chain signatures are not verified when trust fails at the root.
+- **Trade-off**: any certificate issued under Amazon's roots is accepted (weaker than leaf pinning),
+  which still blocks the actual threat (non-Amazon CAs: corporate proxies, rogue CAs, carrier MITM).
+- **Guard**: `scripts/check_cert_pins.sh` verifies the live API and webapp chains against the bundle in
+  CI; `test/core/network/cert_pinning_test.dart` verifies the bundle hashes.

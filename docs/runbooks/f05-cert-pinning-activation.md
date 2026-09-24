@@ -1,9 +1,40 @@
 # F-05: Certificate Pinning Activation Assessment
 
-**Status**: Assessment complete - ready for activation
+**Status**: Superseded 2026-09-24 by CA pinning (see update below); original assessment kept for history
 **Date**: 2026-02-17
 **API Endpoint**: `https://s0om0hib4i.execute-api.me-south-1.amazonaws.com`
 **Decision Record**: `specs/decisions/cert-pinning.md`
+
+
+---
+
+## 2026-09-24 update: pinning now uses CA pinning (Amazon Trust Services roots)
+
+**Why the SPKI approach below was replaced.** The 2026-09-24 synthetic-fleet run (SIM-01) found every
+Android build unable to reach the API: the leaf pin extracted 2026-04-07 was stale after AWS rotated
+the API Gateway leaf on 2026-06-26, and with `SecurityContext(withTrustedRoots: false)` dart:io hands
+`badCertificateCallback` only the certificate that failed verification (the untrusted ROOT), so the
+leaf/intermediate pins were never even compared. Pinning a root SPKI inside that callback would be
+bypassable because the callback never proves the leaf chains to it.
+
+**What runs now** (`mobile/lib/core/network/cert_pinning_io.dart`):
+- `SecurityContext(withTrustedRoots: false)` + `setTrustedCertificatesBytes(AmazonTrustRoots.pem)`.
+  BoringSSL validates the full chain and hostname against the five Amazon Trust Services roots
+  (Amazon Root CA 1-4, Starfield Services Root G2; expiry 2037-2040) bundled in
+  `mobile/lib/core/network/amazon_trust_roots.dart`. Any other CA is rejected (fail closed).
+- Leaf and intermediate rotations by AWS no longer require an app release.
+
+**Rotation / incident procedure**
+1. `./scripts/check_cert_pins.sh` (also runs in `mobile-tests.yml`) verifies the LIVE chains of the API
+   and webapp hosts against the bundle. A FAIL means AWS moved a host to a CA outside the bundle.
+2. Download the new root from https://www.amazontrust.com/repository/, verify its SPKI hash
+   (`openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64`)
+   against the value published by Amazon, append the PEM to `AmazonTrustRoots.pem` and the hash to
+   `AmazonTrustRoots.spkiSha256`, run `flutter test test/core/network/cert_pinning_test.dart`.
+3. Ship a mobile release. Emergency fallback: `ApiClient().initialize(enableCertPinning: false)` is a
+   code-level kill switch only (no remote flag yet, see "What is missing" item 5 below).
+
+Everything below this line is the original 2026-02-17 assessment, kept for history.
 
 ---
 

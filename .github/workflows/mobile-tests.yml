@@ -9,7 +9,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,6 +45,9 @@ jobs:
         working-directory: mobile
         run: dart format --set-exit-if-changed .
 
+      - name: Check live TLS chains against the bundled Amazon roots (CA pinning)
+        run: ./scripts/check_cert_pins.sh
+
       - name: Stage Isar native library for unit tests
         working-directory: mobile
         run: cp $(find $HOME/.pub-cache/hosted/pub.dev/isar_flutter_libs-*/linux -name "libisar.so" | head -1) .
@@ -65,7 +68,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -128,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [unit-tests]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -184,7 +187,7 @@ jobs:
     name: Smoke Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -211,4 +214,3 @@ jobs:
       - name: Run smoke tests
         working-directory: mobile
         run: flutter test test/smoke/ --reporter expanded
-
