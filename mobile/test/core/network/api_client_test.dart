@@ -57,6 +57,49 @@ void main() {
         expect(result, equals(responseData));
       });
 
+      test('identical concurrent GETs share one network request (SIM-21)',
+          () async {
+        const path = '/trips';
+        var requests = 0;
+        final counter = InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests++;
+            handler.next(options);
+          },
+        );
+        ApiClient().dio.interceptors.add(counter);
+        dioAdapter.onGet(
+          path,
+          (server) => server.reply(200, {'trips': <dynamic>[]}),
+          queryParameters: {'truckerId': 't1', 'limit': '50'},
+        );
+
+        try {
+          // Same query in a different key order is the same request.
+          final results = await Future.wait([
+            ApiClient().get<Map<String, dynamic>>(
+              path,
+              queryParameters: {'truckerId': 't1', 'limit': '50'},
+            ),
+            ApiClient().get<Map<String, dynamic>>(
+              path,
+              queryParameters: {'limit': '50', 'truckerId': 't1'},
+            ),
+          ]);
+          expect(results[0], equals(results[1]));
+          expect(requests, 1);
+
+          // Once settled nothing is cached: the next read goes out again.
+          await ApiClient().get<Map<String, dynamic>>(
+            path,
+            queryParameters: {'truckerId': 't1', 'limit': '50'},
+          );
+          expect(requests, 2);
+        } finally {
+          ApiClient().dio.interceptors.remove(counter);
+        }
+      });
+
       test('GET request with custom headers', () async {
         // Arrange
         const path = '/data';

@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/messaging/data/web_conversation_context_resolver.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
@@ -67,6 +69,70 @@ void main() {
           .thenThrow(Exception('403 CROP_FORBIDDEN'));
 
       expect(await resolver.resolve('delivery', 'delivery-2'), isNull);
+    });
+
+    test('a trucker never asks for crops, directly or via a delivery (SIM-21)',
+        () async {
+      resolver = WebConversationContextResolver(
+        api: api,
+        roleOf: () => UserRole.trucker,
+      );
+
+      expect(await resolver.resolve('crop', 'crop-1'), isNull);
+      expect(await resolver.resolve('delivery', 'delivery-1'), isNull);
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+    });
+
+    test('a buyer still resolves crops with the role hook wired', () async {
+      resolver = WebConversationContextResolver(
+        api: api,
+        roleOf: () => UserRole.buyer,
+      );
+      stubGet('/crops/crop-1', {
+        'crop': {'cropId': 'crop-1', 'cropType': 'teff', 'quantityKg': 100},
+      });
+
+      final info = await resolver.resolve('crop', 'crop-1');
+      expect(info?.cropTypeKey, 'teff');
+    });
+
+    test('a 403 is remembered: the same context is not fetched again',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-x'))
+          .thenThrow(const AuthException('Forbidden', 403));
+
+      expect(await resolver.resolve('crop', 'crop-x'), isNull);
+      expect(await resolver.resolve('crop', 'crop-x'), isNull);
+      verify(() => api.get<Map<String, dynamic>>('/crops/crop-x')).called(1);
+    });
+
+    test('a transient failure is retried on the next resolve', () async {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-t'))
+          .thenThrow(const NetworkException());
+
+      expect(await resolver.resolve('crop', 'crop-t'), isNull);
+      expect(await resolver.resolve('crop', 'crop-t'), isNull);
+      verify(() => api.get<Map<String, dynamic>>('/crops/crop-t')).called(2);
+    });
+
+    test('concurrent resolves of one context share a single lookup', () async {
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
+        (_) => Future.delayed(
+          const Duration(milliseconds: 20),
+          () => {
+            'crop': {'cropId': 'crop-1', 'cropType': 'teff', 'quantityKg': 1},
+          },
+        ),
+      );
+
+      final results = await Future.wait([
+        resolver.resolve('crop', 'crop-1'),
+        resolver.resolve('crop', 'crop-1'),
+      ]);
+
+      expect(results[0]?.cropTypeKey, 'teff');
+      expect(results[1]?.cropTypeKey, 'teff');
+      verify(() => api.get<Map<String, dynamic>>('/crops/crop-1')).called(1);
     });
 
     test('trip context parses the route', () async {

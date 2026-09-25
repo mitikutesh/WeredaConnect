@@ -22,6 +22,30 @@ import 'package:wereda_connect/screens/payments_tab_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
+
+const _authRoutes = {
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+};
+
+/// Where the web router sends [location] for [authState], or null to stay.
+///
+/// Pure so it can be unit-tested without mounting the shell. Besides the
+/// sign-in gate it applies the role guard (SIM-21): a wrong-role URL (typed,
+/// bookmarked, stale) must not mount a screen whose loads the server would
+/// refuse with 403, so it goes home instead.
+String? webRedirect(AuthState authState, String location) {
+  final isAuthRoute = _authRoutes.contains(location);
+  if (authState is! AuthAuthenticated) {
+    return isAuthRoute ? null : '/login';
+  }
+  if (isAuthRoute) return '/';
+  if (!webRoutesForRole(authState.role).contains(location)) return '/';
+  return null;
+}
 
 /// Creates the go_router configuration for web navigation.
 ///
@@ -30,18 +54,8 @@ import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 GoRouter createWebRouter(AuthBloc authBloc) {
   return GoRouter(
     refreshListenable: _AuthRefreshNotifier(authBloc),
-    redirect: (context, state) {
-      final authState = authBloc.state;
-      final isAuthenticated = authState is AuthAuthenticated;
-      final isAuthRoute = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register' ||
-          state.matchedLocation == '/forgot-password' ||
-          state.matchedLocation == '/reset-password';
-
-      if (!isAuthenticated && !isAuthRoute) return '/login';
-      if (isAuthenticated && isAuthRoute) return '/';
-      return null;
-    },
+    redirect: (context, state) =>
+        webRedirect(authBloc.state, state.matchedLocation),
     routes: [
       // Auth routes (no shell)
       GoRoute(

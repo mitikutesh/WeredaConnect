@@ -42,6 +42,18 @@ class ApiClient {
   /// Whether the API client has been initialized.
   bool get isInitialized => _isInitialized;
 
+  /// GETs in flight, keyed by path + query. Identical concurrent reads (a
+  /// dashboard's stats, activity and hero card all wanting the same list)
+  /// then hit the network once (SIM-21). Entries go as soon as the request
+  /// settles; nothing is cached after that.
+  final Map<String, Future<Object?>> _inflightGets = {};
+
+  static String _inflightKey(String path, Map<String, dynamic>? query) {
+    if (query == null || query.isEmpty) return path;
+    final keys = query.keys.toList()..sort();
+    return '$path?${keys.map((k) => '$k=${query[k]}').join('&')}';
+  }
+
   /// Initialize Dio client with environment and optional certificate pinning.
   ///
   /// Params:
@@ -89,8 +101,39 @@ class ApiClient {
     }
   }
 
-  /// GET request
+  /// GET request. Plain GETs (no custom headers, cancel token or parser)
+  /// that are identical to one still in flight share its response.
   Future<T> get<T>(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Map<String, dynamic>? headers,
+    CancelToken? cancelToken,
+    T Function(dynamic)? parser,
+  }) {
+    final coalesce = headers == null && cancelToken == null && parser == null;
+    final key = coalesce ? _inflightKey(path, queryParameters) : null;
+    if (key != null) {
+      final pending = _inflightGets[key];
+      if (pending != null) return pending.then((value) => value as T);
+    }
+
+    final request = _get<T>(
+      path,
+      queryParameters: queryParameters,
+      headers: headers,
+      cancelToken: cancelToken,
+      parser: parser,
+    );
+    if (key != null) {
+      _inflightGets[key] = request;
+      // The original caller awaits `request`; this chain only cleans up and
+      // must not surface the same error a second time.
+      request.whenComplete(() => _inflightGets.remove(key)).ignore();
+    }
+    return request;
+  }
+
+  Future<T> _get<T>(
     String path, {
     Map<String, dynamic>? queryParameters,
     Map<String, dynamic>? headers,

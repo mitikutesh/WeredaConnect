@@ -1319,11 +1319,18 @@ class _OverviewStatsState extends State<_OverviewStats> {
         }
       }
 
+      // One GET per resource, with the same path and params the Recent
+      // Activity section and the trucker hero card use, so ApiClient folds
+      // the concurrent identical reads into a single request (SIM-21).
       if (role == UserRole.farmer) {
-        final cropsFuture =
-            safeGet('/crops', queryParameters: {'farmerId': userId});
-        final deliveriesFuture =
-            safeGet('/deliveries', queryParameters: {'farmerId': userId});
+        final cropsFuture = safeGet(
+          '/crops',
+          queryParameters: {'farmerId': userId, 'limit': '50'},
+        );
+        final deliveriesFuture = safeGet(
+          '/deliveries',
+          queryParameters: {'farmerId': userId, 'limit': '50'},
+        );
         final orderItems =
             await _fetchOrderPages(safeGet, {'farmerId': userId});
         result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
@@ -1334,8 +1341,12 @@ class _OverviewStatsState extends State<_OverviewStats> {
         result['deliveries'] =
             _countApiItems(await deliveriesFuture, alt: 'deliveries');
       } else if (role == UserRole.buyer) {
-        final deliveriesFuture =
-            safeGet('/deliveries', queryParameters: {'buyerId': userId});
+        // The server scopes a buyer via mine=true (ParticipantIndex); a
+        // buyerId= filter is not a delivery query parameter.
+        final deliveriesFuture = safeGet(
+          '/deliveries',
+          queryParameters: {'mine': 'true', 'limit': '50'},
+        );
         final cropsFuture =
             safeGet('/crops', queryParameters: {'status': 'available'});
         final orderItems = await _fetchOrderPages(safeGet, {'buyerId': userId});
@@ -1347,26 +1358,23 @@ class _OverviewStatsState extends State<_OverviewStats> {
             _countOrdersByStatus(orderItems, escrowHeldOrderStatusNames);
         result['listings'] = _countApiItems(await cropsFuture, alt: 'crops');
       } else if (role == UserRole.trucker) {
-        final responses = await Future.wait([
-          safeGet('/trips', queryParameters: {'truckerId': userId}),
-          safeGet(
-            '/trips',
-            queryParameters: {'truckerId': userId, 'status': 'inTransit'},
-          ),
-          safeGet(
-            '/trips',
-            queryParameters: {'truckerId': userId, 'status': 'matched'},
-          ),
-          // The server has no truckerId delivery index, so /deliveries?truckerId=
-          // is ignored and falls through to the global newest list — yielding a
-          // silent undercount of the trucker's deliveries. Don't issue it; the
-          // count needs a TruckerIdCreatedAtIndex GSI (documented follow-up).
-          Future<Map<String, dynamic>>.value(<String, dynamic>{}),
-        ]);
-        result['trips'] = _countApiItems(responses[0], alt: 'trips');
-        result['inTransit'] = _countApiItems(responses[1], alt: 'trips');
-        result['matched'] = _countApiItems(responses[2], alt: 'trips');
-        result['deliveries'] = _countApiItems(responses[3], alt: 'deliveries');
+        // One trips read (was three status-filtered ones): the status
+        // counts come from the page. Deliveries are scoped by truckerId
+        // (TruckerIdCreatedAtIndex, SIM-16).
+        final tripsFuture = safeGet(
+          '/trips',
+          queryParameters: {'truckerId': userId, 'limit': '50'},
+        );
+        final deliveriesFuture = safeGet(
+          '/deliveries',
+          queryParameters: {'truckerId': userId, 'limit': '50'},
+        );
+        final trips = _apiItems(await tripsFuture, alt: 'trips');
+        result['trips'] = trips.length;
+        result['inTransit'] = _countByStatus(trips, 'inTransit');
+        result['matched'] = _countByStatus(trips, 'matched');
+        result['deliveries'] =
+            _countApiItems(await deliveriesFuture, alt: 'deliveries');
       }
 
       return result;
@@ -1376,11 +1384,15 @@ class _OverviewStatsState extends State<_OverviewStats> {
     }
   }
 
-  static int _countApiItems(Map<String, dynamic> data, {String? alt}) {
-    final items =
-        data[alt] as List<dynamic>? ?? data['items'] as List<dynamic>? ?? [];
-    return items.length;
-  }
+  static List<dynamic> _apiItems(Map<String, dynamic> data, {String? alt}) =>
+      data[alt] as List<dynamic>? ?? data['items'] as List<dynamic>? ?? [];
+
+  static int _countApiItems(Map<String, dynamic> data, {String? alt}) =>
+      _apiItems(data, alt: alt).length;
+
+  /// Rows whose wire `status` (camelCase for trips) equals [status].
+  static int _countByStatus(List<dynamic> items, String status) =>
+      items.where((item) => item is Map && item['status'] == status).length;
 
   /// Fetch the user's orders following nextToken pagination so counts don't
   /// silently truncate at one page. Bounded at 5 pages (250 orders) to cap
@@ -1800,57 +1812,44 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       final intentState =
           role == UserRole.buyer ? context.read<BuyerIntentBloc>().state : null;
 
-      // Fetch recent data in parallel based on role
-      final futures = <Future<Map<String, dynamic>>>[
-        // Orders (all roles)
-        api.get<Map<String, dynamic>>(
-          '/orders',
-          queryParameters: {'buyerId': userId, 'limit': '3'},
-        ).catchError((_) => <String, dynamic>{}),
-        api.get<Map<String, dynamic>>(
-          '/orders',
-          queryParameters: {'farmerId': userId, 'limit': '3'},
-        ).catchError((_) => <String, dynamic>{}),
-        // Deliveries — MUST be scoped to the caller. The server supports farmerId
-        // (FarmerIdCreatedAtIndex) and mine=true (buyer via ParticipantIndex) but
-        // NOT truckerId (no GSI yet — documented follow-up). Issuing an unscoped
-        // query for a trucker falls through to the global newest-PENDING list,
-        // leaking other users' deliveries, so skip the fetch for truckers until
-        // the truckerId GSI exists (trucker Recent Activity uses trips + orders).
-        if (role == UserRole.trucker)
-          Future<Map<String, dynamic>>.value(<String, dynamic>{})
-        else
+      // One GET per resource, scoped to the caller's own role and using the
+      // same path and params as the Overview stats (and the trucker hero
+      // card), so ApiClient folds the concurrent identical reads into one
+      // request (SIM-21). Orders used to be fetched twice for every role
+      // (buyerId= and farmerId=), and never by truckerId.
+      Future<Map<String, dynamic>> safeGet(
+        String path,
+        Map<String, dynamic> params,
+      ) =>
           api
-              .get<Map<String, dynamic>>(
-                '/deliveries',
-                queryParameters: role == UserRole.farmer
-                    ? {'farmerId': userId, 'limit': '5'}
-                    : {'mine': 'true', 'limit': '5'},
-              )
-              .catchError((_) => <String, dynamic>{}),
-      ];
-
-      // Role-specific: trips for truckers, crops for farmers
-      if (role == UserRole.trucker) {
-        futures.add(
-          api.get<Map<String, dynamic>>(
-            '/trips',
-            queryParameters: {'truckerId': userId, 'limit': '5'},
-          ).catchError((_) => <String, dynamic>{}),
-        );
-      } else if (role == UserRole.farmer) {
-        futures.add(
-          api.get<Map<String, dynamic>>(
-            '/crops',
-            queryParameters: {'farmerId': userId, 'limit': '5'},
-          ).catchError((_) => <String, dynamic>{}),
-        );
-      }
-
-      final results = await Future.wait(futures);
+              .get<Map<String, dynamic>>(path, queryParameters: params)
+              .catchError((_) => <String, dynamic>{});
+      final partyParam = switch (role) {
+        UserRole.farmer => 'farmerId',
+        UserRole.buyer => 'buyerId',
+        UserRole.trucker => 'truckerId',
+      };
+      final results = await Future.wait([
+        safeGet('/orders', {partyParam: userId, 'limit': '50'}),
+        // Deliveries: farmerId= (FarmerIdCreatedAtIndex), mine=true (buyer
+        // via ParticipantIndex), truckerId= (TruckerIdCreatedAtIndex, SIM-16).
+        safeGet('/deliveries', {
+          if (role == UserRole.buyer) 'mine': 'true' else partyParam: userId,
+          'limit': '50',
+        }),
+        // Role-specific: trips for truckers, crops for farmers.
+        switch (role) {
+          UserRole.trucker =>
+            safeGet('/trips', {'truckerId': userId, 'limit': '50'}),
+          UserRole.farmer =>
+            safeGet('/crops', {'farmerId': userId, 'limit': '50'}),
+          UserRole.buyer =>
+            Future<Map<String, dynamic>>.value(<String, dynamic>{}),
+        },
+      ]);
 
       // Parse orders
-      for (final resp in [results[0], results[1]]) {
+      for (final resp in [results[0]]) {
         final orders = resp['orders'] as List<dynamic>? ??
             resp['items'] as List<dynamic>? ??
             [];
@@ -1872,8 +1871,8 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       }
 
       // Parse deliveries
-      final deliveries = results[2]['deliveries'] as List<dynamic>? ??
-          results[2]['items'] as List<dynamic>? ??
+      final deliveries = results[1]['deliveries'] as List<dynamic>? ??
+          results[1]['items'] as List<dynamic>? ??
           [];
       for (final d in deliveries.take(3)) {
         final m = d as Map<String, dynamic>;
@@ -1891,10 +1890,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       }
 
       // Parse role-specific data
-      if (results.length > 3) {
+      {
         if (role == UserRole.trucker) {
-          final trips = results[3]['trips'] as List<dynamic>? ??
-              results[3]['items'] as List<dynamic>? ??
+          final trips = results[2]['trips'] as List<dynamic>? ??
+              results[2]['items'] as List<dynamic>? ??
               [];
           for (final t in trips.take(3)) {
             final m = t as Map<String, dynamic>;
@@ -1913,8 +1912,8 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             );
           }
         } else if (role == UserRole.farmer) {
-          final crops = results[3]['crops'] as List<dynamic>? ??
-              results[3]['items'] as List<dynamic>? ??
+          final crops = results[2]['crops'] as List<dynamic>? ??
+              results[2]['items'] as List<dynamic>? ??
               [];
           for (final c in crops.take(3)) {
             final m = c as Map<String, dynamic>;
