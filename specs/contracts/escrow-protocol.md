@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.2.0
+1.2.1
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -339,6 +339,15 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 ### 3. POST /escrow/dispute
 
 Buyer or farmer raises a dispute. Must be within 48 hours of delivery confirmation.
+
+Propagation (1.2.1, SIM-12): a successful dispute also moves the linked order from
+`delivered` to `disputed` (which blocks ratings) and the delivery from `delivered` to
+`disputed`, best-effort as a system side effect; a failure is written to the escrow
+audit ledger as `dispute_propagation_failed`. The reverse holds too: a delivery
+disputed through `POST /sync` freezes its `escrowed` escrow the same way (reason
+`other`, the delivery's free-text reason as the description, the same audit entry, no
+extra idempotency record), so the 48-hour auto-release can never pay out a disputed
+handoff.
 
 #### Request Body
 
@@ -1150,6 +1159,7 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.1 | 2026-09-25 | Dispute propagation (SIM-12): an escrow dispute mirrors onto the order (`delivered → disputed`, blocks ratings) and the delivery; a delivery-level dispute freezes the escrow; failures land in the audit ledger as `dispute_propagation_failed` |
 | 1.2.0 | 2026-09-25 | Initiate hardening (SIM-04): buyer role only (`ESCROW_025`), caller must be the delivery's buyer (`ESCROW_026`), `farmerId` must be the delivery's farmer (`ESCROW_027`), `amount` must equal the linked order's `orderTotal` (`ESCROW_028`), client `orderId` may only echo the delivery's; payout split always taken from the linked order |
 | 1.1.0 | 2026-07-12 | Order-funded escrow leg: record created at order funding (deterministic escrow-order-{orderId} key, source=order, no deliveryId until linkage), delivery linkage + self-heal, reject/cancel refund scheduling via expiresAt, order-aware auto-refund, ESCROW_024 double-charge guard, EscrowSummaryDto gains orderId/buyerId/farmerId |
 | 1.0.0 | 2026-02-17 | Initial contract: escrow lifecycle, endpoints, data models, Telebirr integration, idempotency, DynamoDB design, security, Ethiopian context, offline behavior, error handling, automated processes |
@@ -1157,5 +1167,5 @@ A scheduled Lambda runs every 6 hours:
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Status**: Draft (Phase R4)

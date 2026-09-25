@@ -233,6 +233,68 @@ public sealed class DeliveryRepository : IDeliveryRepository
         return item != null ? CropRepository.FromItem(item) : null;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason)
+    {
+        var existing = await GetItemAsync(deliveryId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        // The sync handler keys deliveries on deliveryId + tripId (self-pickup stores a
+        // synthetic tripId), so the same key is used here.
+        var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
+        var version = existing.TryGetValue("version", out var vAttr)
+            && int.TryParse(vAttr.N, out var parsed) ? parsed : 1;
+        var now = DateTime.UtcNow.ToString("o");
+
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+            { "#disputedBy", "disputedBy" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":disputed", new AttributeValue { S = "disputed" } },
+            { ":delivered", new AttributeValue { S = "delivered" } },
+            { ":updated", new AttributeValue { S = now } },
+            { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
+            { ":disputedBy", new AttributeValue { S = disputedBy } }
+        };
+        var setParts = "#status = :disputed, #updated = :updated, #v = :newVersion, #disputedBy = :disputedBy";
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            attrNames["#reason"] = "disputeReason";
+            attrValues[":reason"] = new AttributeValue { S = reason };
+            setParts += ", #reason = :reason";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET " + setParts,
+            ConditionExpression = "#status = :delivered",
+            ExpressionAttributeNames = attrNames,
+            ExpressionAttributeValues = attrValues
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Query for an item by deliveryId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.

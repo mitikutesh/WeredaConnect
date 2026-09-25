@@ -1310,6 +1310,10 @@ public sealed class EscrowService
         // 10. Audit log
         await AppendAuditAsync(request.EscrowId, "dispute", "escrowed", "disputed", authenticatedUserId);
 
+        // SIM-12: a dispute freezes the whole trade, not just the money. Mirror it onto
+        // the order (delivered -> disputed, which blocks ratings) and the delivery.
+        await TryPropagateDisputeAsync(escrowItem, request.EscrowId, request.DisputedBy, request.Reason);
+
         await _idempotencyRepo.UpdateAsync(request.IdempotencyKey, "completed");
 
         // 11. Return DisputeEscrowResponse
@@ -1324,6 +1328,101 @@ public sealed class EscrowService
             CreatedAt = now.ToString("o"),
             Message = "Dispute registered. Platform will review within 48 hours."
         });
+    }
+
+    /// <summary>
+    /// SIM-12: mirror an escrow dispute onto the linked delivery (delivered -> disputed)
+    /// and order (delivered -> disputed). Best-effort: the dispute itself is already
+    /// recorded and audited; a propagation failure is written to the escrow audit ledger
+    /// as <c>dispute_propagation_failed</c> so the admin timeline shows it, and never
+    /// surfaces as a failed dispute. The order id comes from the escrow record, or from
+    /// the delivery when an older escrow carries none.
+    /// </summary>
+    private async Task TryPropagateDisputeAsync(
+        Dictionary<string, object> escrowItem, string escrowId, string disputedBy, string reason)
+    {
+        var deliveryId = GetStringOrNull(escrowItem, "deliveryId");
+        var orderId = GetStringOrNull(escrowItem, "orderId");
+        try
+        {
+            if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
+            {
+                if (string.IsNullOrEmpty(orderId))
+                {
+                    var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+                    orderId = delivery != null ? GetStringOrNull(delivery, "orderId") : null;
+                }
+
+                await _deliveryRepo.TryMarkDisputedAsync(deliveryId, disputedBy, reason);
+            }
+
+            if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
+            {
+                var order = await _orderRepo.GetByIdAsync(orderId);
+                if (order != null && GetString(order, "status") == "delivered")
+                {
+                    await _orderRepo.UpdateAsync(
+                        orderId, new Dictionary<string, object> { { "status", "disputed" } }, GetInt(order, "version"));
+                }
+            }
+        }
+        catch (Exception)
+        {
+            try
+            {
+                await AppendAuditAsync(escrowId, "dispute_propagation_failed", "disputed", "disputed", disputedBy);
+            }
+            catch (Exception)
+            {
+                // The ledger write itself failed; the dispute is still recorded on the escrow.
+            }
+        }
+    }
+
+    /// <summary>
+    /// SIM-12: freeze the escrow behind a delivery that was disputed through sync. Same
+    /// status write and audit entry as <see cref="DisputeAsync"/>, but no idempotency
+    /// record (the sync operation is already idempotent) and no window check (the
+    /// delivery handler enforced the 48-hour window). The delivery's free-text reason is
+    /// kept as the description under the <c>other</c> reason code. Returns false when
+    /// there is nothing to freeze: no escrow for the delivery, or not <c>escrowed</c>.
+    /// </summary>
+    public async Task<bool> MarkDisputedFromDeliveryAsync(string deliveryId, string disputedBy, string? description)
+    {
+        var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+        if (escrow == null || GetString(escrow, "status") != "escrowed")
+        {
+            return false;
+        }
+
+        var escrowId = GetString(escrow, "escrowId");
+        var createdAt = GetString(escrow, "createdAt");
+        var now = DateTime.UtcNow;
+        var confirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
+        var disputeWindowEndsAt = confirmedAt != null
+            && DateTime.TryParse(confirmedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var ct)
+            ? ct.AddHours(DisputeWindowHours).ToString("o")
+            : now.AddHours(DisputeWindowHours).ToString("o");
+
+        var fields = new Dictionary<string, object>
+        {
+            { "disputeId", $"dispute-{Guid.NewGuid():N}" },
+            { "disputedBy", disputedBy },
+            { "disputeReason", "other" },
+            { "disputeCreatedAt", now.ToString("o") },
+            { "disputeWindowEndsAt", disputeWindowEndsAt },
+            { "version", GetInt(escrow, "version") + 1 }
+        };
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            fields["disputeDescription"] = description.Length > MaxDisputeDescriptionLength
+                ? description[..MaxDisputeDescriptionLength]
+                : description;
+        }
+
+        await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "disputed", "escrowed", fields);
+        await AppendAuditAsync(escrowId, "dispute", "escrowed", "disputed", disputedBy);
+        return true;
     }
 
     /// <summary>

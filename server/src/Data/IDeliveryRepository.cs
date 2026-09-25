@@ -57,4 +57,11 @@ public interface IDeliveryRepository
     /// Get a delivery by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId);
+
+    /// <summary>
+    /// SIM-12: move a <c>delivered</c> delivery to <c>disputed</c> (conditional write; the
+    /// escrow dispute mirrors onto the handoff). Returns false when the delivery does not
+    /// exist or is not <c>delivered</c>, so a repeat is a no-op.
+    /// </summary>
+    Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason);
 }

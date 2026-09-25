@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.4.0
+1.4.1
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -40,7 +40,7 @@ statuses are camelCase on the wire).
 | — | `cancelled` | Order cancelled (buyer action, or auto-cancel — see below). Escrowed money, if any, refunds to the buyer. | Refunded/none. Terminal. | Buyer / system cron |
 | — | `rejected` | Farmer declined the funded order; escrow refunds to the buyer. | Refunded. Terminal. | Farmer |
 | — | `payment_failed` | Payment could not be verified. Buyer may retry (`→ pending_payment`) or cancel. | No confirmed money. | System |
-| — | `disputed` | Dispute raised within the window; escrow keeps holding the money. | Frozen in escrow. | Buyer (via escrow API) |
+| — | `disputed` | Dispute raised within the window; escrow keeps holding the money. Ratings are blocked while disputed. | Frozen in escrow. | **System** from an escrow dispute (`POST /escrow/dispute`, buyer or farmer) or a delivery dispute via sync (1.4.1) |
 | — | `dispute_resolved` | Dispute decided; money released to farmer or refunded to buyer per outcome. | Released per verdict. Terminal. | **System only** (admin resolution) |
 
 ### The three "payment" levels, in one line each
@@ -86,6 +86,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
 | escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`); progressing orders get the expiry pushed +48h. | `escrow-protocol.md` §Order-Funded Escrow |
 | delivery `pickedUp` / `inTransit` / `delivered` | The linked order advances to `pickup_confirmed` / `in_transit` / `delivered` as a system actor, forward only (never out of `disputed`, `cancelled` or a later status). Self-pickup: `accepted → delivered` in one hop. Best-effort: a failure is logged, the delivery update still succeeds. This is what unblocks ratings without any manual stepping (1.4.0, SIM-11). | `TryAdvanceOrderForDeliveryAsync`, `SyncFunction.cs` |
+| escrow or delivery `disputed` | The order moves `delivered → disputed` (blocks ratings). An escrow dispute also marks the delivery `disputed`; a delivery dispute also freezes the escrow. Best-effort, audited (1.4.1, SIM-12). | `TryPropagateDisputeAsync` (`EscrowService`), `TryAdvanceOrderForDeliveryAsync` + `TryFreezeEscrowForDisputedDeliveryAsync` (`SyncFunction.cs`) |
 | every applied transition | Append-only audit row (who/when/prior→new). | `EmitTxAuditAsync` → `transaction-audit` table |
 
 ### Known gap (deliberate, tracked)
@@ -147,6 +148,7 @@ orderTotal       = cropCost + transportCost + commissionAmount
 
 ## Changelog
 
+- **1.4.1 (2026-09-25)**: Dispute propagation (SIM-12): an escrow dispute or a delivery dispute moves a `delivered` order to `disputed`; the escrow dispute marks the delivery disputed and a delivery dispute freezes the escrow; ratings stay blocked while disputed.
 - **1.4.0 (2026-09-25)**: Order follows its delivery (SIM-11): delivery `pickedUp`/`inTransit`/`delivered` advance the order server-side (forward only, best-effort, system-audited); the order's trucker may set the three logistics statuses; a client `delivered` is refused unless the active delivery is `delivered`.
 - **1.3.0 (2026-09-25)**: Order update allow-list (SIM-06): only status and its companions may change; identity and pricing fields are immutable in every status; echoed bookkeeping keys are checked or dropped; unknown keys rejected.
 - **1.2.0 (2026-09-25)**: Server-bound order create (SIM-05): listing and trip existence, ownership, cropType, price, stock and transport-cost binding; server computes every money field and overwrites farmer/trucker names. Units documented; funding decrements listing stock in quintals (SIM-07).

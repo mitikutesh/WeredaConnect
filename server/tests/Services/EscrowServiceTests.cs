@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
@@ -682,6 +683,137 @@ public class EscrowServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("disputed", result.Value!.Status);
+    }
+
+    // --- SIM-12: dispute propagation ---
+
+    private static DisputeEscrowRequest MakeDisputeRequest(string disputedBy = BuyerId) => new()
+    {
+        EscrowId = "escrow-001",
+        DisputedBy = disputedBy,
+        Reason = "damaged_goods",
+        Description = "Teff bags were wet.",
+        IdempotencyKey = $"{disputedBy}:escrow-001:dispute:1708171200000"
+    };
+
+    [Fact]
+    public async Task DisputeAsync_PropagatesToOrderAndDelivery()
+    {
+        // The fleet run: escrow disputed, but order and delivery stayed delivered and the
+        // buyer could still rate the farmer.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods").Returns(true);
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "delivered" }, { "version", "2" }
+        });
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await deliveryRepo.Received(1).TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods");
+        await orderRepo.Received(1).UpdateAsync("order-1",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderNotDelivered_IsLeftAlone()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "status", "in_transit" }, { "version", "2" }
+        });
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DisputeAsync_ResolvesOrderFromDeliveryWhenEscrowHasNoOrderId()
+    {
+        // Escrows created before the order linkage carry no orderId; the delivery does.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "orderId", "order-9" }, { "status", "delivered" }
+        });
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-9").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-9" }, { "status", "delivered" }, { "version", "3" }
+        });
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.Received(1).UpdateAsync("order-9",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 3);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_PropagationFailure_DoesNotFailTheDispute()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .ThrowsAsync(new InvalidOperationException("deliveries table unavailable"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("disputed", result.Value!.Status);
+    }
+
+    [Fact]
+    public async Task MarkDisputedFromDeliveryAsync_FreezesEscrowedMoney()
+    {
+        // A delivery disputed through sync must freeze the escrow, or the 48-hour
+        // auto-release would still pay the farmer.
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(MakeEscrowItem(status: "escrowed"));
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync(DeliveryId, BuyerId, "wet bags");
+
+        Assert.True(frozen);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-001", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f["disputeReason"].ToString() == "other"
+                && f["disputeDescription"].ToString() == "wet bags"
+                && f["disputedBy"].ToString() == BuyerId));
+    }
+
+    [Theory]
+    [InlineData("released")]
+    [InlineData("disputed")]
+    [InlineData("refunded")]
+    public async Task MarkDisputedFromDeliveryAsync_NothingToFreeze_ReturnsFalse(string status)
+    {
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(MakeEscrowItem(status: status));
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync(DeliveryId, BuyerId, null);
+
+        Assert.False(frozen);
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
     }
 
     [Fact]

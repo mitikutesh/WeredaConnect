@@ -3302,25 +3302,35 @@ public class SyncFunctionTests
     }
 
     /// <summary>A pending trucker delivery for order-001 with the standard test parties.</summary>
-    private static Dictionary<string, AttributeValue> DeliveryItemForOrder(string status = "pending", int version = 1) => new()
+    private static Dictionary<string, AttributeValue> DeliveryItemForOrder(
+        string status = "pending", int version = 1, string? confirmedAt = null)
     {
-        { "deliveryId", new AttributeValue { S = "del-001" } },
-        { "tripId", new AttributeValue { S = "trip-001" } },
-        { "orderId", new AttributeValue { S = "order-001" } },
-        { "listingId", new AttributeValue { S = "listing-001" } },
-        { "farmerId", new AttributeValue { S = "farmer-001" } },
-        { "farmerName", new AttributeValue { S = "Abebe" } },
-        { "truckerId", new AttributeValue { S = "trucker-001" } },
-        { "truckerName", new AttributeValue { S = "Tadesse" } },
-        { "truckerPhone", new AttributeValue { S = "+251922222222" } },
-        { "buyerId", new AttributeValue { S = "buyer-001" } },
-        { "buyerName", new AttributeValue { S = "Mekonnen" } },
-        { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
-        { "status", new AttributeValue { S = status } },
-        { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
-        { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
-        { "version", new AttributeValue { N = version.ToString() } }
-    };
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = "del-001" } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "orderId", new AttributeValue { S = "order-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "truckerId", new AttributeValue { S = "trucker-001" } },
+            { "truckerName", new AttributeValue { S = "Tadesse" } },
+            { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } }
+        };
+        if (confirmedAt != null)
+        {
+            item["confirmedAt"] = new AttributeValue { S = confirmedAt };
+        }
+
+        return item;
+    }
 
     private static SyncOperationRequest MakeDeliveryUpdateOp(Dictionary<string, object> data, string action = "update") => new()
     {
@@ -3710,6 +3720,79 @@ public class SyncFunctionTests
         });
 
         Assert.Contains("success", body);
+    }
+
+    // --- SIM-12: a disputed delivery disputes the order and freezes the escrow ---
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_MovesOrderToDisputed()
+    {
+        SetupExistingOrder(status: "delivered");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_OrderNotDelivered_IsLeftAlone()
+    {
+        SetupExistingOrder(status: "in_transit");
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_FreezesTheEscrow()
+    {
+        // Without this the 48-hour auto-release still paid the farmer for a disputed handoff.
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
+            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
+            { "version", 1 }
+        });
+        var escrowService = new EscrowService(
+            escrowRepo, Substitute.For<IEscrowAuditRepository>(), idempotencyRepo: null, telebirrGateway: null);
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
+            escrowRepo: escrowRepo, orderEscrowService: escrowService);
+        SetupExistingOrder(status: "delivered");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await escrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-d1", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.4.0
+1.4.1
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -91,6 +91,11 @@ transition advances the linked order to `pickup_confirmed`, `in_transit` or
 `delivered` as a system actor (forward only; a self-pickup handoff moves the order
 from `accepted` straight to `delivered`). Clients no longer step the order
 themselves; see `order-lifecycle.md` 1.4.0.
+
+A `disputed` transition (raised by a participant within the 48-hour window) also
+moves a `delivered` order to `disputed` and freezes the escrow behind the delivery
+(v1.4.1, SIM-12). In the other direction, an escrow dispute raised through
+`POST /escrow/dispute` marks the delivery `disputed`.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -859,9 +864,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.3.0 | 2026-09-25 | Delivery guards (SIM-09): order must be `accepted`/`pickup_confirmed`/`in_transit`; trucker-flow creator must be the order's trucker (order without a trucker is self-pickup only); one active delivery per order via `activeDeliveryId` claimed on the order and released on cancel; participant/order/listing/trip/type fields immutable on update. |
 | 1.3.1 | 2026-09-25 | Echo keys (SIM-10): the example payloads' `deliveryId` (must equal `entityId`), `pickedUpAt`, `confirmedAt` and `updatedAt` are accepted; the timestamps are server-stamped and the client values ignored. Also unblocks the mobile dispute call, which echoes `deliveryId` and `updatedAt`. |
 | 1.4.0 | 2026-09-25 | Order coupling (SIM-11): `pickedUp`/`inTransit`/`delivered` advance the linked order server-side (forward only, best-effort, system-audited); self-pickup moves the order `accepted → delivered` in one hop. |
+| 1.4.1 | 2026-09-25 | Dispute propagation (SIM-12): a delivery `disputed` moves the order to `disputed` and freezes the escrow; an escrow dispute marks the delivery `disputed`. |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.4.0
+**Version**: 1.4.1
 **Status**: Draft (Phase R4.2)

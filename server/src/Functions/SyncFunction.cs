@@ -4397,11 +4397,22 @@ public partial class SyncFunction
                         // from accepted straight to delivered). Best-effort, system actor.
                         if (operation.Data != null
                             && operation.Data.TryGetValue("status", out var followStatusObj)
-                            && followStatusObj?.ToString() is string followStatus
-                            && existing.TryGetValue("orderId", out var followOid)
-                            && !string.IsNullOrEmpty(followOid.S))
+                            && followStatusObj?.ToString() is string followStatus)
                         {
-                            await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
+                            if (existing.TryGetValue("orderId", out var followOid) && !string.IsNullOrEmpty(followOid.S))
+                            {
+                                await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
+                            }
+
+                            // SIM-12: a disputed handoff must freeze the escrowed money too, or the
+                            // 48-hour auto-release would still pay the farmer.
+                            if (followStatus == "disputed")
+                            {
+                                var disputeText = operation.Data.TryGetValue("disputeReason", out var disputeTextObj)
+                                    ? disputeTextObj?.ToString() : null;
+                                await TryFreezeEscrowForDisputedDeliveryAsync(
+                                    operation.EntityId, authenticatedUserId, disputeText, context);
+                            }
                         }
 
                         // Bridge delivery confirmation -> escrow release. When the buyer
@@ -5209,6 +5220,33 @@ public partial class SyncFunction
         };
     }
 
+    /// <summary>
+    /// SIM-12: freeze the escrow behind a delivery disputed through sync, via the escrow
+    /// service's status write and audit (no idempotency record: the sync op is already
+    /// idempotent). Best-effort; a failure is logged and never fails the delivery update.
+    /// </summary>
+    private async Task TryFreezeEscrowForDisputedDeliveryAsync(
+        string deliveryId, string? disputedBy, string? reason, ILambdaContext context)
+    {
+        if (_orderEscrowService == null || string.IsNullOrEmpty(disputedBy))
+        {
+            return;
+        }
+
+        try
+        {
+            var frozen = await _orderEscrowService.MarkDisputedFromDeliveryAsync(deliveryId, disputedBy, reason);
+            context.Logger.LogInformation(frozen
+                ? $"Escrow for delivery {deliveryId} disputed by {disputedBy}"
+                : $"No escrowed money to freeze for disputed delivery {deliveryId}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to freeze escrow for disputed delivery {deliveryId}: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
     /// <summary>Order logistics statuses in progression order (SIM-11).</summary>
     private static readonly string[] OrderLogisticsProgression =
     {
@@ -5230,6 +5268,7 @@ public partial class SyncFunction
             "pickedUp" => "pickup_confirmed",
             "inTransit" => "in_transit",
             "delivered" => "delivered",
+            "disputed" => "disputed",
             _ => null
         };
         if (target == null)
@@ -5246,13 +5285,24 @@ public partial class SyncFunction
             }
 
             var current = order.TryGetValue("status", out var cs) ? cs?.ToString() ?? "" : "";
-            var currentRank = Array.IndexOf(OrderLogisticsProgression, current);
-            var targetRank = Array.IndexOf(OrderLogisticsProgression, target);
-            if (currentRank < 0 || currentRank >= targetRank)
+            if (target == "disputed")
             {
-                // Outside the logistics run (disputed, cancelled, ...) or already at/after
-                // the target: never move an order backwards or out of a terminal state.
-                return;
+                // SIM-12: only a delivered order can be disputed (contract: delivered -> disputed).
+                if (current != "delivered")
+                {
+                    return;
+                }
+            }
+            else
+            {
+                var currentRank = Array.IndexOf(OrderLogisticsProgression, current);
+                var targetRank = Array.IndexOf(OrderLogisticsProgression, target);
+                if (currentRank < 0 || currentRank >= targetRank)
+                {
+                    // Outside the logistics run (disputed, cancelled, ...) or already at/after
+                    // the target: never move an order backwards or out of a terminal state.
+                    return;
+                }
             }
 
             var version = 1;
