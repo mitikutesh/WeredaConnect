@@ -137,7 +137,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByParticipantAsync(
         string participantId,
         int limit = 50,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? status = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -158,10 +159,19 @@ public sealed class DeliveryRepository : IDeliveryRepository
             {
                 { ":pid", new AttributeValue { S = participantId } }
             },
-            FilterExpression = "attribute_not_exists(#deletedAt)",
             Limit = limit,
             ScanIndexForward = false // newest first
         };
+
+        var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filterParts);
 
         if (exclusiveStartKey != null)
         {
@@ -198,6 +208,59 @@ public sealed class DeliveryRepository : IDeliveryRepository
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":farmerId", new AttributeValue { S = farmerId } }
+            },
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        // Always exclude soft-deleted deliveries; apply the optional status
+        // filter on the non-key attribute (a FilterExpression, since status is
+        // not part of this GSI's key).
+        var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filterParts);
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByTruckerAsync(
+        string truckerId,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "TruckerIdCreatedAtIndex",
+            KeyConditionExpression = "#truckerId = :truckerId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#truckerId", "truckerId" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":truckerId", new AttributeValue { S = truckerId } }
             },
             Limit = limit,
             ScanIndexForward = false // newest first

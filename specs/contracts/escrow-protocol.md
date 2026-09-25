@@ -555,7 +555,7 @@ Get the authenticated user's payment history.
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
 | `status` | string | No | Filter by escrow status | `status=escrowed` |
-| `role` | string | No | The caller's role in the transaction: `buyer` (default), `farmer` or `trucker`. Selects the GSI (`BuyerStatusIndex` / `FarmerStatusIndex` / `TruckerStatusIndex`) keyed by the caller's user id | `role=trucker` |
+| `role` | string | No | The caller's role in the transaction: `buyer`, `farmer` or `trucker`. Selects the GSI (`BuyerStatusIndex` / `FarmerStatusIndex` / `TruckerStatusIndex`) keyed by the caller's user id. Defaults to the token's role claim (1.2.4); a token without one reads as `buyer` | `role=trucker` |
 | `fromDate` | string | No | Start date (ISO 8601) | `fromDate=2026-01-01T00:00:00Z` |
 | `toDate` | string | No | End date (ISO 8601) | `toDate=2026-02-28T23:59:59Z` |
 | `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
@@ -1174,6 +1174,7 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.4 | 2026-09-25 | Default history scoping (SIM-16): without `role=` the history is scoped by the token's role claim instead of always the buyer GSI, so a farmer (including the farmer of a self-pickup, whose escrow is order-funded with no delivery) and a trucker read their own rows unfiltered |
 | 1.2.3 | 2026-09-25 | Trucker money view (SIM-15): `EscrowDto` and history rows carry `truckerPayout` + `truckerId`, history rows carry `farmerPayout`; `role=trucker` reads the new sparse `TruckerStatusIndex` GSI; the order's trucker is a party for `GET /escrow/{id}` and `by-delivery`; delivery linkage backfills a missing `truckerId` from the order; clients show each role its own leg |
 | 1.2.2 | 2026-09-25 | Stock restore (SIM-13): the refund sweep's cancel of a stale-funded order (and a participant's reject/cancel of a funded order) returns the listing's quintals, idempotent per order; the escrow cron Lambda gains `CROPS_TABLE` |
 | 1.2.1 | 2026-09-25 | Dispute propagation (SIM-12): an escrow dispute mirrors onto the order (`delivered → disputed`, blocks ratings) and the delivery; a delivery-level dispute freezes the escrow; failures land in the audit ledger as `dispute_propagation_failed` |
@@ -1184,5 +1185,5 @@ A scheduled Lambda runs every 6 hours:
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.2.3
+**Version**: 1.2.4
 **Status**: Draft (Phase R4)

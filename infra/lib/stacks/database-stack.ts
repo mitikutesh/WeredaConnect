@@ -244,13 +244,22 @@ export class DatabaseStack extends cdk.Stack {
     // GSI: Query a farmer's deliveries directly. ParticipantIndex is keyed on
     // the buyerId only, so a farmer (who never authors the delivery — the
     // trucker does) had no index to find their own deliveries and the tab was
-    // permanently empty. NOTE: DynamoDB/CloudFormation allows adding only ONE
-    // GSI per table update, so the symmetric TruckerIdCreatedAtIndex is a
-    // separate follow-up deploy (truckers author locally, so they are not
-    // blocked today).
+    // permanently empty.
     this.deliveriesTable.addGlobalSecondaryIndex({
       indexName: "FarmerIdCreatedAtIndex",
       partitionKey: { name: "farmerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: the symmetric trucker scope (SIM-16), so an unfiltered GET /deliveries
+    // and the trucker's cross-device pull resolve their own rows. Sparse: a
+    // self-pickup delivery carries no truckerId. NOTE: DynamoDB/CloudFormation
+    // allows adding only ONE GSI per table per update; this is the only new
+    // index on the deliveries table in this change.
+    this.deliveriesTable.addGlobalSecondaryIndex({
+      indexName: "TruckerIdCreatedAtIndex",
+      partitionKey: { name: "truckerId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });

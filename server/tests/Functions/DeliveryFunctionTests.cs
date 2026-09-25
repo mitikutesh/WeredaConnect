@@ -54,21 +54,22 @@ public class DeliveryFunctionTests
         string userId,
         string path = "/deliveries",
         Dictionary<string, string>? queryParams = null,
-        Dictionary<string, string>? pathParams = null)
+        Dictionary<string, string>? pathParams = null,
+        string? role = null)
     {
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "userId", userId } };
+        if (role != null)
+        {
+            authorizer["custom:role"] = role;
+        }
+
         return new APIGatewayProxyRequest
         {
             HttpMethod = "GET",
             Path = path,
             QueryStringParameters = queryParams,
             PathParameters = pathParams,
-            RequestContext = new ProxyRequestContext
-            {
-                Authorizer = new APIGatewayCustomAuthorizerContext
-                {
-                    { "userId", userId }
-                }
-            }
+            RequestContext = new ProxyRequestContext { Authorizer = authorizer }
         };
     }
 
@@ -162,6 +163,167 @@ public class DeliveryFunctionTests
         await _mockDeliveryRepo.DidNotReceive().QueryDeliveriesAsync(
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
             Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    // --- Default scoping by role (SIM-16) ---
+
+    [Fact]
+    public async Task HandleGetDeliveries_NoScope_FarmerClaim_QueriesByFarmer()
+    {
+        _mockDeliveryRepo.QueryByFarmerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateDeliveryItem(farmerId: "farmer-123") }, null));
+
+        var request = MakeAuthenticatedRequest("farmer-123", role: "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("del-001", response.Body);
+        await _mockDeliveryRepo.Received(1).QueryByFarmerAsync("farmer-123", null, 20, null);
+        await _mockDeliveryRepo.DidNotReceive().QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_NoScope_TruckerClaim_QueriesByTruckerWithStatus()
+    {
+        _mockDeliveryRepo.QueryByTruckerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateDeliveryItem(status: "inTransit") }, null));
+
+        var request = MakeAuthenticatedRequest(
+            "trucker-789",
+            queryParams: new Dictionary<string, string> { { "status", "inTransit" } },
+            role: "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("del-001", response.Body);
+        await _mockDeliveryRepo.Received(1).QueryByTruckerAsync("trucker-789", "inTransit", 20, null);
+        await _mockDeliveryRepo.DidNotReceive().QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_NoScope_BuyerClaim_QueriesParticipantWithStatus()
+    {
+        // Regression: the buyer's plain read hit the pending-status query and missed
+        // her own in-transit delivery; it now reads the ParticipantIndex (buyerId).
+        _mockDeliveryRepo.QueryByParticipantAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(),
+            Arg.Any<string?>())
+            .Returns((new List<Dictionary<string, object>> { CreateDeliveryItem(status: "inTransit") }, null));
+
+        var request = MakeAuthenticatedRequest(
+            "buyer-456",
+            queryParams: new Dictionary<string, string> { { "status", "inTransit" } },
+            role: "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("del-001", response.Body);
+        await _mockDeliveryRepo.Received(1).QueryByParticipantAsync("buyer-456", 20, null, "inTransit");
+        await _mockDeliveryRepo.DidNotReceive().QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_NoScope_NoRoleClaim_KeepsStatusQuery()
+    {
+        // An access token carries no role: the legacy status query stays, still
+        // post-filtered to the caller's own rows.
+        _mockDeliveryRepo.QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var request = MakeAuthenticatedRequest("user-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockDeliveryRepo.Received(1).QueryDeliveriesAsync(null, null, null, 20, null);
+        await _mockDeliveryRepo.DidNotReceive().QueryByParticipantAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(),
+            Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_TripIdWithFarmerClaim_KeepsTripQuery()
+    {
+        // An entity filter is not overridden by the role default.
+        _mockDeliveryRepo.QueryDeliveriesAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var request = MakeAuthenticatedRequest(
+            "farmer-123",
+            queryParams: new Dictionary<string, string> { { "tripId", "trip-001" } },
+            role: "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockDeliveryRepo.Received(1).QueryDeliveriesAsync(null, "trip-001", null, 20, null);
+        await _mockDeliveryRepo.DidNotReceive().QueryByFarmerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_RoleParam_OverridesClaim_ScopedToCaller()
+    {
+        // ?role= picks the index, but the key is always the caller's own id.
+        _mockDeliveryRepo.QueryByTruckerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var request = MakeAuthenticatedRequest(
+            "user-009",
+            queryParams: new Dictionary<string, string> { { "role", "trucker" } },
+            role: "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockDeliveryRepo.Received(1).QueryByTruckerAsync("user-009", null, 20, null);
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_WithTruckerId_MatchingCaller_QueriesByTrucker()
+    {
+        _mockDeliveryRepo.QueryByTruckerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateDeliveryItem() }, null));
+
+        var request = MakeAuthenticatedRequest(
+            "trucker-789",
+            queryParams: new Dictionary<string, string> { { "truckerId", "trucker-789" } });
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("del-001", response.Body);
+        await _mockDeliveryRepo.Received(1).QueryByTruckerAsync("trucker-789", null, 20, null);
+    }
+
+    [Fact]
+    public async Task HandleGetDeliveries_WithTruckerId_NotCaller_Returns403()
+    {
+        var request = MakeAuthenticatedRequest(
+            "trucker-789",
+            queryParams: new Dictionary<string, string> { { "truckerId", "someone-else" } });
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+        await _mockDeliveryRepo.DidNotReceive().QueryByTruckerAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
     }
 
     [Fact]

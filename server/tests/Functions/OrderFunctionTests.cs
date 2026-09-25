@@ -26,8 +26,19 @@ public class OrderFunctionTests
         string path = "/orders",
         Dictionary<string, string>? queryParams = null,
         Dictionary<string, string>? pathParams = null,
-        string? userId = "buyer-001")
+        string? userId = "buyer-001",
+        string? role = null)
     {
+        APIGatewayCustomAuthorizerContext? authorizer = null;
+        if (userId != null)
+        {
+            authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } };
+            if (role != null)
+            {
+                authorizer["custom:role"] = role;
+            }
+        }
+
         var request = new APIGatewayProxyRequest
         {
             HttpMethod = "GET",
@@ -36,9 +47,7 @@ public class OrderFunctionTests
             PathParameters = pathParams,
             RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
             {
-                Authorizer = userId != null
-                    ? new APIGatewayCustomAuthorizerContext { { "sub", userId } }
-                    : null
+                Authorizer = authorizer
             }
         };
 
@@ -231,6 +240,48 @@ public class OrderFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("order-001", response.Body);
+    }
+
+    // --- GET /orders default scoping by the role claim (SIM-16) ---
+
+    [Theory]
+    [InlineData("farmer", "farmer-001", null, "farmer-001", null)]
+    [InlineData("trucker", "trucker-001", null, null, "trucker-001")]
+    [InlineData("buyer", "buyer-001", "buyer-001", null, null)]
+    [InlineData(null, "buyer-001", "buyer-001", null, null)]
+    public async Task HandleGetOrders_NoPartyFilter_ScopesByRoleClaim(
+        string? role, string userId, string? expectedBuyer, string? expectedFarmer, string? expectedTrucker)
+    {
+        // Farmers and truckers used to be silently scoped as buyer and read [].
+        // A token without a role claim keeps the buyer default.
+        _mockOrderRepo.QueryOrdersAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest(userId: userId, role: role);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockOrderRepo.Received(1).QueryOrdersAsync(
+            expectedBuyer, expectedFarmer, expectedTrucker, null, null, 20, null);
+    }
+
+    [Fact]
+    public async Task HandleGetOrders_ExplicitPartyFilter_WinsOverRoleClaim()
+    {
+        _mockOrderRepo.QueryOrdersAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest(
+            queryParams: new Dictionary<string, string> { { "farmerId", "farmer-001" }, { "status", "funded" } },
+            userId: "farmer-001", role: "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockOrderRepo.Received(1).QueryOrdersAsync(null, "farmer-001", null, "funded", null, 20, null);
     }
 
     // --- GET /orders Authorization Tests ---

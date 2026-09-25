@@ -32,9 +32,22 @@ public interface IDeliveryRepository
     /// deliveries. Used by the mobile pull so a buyer's device receives
     /// trucker-driven status changes it did not author.
     /// </summary>
+    /// <param name="status">Optional status filter (non-key attribute, applied as a filter).</param>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByParticipantAsync(
         string participantId,
         int limit = 50,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? status = null);
+
+    /// <summary>
+    /// Query a trucker's deliveries across every status (newest first) via the
+    /// TruckerIdCreatedAtIndex GSI, with an optional status filter. Sparse: a
+    /// self-pickup delivery has no truckerId and is not indexed. SIM-16.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByTruckerAsync(
+        string truckerId,
+        string? status = null,
+        int limit = 20,
         Dictionary<string, AttributeValue>? exclusiveStartKey = null);
 
     /// <summary>

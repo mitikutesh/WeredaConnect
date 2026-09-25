@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.4.2
+1.4.3
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -138,6 +138,10 @@ orderTotal       = cropCost + transportCost + commissionAmount
 - **Server-owned money** (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) is always dropped from the payload, so `orderTotal` can never drift from its inputs.
 - **Unknown keys** are rejected: `ORDER_VALIDATION: Unknown fields: a, b`.
 
+## List Scoping (GET /orders, 1.4.3)
+
+`GET /orders` takes `buyerId`, `farmerId`, `truckerId` (each must equal the caller, else `403 ORDER_FORBIDDEN`), `status`, `listingId`, `limit` and `nextToken`. With no party filter the list is scoped to the caller by the token's role claim: farmer → `farmerId`, trucker → `truckerId`, buyer (or a token without a role claim) → `buyerId` (SIM-16). It used to assume buyer, so an unfiltered farmer or trucker read returned `[]`.
+
 ## Invariants
 
 1. Money-state transitions (`funded`, `disbursing`, `settled`, `dispute_resolved`) are **never** accepted from a client — they come from the gateway callback, escrow cron, or admin resolution.
@@ -148,6 +152,7 @@ orderTotal       = cropCost + transportCost + commissionAmount
 
 ## Changelog
 
+- **1.4.3 (2026-09-25)**: Default list scoping (SIM-16): an unfiltered `GET /orders` is scoped by the caller's role claim instead of always the buyer.
 - **1.4.2 (2026-09-25)**: Stock restore (SIM-13): a funded order that is rejected or cancelled (by a participant or by the refund sweep) gives its listing the quintals back, idempotent per order and race-safe; a `reserved` listing returns to `available`. The funding decrement now stores `quantity` as a number.
 - **1.4.1 (2026-09-25)**: Dispute propagation (SIM-12): an escrow dispute or a delivery dispute moves a `delivered` order to `disputed`; the escrow dispute marks the delivery disputed and a delivery dispute freezes the escrow; ratings stay blocked while disputed.
 - **1.4.0 (2026-09-25)**: Order follows its delivery (SIM-11): delivery `pickedUp`/`inTransit`/`delivered` advance the order server-side (forward only, best-effort, system-audited); the order's trucker may set the three logistics statuses; a client `delivered` is refused unless the active delivery is `delivered`.

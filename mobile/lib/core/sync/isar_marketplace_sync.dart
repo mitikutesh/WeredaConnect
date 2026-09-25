@@ -313,17 +313,19 @@ class IsarMarketplaceSync implements MarketplaceSync {
   }
 
   Future<List<Delivery>> _fetchDeliveries(String userId) async {
-    // Query both scopes and merge: a farmer is not the ParticipantIndex key
-    // (that is the buyer) and never authors the delivery, so they only appear
-    // under ?farmerId=; a buyer appears under ?mine=true. Merging by deliveryId
+    // Query every party scope and merge: a farmer is not the ParticipantIndex
+    // key (that is the buyer) and never authors the delivery, so they only
+    // appear under ?farmerId=; a buyer appears under ?mine=true; a trucker under
+    // ?truckerId= (TruckerIdCreatedAtIndex, SIM-16). Merging by deliveryId
     // returns the caller's deliveries whichever party they are, without this
-    // layer needing to know the role. (A trucker matches neither and authors
-    // locally; their cross-device pull is a follow-up once a truckerId GSI
-    // exists.)
+    // layer needing to know the role. The scopes stay explicit rather than
+    // relying on the server's role default so the pull also works against a
+    // lagging deployment.
     final byId = <String, Delivery>{};
     for (final scope in <Map<String, dynamic>>[
       {'farmerId': userId},
       {'mine': 'true'},
+      {'truckerId': userId},
     ]) {
       String? nextToken;
       do {

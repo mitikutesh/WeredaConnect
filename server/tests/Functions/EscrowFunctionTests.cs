@@ -82,7 +82,8 @@ public class EscrowFunctionTests
         string path,
         string? userId = null,
         Dictionary<string, string>? pathParams = null,
-        Dictionary<string, string>? queryParams = null)
+        Dictionary<string, string>? queryParams = null,
+        string? role = null)
     {
         var request = new APIGatewayProxyRequest
         {
@@ -94,9 +95,15 @@ public class EscrowFunctionTests
 
         if (userId != null)
         {
+            var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } };
+            if (role != null)
+            {
+                authorizer["custom:role"] = role;
+            }
+
             request.RequestContext = new ProxyRequestContext
             {
-                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } }
+                Authorizer = authorizer
             };
         }
 
@@ -491,6 +498,37 @@ public class EscrowFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         await _mockEscrowRepo.Received(1).QueryByTruckerAsync("trucker-789", null, 20, null);
+        await _mockEscrowRepo.DidNotReceive().QueryByBuyerAsync(Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Theory]
+    [InlineData("farmer")]
+    [InlineData("trucker")]
+    public async Task FunctionHandler_GetHistory_NoRoleParam_ScopesByRoleClaim(string role)
+    {
+        // SIM-16: an unfiltered read used to default to the buyer GSI, so a farmer
+        // or trucker read []. The token's role now picks the index.
+        _mockEscrowRepo.QueryByFarmerAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+        _mockEscrowRepo.QueryByTruckerAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(),
+                Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest("/escrow/history", "user-1", role: role);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        if (role == "farmer")
+        {
+            await _mockEscrowRepo.Received(1).QueryByFarmerAsync("user-1", null, 20, null);
+        }
+        else
+        {
+            await _mockEscrowRepo.Received(1).QueryByTruckerAsync("user-1", null, 20, null);
+        }
+
         await _mockEscrowRepo.DidNotReceive().QueryByBuyerAsync(Arg.Any<string>(), Arg.Any<string?>(),
             Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
     }

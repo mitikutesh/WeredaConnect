@@ -87,6 +87,17 @@ public static class AuthHelper
     }
 
     /// <summary>
+    /// The caller's role claim (<c>role</c>, else Cognito's <c>custom:role</c>),
+    /// lower-cased: "farmer", "trucker" or "buyer". Null when the token carries no
+    /// role (access tokens do not; only the ID token has custom:role).
+    /// </summary>
+    public static string? GetRole(APIGatewayProxyRequest request)
+    {
+        var role = GetClaim(request, "role") ?? GetClaim(request, "custom:role");
+        return string.IsNullOrWhiteSpace(role) ? null : role.Trim().ToLowerInvariant();
+    }
+
+    /// <summary>
     /// Check if the request has a valid authorizer context (non-empty claims).
     /// </summary>
     public static bool IsAuthenticated(APIGatewayProxyRequest request)

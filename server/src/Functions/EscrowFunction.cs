@@ -446,6 +446,14 @@ public class EscrowFunction
 
         queryParams.TryGetValue("status", out var status);
         queryParams.TryGetValue("role", out var role);
+        // SIM-16: without ?role= the query used to default to the buyer GSI, so a
+        // farmer or trucker (including the farmer of a self-pickup, whose escrow is
+        // order-funded and has no delivery) read []. Scope by the token's role.
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            role = AuthHelper.GetRole(request);
+        }
+
         queryParams.TryGetValue("fromDate", out var fromDate);
         queryParams.TryGetValue("toDate", out var toDate);
         queryParams.TryGetValue("nextToken", out var nextToken);
@@ -590,7 +598,7 @@ public class EscrowFunction
         => AuthHelper.GetUserId(request);
 
     private static string? GetAuthenticatedUserRole(APIGatewayProxyRequest request)
-        => AuthHelper.GetClaim(request, "role") ?? AuthHelper.GetClaim(request, "custom:role");
+        => AuthHelper.GetRole(request);
 
     // ──────────────────────────────────────────────
     // Gateway factory

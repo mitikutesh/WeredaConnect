@@ -1287,6 +1287,28 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task GetHistoryAsync_AsFarmer_IncludesOrderFundedSelfPickupEscrow()
+    {
+        // A self-pickup order's escrow is order-funded: no delivery yet, no trucker.
+        // Nothing in the history path may drop it (SIM-16).
+        var item = MakeEscrowItem();
+        item.Remove("deliveryId");
+        item["orderId"] = "order-sp-1";
+        item["source"] = "order";
+        _mockEscrowRepo.QueryByFarmerAsync(FarmerId, null, 20, null)
+            .Returns((new List<Dictionary<string, object>> { item }, (Dictionary<string, AttributeValue>?)null));
+
+        var result = await _service.GetHistoryAsync(FarmerId, null, "farmer", null, null, 20, null);
+
+        Assert.True(result.IsSuccess);
+        var summary = Assert.Single(result.Value!.Escrows);
+        Assert.Equal("order-sp-1", summary.OrderId);
+        Assert.Equal("", summary.DeliveryId);
+        Assert.Null(summary.TruckerId);
+        Assert.Equal(14_625m, summary.FarmerPayout);
+    }
+
+    [Fact]
     public async Task GetHistoryAsync_Summary_CarriesFarmerLegAndNoTruckerLegWithoutSplit()
     {
         var items = new List<Dictionary<string, object>> { MakeEscrowItem() };
