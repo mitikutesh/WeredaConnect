@@ -626,6 +626,42 @@ def phase_create_deliveries(state: TestState):
                          f"backing order failed: {order_resp.body[:160]}")
             continue
 
+        # A delivery requires an accepted order (delivery-verification-api.md 1.3.0):
+        # the buyer pays (dev auto-funds the mocked payment), then the farmer accepts.
+        def _order_version(u):
+            r = api("GET", f"/orders/{order_id}", token=u.access_token)
+            d = r.json() if r.status_code == 200 else {}
+            return int((d.get("order") or d).get("version") or 1)
+
+        def _sync_update_order(u, data):
+            return api("POST", "/sync", token=u.access_token, json_body={
+                "syncBatchId": uid(),
+                "clientId": uid(),
+                "operations": [{
+                    "operationId": uid(),
+                    "idempotencyKey": f"{u.user_id}:order:{order_id}:update:{ts()}",
+                    "entityType": "order",
+                    "entityId": order_id,
+                    "action": "update",
+                    "data": data,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }],
+            })
+
+        pay_resp = _sync_update_order(buyer, {
+            "status": "payment_submitted", "paymentMethod": "telebirr",
+            "version": _order_version(buyer),
+        })
+        accept_resp = _sync_update_order(farmer, {
+            "status": "accepted", "version": _order_version(farmer),
+        })
+        accepted = (accept_resp.status_code == 200
+                    and accept_resp.json().get("results", [{}])[0].get("status") == "success")
+        if not accepted:
+            state.record(f"Create delivery {i+1}", False,
+                         f"order not accepted: {accept_resp.body[:120]} (pay: {pay_resp.status_code})")
+            continue
+
         sync_body = {
             "syncBatchId": uid(),
             "clientId": uid(),

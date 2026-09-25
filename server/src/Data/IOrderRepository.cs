@@ -30,6 +30,19 @@ public interface IOrderRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string orderId);
 
     /// <summary>
+    /// SIM-09: atomically record <paramref name="deliveryId"/> as the order's single active
+    /// delivery. True when the slot was free or already held by this delivery (idempotent
+    /// retry); false when another delivery holds it or the order does not exist.
+    /// </summary>
+    Task<bool> TryClaimDeliverySlotAsync(string orderId, string deliveryId);
+
+    /// <summary>
+    /// SIM-09: free the order's delivery slot when <paramref name="deliveryId"/> is cancelled
+    /// so a replacement delivery can be created. No-op when another delivery holds it.
+    /// </summary>
+    Task ReleaseDeliverySlotAsync(string orderId, string deliveryId);
+
+    /// <summary>
     /// Query orders with optional filters using GSIs.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOrdersAsync(

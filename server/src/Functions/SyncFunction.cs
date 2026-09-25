@@ -170,6 +170,18 @@ public partial class SyncFunction
         "truckerId", "truckerName", "truckerPhone"
     };
 
+    /// <summary>
+    /// SIM-09: delivery fields fixed at create (parties, order, listing, trip, type). An
+    /// update may echo them unchanged; re-pointing any of them is rejected.
+    /// </summary>
+    private static readonly HashSet<string> ImmutableDeliveryIdentityFields = new()
+    {
+        "orderId", "tripId", "listingId", "deliveryType",
+        "buyerId", "buyerName", "buyerPhone",
+        "farmerId", "farmerName", "farmerPhone",
+        "truckerId", "truckerName", "truckerPhone"
+    };
+
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
@@ -3304,19 +3316,21 @@ public partial class SyncFunction
                         };
                     }
 
-                    // A delivery for a dead order would re-point escrow money at a
-                    // finished trade (e.g. created inside the reject→refund window and
-                    // later releasing a rejected order's money to the farmer).
+                    // SIM-09: a delivery moves goods the farmer has agreed to sell, so the
+                    // order must be accepted (or already in a pre-delivery logistics state).
+                    // Earlier statuses carry no farmer consent (created, funded), and a dead
+                    // order would re-point escrow money at a finished trade.
                     var createOrderStatus = createOrder.TryGetValue("status", out var cosObj)
                         ? cosObj?.ToString() : null;
-                    if (createOrderStatus is "rejected" or "cancelled" or "settled"
-                        or "payment_failed" or "dispute_resolved")
+                    if (createOrderStatus is not ("accepted" or "pickup_confirmed" or "in_transit"))
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"DELIVERY_VALIDATION: Order is {createOrderStatus}; no delivery can be created for it."
+                            Message = $"DELIVERY_VALIDATION: Order is {createOrderStatus ?? "unknown"}; "
+                                + "no delivery can be created until the farmer has accepted it "
+                                + "(accepted, pickup_confirmed or in_transit)."
                         };
                     }
 
@@ -3356,8 +3370,19 @@ public partial class SyncFunction
                         // and hijack the escrow linkage.
                         var coTrucker = createOrder.TryGetValue("truckerId", out var coT)
                             ? coT?.ToString() : null;
-                        if (!string.IsNullOrWhiteSpace(coTrucker)
-                            && coTrucker != authenticatedUserId)
+                        if (string.IsNullOrWhiteSpace(coTrucker))
+                        {
+                            // SIM-09: an order without a trucker can only be fulfilled by the
+                            // buyer as a self-pickup; any trucker could otherwise attach itself.
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it."
+                            };
+                        }
+
+                        if (coTrucker != authenticatedUserId)
                         {
                             return new SyncOperationResult
                             {
@@ -3500,6 +3525,20 @@ public partial class SyncFunction
                     // scans; that farmer-authored nonce is authoritative and is what the
                     // scanner must echo back. Until it is persisted, qrNonce is empty and
                     // the pickup/delivery nonce check is skipped (offline-first).
+
+                    // SIM-09: at most one active delivery per order. The claim is an atomic
+                    // conditional write on the order row (deliveries have no order index); a
+                    // retry of the same deliveryId re-claims its own slot, and a cancelled
+                    // delivery releases it.
+                    if (!await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_VALIDATION: The order already has an active delivery."
+                        };
+                    }
 
                     var request = new PutItemRequest
                     {
@@ -3892,6 +3931,22 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"DELIVERY_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
+
+                    // SIM-09: the parties, order, listing, trip and type of a delivery are fixed
+                    // at create; an update may only echo them unchanged.
+                    var deliveryIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableDeliveryIdentityFields,
+                        key => existing.TryGetValue(key, out var storedAttr) ? storedAttr.S : null);
+                    if (deliveryIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {deliveryIdentityError}"
                         };
                     }
 
@@ -4304,6 +4359,17 @@ public partial class SyncFunction
                                 DeliveryActionFor(toStatus), fromStatus, toStatus);
                         }
 
+                        // SIM-09: a cancelled delivery frees the order's single delivery slot
+                        // so a replacement can be created.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var cancelStatusObj)
+                            && cancelStatusObj?.ToString() == "cancelled"
+                            && existing.TryGetValue("orderId", out var cancelOid)
+                            && !string.IsNullOrEmpty(cancelOid.S))
+                        {
+                            await _orderRepo.ReleaseDeliverySlotAsync(cancelOid.S, operation.EntityId);
+                        }
+
                         // Bridge delivery confirmation -> escrow release. When the buyer
                         // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
                         // disputeWindowEndsAt so the auto-release cron settles to the farmer
@@ -4441,6 +4507,13 @@ public partial class SyncFunction
                     try
                     {
                         await _dynamoDb.UpdateItemAsync(deleteRequest);
+
+                        // SIM-09: soft delete is a cancellation; free the order's delivery slot.
+                        if (existing.TryGetValue("orderId", out var deleteOid) && !string.IsNullOrEmpty(deleteOid.S))
+                        {
+                            await _orderRepo.ReleaseDeliverySlotAsync(deleteOid.S, operation.EntityId);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,

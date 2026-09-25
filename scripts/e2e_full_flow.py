@@ -171,6 +171,44 @@ def sync_create(u: User, entity, entity_id, data):
     })
 
 
+def sync_update(u: User, entity, entity_id, data):
+    now = ts()
+    return api("POST", "/sync", token=u.token, body={
+        "syncBatchId": uid(), "clientId": uid(),
+        "operations": [{
+            "operationId": uid(),
+            "idempotencyKey": f"{u.user_id}:{entity}:{entity_id}:update:{now}",
+            "entityType": entity, "entityId": entity_id, "action": "update",
+            "data": data, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }],
+    })
+
+
+def order_version(u: User, order_id: str) -> int:
+    r = api("GET", f"/orders/{order_id}", token=u.token)
+    d = r.json() if r.status == 200 else {}
+    return int((d.get("order") or d).get("version") or 1)
+
+
+def advance_order_to_accepted(s: State, buyer: User, farmer: User, order_id: str) -> bool:
+    """A delivery requires an accepted order (delivery-verification-api.md 1.3.0):
+    the buyer pays (dev auto-funds the mocked payment), then the farmer accepts."""
+    r = sync_update(buyer, "order", order_id, {
+        "status": "payment_submitted", "paymentMethod": "telebirr",
+        "version": order_version(buyer, order_id),
+    })
+    paid = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
+    s.check("buyer pays order", paid, "" if paid else r.body[:140])
+    if not paid:
+        return False
+    r = sync_update(farmer, "order", order_id, {
+        "status": "accepted", "version": order_version(farmer, order_id),
+    })
+    accepted = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
+    s.check("farmer accepts order", accepted, "" if accepted else r.body[:140])
+    return accepted
+
+
 def listing_price_per_kg(u: User, crop_id: str) -> float:
     """Server-bound order create (SIM-05): pricePerUnit must equal the listing's pricePerKg."""
     r = api("GET", f"/crops/{crop_id}", token=u.token)
@@ -364,6 +402,8 @@ def delivery_and_escrow(s: State):
     order_ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
     s.check("backing order for delivery", order_ok, "" if order_ok else r.body[:140])
     if not order_ok:
+        return
+    if not advance_order_to_accepted(s, b0, farmer, oid):
         return
     did = uid()
     r = sync_create(tr, "delivery", did, {

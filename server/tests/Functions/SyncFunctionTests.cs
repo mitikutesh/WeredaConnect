@@ -40,7 +40,8 @@ public class SyncFunctionTests
             userRepo: _mockUserRepo, orderRepo: _mockOrderRepo);
         _context = new TestLambdaContext();
 
-        // Default: delivery creates reference a live order with matching participants.
+        // Default: delivery creates reference a live order with matching participants
+        // (no trucker: the self-pickup tests rely on that; SetupTruckOrder adds one).
         _mockOrderRepo.GetByIdAsync(Arg.Any<string>()).Returns(new Dictionary<string, object>
         {
             { "orderId", TestOrderId },
@@ -49,6 +50,9 @@ public class SyncFunctionTests
             { "status", "accepted" },
             { "version", "1" }
         });
+
+        // Default: the order's single delivery slot is free (SIM-09).
+        _mockOrderRepo.TryClaimDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
 
         // Default: no duplicate idempotency keys
         _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>()).Returns(false);
@@ -2103,6 +2107,7 @@ public class SyncFunctionTests
     [Fact]
     public async Task DeliveryCreate_ValidParticipants_ReturnsSuccess()
     {
+        SetupTruckOrder();
         var op = MakeDeliveryCreateOp();
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
         var response = await _function.FunctionHandler(request, _context);
@@ -3282,6 +3287,172 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("no delivery can be created", response.Body);
+    }
+
+    // --- SIM-09: delivery create and update guards ---
+
+    /// <summary>An order matched to the test trucker (the trucker-flow happy path).</summary>
+    private void SetupTruckOrder(string status = "accepted", string truckerId = TestTruckerId)
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "truckerId", truckerId }, { "status", status }, { "version", "1" }
+        });
+    }
+
+    /// <summary>A pending trucker delivery for order-001 with the standard test parties.</summary>
+    private static Dictionary<string, AttributeValue> DeliveryItemForOrder(string status = "pending", int version = 1) => new()
+    {
+        { "deliveryId", new AttributeValue { S = "del-001" } },
+        { "tripId", new AttributeValue { S = "trip-001" } },
+        { "orderId", new AttributeValue { S = "order-001" } },
+        { "listingId", new AttributeValue { S = "listing-001" } },
+        { "farmerId", new AttributeValue { S = "farmer-001" } },
+        { "farmerName", new AttributeValue { S = "Abebe" } },
+        { "truckerId", new AttributeValue { S = "trucker-001" } },
+        { "truckerName", new AttributeValue { S = "Tadesse" } },
+        { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+        { "buyerId", new AttributeValue { S = "buyer-001" } },
+        { "buyerName", new AttributeValue { S = "Mekonnen" } },
+        { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+        { "status", new AttributeValue { S = status } },
+        { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+        { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+        { "version", new AttributeValue { N = version.ToString() } }
+    };
+
+    private static SyncOperationRequest MakeDeliveryUpdateOp(Dictionary<string, object> data, string action = "update") => new()
+    {
+        OperationId = "op-del-update",
+        IdempotencyKey = $"user:delivery:del-001:{action}:12345",
+        EntityType = "delivery",
+        EntityId = "del-001",
+        Action = action,
+        Data = data
+    };
+
+    [Fact]
+    public async Task DeliveryCreate_OrderHasNoTrucker_TruckerFlow_ReturnsError()
+    {
+        // The fleet run: any trucker could attach a delivery to a truckerless order.
+        // The fixture's default order has no trucker.
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("The order has no trucker", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("payment_submitted")]
+    [InlineData("funded")]
+    public async Task DeliveryCreate_OrderNotYetAccepted_ReturnsError(string status)
+    {
+        SetupTruckOrder(status: status);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains($"Order is {status}; no delivery can be created until the farmer has accepted it", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    public async Task DeliveryCreate_AcceptedOrder_ClaimsSlotAndSucceeds(string status)
+    {
+        SetupTruckOrder(status: status);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).TryClaimDeliverySlotAsync(TestOrderId, "del-001");
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_SecondActiveDelivery_ReturnsError()
+    {
+        SetupTruckOrder();
+        _mockOrderRepo.TryClaimDeliverySlotAsync(TestOrderId, "del-001").Returns(false);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_VALIDATION: The order already has an active delivery", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Theory]
+    [InlineData("farmerId", "farmer-999")]
+    [InlineData("buyerId", "buyer-999")]
+    [InlineData("truckerId", "trucker-999")]
+    [InlineData("listingId", "listing-999")]
+    [InlineData("orderId", "order-999")]
+    public async Task DeliveryUpdate_ChangedParticipant_ReturnsError(string field, string value)
+    {
+        // The fleet run re-pointed farmerId on a delivery update.
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { field, value }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains($"DELIVERY_VALIDATION: {field} is immutable and cannot be changed on update", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_EchoedParticipants_AreStripped()
+    {
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "truckerName", "Tadesse" }, { "truckerPhone", "0922222222" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            !r.ExpressionAttributeNames.Values.Contains("truckerName")
+            && !r.ExpressionAttributeNames.Values.Contains("truckerPhone")));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Cancelled_ReleasesOrderSlot()
+    {
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "cancelled" }, { "version", 1 }
+            })), "buyer-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).ReleaseDeliverySlotAsync("order-001", "del-001");
+    }
+
+    [Fact]
+    public async Task DeliveryDelete_ReleasesOrderSlot()
+    {
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "version", 1 }
+            }, action: "delete")), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).ReleaseDeliverySlotAsync("order-001", "del-001");
     }
 
     [Fact]
