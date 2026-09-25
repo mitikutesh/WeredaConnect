@@ -2678,6 +2678,195 @@ public class SyncFunctionTests
         }
     }
 
+    // --- SIM-06: order update allow-list and immutability ---
+
+    /// <summary>A stored order for buyer-001 / farmer-001 with server-computed money fields.</summary>
+    private Dictionary<string, object> SetupExistingOrder(string status = "created", int version = 1)
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "listingId", "listing-001" },
+            { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+            { "buyerName", "Meron Alemu" }, { "farmerName", "Abebe Kebede" },
+            { "cropType", "teff" }, { "quantity", 50.0 }, { "pricePerUnit", 45.5 },
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "truckerName", "Tadesse Worku" },
+            { "transportCost", 60.0 }, { "cropCost", 2275.0 }, { "commissionRate", 0.05 },
+            { "commissionAmount", 113.75 }, { "orderTotal", 2448.75 },
+            { "status", status }, { "version", version.ToString() }
+        };
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
+        return order;
+    }
+
+    private Dictionary<string, object>? _updatedOrderData;
+
+    private void SetupOrderUpdateSucceeds()
+    {
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Do<Dictionary<string, object>>(d => _updatedOrderData = d), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "cancelled" }, { "version", "2" }
+            }));
+    }
+
+    private static SyncOperationRequest MakeOrderUpdateOp(Dictionary<string, object> data) => new()
+    {
+        OperationId = "op-order-update",
+        IdempotencyKey = "user:order:order-001:update:12345",
+        EntityType = "order",
+        EntityId = "order-001",
+        Action = "update",
+        Data = data
+    };
+
+    private async Task<string> UpdateOrderAs(string userId, string role, Dictionary<string, object> data)
+    {
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(data)), userId, role);
+        var response = await _function.FunctionHandler(request, _context);
+        Assert.Equal(200, response.StatusCode);
+        return response.Body;
+    }
+
+    [Fact]
+    public async Task OrderUpdate_UnknownField_ReturnsValidationError()
+    {
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }, { "discountCode", "FREE" }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: Unknown fields: discountCode", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("pricePerUnit", 1.0)]
+    [InlineData("quantity", 9999.0)]
+    [InlineData("transportCost", -470.6)]
+    public async Task OrderUpdate_ChangedPriceInput_ReturnsValidationError(string field, double value)
+    {
+        // The fleet run rewrote these after create; orderTotal then no longer matched.
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }, { field, value }
+        });
+
+        Assert.Contains($"ORDER_VALIDATION: {field} is immutable and cannot be changed on update", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("buyerId", "buyer-999")]
+    [InlineData("farmerId", "farmer-999")]
+    [InlineData("truckerId", "trucker-999")]
+    [InlineData("tripId", "trip-999")]
+    [InlineData("listingId", "listing-999")]
+    [InlineData("farmerName", "Someone Else")]
+    public async Task OrderUpdate_ChangedParty_ReturnsValidationError(string field, string value)
+    {
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { field, value }
+        });
+
+        Assert.Contains($"ORDER_VALIDATION: {field} is immutable and cannot be changed on update", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_AfterFunding_PriceInputsStillImmutable()
+    {
+        // Post-funding mutation was untested by the fleet run: the farmer accepts and
+        // tries to raise the price in the same operation.
+        SetupExistingOrder(status: "funded", version: 3);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "pricePerUnit", 500.0 }, { "version", 3 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: pricePerUnit is immutable and cannot be changed on update", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_AfterFunding_MoneyFieldsSentByClientAreDropped()
+    {
+        SetupExistingOrder(status: "funded", version: 3);
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "accepted" }, { "orderTotal", 1.0 }, { "commissionAmount", 0.0 }, { "version", 3 }
+        });
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_updatedOrderData);
+        Assert.False(_updatedOrderData!.ContainsKey("orderTotal"));
+        Assert.False(_updatedOrderData.ContainsKey("commissionAmount"));
+        Assert.Equal("accepted", _updatedOrderData["status"].ToString());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_EchoedBookkeepingAndUnchangedFields_AreStrippedAndApplied()
+    {
+        // Exactly what the mobile client sends on cancel, plus unchanged identity echoes.
+        SetupExistingOrder();
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "status", "cancelled" }, { "cancelReason", "changed my mind" },
+            { "cancelledAt", "2026-09-25T08:00:00Z" }, { "updatedAt", "2026-09-25T08:00:00Z" },
+            { "buyerId", "buyer-001" }, { "quantity", 50 }, { "transportCost", 60 }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        var written = _updatedOrderData!;
+        Assert.Equal("cancelled", written["status"].ToString());
+        Assert.Equal("changed my mind", written["cancelReason"].ToString());
+        Assert.True(written.ContainsKey("cancelledAt"));           // server-stamped, not the client's
+        Assert.NotEqual("2026-09-25T08:00:00Z", written["cancelledAt"].ToString());
+        foreach (var dropped in new[] { "orderId", "updatedAt", "buyerId", "quantity", "transportCost", "version" })
+        {
+            Assert.False(written.ContainsKey(dropped), $"{dropped} should not be written");
+        }
+    }
+
+    [Fact]
+    public async Task OrderUpdate_OrderIdMismatch_ReturnsValidationError()
+    {
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "orderId", "order-999" }, { "status", "cancelled" }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: orderId does not match the operation entityId", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_ReasonTooLong_ReturnsValidationError()
+    {
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }, { "cancelReason", new string('x', 501) }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: cancelReason must not exceed 500 characters", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task OrderUpdate_CreatedToPaymentSubmitted_IsAllowed()
     {

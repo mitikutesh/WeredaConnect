@@ -201,6 +201,26 @@ public partial class SyncFunction
         "paymentVerifiedAt", "respondedAt", "cancelledAt"
     };
 
+    /// <summary>
+    /// SIM-06: the only order fields a client may change after create. Everything else in
+    /// AllowedOrderFields identifies or prices the order and is immutable; the money
+    /// fields are server-owned (OrderServerOnlyFields) so orderTotal can never drift.
+    /// </summary>
+    private static readonly HashSet<string> UpdatableOrderFields = new()
+    {
+        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId"
+    };
+
+    /// <summary>
+    /// Bookkeeping keys the shipped clients echo on every order update. They are checked
+    /// (orderId) or dropped (updatedAt is stamped by the repository); version is consumed
+    /// by the optimistic-concurrency check.
+    /// </summary>
+    private static readonly HashSet<string> OrderUpdateEchoFields = new()
+    {
+        "orderId", "updatedAt", "version"
+    };
+
     private static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
     {
         // Buyers pay immediately after placing an order, so allow the direct
@@ -659,7 +679,8 @@ public partial class SyncFunction
     /// Reject an update that changes an immutable identity field; strip identity
     /// fields that merely echo the stored value so they are not rewritten.
     /// Phone fields are compared in normalized (+251...) form because a client may
-    /// echo the local 09... spelling of a number the server stored normalized.
+    /// echo the local 09... spelling of a number the server stored normalized, and
+    /// numeric fields are compared as numbers (an echoed 50 must match a stored 50.0).
     /// Returns an error message (without the code prefix) or null when clean.
     /// </summary>
     private static string? RejectImmutableFieldChanges(
@@ -682,7 +703,11 @@ public partial class SyncFunction
                 stored = Validation.RequestValidator.NormalizePhoneNumber(stored) ?? stored;
             }
 
-            if (!string.Equals(incomingText, stored, StringComparison.Ordinal))
+            var unchanged = string.Equals(incomingText, stored, StringComparison.Ordinal)
+                || (double.TryParse(incomingText, NumberStyles.Float, CultureInfo.InvariantCulture, out var incomingNumber)
+                    && double.TryParse(stored, NumberStyles.Float, CultureInfo.InvariantCulture, out var storedNumber)
+                    && Math.Abs(incomingNumber - storedNumber) <= QuantityTolerance);
+            if (!unchanged)
             {
                 return $"{field} is immutable and cannot be changed on update.";
             }
@@ -4874,6 +4899,46 @@ public partial class SyncFunction
         foreach (var field in OrderServerOnlyFields)
         {
             operation.Data.Remove(field);
+        }
+
+        // SIM-06: an update may only carry status and its companions. The echoed orderId
+        // must be this order; updatedAt is server-stamped; unknown keys are rejected; every
+        // identity or pricing field is immutable (an unchanged echo is dropped, a changed
+        // value is rejected) so the stored money fields always match their inputs.
+        if (operation.Data.TryGetValue("orderId", out var echoedOrderId))
+        {
+            if (!string.Equals(echoedOrderId?.ToString(), operation.EntityId, StringComparison.Ordinal))
+            {
+                return OrderValidationError(operation, "orderId does not match the operation entityId.");
+            }
+
+            operation.Data.Remove("orderId");
+        }
+
+        operation.Data.Remove("updatedAt");
+
+        var unknownUpdateFields = operation.Data.Keys
+            .Where(k => !AllowedOrderFields.Contains(k) && !OrderUpdateEchoFields.Contains(k))
+            .ToList();
+        if (unknownUpdateFields.Count > 0)
+        {
+            return OrderValidationError(operation, $"Unknown fields: {string.Join(", ", unknownUpdateFields)}");
+        }
+
+        var immutableOrderFields = AllowedOrderFields.Where(f => !UpdatableOrderFields.Contains(f)).ToHashSet();
+        var immutableError = RejectImmutableFieldChanges(
+            operation.Data,
+            immutableOrderFields,
+            key => existingOrder.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+        if (immutableError != null)
+        {
+            return OrderValidationError(operation, immutableError);
+        }
+
+        var updateValidationErrors = ValidateOrderFields(operation.Data, isCreate: false);
+        if (updateValidationErrors.Count > 0)
+        {
+            return OrderValidationError(operation, string.Join(" ", updateValidationErrors));
         }
 
         // Validate status transition
