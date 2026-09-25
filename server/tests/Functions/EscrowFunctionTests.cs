@@ -54,7 +54,8 @@ public class EscrowFunctionTests
     private static APIGatewayProxyRequest MakePostRequest(
         string path,
         string? body = null,
-        string? userId = null)
+        string? userId = null,
+        string? role = "buyer")
     {
         var request = new APIGatewayProxyRequest
         {
@@ -65,10 +66,13 @@ public class EscrowFunctionTests
 
         if (userId != null)
         {
-            request.RequestContext = new ProxyRequestContext
+            var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } };
+            if (role != null)
             {
-                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } }
-            };
+                authorizer["custom:role"] = role;
+            }
+
+            request.RequestContext = new ProxyRequestContext { Authorizer = authorizer };
         }
 
         return request;
@@ -290,6 +294,38 @@ public class EscrowFunctionTests
     // ──────────────────────────────────────────────
     // Invalid JSON
     // ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("farmer")]
+    [InlineData("trucker")]
+    [InlineData("admin")]
+    public async Task HandleInitiate_NonBuyerRole_Returns403Escrow025(string role)
+    {
+        // SIM-04: only buyers may hold money; the service must not even be reached.
+        var request = MakePostRequest("/escrow/initiate", ValidInitiateBody(), BuyerId, role: role);
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("ESCROW_025", response.Body);
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleInitiate_MissingRoleClaim_Returns403Escrow025()
+    {
+        // Fail closed: an access token (no custom:role) must not be able to hold money.
+        var request = MakePostRequest("/escrow/initiate", ValidInitiateBody(), BuyerId, role: null);
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("ESCROW_025", response.Body);
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+    }
+
+    private static string ValidInitiateBody() =>
+        $$"""{"deliveryId":"del-001","buyerId":"{{BuyerId}}","farmerId":"{{FarmerId}}","amount":5000,"currency":"ETB","idempotencyKey":"{{BuyerId}}:del-001:initiate:1708084800000"}""";
 
     [Fact]
     public async Task HandleInitiate_InvalidJson_Returns400()

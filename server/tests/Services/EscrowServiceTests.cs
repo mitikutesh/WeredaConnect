@@ -603,7 +603,11 @@ public class EscrowServiceTests
             .StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(_ =>
             {
-                if (recordPresent) return false; // conditional write would fail
+                if (recordPresent)
+                {
+                    return false; // conditional write would fail
+                }
+
                 recordPresent = true;
                 return true;
             });
@@ -1817,6 +1821,36 @@ public class EscrowServiceTests
         => new(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
             _mockUserRepo, orderRepo);
 
+    private EscrowService CreateServiceWithDeliveryAndOrderRepo(
+        IDeliveryRepository deliveryRepo, IOrderRepository orderRepo)
+        => new(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, orderRepo, deliveryRepo);
+
+    /// <summary>A pending delivery whose parties are the standard test buyer and farmer.</summary>
+    private static Dictionary<string, object> MakeBoundDelivery(
+        string buyerId = BuyerId, string farmerId = FarmerId, string? orderId = null)
+    {
+        var delivery = new Dictionary<string, object>
+        {
+            { "buyerId", buyerId }, { "farmerId", farmerId }, { "status", "pending" }
+        };
+        if (orderId != null)
+        {
+            delivery["orderId"] = orderId;
+        }
+
+        return delivery;
+    }
+
+    /// <summary>An order whose split (11,500 + 3,000 + 500) reconciles to a 15,000 ETB total.</summary>
+    private static Dictionary<string, object> MakeBoundOrder(
+        string buyerId = BuyerId, decimal orderTotal = 15_000m) => new()
+    {
+        { "buyerId", buyerId }, { "deliveryId", DeliveryId }, { "orderTotal", orderTotal },
+        { "cropCost", 11_500m }, { "transportCost", 3_000m },
+        { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
+    };
+
     [Fact]
     public async Task InitiateAsync_ActiveEscrowExistsForDelivery_ReturnsEscrow009()
     {
@@ -1908,7 +1942,7 @@ public class EscrowServiceTests
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
         deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
         {
-            { "status", "delivered" }
+            { "buyerId", BuyerId }, { "farmerId", FarmerId }, { "status", "delivered" }
         });
 
         var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
@@ -1923,15 +1957,122 @@ public class EscrowServiceTests
     public async Task InitiateAsync_DeliveryPending_Succeeds()
     {
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
-        deliveryRepo.GetByIdAsync(DeliveryId).Returns(new Dictionary<string, object>
-        {
-            { "status", "pending" }
-        });
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery());
 
         var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
             .InitiateAsync(MakeInitiateRequest(), BuyerId);
 
         Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_CallerNotDeliveryBuyer_Returns403Escrow026()
+    {
+        // SIM-04: a stranger (or the farmer/trucker) holding money against someone
+        // else's delivery used to succeed and then block the real buyer (ESCROW_009).
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(buyerId: "buyer-other"));
+
+        var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_026", result.Error!.Code);
+        Assert.Equal(403, result.Error.HttpStatus);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_FarmerIdNotDeliveryFarmer_Returns400Escrow027()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(farmerId: "farmer-other"));
+
+        var result = await CreateServiceWithDeliveryRepo(deliveryRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_027", result.Error!.Code);
+        Assert.Equal(400, result.Error.HttpStatus);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_AmountDiffersFromOrderTotal_Returns400Escrow028()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(orderId: "order-1"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(MakeBoundOrder(orderTotal: 1_128.74m));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .InitiateAsync(MakeInitiateRequest(amount: 15_000m), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_028", result.Error!.Code);
+        Assert.Equal(400, result.Error.HttpStatus);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_LinkedOrderMissing_Returns422()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(orderId: "order-gone"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-gone").Returns((Dictionary<string, object>?)null);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_VALIDATION", result.Error!.Code);
+        Assert.Equal(422, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_ClientOrderIdDiffersFromDeliveryOrder_Returns400()
+    {
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(orderId: "order-1"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+        var request = new InitiateEscrowRequest
+        {
+            DeliveryId = DeliveryId,
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 15_000m,
+            Currency = "ETB",
+            OrderId = "order-2",
+            IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
+        };
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .InitiateAsync(request, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_VALIDATION", result.Error!.Code);
+        Assert.Equal(400, result.Error.HttpStatus);
+        await orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_BoundPartiesAndOrderTotal_SucceedsWithOrderSplit()
+    {
+        // The legitimate buyer path: parties match, amount == orderTotal, and the payout
+        // split comes from the delivery's order even though the client sent no orderId
+        // (the mobile client never does).
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(orderId: "order-1"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(MakeBoundOrder());
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .InitiateAsync(MakeInitiateRequest(amount: 15_000m), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(11_500m, result.Value!.FarmerPayout);
+        Assert.Equal(500m, result.Value.Commission);
     }
 
     [Fact]
@@ -1954,15 +2095,19 @@ public class EscrowServiceTests
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
         {
-            { "buyerId", BuyerId }, { "deliveryId", DeliveryId },
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId }, { "orderTotal", 15_000m },
             { "cropCost", 14_000m }, { "transportCost", 3_000m },
             { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
         });
         // Held amount 15,000 but split sums to 17,500 → must be rejected.
         var request = new InitiateEscrowRequest
         {
-            DeliveryId = DeliveryId, BuyerId = BuyerId, FarmerId = FarmerId, Amount = 15_000m,
-            Currency = "ETB", OrderId = "order-1",
+            DeliveryId = DeliveryId,
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 15_000m,
+            Currency = "ETB",
+            OrderId = "order-1",
             IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
         };
 
@@ -1978,14 +2123,18 @@ public class EscrowServiceTests
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
         {
-            { "buyerId", BuyerId }, { "deliveryId", DeliveryId },
+            { "buyerId", BuyerId }, { "deliveryId", DeliveryId }, { "orderTotal", 15_000m },
             { "cropCost", 11_500m }, { "transportCost", 3_000m },
             { "commissionAmount", 500m }, { "truckerId", "trucker-1" }
         });
         var request = new InitiateEscrowRequest
         {
-            DeliveryId = DeliveryId, BuyerId = BuyerId, FarmerId = FarmerId, Amount = 15_000m,
-            Currency = "ETB", OrderId = "order-1",
+            DeliveryId = DeliveryId,
+            BuyerId = BuyerId,
+            FarmerId = FarmerId,
+            Amount = 15_000m,
+            Currency = "ETB",
+            OrderId = "order-1",
             IdempotencyKey = $"{BuyerId}:{DeliveryId}:initiate:1708084800000"
         };
 
@@ -2002,7 +2151,9 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
         var request = new ReleaseEscrowRequest
         {
-            EscrowId = "escrow-001", Trigger = "bogus", DeliveryId = DeliveryId,
+            EscrowId = "escrow-001",
+            Trigger = "bogus",
+            DeliveryId = DeliveryId,
             IdempotencyKey = "admin:escrow-001:release:1708171200000"
         };
 
@@ -2027,7 +2178,9 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
         var request = new ReleaseEscrowRequest
         {
-            EscrowId = "escrow-001", Trigger = "admin_override", DeliveryId = DeliveryId,
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
             IdempotencyKey = "admin:escrow-001:release:1708171200000"
         };
 
@@ -2053,7 +2206,8 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
         var request = new RefundEscrowRequest
         {
-            EscrowId = "escrow-001", Trigger = "admin_override",
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
             IdempotencyKey = "admin:escrow-001:refund:1708171200000"
         };
 
@@ -2078,7 +2232,9 @@ public class EscrowServiceTests
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
         var request = new ReleaseEscrowRequest
         {
-            EscrowId = "escrow-001", Trigger = "admin_override", DeliveryId = DeliveryId,
+            EscrowId = "escrow-001",
+            Trigger = "admin_override",
+            DeliveryId = DeliveryId,
             IdempotencyKey = "admin:escrow-001:release:1708171200000"
         };
 

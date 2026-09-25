@@ -184,6 +184,7 @@ class DeliveryRecord:
     crop_id: str
     trip_id: str
     qr_nonce: str = ""  # Server-generated, needed for pickup/delivery transitions
+    order_id: str = ""  # Backing order; the escrow amount must equal its orderTotal
 
 
 @dataclass
@@ -666,6 +667,7 @@ def phase_create_deliveries(state: TestState):
                     crop_id=crop_id,
                     trip_id=trip_id,
                     qr_nonce=qr_nonce,
+                    order_id=order_id,
                 ))
                 state.record(f"Create delivery {i+1}", True,
                              f"deliveryId={delivery_id[:12]}..., qrNonce={'yes' if qr_nonce else 'none'}")
@@ -828,7 +830,15 @@ def phase_escrow(state: TestState):
             first_buyer = buyer
 
         delivery_id = drec.delivery_id
+        # The server binds the escrow amount to the backing order's total
+        # (ESCROW_028); the fixed amounts only remain as a fallback.
         amount = amounts[i % len(amounts)]
+        if drec.order_id:
+            oresp = api("GET", f"/orders/{drec.order_id}", token=buyer.access_token)
+            if oresp.status_code == 200:
+                odata = oresp.json()
+                odata = odata.get("order", odata)
+                amount = float(odata.get("orderTotal") or amount)
         now = ts()
 
         print_step(f"Initiating escrow for delivery {i+1} ({amount} ETB)")

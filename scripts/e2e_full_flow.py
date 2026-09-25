@@ -361,7 +361,13 @@ def delivery_and_escrow(s: State):
     if not ok:
         return
 
-    amount = 5000.00
+    # The server binds the escrow amount to the order's total (ESCROW_028).
+    rr = api("GET", f"/orders/{oid}", token=b0.token)
+    o = rr.json().get("order", rr.json()) if rr.status == 200 else {}
+    amount = float(o.get("orderTotal") or 0)
+    if amount <= 0:
+        s.check("escrow initiate", False, f"order {oid[:8]} has no orderTotal to pay")
+        return
     r = api("POST", "/escrow/initiate", token=b0.token, body={
         "deliveryId": did, "buyerId": b0.user_id, "farmerId": farmer.user_id,
         "amount": amount, "currency": "ETB",

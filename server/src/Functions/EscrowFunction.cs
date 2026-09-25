@@ -153,6 +153,17 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
+        // SIM-04: buyer role only (contract, Authorization Matrix). Fail closed when the
+        // claim is missing: clients must present the ID token that carries it.
+        var role = GetAuthenticatedUserRole(request);
+        if (!string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            AuditLogger.LogAudit("ESCROW", "INITIATE",
+                userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
+                entityType: "escrow", outcome: "failure", errorCode: "ESCROW_025");
+            return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can initiate escrow payments.");
+        }
+
         // ── Fraud velocity check (F-14) ──
         if (_fraudService != null)
         {
