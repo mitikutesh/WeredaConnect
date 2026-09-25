@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.2.0
+1.3.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -48,7 +48,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 **Field Rules:**
 - `syncBatchId` — unique per sync attempt; used for batch-level idempotency
 - `idempotencyKey` — **composite key format**: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` (prevents duplicate processing on retry)
-- `clientVersion` — the version the client had when making the change
+- `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
 
@@ -243,11 +243,12 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 2026-09-25 | Versioning (SIM-08): op-level `clientVersion` is now honoured (it was silently ignored), `data.version` remains accepted, op-level wins; order updates require a version (no fallback to the stored version); web order client sends the current version |
 | 1.2.0 | 2026-03-03 | Updated: Network errors no longer increment retryCount; added crash recovery for stale syncing operations; clarified retry vs. revert categories |
 | 1.1.0 | 2026-02-15 | Added: Composite idempotency key format, server-wins conflict resolution details, exponential backoff retry logic, SyncMetadata table schema, implementation status |
 | 1.0.0 | 2026-02-09 | Initial contract: sync request/response, conflict resolution, idempotency |
 
 ---
 
-**Last Updated**: 2026-03-03
-**Version**: 1.2.0
+**Last Updated**: 2026-09-25
+**Version**: 1.3.0

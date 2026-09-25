@@ -957,11 +957,8 @@ public partial class SyncFunction
                             };
                     }
 
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj?.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var updateResult = await _intentRepo.UpdateAsync(
                         operation.EntityId, authenticatedUserId!, operation.Data, clientVersion);
@@ -2063,12 +2060,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var updateResult = await _cropRepo.UpdateAsync(
                         operation.EntityId, operation.Data, clientVersion);
@@ -2107,12 +2100,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     // Validate ownership
                     var existingForDelete = await _cropRepo.GetByIdAsync(operation.EntityId);
@@ -2469,12 +2458,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var createdAt = existing["createdAt"].S;
                     var now = DateTime.UtcNow.ToString("o");
@@ -2562,12 +2547,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var existing = await GetTripItemAsync(operation.EntityId);
                     if (existing == null)
@@ -4164,12 +4145,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data?.TryGetValue("version", out var vObj) == true && vObj is not null)
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var createdAt = existing["createdAt"].S;
                     var now = DateTime.UtcNow.ToString("o");
@@ -4378,12 +4355,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var existing = await GetDeliveryItemAsync(operation.EntityId);
                     if (existing == null)
@@ -4988,17 +4961,16 @@ public partial class SyncFunction
             }
         }
 
-        // Get version for optimistic concurrency
-        var version = 1;
-        if (operation.Data.TryGetValue("version", out var vObj))
+        // SIM-08: an order update is never applied without the client's version. The old
+        // fallback to the stored version skipped optimistic concurrency entirely, so a
+        // stale client could overwrite a newer state (even a cancelled order).
+        if (!TryGetClientVersion(operation, out var version))
         {
-            int.TryParse(vObj?.ToString(), out version);
-            operation.Data.Remove("version"); // version handled by repo
+            return OrderValidationError(operation,
+                "version is required for order updates (send clientVersion or data.version).");
         }
-        else if (existingOrder.TryGetValue("version", out var evObj))
-        {
-            int.TryParse(evObj?.ToString(), out version);
-        }
+
+        operation.Data.Remove("version"); // consumed here; the repository handles the check
 
         var updateResult = await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
 
@@ -5329,6 +5301,31 @@ public partial class SyncFunction
         // either participant allowed — already gated by participant check
 
         return null;
+    }
+
+    /// <summary>
+    /// SIM-08: the client's optimistic-concurrency version. The contract carries it as
+    /// the op-level clientVersion; the shipped clients send data.version. Both are
+    /// honoured, op-level first. Returns false (version 0) when neither is present.
+    /// </summary>
+    private static bool TryGetClientVersion(SyncOperationRequest operation, out int version)
+    {
+        if (operation.ClientVersion is int opLevel)
+        {
+            version = opLevel;
+            return true;
+        }
+
+        if (operation.Data != null
+            && operation.Data.TryGetValue("version", out var raw)
+            && raw != null
+            && int.TryParse(raw.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out version))
+        {
+            return true;
+        }
+
+        version = 0;
+        return false;
     }
 
     private static SyncOperationResult OrderValidationError(SyncOperationRequest operation, string message) => new()

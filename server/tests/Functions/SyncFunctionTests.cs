@@ -2659,7 +2659,8 @@ public class SyncFunctionTests
                 Data = new Dictionary<string, object>
                 {
                     { "status", "payment_submitted" },
-                    { "paymentMethod", "telebirr" }
+                    { "paymentMethod", "telebirr" },
+                    { "version", 1 }
                 }
             };
             var response = await function.FunctionHandler(
@@ -2867,6 +2868,123 @@ public class SyncFunctionTests
         await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
 
+    // --- SIM-08: client version resolution ---
+
+    [Fact]
+    public async Task OrderUpdate_WithoutAnyVersion_ReturnsValidationError()
+    {
+        // The old path fell back to the stored version and applied the update with no
+        // concurrency check at all.
+        SetupExistingOrder();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: version is required for order updates", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_OpLevelClientVersion_IsHonoured()
+    {
+        // Contract-conformant clients send clientVersion on the operation, not in data.
+        SetupExistingOrder(version: 4);
+        var usedVersion = -1;
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Do<int>(v => usedVersion = v))
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "cancelled" }, { "version", "5" }
+            }));
+        var op = MakeOrderUpdateOp(new Dictionary<string, object> { { "status", "cancelled" } })
+            with
+        { ClientVersion = 4 };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.Equal(4, usedVersion);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_OpLevelClientVersion_WinsOverDataVersion()
+    {
+        SetupExistingOrder(version: 4);
+        var usedVersion = -1;
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Do<int>(v => usedVersion = v))
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "cancelled" }, { "version", "5" }
+            }));
+        var op = MakeOrderUpdateOp(new Dictionary<string, object> { { "status", "cancelled" }, { "version", 1 } })
+            with
+        { ClientVersion = 4 };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.Equal(4, usedVersion);
+    }
+
+    [Fact]
+    public async Task CropUpdate_OpLevelClientVersion_IsHonoured()
+    {
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "version", "3" }
+        });
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 3)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "farmerId", "farmer-001" }, { "version", "4" }
+            }));
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-crop-cv",
+            IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "update",
+            ClientVersion = 3,
+            Data = new Dictionary<string, object> { { "quantity", 100 } }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.Contains("\"serverVersion\":4", response.Body);
+        await _mockCropRepo.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 3);
+    }
+
+    [Fact]
+    public async Task TripUpdate_OpLevelClientVersion_IsHonoured()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "open", 3);
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r))
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 4) });
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-trip-cv",
+            IdempotencyKey = "user:trip:trip-001:update:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "update",
+            ClientVersion = 3,
+            Data = new Dictionary<string, object> { { "capacity", 200.0 } }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.Equal("3", sent!.ExpressionAttributeValues[":expectedVersion"].N);
+    }
+
     [Fact]
     public async Task OrderUpdate_CreatedToPaymentSubmitted_IsAllowed()
     {
@@ -2905,7 +3023,8 @@ public class SyncFunctionTests
             {
                 { "status", "payment_submitted" },
                 { "paymentMethod", "telebirr" },
-                { "cbeTransactionId", "MOCK-TBR-1" }
+                { "cbeTransactionId", "MOCK-TBR-1" },
+                { "version", 1 }
             }
         };
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
@@ -2953,7 +3072,8 @@ public class SyncFunctionTests
             Action = "update",
             Data = new Dictionary<string, object>
             {
-                { "status", "rejected" }
+                { "status", "rejected" },
+                { "version", 1 }
             }
         };
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
@@ -3023,7 +3143,8 @@ public class SyncFunctionTests
                 Data = new Dictionary<string, object>
                 {
                     { "status", "payment_submitted" },
-                    { "paymentMethod", "telebirr" }
+                    { "paymentMethod", "telebirr" },
+                    { "version", 1 }
                 }
             };
             var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
@@ -3095,7 +3216,7 @@ public class SyncFunctionTests
             EntityType = "order",
             EntityId = "order-001",
             Action = "update",
-            Data = new Dictionary<string, object> { { "status", "rejected" } }
+            Data = new Dictionary<string, object> { { "status", "rejected" }, { "version", 1 } }
         };
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         var response = await function.FunctionHandler(request, _context);
@@ -3211,7 +3332,8 @@ public class SyncFunctionTests
                 {
                     { "status", "payment_submitted" },
                     { "paymentMethod", "telebirr" },
-                    { "cbeTransactionId", "MOCK-TBR-1" }
+                    { "cbeTransactionId", "MOCK-TBR-1" },
+                    { "version", 1 }
                 }
             };
             var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
