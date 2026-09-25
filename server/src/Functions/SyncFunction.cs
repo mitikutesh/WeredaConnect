@@ -5158,6 +5158,10 @@ public partial class SyncFunction
                 {
                     await TryScheduleOrderEscrowRefundAsync(
                         operation.EntityId, $"order_{appliedStatus}", context);
+
+                    // SIM-13: the goods go back on the market with the money going back
+                    // to the buyer.
+                    await TryRestoreListingStockAsync(existingOrder, context);
                 }
             }
 
@@ -5332,6 +5336,36 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// SIM-13: give the listing its stock back when a funded order dies (rejected or
+    /// cancelled). Idempotency per order and the race fence live in the repository
+    /// (version CAS plus the listing's set of restored order ids). Best-effort, like
+    /// the decrement: a failure is logged and never fails the order update.
+    /// </summary>
+    private async Task TryRestoreListingStockAsync(Dictionary<string, object> order, ILambdaContext context)
+    {
+        try
+        {
+            var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
+            var orderId = order.TryGetValue("orderId", out var oid) ? oid?.ToString() : null;
+            var quintals = ParseDouble(order, "quantity") / KgPerQuintal;
+            if (string.IsNullOrEmpty(listingId) || string.IsNullOrEmpty(orderId) || quintals <= 0)
+            {
+                return;
+            }
+
+            var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
+            context.Logger.LogInformation(restored
+                ? $"Listing {listingId}: +{quintals} quintals restored (order {orderId} died)"
+                : $"Listing {listingId}: nothing to restore for order {orderId} (already restored or listing gone)");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to restore listing stock for order: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// When an order becomes "funded", decrease the crop listing's available quantity
     /// by the order quantity. If quantity reaches 0, transition listing to "reserved".
     /// Best-effort — failures are logged but do not block the order update.
@@ -5370,7 +5404,9 @@ public partial class SyncFunction
             var newQuantity = Math.Max(0, currentQuantity - orderQuintals);
             var updateData = new Dictionary<string, object>
             {
-                { "quantity", newQuantity.ToString("F2", CultureInfo.InvariantCulture) }
+                // Stored as a number (it used to be a formatted string, which broke arithmetic
+                // on the attribute and mixed types across listings).
+                { "quantity", Math.Round(newQuantity, 2) }
             };
 
             if (newQuantity <= 0)

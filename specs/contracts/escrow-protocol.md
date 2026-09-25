@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.2.1
+1.2.2
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -148,7 +148,9 @@ exists. The server materializes an escrow record at that moment so
   `buyerFaydaVerified/farmerFaydaVerified = false` unless a users table is wired
   (KYC enforcement belongs on the order-payment leg — follow-up); amounts outside
   the initiate API's 100–500,000 ETB band are still recorded (they reflect money
-  actually held). Listing-stock restore on refund remains a known gap.
+  actually held). Listing-stock restore on refund is implemented (1.2.2, SIM-13): when
+  the sweep cancels a stale-funded order, or a participant rejects/cancels a funded
+  order, the listing gets its quintals back (idempotent per order).
 
 ---
 
@@ -1159,6 +1161,7 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.2 | 2026-09-25 | Stock restore (SIM-13): the refund sweep's cancel of a stale-funded order (and a participant's reject/cancel of a funded order) returns the listing's quintals, idempotent per order; the escrow cron Lambda gains `CROPS_TABLE` |
 | 1.2.1 | 2026-09-25 | Dispute propagation (SIM-12): an escrow dispute mirrors onto the order (`delivered → disputed`, blocks ratings) and the delivery; a delivery-level dispute freezes the escrow; failures land in the audit ledger as `dispute_propagation_failed` |
 | 1.2.0 | 2026-09-25 | Initiate hardening (SIM-04): buyer role only (`ESCROW_025`), caller must be the delivery's buyer (`ESCROW_026`), `farmerId` must be the delivery's farmer (`ESCROW_027`), `amount` must equal the linked order's `orderTotal` (`ESCROW_028`), client `orderId` may only echo the delivery's; payout split always taken from the linked order |
 | 1.1.0 | 2026-07-12 | Order-funded escrow leg: record created at order funding (deterministic escrow-order-{orderId} key, source=order, no deliveryId until linkage), delivery linkage + self-heal, reject/cancel refund scheduling via expiresAt, order-aware auto-refund, ESCROW_024 double-charge guard, EscrowSummaryDto gains orderId/buyerId/farmerId |
@@ -1167,5 +1170,5 @@ A scheduled Lambda runs every 6 hours:
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Status**: Draft (Phase R4)

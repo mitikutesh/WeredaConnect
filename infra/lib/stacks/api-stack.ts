@@ -941,6 +941,10 @@ export class ApiStack extends cdk.Stack {
         // its order is stale-funded or terminal; live orders get the expiry
         // pushed. Without this env, order-sourced escrows are skipped (fail-safe).
         ORDERS_TABLE: props.ordersTable.tableName,
+        // A stale-funded order cancelled by the refund sweep gives its listing
+        // stock back (SIM-13). Without this env the cancel and refund still run,
+        // stock is simply not restored.
+        CROPS_TABLE: props.cropsTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -960,6 +964,8 @@ export class ApiStack extends cdk.Stack {
     // Read the order behind an order-funded escrow before refunding; write to
     // cancel a stale-funded order after its escrow refunds.
     props.ordersTable.grantReadWriteData(escrowCronFn.function);
+    // Restore the cancelled order's listing stock (conditional update on the listing).
+    props.cropsTable.grantReadWriteData(escrowCronFn.function);
     commissionRateParam.grantRead(escrowCronFn.function);
     disputeWindowParam.grantRead(escrowCronFn.function);
     escrowTimeoutParam.grantRead(escrowCronFn.function);

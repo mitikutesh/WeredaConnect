@@ -2675,7 +2675,7 @@ public class SyncFunctionTests
             Assert.Contains("success", response.Body);
             await _mockCropRepo.Received(1).UpdateAsync(
                 "listing-001",
-                Arg.Is<Dictionary<string, object>>(d => d["quantity"].ToString() == "55.00" && !d.ContainsKey("status")),
+                Arg.Is<Dictionary<string, object>>(d => (double)d["quantity"] == 55.0 && !d.ContainsKey("status")),
                 1);
         }
         finally
@@ -3793,6 +3793,59 @@ public class SyncFunctionTests
             "escrow-d1", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
             Arg.Is<Dictionary<string, object>>(f =>
                 f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
+    }
+
+    // --- SIM-13: a funded order that dies gives its listing stock back ---
+
+    [Theory]
+    [InlineData("rejected", "farmer-001", "farmer")]
+    [InlineData("cancelled", "buyer-001", "buyer")]
+    public async Task OrderUpdate_FundedOrderDies_RestoresListingStock(string status, string userId, string role)
+    {
+        // The fleet run: wheat 30 -> 22 with 5 sold; the cancelled orders' quintals never came back.
+        SetupExistingOrder(status: "funded");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs(userId, role, new Dictionary<string, object>
+        {
+            { "status", status }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        // 50 kg on the order = 0.5 quintal back on listing-001.
+        await _mockCropRepo.Received(1).TryRestoreStockAsync("listing-001", "order-001", 0.5);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_UnfundedOrderCancelled_DoesNotTouchStock()
+    {
+        // Nothing was taken from the listing before funding, so nothing is given back.
+        SetupExistingOrder(status: "created");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        await _mockCropRepo.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_StockRestoreFailure_DoesNotFailTheOrderUpdate()
+    {
+        SetupExistingOrder(status: "funded");
+        SetupOrderUpdateSucceeds();
+        _mockCropRepo.TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .ThrowsAsync(new InvalidOperationException("crops table unavailable"));
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "rejected" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
     }
 
     [Fact]

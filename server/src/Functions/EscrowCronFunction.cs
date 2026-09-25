@@ -34,6 +34,9 @@ public class EscrowCronFunction
     // still in flight. Absent env → order-sourced escrows are skipped (fail-safe),
     // never refunded blind.
     private readonly IOrderRepository? _orderRepo;
+    // Optional: lets a cancelled stale-funded order give its listing stock back
+    // (SIM-13). Absent env → the cancel and refund still happen, stock is not restored.
+    private readonly ICropRepository? _cropRepo;
 
     /// <summary>
     /// Order statuses that mean the trade is actively progressing toward delivery —
@@ -100,6 +103,11 @@ public class EscrowCronFunction
             ? new OrderRepository(dynamoDb, ordersTable)
             : null;
 
+        var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE");
+        _cropRepo = cropsTable != null
+            ? new CropRepository(dynamoDb, cropsTable)
+            : null;
+
         _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway);
     }
 
@@ -112,7 +120,8 @@ public class EscrowCronFunction
         IEscrowAuditRepository auditRepo,
         ITelebirrGateway telebirrGateway,
         IDeliveryRepository? deliveryRepo = null,
-        IOrderRepository? orderRepo = null)
+        IOrderRepository? orderRepo = null,
+        ICropRepository? cropRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
@@ -120,6 +129,7 @@ public class EscrowCronFunction
         _telebirrGateway = telebirrGateway ?? throw new ArgumentNullException(nameof(telebirrGateway));
         _deliveryRepo = deliveryRepo;
         _orderRepo = orderRepo;
+        _cropRepo = cropRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -376,10 +386,15 @@ public class EscrowCronFunction
                     // refund below fails transiently, the order is already
                     // cancelled and the next sweep retries the refund (terminal
                     // orders stay refundable).
-                    if (refundedOrderWasFunded && fundedOrder != null
-                        && !await TryCancelRefundedOrderAsync(fundedOrder, context))
+                    if (refundedOrderWasFunded && fundedOrder != null)
                     {
-                        continue;
+                        if (!await TryCancelRefundedOrderAsync(fundedOrder, context))
+                        {
+                            continue;
+                        }
+
+                        // SIM-13: the cancelled order's goods go back on the market.
+                        await TryRestoreListingStockAsync(fundedOrder, context);
                     }
                 }
 
@@ -420,6 +435,43 @@ public class EscrowCronFunction
         }
 
         return refundCount;
+    }
+
+    /// <summary>
+    /// SIM-13: a cancelled stale-funded order gives its listing stock back. Idempotency
+    /// per order and the race fence live in the repository. Best-effort: the refund
+    /// proceeds regardless, and a failure is logged for the next sweep to notice.
+    /// </summary>
+    private async Task TryRestoreListingStockAsync(
+        Dictionary<string, object> order, ILambdaContext context)
+    {
+        if (_cropRepo == null)
+        {
+            return;
+        }
+
+        var orderId = GetString(order, "orderId");
+        var listingId = GetStringOrNull(order, "listingId");
+        var quintals = double.TryParse(GetStringOrNull(order, "quantity"),
+            System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture,
+            out var kg) ? kg / 100.0 : 0.0;
+        if (string.IsNullOrEmpty(listingId) || quintals <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
+            context.Logger.LogInformation(restored
+                ? $"Listing {listingId}: +{quintals} quintals restored (order {orderId} cancelled by escrow refund)"
+                : $"Listing {listingId}: nothing to restore for order {orderId}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"ORDER_STOCK_RESTORE_FAILED orderId={orderId} listingId={listingId}: [{ex.GetType().Name}]");
+        }
     }
 
     /// <summary>
