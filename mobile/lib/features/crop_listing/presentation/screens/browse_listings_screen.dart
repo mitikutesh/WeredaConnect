@@ -12,6 +12,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -56,6 +58,17 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   final _searchController = TextEditingController();
   final _priceMinController = TextEditingController();
   final _priceMaxController = TextEditingController();
+
+  /// Seller aggregates (`GET /ratings?rateeId=`), one fetch per farmer per
+  /// screen instance: cards rebuild on every filter and scroll, so the future
+  /// is cached to spend 3G data once. SIM-19 (was a hardcoded 4.5).
+  final Map<String, Future<RatingSummary>> _ratingFutures = {};
+
+  Future<RatingSummary> _ratingFor(String farmerId) =>
+      _ratingFutures.putIfAbsent(
+        farmerId,
+        () => context.read<RatingBloc>().repository.getRatingSummary(farmerId),
+      );
 
   @override
   void initState() {
@@ -405,32 +418,44 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final listing = state.listings[index];
-                          return ListingCard(
-                            title: listing.cropType,
-                            location: listing.locationName,
-                            sellerName: listing.farmerName.isNotEmpty
-                                ? listing.farmerName
-                                : listing.farmerId,
-                            price: l10n.etbCurrency(
-                              listing.pricePerKg.toStringAsFixed(0),
-                            ),
-                            hasEscrow: true,
-                            rating: 4.5,
-                            icon: Icons.eco,
-                            onTap: () {
-                              final authState = context.read<AuthBloc>().state;
-                              if (authState is AuthAuthenticated) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => CropListingDetailScreen(
-                                      listing: listing,
-                                      currentUserId: authState.userId,
-                                      currentUserRole: authState.role,
-                                    ),
-                                  ),
-                                );
-                              }
+                          // The seller's real rating; hidden until it loads
+                          // or when the farmer has none. No escrow badge:
+                          // there is no per-listing escrow fact to show.
+                          return FutureBuilder<RatingSummary>(
+                            future: _ratingFor(listing.farmerId),
+                            builder: (context, snapshot) {
+                              final summary = snapshot.data;
+                              final rated =
+                                  summary != null && summary.count > 0;
+                              return ListingCard(
+                                title: listing.cropType,
+                                location: listing.locationName,
+                                sellerName: listing.farmerName.isNotEmpty
+                                    ? listing.farmerName
+                                    : listing.farmerId,
+                                price: l10n.etbCurrency(
+                                  listing.pricePerKg.toStringAsFixed(0),
+                                ),
+                                rating: rated ? summary.average : null,
+                                ratingCount: rated ? summary.count : null,
+                                icon: Icons.eco,
+                                onTap: () {
+                                  final authState =
+                                      context.read<AuthBloc>().state;
+                                  if (authState is AuthAuthenticated) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => CropListingDetailScreen(
+                                          listing: listing,
+                                          currentUserId: authState.userId,
+                                          currentUserRole: authState.role,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              );
                             },
                           );
                         },

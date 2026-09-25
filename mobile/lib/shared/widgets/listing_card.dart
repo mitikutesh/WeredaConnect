@@ -6,7 +6,9 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// Reusable marketplace listing card matching mockup design.
 ///
 /// Used by both crop listing and trip listing screens.
-/// Shows crop name, location, farmer, price, escrow badge, and rating.
+/// Shows crop name, location, seller, price, an optional escrow badge and the
+/// seller's rating. [rating] is the seller's real aggregate (see
+/// `GET /ratings?rateeId=`); pass null to show nothing, never a placeholder.
 class ListingCard extends StatelessWidget {
   final String title;
   final String location;
@@ -14,6 +16,9 @@ class ListingCard extends StatelessWidget {
   final String price;
   final bool hasEscrow;
   final double? rating;
+
+  /// Number of ratings behind [rating]; rendered as "4.6 (12)" when set.
+  final int? ratingCount;
   final IconData? icon;
   final VoidCallback? onTap;
 
@@ -25,6 +30,7 @@ class ListingCard extends StatelessWidget {
     super.key,
     this.hasEscrow = false,
     this.rating,
+    this.ratingCount,
     this.icon,
     this.onTap,
   });
@@ -138,7 +144,9 @@ class ListingCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 2),
                           Text(
-                            rating!.toStringAsFixed(1),
+                            ratingCount == null
+                                ? rating!.toStringAsFixed(1)
+                                : '${rating!.toStringAsFixed(1)} ($ratingCount)',
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
