@@ -800,7 +800,87 @@ public partial class SyncFunction
             errors.Add("woreda is required.");
         }
 
+        // SIM-17: geo and date rules run on create AND update (the contract's
+        // server-side rules; they used to be enforced nowhere on the server).
+        // Coordinates are optional (GPS may not work in remote areas): absent,
+        // null or empty is fine, a present value must be a number inside the
+        // Ethiopia bounding box.
+        if (TryReadOptionalDouble(data, "latitude", out var latitude, out var latitudeInvalid))
+        {
+            if (latitudeInvalid || latitude < EthiopiaMinLatitude || latitude > EthiopiaMaxLatitude)
+            {
+                errors.Add($"latitude must be between {EthiopiaMinLatitude} and {EthiopiaMaxLatitude} (Ethiopia).");
+            }
+        }
+
+        if (TryReadOptionalDouble(data, "longitude", out var longitude, out var longitudeInvalid))
+        {
+            if (longitudeInvalid || longitude < EthiopiaMinLongitude || longitude > EthiopiaMaxLongitude)
+            {
+                errors.Add($"longitude must be between {EthiopiaMinLongitude} and {EthiopiaMaxLongitude} (Ethiopia).");
+            }
+        }
+
+        // createdAt is server-stamped (the repository ignores the client value),
+        // but a nonsense value must not be accepted silently. Clients send local
+        // time without an offset and device clocks drift, so allow a day of skew.
+        if (data.TryGetValue("createdAt", out var createdAtObj))
+        {
+            var createdAtText = createdAtObj?.ToString();
+            if (!string.IsNullOrWhiteSpace(createdAtText))
+            {
+                if (!DateTime.TryParse(createdAtText, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var createdAtUtc))
+                {
+                    errors.Add("createdAt must be an ISO 8601 timestamp.");
+                }
+                else if (createdAtUtc > DateTime.UtcNow.Add(CreatedAtFutureSkew))
+                {
+                    errors.Add("createdAt cannot be in the future.");
+                }
+            }
+        }
+
         return errors;
+    }
+
+    /// <summary>Ethiopia bounding box (contract: 3-15°N, 33-48°E).</summary>
+    private const double EthiopiaMinLatitude = 3.0;
+    private const double EthiopiaMaxLatitude = 15.0;
+    private const double EthiopiaMinLongitude = 33.0;
+    private const double EthiopiaMaxLongitude = 48.0;
+
+    /// <summary>
+    /// How far ahead of server time a client createdAt may sit before it is a
+    /// future date. Covers local-time strings sent without an offset (UTC+3)
+    /// plus device clock drift, without accepting a listing dated next year.
+    /// </summary>
+    private static readonly TimeSpan CreatedAtFutureSkew = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Read an optional numeric field. Returns false when the key is absent or
+    /// its value is null/empty (treated as not provided). When present,
+    /// <paramref name="invalid"/> is true if the value is not a finite number.
+    /// </summary>
+    private static bool TryReadOptionalDouble(
+        Dictionary<string, object> data, string key, out double value, out bool invalid)
+    {
+        value = 0;
+        invalid = false;
+        if (!data.TryGetValue(key, out var obj))
+        {
+            return false;
+        }
+
+        var text = obj?.ToString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        invalid = !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            || double.IsNaN(value) || double.IsInfinity(value);
+        return true;
     }
 
     /// <summary>

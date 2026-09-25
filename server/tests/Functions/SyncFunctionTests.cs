@@ -649,6 +649,170 @@ public class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
 
+    // ===== SIM-17: geo/date rules on update as on create =====
+
+    private static SyncOperationRequest MakeCropUpdateOp(Dictionary<string, object> data) => new()
+    {
+        OperationId = "op-update-geo",
+        IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+        EntityType = "crop_listing",
+        EntityId = "crop-001",
+        Action = "update",
+        Data = data
+    };
+
+    private void StubOwnedCrop() =>
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "version", "1" }
+        });
+
+    [Theory]
+    [InlineData("latitude", 20.0)]
+    [InlineData("latitude", 95.0)]
+    [InlineData("latitude", -1.0)]
+    [InlineData("longitude", 10.0)]
+    [InlineData("longitude", 50.5)]
+    public async Task CropUpdate_CoordinateOutsideEthiopia_ReturnsValidationErrorAndDoesNotWrite(
+        string field, double value)
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { field, value }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains($"CROP_VALIDATION: {field} must be between", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("2027-01-01T00:00:00Z")]
+    [InlineData("2099-06-30T12:00:00.000")]
+    public async Task CropUpdate_FutureCreatedAt_ReturnsValidationErrorAndDoesNotWrite(string createdAt)
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "createdAt", createdAt }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("CROP_VALIDATION: createdAt cannot be in the future.", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_MalformedCreatedAt_ReturnsValidationError()
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "createdAt", "yesterday" }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("CROP_VALIDATION: createdAt must be an ISO 8601 timestamp.", response.Body);
+    }
+
+    [Fact]
+    public async Task CropUpdate_ValidCoordinatesAndPastCreatedAt_Succeeds()
+    {
+        StubOwnedCrop();
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "2" }
+            }));
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "latitude", 9.03 }, { "longitude", 38.74 },
+            { "createdAt", "2026-03-01T10:00:00Z" }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await _mockCropRepo.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+    }
+
+    [Fact]
+    public async Task CropUpdate_NullCoordinates_AreTreatedAsAbsent()
+    {
+        // The clients send `latitude: null` when the GPS fix is missing (remote areas).
+        StubOwnedCrop();
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "2" }
+            }));
+        var op = MakeCropUpdateOp(new Dictionary<string, object?>
+        {
+            { "latitude", null }, { "longitude", null }, { "quantity", 100 }, { "version", 1 }
+        }!);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
+    [Theory]
+    [InlineData("latitude", 20.0)]
+    [InlineData("longitude", 10.0)]
+    public async Task CropCreate_CoordinateOutsideEthiopia_ReturnsValidationError(string field, double value)
+    {
+        var op = MakeCropCreateOp();
+        op.Data![field] = value;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains($"CROP_VALIDATION: {field} must be between", response.Body);
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_FutureCreatedAt_ReturnsValidationError()
+    {
+        var op = MakeCropCreateOp();
+        op.Data!["createdAt"] = "2027-01-01T00:00:00Z";
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("CROP_VALIDATION: createdAt cannot be in the future.", response.Body);
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_LocalTimeCreatedAtWithinSkew_IsAccepted()
+    {
+        // Mobile sends local time without an offset (Ethiopia is UTC+3); parsed as
+        // UTC that sits hours "ahead". The skew allowance must not reject it.
+        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "1" }
+            }));
+        var op = MakeCropCreateOp();
+        op.Data!["createdAt"] = DateTime.UtcNow.AddHours(3).ToString("yyyy-MM-ddTHH:mm:ss.fff");
+        op.Data["latitude"] = 9.03;
+        op.Data["longitude"] = 38.74;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
     [Fact]
     public async Task CropUpdate_EchoedIdentityFields_AreStrippedAndUpdateSucceeds()
     {

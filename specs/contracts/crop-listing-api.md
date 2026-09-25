@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.0.0
+1.1.1
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -308,11 +308,16 @@ GET /crops/crop-456
    - Precision: 2 decimal places
 4. **Location**:
    - Woreda, zone, region required (manual entry, not GPS-only)
-   - Coordinates optional (GPS may not work in remote areas)
-   - If coordinates provided, must be within Ethiopian bounds (3-15°N, 33-48°E)
+   - Coordinates optional (GPS may not work in remote areas): absent, `null` or empty is accepted
+   - If a coordinate is provided (top-level `latitude` / `longitude` on the wire), it must be a number within the Ethiopia bounding box (3-15°N, 33-48°E). Enforced on **create and update** since 1.1.1 (SIM-17): `CROP_VALIDATION: latitude must be between 3 and 15 (Ethiopia).`
 5. **Harvest Date**:
    - Cannot be in the future
    - Cannot be more than 1 year in the past
+   - (Not yet on the wire: `harvestDate` is rejected as an unknown field by `POST /sync`.)
+5b. **createdAt** (1.1.1, SIM-17):
+   - Server-stamped: the repository ignores the client value on create and update.
+   - A client value that is present must still be a valid ISO 8601 timestamp and must not be in the future. Clients send device local time without an offset and device clocks drift, so up to 24 hours ahead of server time is tolerated; `createdAt: 2027-…` is rejected with `CROP_VALIDATION: createdAt cannot be in the future.`
+   - Enforced on create and update alike.
 6. **Description**:
    - Maximum 500 characters
    - Allow Amharic, Afan Oromo, English characters
@@ -425,9 +430,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 |---------|------|--------|
 | 1.0.0 | 2026-02-15 | Initial contract: Create/browse/get endpoints, data model, validation rules, Ethiopian context |
 | 1.1.0 | 2026-09-25 | Update: `farmerId`/`farmerName`/`farmerPhone` are immutable after create (SIM-02); a changed value is rejected with `CROP_VALIDATION`, an echoed value is stripped |
+| 1.1.1 | 2026-09-25 | Geo/date rules on update as on create (SIM-17): `latitude`/`longitude` must be inside the Ethiopia bounding box when present (null tolerated), `createdAt` must be ISO 8601 and not in the future (24h skew); both `CROP_VALIDATION` |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.1.0
+**Version**: 1.1.1
 **Status**: Implemented (Phase R3)
