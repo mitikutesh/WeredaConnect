@@ -64,6 +64,13 @@ public sealed record SyncOperationRequest
     /// Informational only — not used for conflict resolution.
     /// </summary>
     public string? Timestamp { get; init; }
+
+    /// <summary>
+    /// The entity version the client held when it made the change (optimistic
+    /// concurrency, sync-protocol.md). Optional: the shipped clients send the same
+    /// value as data.version; when both are present this one wins (SIM-08).
+    /// </summary>
+    public int? ClientVersion { get; init; }
 }
 
 /// <summary>

@@ -165,6 +165,7 @@ class CropRecord:
     crop_id: str
     farmer_idx: int
     crop_type: str
+    price_per_kg: float = 0.0  # orders must quote exactly this (SIM-05)
 
 
 @dataclass
@@ -173,6 +174,7 @@ class TripRecord:
     trucker_idx: int
     from_woreda: str
     to_woreda: str
+    price_per_quintal: float = 0.0  # transportCost = kg / 100 x this (SIM-05)
 
 
 @dataclass
@@ -184,6 +186,7 @@ class DeliveryRecord:
     crop_id: str
     trip_id: str
     qr_nonce: str = ""  # Server-generated, needed for pickup/delivery transitions
+    order_id: str = ""  # Backing order; the escrow amount must equal its orderTotal
 
 
 @dataclass
@@ -372,7 +375,8 @@ def phase_create_crops(state: TestState):
             results = resp.json().get("results", [])
             if results and results[0].get("status") == "success":
                 state.crop_ids.append(crop_id)
-                state.crops.append(CropRecord(crop_id=crop_id, farmer_idx=listing["farmer_idx"], crop_type=listing["cropType"]))
+                state.crops.append(CropRecord(crop_id=crop_id, farmer_idx=listing["farmer_idx"], crop_type=listing["cropType"],
+                                              price_per_kg=listing["pricePerKg"]))
                 created_any = True
                 state.record(
                     f"Create {listing['cropType']} ({farmer.display_name})",
@@ -413,7 +417,8 @@ def phase_create_crops(state: TestState):
                         fidx = farmer_id_to_idx[fid]
                         if cid not in state.crop_ids:
                             state.crop_ids.append(cid)
-                            state.crops.append(CropRecord(crop_id=cid, farmer_idx=fidx, crop_type=ctype))
+                            state.crops.append(CropRecord(crop_id=cid, farmer_idx=fidx, crop_type=ctype,
+                                                          price_per_kg=float(item.get("pricePerKg") or 0)))
             time.sleep(0.2)
 
         if state.crops:
@@ -473,7 +478,8 @@ def phase_create_trips(state: TestState):
             if results and results[0].get("status") == "success":
                 state.trip_ids.append(trip_id)
                 state.trips.append(TripRecord(trip_id=trip_id, trucker_idx=trip_def["trucker_idx"],
-                                              from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"]))
+                                              from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"],
+                                              price_per_quintal=trip_def["pricePerQuintal"]))
                 state.record(f"Create trip {route}", True, f"tripId={trip_id[:12]}...")
             else:
                 msg = results[0].get("message", "unknown") if results else "no results"
@@ -599,13 +605,13 @@ def phase_create_deliveries(state: TestState):
                     "buyerName": buyer.display_name,
                     "farmerId": farmer.user_id,
                     "farmerName": farmer.display_name,
-                    "cropType": "teff",
-                    "quantity": 10.0,
-                    "pricePerUnit": 50.0,
+                    "cropType": crop.crop_type,
+                    "quantity": 10.0,  # kilograms (order-lifecycle.md, Units)
+                    "pricePerUnit": crop.price_per_kg,
                     "tripId": trip_id,
                     "truckerId": trucker.user_id,
                     "truckerName": trucker.display_name,
-                    "transportCost": 200.0,
+                    "transportCost": 10.0 / 100 * trip.price_per_quintal,
                     "paymentMethod": "telebirr",
                     "status": "created",
                 },
@@ -618,6 +624,42 @@ def phase_create_deliveries(state: TestState):
         if not order_ok:
             state.record(f"Create delivery {i+1}", False,
                          f"backing order failed: {order_resp.body[:160]}")
+            continue
+
+        # A delivery requires an accepted order (delivery-verification-api.md 1.3.0):
+        # the buyer pays (dev auto-funds the mocked payment), then the farmer accepts.
+        def _order_version(u):
+            r = api("GET", f"/orders/{order_id}", token=u.access_token)
+            d = r.json() if r.status_code == 200 else {}
+            return int((d.get("order") or d).get("version") or 1)
+
+        def _sync_update_order(u, data):
+            return api("POST", "/sync", token=u.access_token, json_body={
+                "syncBatchId": uid(),
+                "clientId": uid(),
+                "operations": [{
+                    "operationId": uid(),
+                    "idempotencyKey": f"{u.user_id}:order:{order_id}:update:{ts()}",
+                    "entityType": "order",
+                    "entityId": order_id,
+                    "action": "update",
+                    "data": data,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }],
+            })
+
+        pay_resp = _sync_update_order(buyer, {
+            "status": "payment_submitted", "paymentMethod": "telebirr",
+            "version": _order_version(buyer),
+        })
+        accept_resp = _sync_update_order(farmer, {
+            "status": "accepted", "version": _order_version(farmer),
+        })
+        accepted = (accept_resp.status_code == 200
+                    and accept_resp.json().get("results", [{}])[0].get("status") == "success")
+        if not accepted:
+            state.record(f"Create delivery {i+1}", False,
+                         f"order not accepted: {accept_resp.body[:120]} (pay: {pay_resp.status_code})")
             continue
 
         sync_body = {
@@ -666,6 +708,7 @@ def phase_create_deliveries(state: TestState):
                     crop_id=crop_id,
                     trip_id=trip_id,
                     qr_nonce=qr_nonce,
+                    order_id=order_id,
                 ))
                 state.record(f"Create delivery {i+1}", True,
                              f"deliveryId={delivery_id[:12]}..., qrNonce={'yes' if qr_nonce else 'none'}")
@@ -828,7 +871,15 @@ def phase_escrow(state: TestState):
             first_buyer = buyer
 
         delivery_id = drec.delivery_id
+        # The server binds the escrow amount to the backing order's total
+        # (ESCROW_028); the fixed amounts only remain as a fallback.
         amount = amounts[i % len(amounts)]
+        if drec.order_id:
+            oresp = api("GET", f"/orders/{drec.order_id}", token=buyer.access_token)
+            if oresp.status_code == 200:
+                odata = oresp.json()
+                odata = odata.get("order", odata)
+                amount = float(odata.get("orderTotal") or amount)
         now = ts()
 
         print_step(f"Initiating escrow for delivery {i+1} ({amount} ETB)")

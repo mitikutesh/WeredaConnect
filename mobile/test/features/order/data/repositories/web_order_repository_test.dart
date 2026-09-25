@@ -84,6 +84,8 @@ void main() {
     // inside an HTTP-200 batch → "An error occurred" on Submit Payment.
     test('submitPayment sends snake_case payment_submitted to /sync', () async {
       Map<String, dynamic>? sentBody;
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto()});
       when(
         () => api.post<Map<String, dynamic>>(
           '/sync',
@@ -109,6 +111,38 @@ void main() {
       final data = op['data'] as Map<String, dynamic>;
       expect(data['status'], 'payment_submitted');
       expect(data['paymentMethod'], 'telebirr');
+    });
+
+    // SIM-08: the server rejects a versionless order update, so every web
+    // order transition reads the current version first and sends it.
+    test('order updates send the current server version', () async {
+      Map<String, dynamic>? sentBody;
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-7')).thenAnswer(
+        (_) async => {
+          'order': {...orderDto(orderId: 'ord-7'), 'version': 4},
+        },
+      );
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+
+      await repo.cancelOrder('ord-7', 'buyer-1', reason: 'late');
+
+      final op =
+          (sentBody!['operations'] as List).first as Map<String, dynamic>;
+      final data = op['data'] as Map<String, dynamic>;
+      expect(data['status'], 'cancelled');
+      expect(data['version'], 4);
     });
 
     test('parses a snake_case payment_submitted status from the server',

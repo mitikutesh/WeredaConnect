@@ -20,10 +20,11 @@ import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
 /// - Automatic error transformation to typed exceptions
 ///
 /// SECURITY NOTE:
-/// Certificate pinning is ENABLED for production builds.
-/// Pins extracted from the dev API Gateway in eu-north-1.
-/// TODO: re-extract after deploying dev to eu-north-1 and update these pins.
-/// If API Gateway rotates certs, update pins and redeploy.
+/// Certificate pinning is ENABLED by default on mobile builds. It is CA
+/// pinning: the HttpClient trusts only the Amazon Trust Services roots
+/// bundled in `amazon_trust_roots.dart` (see `cert_pinning_io.dart`), so leaf
+/// and intermediate rotations by AWS never break the app. Rotation runbook:
+/// docs/runbooks/f05-cert-pinning-activation.md.
 ///
 /// Ethiopian context:
 /// - 3G networks are vulnerable to MitM attacks
@@ -41,20 +42,11 @@ class ApiClient {
   /// Whether the API client has been initialized.
   bool get isInitialized => _isInitialized;
 
-  /// Pinned SHA-256 public key hashes for API Gateway.
-  ///
-  /// Primary = leaf certificate, Backup = intermediate CA certificate.
-  /// Both must be updated when API Gateway rotates certificates.
-  static const List<String> certificatePins = [
-    'sha256/n+bszuvMQs+fgKHHBnrQp+Oy9jRCE4qgdpaGIACkVo0=', // Primary (leaf cert, eu-north-1, extracted 2026-04-07)
-    'sha256/G9LNNAql897egYsabashkzUCTEJkWBzgoEtk8X/678c=', // Backup (Amazon RSA 2048 M04 intermediate CA)
-  ];
-
   /// Initialize Dio client with environment and optional certificate pinning.
   ///
   /// Params:
   /// - [environment]: Environment configuration (defaults to current environment)
-  /// - [enableCertPinning]: Whether to enable certificate pinning (default: false)
+  /// - [enableCertPinning]: Whether to enable certificate pinning (default: true)
   /// - [interceptors]: Custom interceptors to add (e.g., AuthInterceptor, LoggingInterceptor)
   ///
   /// Certificate pinning is enabled by default for production security.
@@ -91,7 +83,7 @@ class ApiClient {
       dio.interceptors.addAll(interceptors);
     }
 
-    // Certificate pinning (foundation only - disabled by default, mobile only)
+    // Certificate pinning (CA pinning to Amazon Trust Services roots, mobile only)
     if (enableCertPinning && !kIsWeb) {
       cert_pinning.applyCertPinning(dio);
     }

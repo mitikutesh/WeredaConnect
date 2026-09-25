@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.0.0
+1.3.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -59,11 +59,24 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
 ```
 
 `orderId` is **required on every create** (v1.2.0; previously only self-pickup).
-The server validates the order exists, is not terminal
-(`rejected`/`cancelled`/`settled`/`payment_failed`/`dispute_resolved`), and that
-the delivery's buyer/farmer match the order's; it then links the order's escrow
-to the new delivery (`escrow-protocol.md` §Order-Funded Escrow). An order-less
-create is rejected with `DELIVERY_ORDER_REQUIRED`.
+The server validates the order exists and that the delivery's buyer/farmer match
+the order's; it then links the order's escrow to the new delivery
+(`escrow-protocol.md` §Order-Funded Escrow). An order-less create is rejected
+with `DELIVERY_ORDER_REQUIRED`.
+
+Create guards (v1.3.0, SIM-09), each rejected with nothing written:
+
+| Guard | Rejection |
+|---|---|
+| Order status must be `accepted`, `pickup_confirmed` or `in_transit` (the farmer has consented; `created`, `funded` and every terminal status are refused) | `DELIVERY_VALIDATION: Order is <status>; no delivery can be created until the farmer has accepted it ...` |
+| Trucker flow: the order must name a trucker and the caller must be that trucker | `DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it.` / `... Only the order's matched trucker can create this delivery.` |
+| Self-pickup: the caller must be the order's buyer and the order must have no trucker or transport | unchanged from v1.1.0 |
+| At most one active delivery per order: the server claims `activeDeliveryId` on the order with a conditional write before writing the delivery; a retry of the same `deliveryId` re-claims, a `cancelled` delivery (update or soft delete) releases the slot | `DELIVERY_VALIDATION: The order already has an active delivery.` |
+
+Update guards (v1.3.0): `orderId`, `tripId`, `listingId`, `deliveryType`, and the
+buyer/farmer/trucker `Id`, `Name` and `Phone` fields are immutable after create.
+An unchanged echo is dropped; a changed value is rejected with
+`DELIVERY_VALIDATION: <field> is immutable and cannot be changed on update.`
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -598,9 +611,13 @@ When connectivity is available:
    - If provided, must reference an existing S3 object
    - Max 3 photos per type (pickup/dropoff)
 9. **Participant Authorization**:
-   - Only the trucker can create deliveries and confirm pickup
+   - Only the order's matched trucker can create a delivery and confirm pickup; the buyer creates self-pickup deliveries (v1.3.0)
    - Only the buyer can confirm delivery
    - Any participant (farmer, trucker, buyer) can raise a dispute
+   - Participant, order, listing, trip and type fields are immutable after create (v1.3.0)
+10. **Order Binding** (v1.3.0):
+   - The order must be `accepted`, `pickup_confirmed` or `in_transit`
+   - One active delivery per order (`activeDeliveryId` claimed on the order; released on cancel)
 
 ### Client-Side Validation
 
@@ -825,9 +842,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
 | 1.2.0 | 2026-07-12 | `orderId` required on ALL delivery creates (was self-pickup only): order must exist, be non-terminal, and match the delivery's buyer/farmer; the order's escrow is linked to the delivery at creation (`DELIVERY_ORDER_REQUIRED` error). |
+| 1.3.0 | 2026-09-25 | Delivery guards (SIM-09): order must be `accepted`/`pickup_confirmed`/`in_transit`; trucker-flow creator must be the order's trucker (order without a trucker is self-pickup only); one active delivery per order via `activeDeliveryId` claimed on the order and released on cancel; participant/order/listing/trip/type fields immutable on update. |
 
 ---
 
-**Last Updated**: 2026-07-12
-**Version**: 1.2.0
+**Last Updated**: 2026-09-25
+**Version**: 1.3.0
 **Status**: Draft (Phase R4.2)

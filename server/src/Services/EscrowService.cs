@@ -247,6 +247,25 @@ public sealed class EscrowService
                     404, "ESCROW_008", "Delivery not found.", "deliveryId");
             }
 
+            // SIM-04: bind the payment to the delivery's own parties. Without this any
+            // authenticated user could hold money against someone else's delivery (and
+            // block the real buyer with ESCROW_009) or name an arbitrary payee.
+            var deliveryBuyerId = GetStringOrNull(delivery, "buyerId");
+            if (string.IsNullOrEmpty(deliveryBuyerId)
+                || !string.Equals(deliveryBuyerId, authenticatedUserId, StringComparison.Ordinal))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    403, "ESCROW_026", "Only the buyer on this delivery can initiate its escrow.", "deliveryId");
+            }
+
+            var deliveryFarmerId = GetStringOrNull(delivery, "farmerId");
+            if (string.IsNullOrEmpty(deliveryFarmerId)
+                || !string.Equals(deliveryFarmerId, request.FarmerId, StringComparison.Ordinal))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    400, "ESCROW_027", "farmerId does not match the farmer on this delivery.", "farmerId");
+            }
+
             var deliveryStatus = delivery.TryGetValue("status", out var ds) ? ds?.ToString() : null;
             if (deliveryStatus == null || !EscrowableDeliveryStates.Contains(deliveryStatus))
             {
@@ -261,11 +280,22 @@ public sealed class EscrowService
             deliveryOrderId = GetStringOrNull(delivery, "orderId");
         }
 
-        // 6e. Double-charge guard: when the delivery's order already holds an active
+        // 6e. Resolve the linked order. The delivery's own orderId is authoritative; a
+        //     client-supplied orderId may only echo it (SIM-04) and is the fallback when
+        //     the delivery carries none.
+        if (!string.IsNullOrEmpty(request.OrderId) && !string.IsNullOrEmpty(deliveryOrderId)
+            && !string.Equals(request.OrderId, deliveryOrderId, StringComparison.Ordinal))
+        {
+            return EscrowResult<InitiateEscrowResponse>.Failure(
+                400, "ESCROW_VALIDATION", "Referenced order is for a different delivery.", "orderId");
+        }
+
+        var linkedOrderId = string.IsNullOrEmpty(deliveryOrderId) ? request.OrderId : deliveryOrderId;
+
+        // 6f. Double-charge guard: when the delivery's order already holds an active
         //     escrow (the order-funded leg created at order funding), a second payment
-        //     for the same goods must be rejected → ESCROW_024. The delivery's own
-        //     orderId is authoritative; the request's orderId is the fallback.
-        var guardOrderId = deliveryOrderId ?? request.OrderId;
+        //     for the same goods must be rejected → ESCROW_024.
+        var guardOrderId = linkedOrderId;
         if (!string.IsNullOrEmpty(guardOrderId))
         {
             var orderEscrow = await GetActiveEscrowByOrderIdAsync(guardOrderId);
@@ -275,6 +305,45 @@ public sealed class EscrowService
                     409, "ESCROW_024",
                     "Funds for this order are already held in escrow.",
                     "orderId");
+            }
+        }
+
+        // 6g. SIM-04: the escrow must pay for exactly the linked order. Load it once
+        //     (reused for the payout split below), bind it to this buyer and delivery,
+        //     and require amount == orderTotal. Fail closed when the order cannot be
+        //     read: an amount that cannot be verified must never be held.
+        Dictionary<string, object>? linkedOrder = null;
+        if (!string.IsNullOrEmpty(linkedOrderId) && _orderRepo != null)
+        {
+            linkedOrder = await _orderRepo.GetByIdAsync(linkedOrderId);
+            if (linkedOrder == null)
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    422, "ESCROW_VALIDATION",
+                    "Linked order not found; the escrow amount cannot be verified.", "orderId");
+            }
+
+            if (linkedOrder.TryGetValue("buyerId", out var ob) && ob?.ToString() is string obs
+                && !string.Equals(obs, request.BuyerId, StringComparison.Ordinal))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    403, "ESCROW_VALIDATION", "Referenced order does not belong to this buyer.", "orderId");
+            }
+
+            if (linkedOrder.TryGetValue("deliveryId", out var od) && od?.ToString() is string ods
+                && !string.Equals(ods, request.DeliveryId, StringComparison.Ordinal))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    400, "ESCROW_VALIDATION", "Referenced order is for a different delivery.", "orderId");
+            }
+
+            var orderTotal = RoundMoney(GetDecimal(linkedOrder, "orderTotal"));
+            if (orderTotal <= 0m || orderTotal != RoundMoney(request.Amount))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    400, "ESCROW_028",
+                    $"amount must equal the order total of {orderTotal.ToString("0.00", CultureInfo.InvariantCulture)} ETB.",
+                    "amount");
             }
         }
 
@@ -350,39 +419,23 @@ public sealed class EscrowService
         var createdAt = now.ToString("o");
         var expiresAt = now.AddDays(EscrowExpiryDays).ToString("o");
 
-        // If orderId provided, read order record for 3-way split amounts
+        // The linked order (resolved and bound in 6g) supplies the 3-way split amounts.
+        // It applies whether the client sent orderId or the delivery carried it, so the
+        // delivery-initiated leg pays out exactly like the order-funded leg.
         decimal? orderCropCost = null;
         decimal? orderTransportCost = null;
         decimal? orderCommissionAmount = null;
         string? truckerId = null;
-        if (!string.IsNullOrEmpty(request.OrderId) && _orderRepo != null)
+        if (linkedOrder != null)
         {
-            var order = await _orderRepo.GetByIdAsync(request.OrderId);
-            if (order != null)
-            {
-                // Ownership binding: the referenced order must belong to this buyer and delivery.
-                if (order.TryGetValue("buyerId", out var ob) && ob?.ToString() is string obs
-                    && !string.Equals(obs, request.BuyerId, StringComparison.Ordinal))
-                {
-                    return EscrowResult<InitiateEscrowResponse>.Failure(
-                        403, "ESCROW_VALIDATION", "Referenced order does not belong to this buyer.", "orderId");
-                }
-                if (order.TryGetValue("deliveryId", out var od) && od?.ToString() is string ods
-                    && !string.Equals(ods, request.DeliveryId, StringComparison.Ordinal))
-                {
-                    return EscrowResult<InitiateEscrowResponse>.Failure(
-                        400, "ESCROW_VALIDATION", "Referenced order is for a different delivery.", "orderId");
-                }
-
-                if (order.TryGetValue("cropCost", out var cc))
-                    orderCropCost = decimal.TryParse(cc?.ToString(), out var ccVal) ? ccVal : null;
-                if (order.TryGetValue("transportCost", out var tc))
-                    orderTransportCost = decimal.TryParse(tc?.ToString(), out var tcVal) ? tcVal : null;
-                if (order.TryGetValue("commissionAmount", out var ca))
-                    orderCommissionAmount = decimal.TryParse(ca?.ToString(), out var caVal) ? caVal : null;
-                if (order.TryGetValue("truckerId", out var tid))
-                    truckerId = tid?.ToString();
-            }
+            if (linkedOrder.TryGetValue("cropCost", out var cc))
+                orderCropCost = decimal.TryParse(cc?.ToString(), out var ccVal) ? ccVal : null;
+            if (linkedOrder.TryGetValue("transportCost", out var tc))
+                orderTransportCost = decimal.TryParse(tc?.ToString(), out var tcVal) ? tcVal : null;
+            if (linkedOrder.TryGetValue("commissionAmount", out var ca))
+                orderCommissionAmount = decimal.TryParse(ca?.ToString(), out var caVal) ? caVal : null;
+            if (linkedOrder.TryGetValue("truckerId", out var tid))
+                truckerId = tid?.ToString();
         }
 
         // When an order supplies split amounts, use them instead of the default calculation —
@@ -425,8 +478,8 @@ public sealed class EscrowService
             { "version", 1 }
         };
 
-        if (!string.IsNullOrEmpty(request.OrderId))
-            escrowRecord["orderId"] = request.OrderId;
+        if (!string.IsNullOrEmpty(linkedOrderId))
+            escrowRecord["orderId"] = linkedOrderId;
         if (truckerPayout > 0)
             escrowRecord["truckerPayout"] = truckerPayout;
         if (!string.IsNullOrEmpty(truckerId))

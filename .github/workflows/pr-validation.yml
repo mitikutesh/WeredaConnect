@@ -91,6 +91,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # The runner image ships several GB of toolchains this job never uses. With
+      # Flutter, .NET, Java, the Android SDK/NDK, Gradle caches and a LocalStack
+      # container sharing one disk, the debug APK build has died with "No space
+      # left on device" on every run since late July. Everything removed here is
+      # either unused or reinstalled by the setup actions below (the hosted tool
+      # cache is repopulated by the Flutter and Java actions; setup-dotnet
+      # reinstalls the SDK). The Android SDK and NDK are deliberately kept.
+      - name: Free runner disk space
+        run: |
+          echo "Disk before:" && df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift \
+            /usr/local/share/boost /opt/az /usr/lib/google-cloud-sdk \
+            /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          echo "Disk after:" && df -h / | tail -1
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:

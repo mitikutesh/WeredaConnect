@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -179,8 +179,8 @@ Buyer initiates escrow payment for a delivery. Queues a Telebirr HoldFunds call.
 |-------|------|----------|-------------|-------------|
 | `deliveryId` | string (UUID) | Yes | Must reference an existing delivery | The delivery this payment covers |
 | `buyerId` | string (UUID) | Yes | Must match JWT `sub` claim | Buyer initiating payment |
-| `farmerId` | string (UUID) | Yes | Must be a verified user | Farmer receiving payment |
-| `amount` | number | Yes | 100.00 - 500,000.00 ETB | Total payment amount in ETB |
+| `farmerId` | string (UUID) | Yes | Must be a verified user AND the delivery's `farmerId` | Farmer receiving payment |
+| `amount` | number | Yes | 100.00 - 500,000.00 ETB; must equal the linked order's `orderTotal` | Total payment amount in ETB |
 | `currency` | string | Yes | Fixed: `"ETB"` | Ethiopian Birr |
 | `idempotencyKey` | string | Yes | Format: `{buyerId}:{deliveryId}:{action}:{timestamp}` | Prevents duplicate charges |
 
@@ -256,6 +256,11 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
 | `403` | `ESCROW_006` | buyerId does not match authenticated user |
 | `403` | `ESCROW_007` | Fayda ID verification required (amount > 10,000 ETB) |
+| `403` | `ESCROW_025` | Caller's role claim is not `buyer` (only buyers initiate escrow; missing claim fails closed) |
+| `403` | `ESCROW_026` | Caller is not the buyer on this delivery |
+| `400` | `ESCROW_027` | `farmerId` does not match the farmer on this delivery |
+| `400` | `ESCROW_028` | `amount` does not equal the linked order's `orderTotal` |
+| `422` | `ESCROW_VALIDATION` | Linked order not found, so the amount cannot be verified |
 | `404` | `ESCROW_008` | Delivery not found |
 | `409` | `ESCROW_009` | Escrow already exists for this delivery |
 | `409` | `ESCROW_024` | Funds for this order are already held in escrow (order-funded escrow — see §Order-Funded Escrow) |
@@ -880,6 +885,8 @@ Escrow CANNOT be initiated when delivery is in:
 2. `farmerId` must be a registered user with role `farmer`
 3. Both users must be phone-verified (`isPhoneVerified: true`)
 4. For amounts > 10,000 ETB, both users must have `custom:faydaId` set in Cognito
+5. The caller's role claim must be `buyer` (`ESCROW_025`, checked before anything else); the delivery's `buyerId` must be the caller (`ESCROW_026`) and `farmerId` must be the delivery's farmer (`ESCROW_027`). Nothing is written when any of these fail.
+6. When the delivery (or, for a delivery without one, the request) names an order, `amount` must equal that order's `orderTotal` (`ESCROW_028`), the order must belong to the caller, and a client `orderId` may only echo the delivery's own. The payout split (farmer / trucker / commission) is then taken from that order, exactly as on the order-funded leg.
 
 ### Commission Calculation
 
@@ -1143,11 +1150,12 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-09-25 | Initiate hardening (SIM-04): buyer role only (`ESCROW_025`), caller must be the delivery's buyer (`ESCROW_026`), `farmerId` must be the delivery's farmer (`ESCROW_027`), `amount` must equal the linked order's `orderTotal` (`ESCROW_028`), client `orderId` may only echo the delivery's; payout split always taken from the linked order |
 | 1.1.0 | 2026-07-12 | Order-funded escrow leg: record created at order funding (deterministic escrow-order-{orderId} key, source=order, no deliveryId until linkage), delivery linkage + self-heal, reject/cancel refund scheduling via expiresAt, order-aware auto-refund, ESCROW_024 double-charge guard, EscrowSummaryDto gains orderId/buyerId/farmerId |
 | 1.0.0 | 2026-02-17 | Initial contract: escrow lifecycle, endpoints, data models, Telebirr integration, idempotency, DynamoDB design, security, Ethiopian context, offline behavior, error handling, automated processes |
 
 ---
 
-**Last Updated**: 2026-07-12
-**Version**: 1.1.0
+**Last Updated**: 2026-09-25
+**Version**: 1.2.0
 **Status**: Draft (Phase R4)

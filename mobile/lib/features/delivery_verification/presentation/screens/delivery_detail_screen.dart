@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
-import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
@@ -808,10 +807,11 @@ class _ParticipantRow extends StatelessWidget {
   }
 }
 
-/// Loads the escrow amount from the crop listing and shows a Pay button.
+/// Loads the escrow amount from the delivery's order and shows a Pay button.
 ///
-/// Uses the delivery's listingId to look up pricePerKg × quantity × 100kg.
-/// Shows nothing if the listing cannot be found.
+/// The server binds the escrow to the order (escrow-protocol.md v1.2.0): the
+/// amount must equal the order's `orderTotal`, so that is what is offered.
+/// Shows nothing if no order can be resolved locally.
 class _EscrowPayButton extends StatefulWidget {
   final Delivery delivery;
   final String currentUserId;
@@ -842,26 +842,32 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
       // earlier, or an order-funded escrow (the buyer paid at order time — a
       // second payment would bounce off the server's ESCROW_024 guard anyway).
       final paid = await _moneyAlreadyHeld();
-      final listing = await IsarService.instance.db.cropListings
-          .where()
-          .listingIdEqualTo(widget.delivery.listingId)
-          .findFirst();
+      final order = await _linkedOrder();
       if (mounted) {
         setState(() {
           _alreadyPaid = paid;
-          _amount = listing != null
-              ? listing.quantity * 100 * listing.pricePerKg
-              : null;
+          _amount = order?.orderTotal;
           _loading = false;
         });
       }
     } on Object catch (_) {
       // On web IsarService.instance.db is null, so the dynamic query throws
       // NoSuchMethodError (an Error, not an Exception). Catch broadly so the
-      // spinner clears and the button is simply hidden (no listing found).
+      // spinner clears and the button is simply hidden (no order found).
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// The order this delivery fulfils. The delivery record carries no orderId
+  /// locally, so resolve it via the delivery's trip (a matched order shares
+  /// the delivery's tripId). Matching on listing+buyer alone could pick a
+  /// DIFFERENT order of the same buyer on the same listing.
+  Future<Order?> _linkedOrder() => IsarService.instance.db.orders
+      .filter()
+      .listingIdEqualTo(widget.delivery.listingId)
+      .buyerIdEqualTo(widget.currentUserId)
+      .tripIdEqualTo(widget.delivery.tripId)
+      .findFirst();
 
   Future<bool> _moneyAlreadyHeld() async {
     // NOT 'initiated': a stale abandoned initiation would hide the button
@@ -879,18 +885,9 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
       return true;
     }
 
-    // The delivery record carries no orderId locally — resolve the order via
-    // the delivery's trip (a matched order shares the delivery's tripId).
-    // Matching on listing+buyer alone could pick a DIFFERENT order of the
-    // same buyer on the same listing and wrongly hide the button; when no
-    // trip-matched order exists, showing the button is safe (the server's
-    // ESCROW_024 guard rejects a true double-charge).
-    final order = await IsarService.instance.db.orders
-        .filter()
-        .listingIdEqualTo(widget.delivery.listingId)
-        .buyerIdEqualTo(widget.currentUserId)
-        .tripIdEqualTo(widget.delivery.tripId)
-        .findFirst();
+    // When no trip-matched order exists, showing the button is safe (the
+    // server's ESCROW_024 guard rejects a true double-charge).
+    final order = await _linkedOrder();
     final orderStatus = order?.status.name;
     return orderStatus == 'funded' ||
         orderStatus == 'accepted' ||

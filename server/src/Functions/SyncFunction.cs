@@ -82,6 +82,18 @@ public partial class SyncFunction
     private static readonly TimeSpan CommissionRateCacheTtl = TimeSpan.FromMinutes(15);
     private const double DefaultCommissionRate = 0.05;
 
+    /// <summary>
+    /// SIM-05/SIM-07 units: order.quantity is KILOGRAMS on the wire; listing stock and
+    /// trip capacity are quintals and trip prices are per quintal (order-lifecycle.md).
+    /// </summary>
+    private const double KgPerQuintal = 100.0;
+
+    /// <summary>Client-echoed money must match the server's computation to the santim.</summary>
+    private const double MoneyTolerance = 0.01;
+
+    /// <summary>Slack for floating-point kg comparisons against quintal stock.</summary>
+    private const double QuantityTolerance = 0.001;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
@@ -142,6 +154,34 @@ public partial class SyncFunction
     /// <summary>Upper bound for the JSON-string `impressions` payload (bytes-ish).</summary>
     private const int MaxImpressionsLength = 8192;
 
+    /// <summary>
+    /// SIM-02: identity fields a crop update may echo unchanged (web clients resend
+    /// them) but may never CHANGE. Rewriting farmerId moved listings into other
+    /// users' accounts; farmerName/farmerPhone spoofed the contact shown to buyers.
+    /// </summary>
+    private static readonly HashSet<string> ImmutableCropIdentityFields = new()
+    {
+        "farmerId", "farmerName", "farmerPhone"
+    };
+
+    /// <summary>SIM-03: same guard for trips (truckerId/Name/Phone).</summary>
+    private static readonly HashSet<string> ImmutableTripIdentityFields = new()
+    {
+        "truckerId", "truckerName", "truckerPhone"
+    };
+
+    /// <summary>
+    /// SIM-09: delivery fields fixed at create (parties, order, listing, trip, type). An
+    /// update may echo them unchanged; re-pointing any of them is rejected.
+    /// </summary>
+    private static readonly HashSet<string> ImmutableDeliveryIdentityFields = new()
+    {
+        "orderId", "tripId", "listingId", "deliveryType",
+        "buyerId", "buyerName", "buyerPhone",
+        "farmerId", "farmerName", "farmerPhone",
+        "truckerId", "truckerName", "truckerPhone"
+    };
+
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
@@ -171,6 +211,26 @@ public partial class SyncFunction
     {
         "cropCost", "commissionRate", "commissionAmount", "orderTotal",
         "paymentVerifiedAt", "respondedAt", "cancelledAt"
+    };
+
+    /// <summary>
+    /// SIM-06: the only order fields a client may change after create. Everything else in
+    /// AllowedOrderFields identifies or prices the order and is immutable; the money
+    /// fields are server-owned (OrderServerOnlyFields) so orderTotal can never drift.
+    /// </summary>
+    private static readonly HashSet<string> UpdatableOrderFields = new()
+    {
+        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId"
+    };
+
+    /// <summary>
+    /// Bookkeeping keys the shipped clients echo on every order update. They are checked
+    /// (orderId) or dropped (updatedAt is stamped by the repository); version is consumed
+    /// by the optimistic-concurrency check.
+    /// </summary>
+    private static readonly HashSet<string> OrderUpdateEchoFields = new()
+    {
+        "orderId", "updatedAt", "version"
     };
 
     private static readonly Dictionary<string, HashSet<string>> OrderTransitions = new()
@@ -627,6 +687,49 @@ public partial class SyncFunction
         }
     }
 
+    /// <summary>
+    /// Reject an update that changes an immutable identity field; strip identity
+    /// fields that merely echo the stored value so they are not rewritten.
+    /// Phone fields are compared in normalized (+251...) form because a client may
+    /// echo the local 09... spelling of a number the server stored normalized, and
+    /// numeric fields are compared as numbers (an echoed 50 must match a stored 50.0).
+    /// Returns an error message (without the code prefix) or null when clean.
+    /// </summary>
+    private static string? RejectImmutableFieldChanges(
+        Dictionary<string, object> data,
+        HashSet<string> immutableFields,
+        Func<string, string?> storedValue)
+    {
+        foreach (var field in immutableFields)
+        {
+            if (!data.TryGetValue(field, out var incoming))
+            {
+                continue;
+            }
+
+            var incomingText = (incoming?.ToString() ?? "").Trim();
+            var stored = (storedValue(field) ?? "").Trim();
+            if (field.EndsWith("Phone", StringComparison.Ordinal))
+            {
+                incomingText = Validation.RequestValidator.NormalizePhoneNumber(incomingText) ?? incomingText;
+                stored = Validation.RequestValidator.NormalizePhoneNumber(stored) ?? stored;
+            }
+
+            var unchanged = string.Equals(incomingText, stored, StringComparison.Ordinal)
+                || (double.TryParse(incomingText, NumberStyles.Float, CultureInfo.InvariantCulture, out var incomingNumber)
+                    && double.TryParse(stored, NumberStyles.Float, CultureInfo.InvariantCulture, out var storedNumber)
+                    && Math.Abs(incomingNumber - storedNumber) <= QuantityTolerance);
+            if (!unchanged)
+            {
+                return $"{field} is immutable and cannot be changed on update.";
+            }
+
+            data.Remove(field);
+        }
+
+        return null;
+    }
+
     private static List<string> ValidateCropFields(Dictionary<string, object> data, bool isCreate)
     {
         var errors = new List<string>();
@@ -866,11 +969,8 @@ public partial class SyncFunction
                             };
                     }
 
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj?.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var updateResult = await _intentRepo.UpdateAsync(
                         operation.EntityId, authenticatedUserId!, operation.Data, clientVersion);
@@ -1269,61 +1369,61 @@ public partial class SyncFunction
         switch (contextType)
         {
             case "crop":
-            {
-                var crop = await _cropRepo.GetByIdAsync(contextId);
-                if (crop == null)
                 {
-                    return "MESSAGE_VALIDATION: Crop not found.";
-                }
+                    var crop = await _cropRepo.GetByIdAsync(contextId);
+                    if (crop == null)
+                    {
+                        return "MESSAGE_VALIDATION: Crop not found.";
+                    }
 
-                var farmerId = ItemString(crop, "farmerId");
-                // Exactly one party owns the crop (the farmer); the other must be
-                // a buyer (buyers may message about ANY crop).
-                return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
-            }
+                    var farmerId = ItemString(crop, "farmerId");
+                    // Exactly one party owns the crop (the farmer); the other must be
+                    // a buyer (buyers may message about ANY crop).
+                    return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
+                }
 
             case "trip":
-            {
-                var trip = await GetTripItemAsync(contextId);
-                if (trip == null)
                 {
-                    return "MESSAGE_VALIDATION: Trip not found.";
-                }
+                    var trip = await GetTripItemAsync(contextId);
+                    if (trip == null)
+                    {
+                        return "MESSAGE_VALIDATION: Trip not found.";
+                    }
 
-                var truckerId = AttrString(trip, "truckerId");
-                // Exactly one party owns the trip (the trucker); the other buyer.
-                return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
-            }
+                    var truckerId = AttrString(trip, "truckerId");
+                    // Exactly one party owns the trip (the trucker); the other buyer.
+                    return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
+                }
 
             case "order":
-            {
-                var order = await _orderRepo.GetByIdAsync(contextId);
-                if (order == null)
                 {
-                    return "MESSAGE_VALIDATION: Order not found.";
-                }
+                    var order = await _orderRepo.GetByIdAsync(contextId);
+                    if (order == null)
+                    {
+                        return "MESSAGE_VALIDATION: Order not found.";
+                    }
 
-                var participants = new HashSet<string>(StringComparer.Ordinal);
-                AddIfPresent(participants, ItemString(order, "buyerId"));
-                AddIfPresent(participants, ItemString(order, "farmerId"));
-                AddIfPresent(participants, ItemString(order, "truckerId"));
-                return VerifyDistinctParticipants(participants, senderId, recipientId);
-            }
+                    var participants = new HashSet<string>(StringComparer.Ordinal);
+                    AddIfPresent(participants, ItemString(order, "buyerId"));
+                    AddIfPresent(participants, ItemString(order, "farmerId"));
+                    AddIfPresent(participants, ItemString(order, "truckerId"));
+                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                }
 
             case "delivery":
-            {
-                var delivery = await GetDeliveryItemAsync(contextId);
-                if (delivery == null)
                 {
-                    return "MESSAGE_VALIDATION: Delivery not found.";
-                }
+                    var delivery = await GetDeliveryItemAsync(contextId);
+                    if (delivery == null)
+                    {
+                        return "MESSAGE_VALIDATION: Delivery not found.";
+                    }
 
-                var participants = new HashSet<string>(StringComparer.Ordinal);
-                AddIfPresent(participants, AttrString(delivery, "buyerId"));
-                AddIfPresent(participants, AttrString(delivery, "farmerId"));
-                AddIfPresent(participants, AttrString(delivery, "truckerId"));
-                return VerifyDistinctParticipants(participants, senderId, recipientId);
-            }
+                    var participants = new HashSet<string>(StringComparer.Ordinal);
+                    AddIfPresent(participants, AttrString(delivery, "buyerId"));
+                    AddIfPresent(participants, AttrString(delivery, "farmerId"));
+                    AddIfPresent(participants, AttrString(delivery, "truckerId"));
+                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                }
 
             default:
                 return "MESSAGE_VALIDATION: Unknown contextType.";
@@ -1925,6 +2025,21 @@ public partial class SyncFunction
                         };
                     }
 
+                    // SIM-02: ownership/contact fields are immutable after create.
+                    var cropIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableCropIdentityFields,
+                        key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+                    if (cropIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {cropIdentityError}"
+                        };
+                    }
+
                     // FIX-009: Validate crop field values
                     var updateValidationErrors = ValidateCropFields(operation.Data, isCreate: false);
                     if (updateValidationErrors.Count > 0)
@@ -1957,12 +2072,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var updateResult = await _cropRepo.UpdateAsync(
                         operation.EntityId, operation.Data, clientVersion);
@@ -2001,12 +2112,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     // Validate ownership
                     var existingForDelete = await _cropRepo.GetByIdAsync(operation.EntityId);
@@ -2320,6 +2427,21 @@ public partial class SyncFunction
                         };
                     }
 
+                    // SIM-03: ownership/contact fields are immutable after create.
+                    var tripIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableTripIdentityFields,
+                        key => existing.TryGetValue(key, out var stored) ? stored.S : null);
+                    if (tripIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {tripIdentityError}"
+                        };
+                    }
+
                     // C3: Validate present fields
                     var validationErrors = ValidateTripFields(operation.Data, isCreate: false);
                     if (validationErrors.Count > 0)
@@ -2348,12 +2470,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var createdAt = existing["createdAt"].S;
                     var now = DateTime.UtcNow.ToString("o");
@@ -2441,12 +2559,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var existing = await GetTripItemAsync(operation.EntityId);
                     if (existing == null)
@@ -3202,19 +3316,21 @@ public partial class SyncFunction
                         };
                     }
 
-                    // A delivery for a dead order would re-point escrow money at a
-                    // finished trade (e.g. created inside the reject→refund window and
-                    // later releasing a rejected order's money to the farmer).
+                    // SIM-09: a delivery moves goods the farmer has agreed to sell, so the
+                    // order must be accepted (or already in a pre-delivery logistics state).
+                    // Earlier statuses carry no farmer consent (created, funded), and a dead
+                    // order would re-point escrow money at a finished trade.
                     var createOrderStatus = createOrder.TryGetValue("status", out var cosObj)
                         ? cosObj?.ToString() : null;
-                    if (createOrderStatus is "rejected" or "cancelled" or "settled"
-                        or "payment_failed" or "dispute_resolved")
+                    if (createOrderStatus is not ("accepted" or "pickup_confirmed" or "in_transit"))
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"DELIVERY_VALIDATION: Order is {createOrderStatus}; no delivery can be created for it."
+                            Message = $"DELIVERY_VALIDATION: Order is {createOrderStatus ?? "unknown"}; "
+                                + "no delivery can be created until the farmer has accepted it "
+                                + "(accepted, pickup_confirmed or in_transit)."
                         };
                     }
 
@@ -3254,8 +3370,19 @@ public partial class SyncFunction
                         // and hijack the escrow linkage.
                         var coTrucker = createOrder.TryGetValue("truckerId", out var coT)
                             ? coT?.ToString() : null;
-                        if (!string.IsNullOrWhiteSpace(coTrucker)
-                            && coTrucker != authenticatedUserId)
+                        if (string.IsNullOrWhiteSpace(coTrucker))
+                        {
+                            // SIM-09: an order without a trucker can only be fulfilled by the
+                            // buyer as a self-pickup; any trucker could otherwise attach itself.
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it."
+                            };
+                        }
+
+                        if (coTrucker != authenticatedUserId)
                         {
                             return new SyncOperationResult
                             {
@@ -3398,6 +3525,20 @@ public partial class SyncFunction
                     // scans; that farmer-authored nonce is authoritative and is what the
                     // scanner must echo back. Until it is persisted, qrNonce is empty and
                     // the pickup/delivery nonce check is skipped (offline-first).
+
+                    // SIM-09: at most one active delivery per order. The claim is an atomic
+                    // conditional write on the order row (deliveries have no order index); a
+                    // retry of the same deliveryId re-claims its own slot, and a cancelled
+                    // delivery releases it.
+                    if (!await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = "DELIVERY_VALIDATION: The order already has an active delivery."
+                        };
+                    }
 
                     var request = new PutItemRequest
                     {
@@ -3793,6 +3934,22 @@ public partial class SyncFunction
                         };
                     }
 
+                    // SIM-09: the parties, order, listing, trip and type of a delivery are fixed
+                    // at create; an update may only echo them unchanged.
+                    var deliveryIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableDeliveryIdentityFields,
+                        key => existing.TryGetValue(key, out var storedAttr) ? storedAttr.S : null);
+                    if (deliveryIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {deliveryIdentityError}"
+                        };
+                    }
+
                     // F12-SEC-06: Validate disputeReason length (aligned with contract: 500 chars)
                     if (operation.Data.TryGetValue("disputeReason", out var drObj) && drObj != null)
                     {
@@ -4043,12 +4200,8 @@ public partial class SyncFunction
                         }
                     }
 
-                    // Extract client version from data
-                    var clientVersion = 0;
-                    if (operation.Data?.TryGetValue("version", out var vObj) == true && vObj is not null)
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var createdAt = existing["createdAt"].S;
                     var now = DateTime.UtcNow.ToString("o");
@@ -4206,6 +4359,17 @@ public partial class SyncFunction
                                 DeliveryActionFor(toStatus), fromStatus, toStatus);
                         }
 
+                        // SIM-09: a cancelled delivery frees the order's single delivery slot
+                        // so a replacement can be created.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var cancelStatusObj)
+                            && cancelStatusObj?.ToString() == "cancelled"
+                            && existing.TryGetValue("orderId", out var cancelOid)
+                            && !string.IsNullOrEmpty(cancelOid.S))
+                        {
+                            await _orderRepo.ReleaseDeliverySlotAsync(cancelOid.S, operation.EntityId);
+                        }
+
                         // Bridge delivery confirmation -> escrow release. When the buyer
                         // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
                         // disputeWindowEndsAt so the auto-release cron settles to the farmer
@@ -4257,12 +4421,8 @@ public partial class SyncFunction
 
             case "delete":
                 {
-                    // Extract version for optimistic concurrency
-                    var clientVersion = 0;
-                    if (operation.Data != null && operation.Data.TryGetValue("version", out var vObj))
-                    {
-                        _ = int.TryParse(vObj.ToString(), out clientVersion);
-                    }
+                    // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
+                    TryGetClientVersion(operation, out var clientVersion);
 
                     var existing = await GetDeliveryItemAsync(operation.EntityId);
                     if (existing == null)
@@ -4347,6 +4507,13 @@ public partial class SyncFunction
                     try
                     {
                         await _dynamoDb.UpdateItemAsync(deleteRequest);
+
+                        // SIM-09: soft delete is a cancellation; free the order's delivery slot.
+                        if (existing.TryGetValue("orderId", out var deleteOid) && !string.IsNullOrEmpty(deleteOid.S))
+                        {
+                            await _orderRepo.ReleaseDeliverySlotAsync(deleteOid.S, operation.EntityId);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -4640,13 +4807,58 @@ public partial class SyncFunction
             };
         }
 
-        // Calculate server-side fields
-        var quantity = ParseDouble(operation.Data, "quantity");
+        // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
+        // bind every party, price and quantity to the server's records, and compute the
+        // money fields from those records only.
+        var listingId = operation.Data["listingId"]?.ToString() ?? "";
+        var listing = await _cropRepo.GetByIdAsync(listingId);
+        if (listing == null)
+        {
+            return OrderValidationError(operation, "Listing not found.");
+        }
+
+        var listingError = BindOrderToListing(operation.Data, listing, authenticatedUserId);
+        if (listingError != null)
+        {
+            return OrderValidationError(operation, listingError);
+        }
+
+        var quantityKg = ParseDouble(operation.Data, "quantity");
         var pricePerUnit = ParseDouble(operation.Data, "pricePerUnit");
-        var cropCost = quantity * pricePerUnit;
+        var cropCost = quantityKg * pricePerUnit;
         var commissionRate = GetCommissionRate(context);
         var commissionAmount = cropCost * commissionRate;
-        var transportCost = ParseDoubleOrNull(operation.Data, "transportCost") ?? 0.0;
+
+        var tripId = operation.Data.TryGetValue("tripId", out var tripIdObj) ? tripIdObj?.ToString() : null;
+        var truckerId = operation.Data.TryGetValue("truckerId", out var truckerIdObj) ? truckerIdObj?.ToString() : null;
+        if (string.IsNullOrEmpty(tripId) != string.IsNullOrEmpty(truckerId))
+        {
+            return OrderValidationError(operation, "tripId and truckerId must be provided together.");
+        }
+
+        var clientTransportCost = ParseDoubleOrNull(operation.Data, "transportCost");
+        var transportCost = 0.0;
+        if (!string.IsNullOrEmpty(tripId))
+        {
+            var trip = await GetTripItemAsync(tripId);
+            if (trip == null)
+            {
+                return OrderValidationError(operation, "Trip not found.");
+            }
+
+            var tripError = BindOrderToTrip(
+                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, out transportCost);
+            if (tripError != null)
+            {
+                return OrderValidationError(operation, tripError);
+            }
+        }
+        else if (clientTransportCost is double sentWithoutTrip && sentWithoutTrip != 0.0)
+        {
+            return OrderValidationError(operation, "transportCost requires a tripId.");
+        }
+
+        operation.Data["transportCost"] = transportCost;
         var orderTotal = cropCost + transportCost + commissionAmount;
 
         operation.Data["cropCost"] = cropCost;
@@ -4735,6 +4947,46 @@ public partial class SyncFunction
             operation.Data.Remove(field);
         }
 
+        // SIM-06: an update may only carry status and its companions. The echoed orderId
+        // must be this order; updatedAt is server-stamped; unknown keys are rejected; every
+        // identity or pricing field is immutable (an unchanged echo is dropped, a changed
+        // value is rejected) so the stored money fields always match their inputs.
+        if (operation.Data.TryGetValue("orderId", out var echoedOrderId))
+        {
+            if (!string.Equals(echoedOrderId?.ToString(), operation.EntityId, StringComparison.Ordinal))
+            {
+                return OrderValidationError(operation, "orderId does not match the operation entityId.");
+            }
+
+            operation.Data.Remove("orderId");
+        }
+
+        operation.Data.Remove("updatedAt");
+
+        var unknownUpdateFields = operation.Data.Keys
+            .Where(k => !AllowedOrderFields.Contains(k) && !OrderUpdateEchoFields.Contains(k))
+            .ToList();
+        if (unknownUpdateFields.Count > 0)
+        {
+            return OrderValidationError(operation, $"Unknown fields: {string.Join(", ", unknownUpdateFields)}");
+        }
+
+        var immutableOrderFields = AllowedOrderFields.Where(f => !UpdatableOrderFields.Contains(f)).ToHashSet();
+        var immutableError = RejectImmutableFieldChanges(
+            operation.Data,
+            immutableOrderFields,
+            key => existingOrder.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+        if (immutableError != null)
+        {
+            return OrderValidationError(operation, immutableError);
+        }
+
+        var updateValidationErrors = ValidateOrderFields(operation.Data, isCreate: false);
+        if (updateValidationErrors.Count > 0)
+        {
+            return OrderValidationError(operation, string.Join(" ", updateValidationErrors));
+        }
+
         // Validate status transition
         if (operation.Data.TryGetValue("status", out var newStatusObj))
         {
@@ -4782,17 +5034,16 @@ public partial class SyncFunction
             }
         }
 
-        // Get version for optimistic concurrency
-        var version = 1;
-        if (operation.Data.TryGetValue("version", out var vObj))
+        // SIM-08: an order update is never applied without the client's version. The old
+        // fallback to the stored version skipped optimistic concurrency entirely, so a
+        // stale client could overwrite a newer state (even a cancelled order).
+        if (!TryGetClientVersion(operation, out var version))
         {
-            int.TryParse(vObj?.ToString(), out version);
-            operation.Data.Remove("version"); // version handled by repo
+            return OrderValidationError(operation,
+                "version is required for order updates (send clientVersion or data.version).");
         }
-        else if (existingOrder.TryGetValue("version", out var evObj))
-        {
-            int.TryParse(evObj?.ToString(), out version);
-        }
+
+        operation.Data.Remove("version"); // consumed here; the repository handles the check
 
         var updateResult = await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
 
@@ -4894,23 +5145,35 @@ public partial class SyncFunction
         try
         {
             var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
-            if (string.IsNullOrEmpty(listingId)) return;
+            if (string.IsNullOrEmpty(listingId))
+            {
+                return;
+            }
 
-            var orderQuantity = ParseDouble(order, "quantity");
-            if (orderQuantity <= 0) return;
+            // SIM-07: order.quantity is kilograms on the wire; listing stock is quintals.
+            var orderQuintals = ParseDouble(order, "quantity") / KgPerQuintal;
+            if (orderQuintals <= 0)
+            {
+                return;
+            }
 
             var listing = await _cropRepo.GetByIdAsync(listingId);
-            if (listing == null) return;
+            if (listing == null)
+            {
+                return;
+            }
 
             var currentQuantity = ParseDouble(listing, "quantity");
             var listingVersion = 1;
             if (listing.TryGetValue("version", out var lvObj))
+            {
                 int.TryParse(lvObj?.ToString(), out listingVersion);
+            }
 
-            var newQuantity = Math.Max(0, currentQuantity - orderQuantity);
+            var newQuantity = Math.Max(0, currentQuantity - orderQuintals);
             var updateData = new Dictionary<string, object>
             {
-                { "quantity", newQuantity.ToString("F2") }
+                { "quantity", newQuantity.ToString("F2", CultureInfo.InvariantCulture) }
             };
 
             if (newQuantity <= 0)
@@ -5113,6 +5376,148 @@ public partial class SyncFunction
         return null;
     }
 
+    /// <summary>
+    /// SIM-08: the client's optimistic-concurrency version. The contract carries it as
+    /// the op-level clientVersion; the shipped clients send data.version. Both are
+    /// honoured, op-level first. Returns false (version 0) when neither is present.
+    /// </summary>
+    private static bool TryGetClientVersion(SyncOperationRequest operation, out int version)
+    {
+        if (operation.ClientVersion is int opLevel)
+        {
+            version = opLevel;
+            return true;
+        }
+
+        if (operation.Data != null
+            && operation.Data.TryGetValue("version", out var raw)
+            && raw != null
+            && int.TryParse(raw.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out version))
+        {
+            return true;
+        }
+
+        version = 0;
+        return false;
+    }
+
+    private static SyncOperationResult OrderValidationError(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_VALIDATION: {message}"
+    };
+
+    /// <summary>
+    /// SIM-05: bind an order create to the listing it references (existence is checked
+    /// by the caller). Returns an error message without the code prefix, or null when
+    /// clean. Overwrites farmerName from the listing so the client cannot spoof it.
+    /// </summary>
+    private static string? BindOrderToListing(
+        Dictionary<string, object> data, Dictionary<string, object> listing, string? buyerId)
+    {
+        var listingStatus = listing.TryGetValue("status", out var ls)
+            ? ls?.ToString() ?? "available"
+            : "available";
+        if (!string.Equals(listingStatus, "available", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Listing is not available for orders (status: {listingStatus}).";
+        }
+
+        var listingFarmerId = listing.TryGetValue("farmerId", out var lf) ? lf?.ToString() : null;
+        if (string.IsNullOrEmpty(listingFarmerId)
+            || !string.Equals(data["farmerId"]?.ToString(), listingFarmerId, StringComparison.Ordinal))
+        {
+            return "farmerId must be the farmer on the listing.";
+        }
+
+        if (string.Equals(buyerId, listingFarmerId, StringComparison.Ordinal))
+        {
+            return "Self-trading not allowed. Buyer and farmer must be different users.";
+        }
+
+        var listingCropType = listing.TryGetValue("cropType", out var lc) ? lc?.ToString() : null;
+        if (!string.Equals(data["cropType"]?.ToString(), listingCropType, StringComparison.OrdinalIgnoreCase))
+        {
+            return "cropType must match the listing.";
+        }
+
+        var listingPricePerKg = ParseDouble(listing, "pricePerKg");
+        var pricePerUnit = ParseDouble(data, "pricePerUnit");
+        if (listingPricePerKg <= 0 || Math.Abs(pricePerUnit - listingPricePerKg) > MoneyTolerance)
+        {
+            return "pricePerUnit must equal the listing price "
+                + $"({listingPricePerKg.ToString("0.00", CultureInfo.InvariantCulture)} ETB/kg).";
+        }
+
+        var stockKg = ParseDouble(listing, "quantity") * KgPerQuintal;
+        var quantityKg = ParseDouble(data, "quantity");
+        if (quantityKg > stockKg + QuantityTolerance)
+        {
+            return $"quantity ({quantityKg.ToString("0.##", CultureInfo.InvariantCulture)} kg) exceeds "
+                + $"the listing stock ({stockKg.ToString("0.##", CultureInfo.InvariantCulture)} kg).";
+        }
+
+        if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
+        {
+            data["farmerName"] = lfn.ToString()!;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// SIM-05: bind an order create to the trip it references and derive the transport
+    /// cost (kg / 100 x pricePerQuintal). A client-sent transportCost may only echo it.
+    /// Overwrites truckerName from the trip.
+    /// </summary>
+    private static string? BindOrderToTrip(
+        Dictionary<string, object> data,
+        Dictionary<string, AttributeValue> trip,
+        string truckerId,
+        double quantityKg,
+        double? clientTransportCost,
+        out double transportCost)
+    {
+        transportCost = 0.0;
+
+        var tripStatus = trip.TryGetValue("status", out var ts) ? ts.S ?? "open" : "open";
+        if (tripStatus is not ("open" or "matched"))
+        {
+            return $"Trip is not open for orders (status: {tripStatus}).";
+        }
+
+        var tripTruckerId = trip.TryGetValue("truckerId", out var tt) ? tt.S : null;
+        if (string.IsNullOrEmpty(tripTruckerId)
+            || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
+        {
+            return "truckerId must be the trucker on the trip.";
+        }
+
+        var pricePerQuintal = trip.TryGetValue("pricePerQuintal", out var pq)
+            && double.TryParse(pq.N ?? pq.S, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0.0;
+        if (pricePerQuintal <= 0)
+        {
+            return "Trip has no valid pricePerQuintal.";
+        }
+
+        transportCost = quantityKg / KgPerQuintal * pricePerQuintal;
+        if (clientTransportCost is double sent && Math.Abs(sent - transportCost) > MoneyTolerance)
+        {
+            return "transportCost must equal quantity/100 x the trip pricePerQuintal "
+                + $"({transportCost.ToString("0.00", CultureInfo.InvariantCulture)} ETB).";
+        }
+
+        if (trip.TryGetValue("truckerName", out var tn) && !string.IsNullOrEmpty(tn.S))
+        {
+            data["truckerName"] = tn.S;
+        }
+
+        return null;
+    }
+
     private static List<string> ValidateOrderFields(Dictionary<string, object> data, bool isCreate)
     {
         var errors = new List<string>();
@@ -5120,17 +5525,34 @@ public partial class SyncFunction
         if (isCreate)
         {
             if (!data.ContainsKey("listingId"))
+            {
                 errors.Add("listingId is required.");
+            }
+
             if (!data.ContainsKey("buyerId"))
+            {
                 errors.Add("buyerId is required.");
+            }
+
             if (!data.ContainsKey("farmerId"))
+            {
                 errors.Add("farmerId is required.");
+            }
+
             if (!data.ContainsKey("buyerName"))
+            {
                 errors.Add("buyerName is required.");
+            }
+
             if (!data.ContainsKey("farmerName"))
+            {
                 errors.Add("farmerName is required.");
+            }
+
             if (!data.ContainsKey("cropType"))
+            {
                 errors.Add("cropType is required.");
+            }
         }
 
         // Validate quantity
@@ -5176,35 +5598,45 @@ public partial class SyncFunction
         {
             var name = bnObj?.ToString() ?? "";
             if (name.Length > 100)
+            {
                 errors.Add("buyerName must not exceed 100 characters.");
+            }
         }
 
         if (data.TryGetValue("farmerName", out var fnObj))
         {
             var name = fnObj?.ToString() ?? "";
             if (name.Length > 100)
+            {
                 errors.Add("farmerName must not exceed 100 characters.");
+            }
         }
 
         if (data.TryGetValue("rejectionReason", out var rrObj))
         {
             var reason = rrObj?.ToString() ?? "";
             if (reason.Length > 500)
+            {
                 errors.Add("rejectionReason must not exceed 500 characters.");
+            }
         }
 
         if (data.TryGetValue("cancelReason", out var crObj))
         {
             var reason = crObj?.ToString() ?? "";
             if (reason.Length > 500)
+            {
                 errors.Add("cancelReason must not exceed 500 characters.");
+            }
         }
 
         if (data.TryGetValue("cbeTransactionId", out var cbeObj))
         {
             var txId = cbeObj?.ToString() ?? "";
             if (txId.Length > 100)
+            {
                 errors.Add("cbeTransactionId must not exceed 100 characters.");
+            }
         }
 
         return errors;
@@ -5254,7 +5686,11 @@ public partial class SyncFunction
 
     private static double ParseDouble(Dictionary<string, object> data, string key)
     {
-        if (!data.TryGetValue(key, out var value)) return 0.0;
+        if (!data.TryGetValue(key, out var value))
+        {
+            return 0.0;
+        }
+
         return value switch
         {
             double d => d,
@@ -5270,7 +5706,11 @@ public partial class SyncFunction
 
     private static double? ParseDoubleOrNull(Dictionary<string, object> data, string key)
     {
-        if (!data.TryGetValue(key, out var value)) return null;
+        if (!data.TryGetValue(key, out var value))
+        {
+            return null;
+        }
+
         return value switch
         {
             double d => d,

@@ -200,12 +200,25 @@ class WebOrderRepository extends BaseOrderRepository {
       ..orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
   }
 
+  /// The server applies an order update only when the payload's `version`
+  /// matches the version it holds; a versionless order update is rejected
+  /// (sync-protocol.md 1.3.0, SIM-08). Web keeps no local copy, so read the
+  /// current version first, exactly like the trip repository does.
+  Future<int> _currentOrderVersion(String orderId) async {
+    final order = await getOrderById(orderId);
+    if (order == null) {
+      throw NotFoundException('Order $orderId not found.');
+    }
+    return order.version;
+  }
+
   @override
   Future<void> submitPayment(
     String orderId,
     String cbeTransactionId, {
     String paymentMethod = 'cbe_transfer',
   }) async {
+    final version = await _currentOrderVersion(orderId);
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -224,6 +237,7 @@ class WebOrderRepository extends BaseOrderRepository {
               'status': orderStatusToWire(OrderStatus.paymentSubmitted.name),
               'paymentMethod': paymentMethod,
               'cbeTransactionId': cbeTransactionId,
+              'version': version,
             },
           },
         ],
@@ -240,6 +254,7 @@ class WebOrderRepository extends BaseOrderRepository {
     String userId, {
     String? reason,
   }) async {
+    final version = await _currentOrderVersion(orderId);
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -257,6 +272,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'data': {
               'status': orderStatusToWire(OrderStatus.cancelled.name),
               if (reason != null) 'cancelReason': reason,
+              'version': version,
             },
           },
         ],
@@ -270,6 +286,7 @@ class WebOrderRepository extends BaseOrderRepository {
 
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
+    final version = await _currentOrderVersion(orderId);
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -284,7 +301,10 @@ class WebOrderRepository extends BaseOrderRepository {
             'entityId': orderId,
             'timestamp': now,
             'idempotencyKey': 'web_accept_${orderId}_$now',
-            'data': {'status': orderStatusToWire(OrderStatus.accepted.name)},
+            'data': {
+              'status': orderStatusToWire(OrderStatus.accepted.name),
+              'version': version,
+            },
           },
         ],
       },
@@ -300,6 +320,7 @@ class WebOrderRepository extends BaseOrderRepository {
     String farmerId, {
     String? reason,
   }) async {
+    final version = await _currentOrderVersion(orderId);
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -317,6 +338,7 @@ class WebOrderRepository extends BaseOrderRepository {
             'data': {
               'status': orderStatusToWire(OrderStatus.rejected.name),
               if (reason != null) 'rejectionReason': reason,
+              'version': version,
             },
           },
         ],

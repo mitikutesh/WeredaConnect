@@ -114,7 +114,7 @@ public class EscrowFlowIntegrationTests
     // ──────────────────────────────────────────────
 
     private static APIGatewayProxyRequest MakePostRequest(
-        string path, string? body = null, string? userId = null, string? role = null)
+        string path, string? body = null, string? userId = null, string? role = "buyer")
     {
         var req = new APIGatewayProxyRequest { HttpMethod = "POST", Path = path, Body = body };
         if (userId != null)

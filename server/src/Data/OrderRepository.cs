@@ -270,6 +270,82 @@ public sealed class OrderRepository : IOrderRepository
         return result;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> TryClaimDeliverySlotAsync(string orderId, string deliveryId)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        // Deliveries have no order index, so the order row carries the single-active-
+        // delivery invariant as a conditional write. The version is deliberately not
+        // bumped: the claim is not a client-visible edit of the order.
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "orderId", new AttributeValue { S = orderId } },
+                { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+            },
+            UpdateExpression = "SET #slot = :did",
+            ConditionExpression = "attribute_not_exists(#slot) OR #slot = :did",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#slot", "activeDeliveryId" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":did", new AttributeValue { S = deliveryId } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ReleaseDeliverySlotAsync(string orderId, string deliveryId)
+    {
+        var existing = await GetItemAsync(orderId);
+        if (existing == null)
+        {
+            return;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "orderId", new AttributeValue { S = orderId } },
+                { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+            },
+            UpdateExpression = "REMOVE #slot",
+            ConditionExpression = "#slot = :did",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#slot", "activeDeliveryId" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":did", new AttributeValue { S = deliveryId } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Another delivery holds the slot (or it is already free): nothing to release.
+        }
+    }
+
     /// <summary>
     /// Query for an item by orderId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.

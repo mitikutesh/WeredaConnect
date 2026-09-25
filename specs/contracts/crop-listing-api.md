@@ -391,6 +391,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 ### Authorization
 - Farmers can only create/update/delete their own listings
 - Server validates `farmerId` matches JWT `sub` claim
+- `farmerId`, `farmerName` and `farmerPhone` are immutable after create. An update that changes any of them is rejected with `CROP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
 
 ### Rate Limiting
 - **POST /sync**: 100 requests/second per user (API Gateway throttling)
@@ -423,9 +424,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-15 | Initial contract: Create/browse/get endpoints, data model, validation rules, Ethiopian context |
+| 1.1.0 | 2026-09-25 | Update: `farmerId`/`farmerName`/`farmerPhone` are immutable after create (SIM-02); a changed value is rejected with `CROP_VALIDATION`, an echoed value is stripped |
 
 ---
 
-**Last Updated**: 2026-02-15
-**Version**: 1.0.0
+**Last Updated**: 2026-09-25
+**Version**: 1.1.0
 **Status**: Implemented (Phase R3)
