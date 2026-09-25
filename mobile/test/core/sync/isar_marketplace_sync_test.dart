@@ -391,6 +391,27 @@ void main() {
       );
     });
 
+    test('pullDeliveries scopes by truckerId (trucker cross-device pull)',
+        () async {
+      stubApi(deliveries: [_deliveryJson()]);
+
+      await buildSync(currentUserId: () async => 'trucker-1').pullDeliveries();
+
+      // A trucker is neither the buyer key nor the farmer, so the pull must also
+      // query the trucker GSI (?truckerId=, SIM-16).
+      final queries = verify(
+        () => api.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: captureAny(named: 'queryParameters'),
+        ),
+      ).captured.cast<Map<String, dynamic>>();
+      expect(
+        queries.any((q) => q['truckerId'] == 'trucker-1'),
+        isTrue,
+        reason: 'trucker deliveries are reachable via ?truckerId=',
+      );
+    });
+
     test(
         'pullDeliveries upserts a newer server status onto an existing '
         'local delivery (no duplicate)', () async {

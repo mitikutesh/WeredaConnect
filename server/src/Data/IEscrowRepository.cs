@@ -73,6 +73,13 @@ public interface IEscrowRepository
         string farmerId, string? status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
 
     /// <summary>
+    /// Query escrows by trucker ID using the TruckerStatusIndex GSI (sparse: only
+    /// escrows whose order was bound to a truck carry truckerId). SIM-15.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByTruckerAsync(
+        string truckerId, string? status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
     /// Query escrows by status for cron/background processing using the StatusExpiresIndex GSI.
     /// </summary>
     /// <param name="status">Status to query (e.g. "held", "pending_release").</param>

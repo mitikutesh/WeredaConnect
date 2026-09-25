@@ -360,7 +360,7 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "Arn",
           ],
         },
-        "Runtime": "nodejs22.x",
+        "Runtime": "nodejs24.x",
         "Timeout": 900,
       },
       "Type": "AWS::Lambda::Function",
@@ -421,6 +421,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           },
           {
             "AttributeName": "farmerId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "truckerId",
             "AttributeType": "S",
           },
         ],
@@ -511,6 +515,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "KeySchema": [
               {
                 "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TruckerIdCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "truckerId",
                 "KeyType": "HASH",
               },
               {
@@ -686,6 +706,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeType": "S",
           },
           {
+            "AttributeName": "truckerId",
+            "AttributeType": "S",
+          },
+          {
             "AttributeName": "status",
             "AttributeType": "S",
           },
@@ -737,6 +761,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "KeySchema": [
               {
                 "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TruckerStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "truckerId",
                 "KeyType": "HASH",
               },
               {

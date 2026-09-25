@@ -326,6 +326,50 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByTruckerAsync(
+        string truckerId, string? status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "TruckerStatusIndex",
+            KeyConditionExpression = "#truckerId = :truckerId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#truckerId", "truckerId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":truckerId", new AttributeValue { S = truckerId } }
+            },
+            Limit = limit,
+            ScanIndexForward = false
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        if (!string.IsNullOrEmpty(status))
+        {
+            request.FilterExpression = "#status = :status";
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
     public async Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(
         string status, string? expiresAtBefore = null, string? deliveryConfirmedBefore = null, int limit = 100)
     {

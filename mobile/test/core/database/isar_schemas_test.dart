@@ -210,6 +210,8 @@ void main() {
         ..commission = 111.25
         ..commissionRate = 0.025
         ..farmerPayout = 4338.75
+        ..truckerPayout = 200.0
+        ..truckerId = 'user-002'
         ..telebirrRef = 'TB-20260214-12345'
         ..status = PaymentStatus.escrowed
         ..createdAt = DateTime.now().toUtc()
@@ -233,6 +235,9 @@ void main() {
       expect(deliveryPayment.amount, 4450.0);
       expect(deliveryPayment.telebirrRef, 'TB-20260214-12345');
       expect(deliveryPayment.status, PaymentStatus.escrowed);
+      expect(deliveryPayment.truckerPayout, 200.0);
+      expect(deliveryPayment.truckerId, 'user-002');
+      expect(deliveryPayment.payoutFor('trucker'), 200.0);
     });
 
     test('SyncOperation schema: create and query by status', () async {

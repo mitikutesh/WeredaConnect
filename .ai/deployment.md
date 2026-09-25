@@ -112,6 +112,34 @@ npm install
 npx cdk deploy --all --context environment=dev
 ```
 
+### 3b. Post-deploy on dev: dashboard admin user + admin API e2e
+
+`deploy-server.yml` ends every **dev** run with two extra steps (SIM-18):
+
+1. **Seed the dashboard admin user**: `scripts/seed-admin-user.sh` with
+   `AdminUserPoolId` / `AdminClientId` taken from the deploy's own
+   `--outputs-file`, so a replaced pool is seeded as well. Idempotent: creates
+   the user once, resets the password to the documented dev value, ensures
+   `admin` group membership, and fails the job if the login check fails
+   (`SEED_ADMIN_STRICT=true`). It warns when the `COGNITO_ADMIN_USER_POOL_ID`
+   GitHub secret (baked into the admin app by `deploy-admin.yml`) no longer
+   matches the deployed pool. The IAM grant is `SeedAdminUser` in
+   `github-actions-stack.ts` (non-prod only).
+2. **Admin API e2e**: `python3 scripts/e2e_admin.py` logs in as that admin
+   through Cognito and reads every dashboard endpoint (stats, users, escrows,
+   transactions, audit, fraud signals, disputes, health, compliance,
+   analytics) plus one detail per list. Non-blocking (`continue-on-error`);
+   the result is in the run log.
+
+Manual equivalent (any shell with AWS credentials, or CloudShell):
+
+```bash
+ADMIN_USER_POOL_ID=<AdminUserPoolId> ADMIN_CLIENT_ID=<AdminClientId> bash scripts/seed-admin-user.sh
+python3 scripts/e2e_admin.py   # dev defaults; --base-url / --client-id to override
+```
+
+Staging and prod are never auto-seeded: create admins by hand (prod requires MFA).
+
 ### 4. Web App Deploys (CI/CD)
 
 Automatic on push to `main` when files change in the relevant directory:

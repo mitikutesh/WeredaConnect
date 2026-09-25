@@ -483,6 +483,39 @@ describe('GithubActionsStack', () => {
     });
   });
 
+  test('dev role can seed the dashboard admin user in Cognito; prod role cannot', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Sid: 'SeedAdminUser',
+            Action: [
+              'cognito-idp:AdminGetUser',
+              'cognito-idp:AdminCreateUser',
+              'cognito-idp:AdminSetUserPassword',
+              'cognito-idp:AdminAddUserToGroup',
+            ],
+            Resource: 'arn:aws:cognito-idp:eu-north-1:123456789012:userpool/*',
+          }),
+        ]),
+      }),
+    });
+
+    const app = new cdk.App();
+    const prodStack = new GithubActionsStack(app, 'ProdGithubActionsStackAdminSeed', {
+      env: { account: '123456789012', region: prodConfig.region },
+      envConfig: prodConfig,
+      githubRepo: 'mitikutesh/WeredaConnect',
+      websiteBucketName: 'wereda-connect-prod-me-south-1-website',
+      webappBucketName: 'wereda-connect-prod-me-south-1-webapp',
+      adminBucketName: 'wereda-connect-prod-me-south-1-admin',
+      websiteDistributionId: 'EPROD001',
+      webappDistributionId: 'EPROD002',
+      adminDistributionId: 'EPROD003',
+    });
+    expect(JSON.stringify(Template.fromStack(prodStack).toJSON())).not.toContain('SeedAdminUser');
+  });
+
   test('dev role can seed SSM secrets and read legacy secrets; prod role cannot', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({

@@ -800,7 +800,87 @@ public partial class SyncFunction
             errors.Add("woreda is required.");
         }
 
+        // SIM-17: geo and date rules run on create AND update (the contract's
+        // server-side rules; they used to be enforced nowhere on the server).
+        // Coordinates are optional (GPS may not work in remote areas): absent,
+        // null or empty is fine, a present value must be a number inside the
+        // Ethiopia bounding box.
+        if (TryReadOptionalDouble(data, "latitude", out var latitude, out var latitudeInvalid))
+        {
+            if (latitudeInvalid || latitude < EthiopiaMinLatitude || latitude > EthiopiaMaxLatitude)
+            {
+                errors.Add($"latitude must be between {EthiopiaMinLatitude} and {EthiopiaMaxLatitude} (Ethiopia).");
+            }
+        }
+
+        if (TryReadOptionalDouble(data, "longitude", out var longitude, out var longitudeInvalid))
+        {
+            if (longitudeInvalid || longitude < EthiopiaMinLongitude || longitude > EthiopiaMaxLongitude)
+            {
+                errors.Add($"longitude must be between {EthiopiaMinLongitude} and {EthiopiaMaxLongitude} (Ethiopia).");
+            }
+        }
+
+        // createdAt is server-stamped (the repository ignores the client value),
+        // but a nonsense value must not be accepted silently. Clients send local
+        // time without an offset and device clocks drift, so allow a day of skew.
+        if (data.TryGetValue("createdAt", out var createdAtObj))
+        {
+            var createdAtText = createdAtObj?.ToString();
+            if (!string.IsNullOrWhiteSpace(createdAtText))
+            {
+                if (!DateTime.TryParse(createdAtText, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var createdAtUtc))
+                {
+                    errors.Add("createdAt must be an ISO 8601 timestamp.");
+                }
+                else if (createdAtUtc > DateTime.UtcNow.Add(CreatedAtFutureSkew))
+                {
+                    errors.Add("createdAt cannot be in the future.");
+                }
+            }
+        }
+
         return errors;
+    }
+
+    /// <summary>Ethiopia bounding box (contract: 3-15°N, 33-48°E).</summary>
+    private const double EthiopiaMinLatitude = 3.0;
+    private const double EthiopiaMaxLatitude = 15.0;
+    private const double EthiopiaMinLongitude = 33.0;
+    private const double EthiopiaMaxLongitude = 48.0;
+
+    /// <summary>
+    /// How far ahead of server time a client createdAt may sit before it is a
+    /// future date. Covers local-time strings sent without an offset (UTC+3)
+    /// plus device clock drift, without accepting a listing dated next year.
+    /// </summary>
+    private static readonly TimeSpan CreatedAtFutureSkew = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Read an optional numeric field. Returns false when the key is absent or
+    /// its value is null/empty (treated as not provided). When present,
+    /// <paramref name="invalid"/> is true if the value is not a finite number.
+    /// </summary>
+    private static bool TryReadOptionalDouble(
+        Dictionary<string, object> data, string key, out double value, out bool invalid)
+    {
+        value = 0;
+        invalid = false;
+        if (!data.TryGetValue(key, out var obj))
+        {
+            return false;
+        }
+
+        var text = obj?.ToString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        invalid = !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            || double.IsNaN(value) || double.IsInfinity(value);
+        return true;
     }
 
     /// <summary>
@@ -3061,6 +3141,17 @@ public partial class SyncFunction
                         };
                     }
 
+                    var createEchoError = StripDeliveryEchoFields(operation);
+                    if (createEchoError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {createEchoError}"
+                        };
+                    }
+
                     // Self-pickup deliveries are created by the BUYER (there is no trucker);
                     // normal deliveries are created by the trucker. Gate authorization on the
                     // party that owns each kind.
@@ -3600,6 +3691,17 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "Update operation requires data payload."
+                        };
+                    }
+
+                    var updateEchoError = StripDeliveryEchoFields(operation);
+                    if (updateEchoError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {updateEchoError}"
                         };
                     }
 
@@ -4370,6 +4472,29 @@ public partial class SyncFunction
                             await _orderRepo.ReleaseDeliverySlotAsync(cancelOid.S, operation.EntityId);
                         }
 
+                        // SIM-11: the order follows its delivery (pickedUp -> pickup_confirmed,
+                        // inTransit -> in_transit, delivered -> delivered; a self-pickup jumps
+                        // from accepted straight to delivered). Best-effort, system actor.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var followStatusObj)
+                            && followStatusObj?.ToString() is string followStatus)
+                        {
+                            if (existing.TryGetValue("orderId", out var followOid) && !string.IsNullOrEmpty(followOid.S))
+                            {
+                                await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
+                            }
+
+                            // SIM-12: a disputed handoff must freeze the escrowed money too, or the
+                            // 48-hour auto-release would still pay the farmer.
+                            if (followStatus == "disputed")
+                            {
+                                var disputeText = operation.Data.TryGetValue("disputeReason", out var disputeTextObj)
+                                    ? disputeTextObj?.ToString() : null;
+                                await TryFreezeEscrowForDisputedDeliveryAsync(
+                                    operation.EntityId, authenticatedUserId, disputeText, context);
+                            }
+                        }
+
                         // Bridge delivery confirmation -> escrow release. When the buyer
                         // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
                         // disputeWindowEndsAt so the auto-release cron settles to the farmer
@@ -4927,11 +5052,18 @@ public partial class SyncFunction
             };
         }
 
-        // Authorization: only buyer or farmer of this order can update
+        // Authorization: the buyer or farmer of this order can update it; the order's
+        // matched trucker may only drive the logistics statuses (SIM-11; the contract
+        // says "either participant" for pickup_confirmed / in_transit / delivered).
         var orderBuyerId = existingOrder.TryGetValue("buyerId", out var bid) ? bid?.ToString() : null;
         var orderFarmerId = existingOrder.TryGetValue("farmerId", out var fid) ? fid?.ToString() : null;
+        var orderTruckerId = existingOrder.TryGetValue("truckerId", out var otid) ? otid?.ToString() : null;
+        var isBuyerOrFarmer = authenticatedUserId == orderBuyerId || authenticatedUserId == orderFarmerId;
+        var isTruckerOnly = !isBuyerOrFarmer
+            && !string.IsNullOrEmpty(orderTruckerId)
+            && authenticatedUserId == orderTruckerId;
 
-        if (authenticatedUserId != orderBuyerId && authenticatedUserId != orderFarmerId)
+        if (!isBuyerOrFarmer && !isTruckerOnly)
         {
             return new SyncOperationResult
             {
@@ -4939,6 +5071,20 @@ public partial class SyncFunction
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: You can only update orders you are a participant in."
             };
+        }
+
+        if (isTruckerOnly)
+        {
+            var truckerStatus = operation.Data.TryGetValue("status", out var tsObj) ? tsObj?.ToString() : null;
+            if (truckerStatus is not ("pickup_confirmed" or "in_transit" or "delivered"))
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered."
+                };
+            }
         }
 
         // Strip server-controlled fields
@@ -5017,6 +5163,26 @@ public partial class SyncFunction
                 };
             }
 
+            // SIM-11: the order becomes "delivered" only once its delivery is confirmed.
+            // The confirmation itself advances the order server-side, so a client request
+            // is honoured only when the active delivery already says so. Orders with no
+            // active delivery on record (created before 1.4.0) keep the old behaviour.
+            if (newStatus == "delivered"
+                && existingOrder.TryGetValue("activeDeliveryId", out var adObj)
+                && adObj?.ToString() is string activeDeliveryId
+                && !string.IsNullOrEmpty(activeDeliveryId))
+            {
+                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId);
+                var activeDeliveryStatus = activeDelivery != null
+                    && activeDelivery.TryGetValue("status", out var adsAttr) ? adsAttr.S : null;
+                if (activeDeliveryStatus != "delivered")
+                {
+                    return OrderValidationError(operation,
+                        $"The delivery has not been confirmed yet (delivery status: {activeDeliveryStatus ?? "unknown"}); "
+                        + "confirm the delivery instead of marking the order delivered.");
+                }
+            }
+
             // Add server-side timestamps for specific transitions
             var now = DateTime.UtcNow.ToString("o");
             switch (newStatus)
@@ -5072,6 +5238,10 @@ public partial class SyncFunction
                 {
                     await TryScheduleOrderEscrowRefundAsync(
                         operation.EntityId, $"order_{appliedStatus}", context);
+
+                    // SIM-13: the goods go back on the market with the money going back
+                    // to the buyer.
+                    await TryRestoreListingStockAsync(existingOrder, context);
                 }
             }
 
@@ -5135,6 +5305,147 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// SIM-12: freeze the escrow behind a delivery disputed through sync, via the escrow
+    /// service's status write and audit (no idempotency record: the sync op is already
+    /// idempotent). Best-effort; a failure is logged and never fails the delivery update.
+    /// </summary>
+    private async Task TryFreezeEscrowForDisputedDeliveryAsync(
+        string deliveryId, string? disputedBy, string? reason, ILambdaContext context)
+    {
+        if (_orderEscrowService == null || string.IsNullOrEmpty(disputedBy))
+        {
+            return;
+        }
+
+        try
+        {
+            var frozen = await _orderEscrowService.MarkDisputedFromDeliveryAsync(deliveryId, disputedBy, reason);
+            context.Logger.LogInformation(frozen
+                ? $"Escrow for delivery {deliveryId} disputed by {disputedBy}"
+                : $"No escrowed money to freeze for disputed delivery {deliveryId}");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to freeze escrow for disputed delivery {deliveryId}: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>Order logistics statuses in progression order (SIM-11).</summary>
+    private static readonly string[] OrderLogisticsProgression =
+    {
+        "accepted", "pickup_confirmed", "in_transit", "delivered"
+    };
+
+    /// <summary>
+    /// SIM-11: advance the linked order to mirror a delivery transition. The order only
+    /// ever moves forward along accepted -> pickup_confirmed -> in_transit -> delivered;
+    /// a self-pickup handoff or a pickedUp -> delivered confirmation jumps straight to
+    /// delivered. Best-effort: a failure is logged and never fails the delivery update.
+    /// Audited as a system actor so the monitor shows who really moved the order.
+    /// </summary>
+    private async Task TryAdvanceOrderForDeliveryAsync(
+        string orderId, string deliveryStatus, ILambdaContext context)
+    {
+        var target = deliveryStatus switch
+        {
+            "pickedUp" => "pickup_confirmed",
+            "inTransit" => "in_transit",
+            "delivered" => "delivered",
+            "disputed" => "disputed",
+            _ => null
+        };
+        if (target == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId);
+            if (order == null)
+            {
+                return;
+            }
+
+            var current = order.TryGetValue("status", out var cs) ? cs?.ToString() ?? "" : "";
+            if (target == "disputed")
+            {
+                // SIM-12: only a delivered order can be disputed (contract: delivered -> disputed).
+                if (current != "delivered")
+                {
+                    return;
+                }
+            }
+            else
+            {
+                var currentRank = Array.IndexOf(OrderLogisticsProgression, current);
+                var targetRank = Array.IndexOf(OrderLogisticsProgression, target);
+                if (currentRank < 0 || currentRank >= targetRank)
+                {
+                    // Outside the logistics run (disputed, cancelled, ...) or already at/after
+                    // the target: never move an order backwards or out of a terminal state.
+                    return;
+                }
+            }
+
+            var version = 1;
+            if (order.TryGetValue("version", out var v))
+            {
+                int.TryParse(v?.ToString(), out version);
+            }
+
+            var result = await _orderRepo.UpdateAsync(
+                orderId, new Dictionary<string, object> { { "status", target } }, version);
+            if (!result.IsSuccess)
+            {
+                context.Logger.LogWarning(
+                    $"Order {orderId} not advanced to {target} from delivery {deliveryStatus}: {result.Error?.Message}");
+                return;
+            }
+
+            await EmitTxAuditAsync(context, orderId, "order", orderId,
+                OrderActionFor(target), current, target, ctxOverride: AuditContext.ForSystem());
+            context.Logger.LogInformation($"Order {orderId}: {current} -> {target} (delivery {deliveryStatus})");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to advance order {orderId} for delivery {deliveryStatus}: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// SIM-13: give the listing its stock back when a funded order dies (rejected or
+    /// cancelled). Idempotency per order and the race fence live in the repository
+    /// (version CAS plus the listing's set of restored order ids). Best-effort, like
+    /// the decrement: a failure is logged and never fails the order update.
+    /// </summary>
+    private async Task TryRestoreListingStockAsync(Dictionary<string, object> order, ILambdaContext context)
+    {
+        try
+        {
+            var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
+            var orderId = order.TryGetValue("orderId", out var oid) ? oid?.ToString() : null;
+            var quintals = ParseDouble(order, "quantity") / KgPerQuintal;
+            if (string.IsNullOrEmpty(listingId) || string.IsNullOrEmpty(orderId) || quintals <= 0)
+            {
+                return;
+            }
+
+            var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
+            context.Logger.LogInformation(restored
+                ? $"Listing {listingId}: +{quintals} quintals restored (order {orderId} died)"
+                : $"Listing {listingId}: nothing to restore for order {orderId} (already restored or listing gone)");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to restore listing stock for order: [{ex.GetType().Name}] {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// When an order becomes "funded", decrease the crop listing's available quantity
     /// by the order quantity. If quantity reaches 0, transition listing to "reserved".
     /// Best-effort — failures are logged but do not block the order update.
@@ -5173,7 +5484,9 @@ public partial class SyncFunction
             var newQuantity = Math.Max(0, currentQuantity - orderQuintals);
             var updateData = new Dictionary<string, object>
             {
-                { "quantity", newQuantity.ToString("F2", CultureInfo.InvariantCulture) }
+                // Stored as a number (it used to be a formatted string, which broke arithmetic
+                // on the attribute and mixed types across listings).
+                { "quantity", Math.Round(newQuantity, 2) }
             };
 
             if (newQuantity <= 0)
@@ -5373,6 +5686,33 @@ public partial class SyncFunction
         // Logistics transitions (pickup_confirmed, in_transit, delivered):
         // either participant allowed — already gated by participant check
 
+        return null;
+    }
+
+    /// <summary>
+    /// SIM-10: the contract's example payloads and the mobile dispute call echo
+    /// bookkeeping keys the server owns. deliveryId may be sent but must name this
+    /// operation's entity; updatedAt, pickedUpAt and confirmedAt are always stamped by
+    /// the server (confirmedAt anchors the 48-hour dispute window, so a client value
+    /// must never be trusted) and are dropped here. Returns an error message without
+    /// the code prefix, or null when clean.
+    /// </summary>
+    private static string? StripDeliveryEchoFields(SyncOperationRequest operation)
+    {
+        var data = operation.Data!;
+        if (data.TryGetValue("deliveryId", out var echoedDeliveryId))
+        {
+            if (!string.Equals(echoedDeliveryId?.ToString(), operation.EntityId, StringComparison.Ordinal))
+            {
+                return "deliveryId does not match the operation entityId.";
+            }
+
+            data.Remove("deliveryId");
+        }
+
+        data.Remove("updatedAt");
+        data.Remove("pickedUpAt");
+        data.Remove("confirmedAt");
         return null;
     }
 

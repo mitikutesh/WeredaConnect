@@ -10,6 +10,8 @@ class Payment {
   late double commission;
   late double commissionRate;
   late double farmerPayout;
+  double? truckerPayout;
+  String? truckerId;
   String? telebirrRef;
   late PaymentStatus status;
   late DateTime createdAt;
@@ -22,6 +24,15 @@ class Payment {
   String? disputeReason;
   String? disputeDescription;
   late int version;
+
+  /// ETB this party takes home from the held [amount]: the buyer sees the full
+  /// held amount, the farmer the crop leg, the trucker the transport leg (0 when
+  /// the order carried no trucker split). [role] is a `UserRole.name`.
+  double payoutFor(String role) => switch (role) {
+        'farmer' => farmerPayout,
+        'trucker' => truckerPayout ?? 0,
+        _ => amount,
+      };
 }
 
 /// Status of a payment in its lifecycle.

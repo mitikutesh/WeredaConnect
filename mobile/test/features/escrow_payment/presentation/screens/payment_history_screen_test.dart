@@ -145,8 +145,70 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Should show amount displays for each payment
-      expect(find.textContaining('15,000.00'), findsWidgets);
+      // The farmer (setUp role) sees their own crop leg, never the buyer's
+      // held total (SIM-15).
+      expect(find.textContaining('14,625.00'), findsWidgets);
+      expect(find.textContaining('15,000.00'), findsNothing);
+    });
+
+    testWidgets('buyer sees the full held amount of each payment',
+        (WidgetTester tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: AuthTokens(
+            accessToken: 'test-access',
+            refreshToken: 'test-refresh',
+            idToken: 'test-id',
+          ),
+          role: UserRole.buyer,
+        ),
+      );
+      final state = PaymentHistoryLoaded(
+        payments: [_makePayment()],
+        pendingIntents: [],
+      );
+      when(() => escrowBloc.state).thenReturn(state);
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('15,000.00'), findsOneWidget);
+      expect(find.textContaining('14,625.00'), findsNothing);
+    });
+
+    testWidgets('trucker sees only the transport leg of each payment',
+        (WidgetTester tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'trucker-001',
+          tokens: AuthTokens(
+            accessToken: 'test-access',
+            refreshToken: 'test-refresh',
+            idToken: 'test-id',
+          ),
+          role: UserRole.trucker,
+        ),
+      );
+      final payment = _makePayment(amount: 16000.0)
+        ..truckerId = 'trucker-001'
+        ..truckerPayout = 1000.0;
+      final state = PaymentHistoryLoaded(
+        payments: [payment],
+        pendingIntents: [],
+      );
+      when(() => escrowBloc.state).thenReturn(state);
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('1,000.00'), findsOneWidget);
+      expect(find.textContaining('16,000.00'), findsNothing);
+      expect(find.textContaining('14,625.00'), findsNothing);
     });
 
     testWidgets('shows pending intents section', (WidgetTester tester) async {

@@ -18,6 +18,9 @@ class Delivery {
 
   /// `null`/absent = normal trucker delivery; `self_pickup` = buyer collects at the farm.
   String? deliveryType;
+
+  /// The order this delivery fulfils (SIM-14); null only from a server predating the field.
+  String? orderId;
   LatLng? gpsPickup;
   LatLng? gpsDropoff;
   String? pickupPhotoRef;

@@ -64,6 +64,7 @@
 ## Deployment Steps
 1. Deploy to staging: `cdk deploy --context env=staging`
 2. Run smoke tests + E2E on staging
+   - dev only: `deploy-server.yml` seeds the dashboard admin and runs `scripts/e2e_admin.py`; read that run's log before promoting
 3. Monitor CloudWatch for errors
 4. **Get human developer approval**
 5. Deploy to production: `cdk deploy --context env=prod`

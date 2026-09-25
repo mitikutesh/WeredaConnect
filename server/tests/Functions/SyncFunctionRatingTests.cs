@@ -146,6 +146,20 @@ public class SyncFunctionRatingTests
     }
 
     [Fact]
+    public async Task RatingOnDisputedOrder_IsRejected()
+    {
+        // SIM-12: a dispute (escrow or delivery) moves the order to disputed, which keeps
+        // ratings blocked until the dispute is resolved.
+        OrderReturns(status: "disputed");
+
+        var response = await _fn.FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("RATING_FORBIDDEN", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
     public async Task RatingSomeoneElsesOrder_IsRejected()
     {
         OrderReturns(buyerId: "buyer-2");

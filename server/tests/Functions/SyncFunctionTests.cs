@@ -649,6 +649,170 @@ public class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
 
+    // ===== SIM-17: geo/date rules on update as on create =====
+
+    private static SyncOperationRequest MakeCropUpdateOp(Dictionary<string, object> data) => new()
+    {
+        OperationId = "op-update-geo",
+        IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+        EntityType = "crop_listing",
+        EntityId = "crop-001",
+        Action = "update",
+        Data = data
+    };
+
+    private void StubOwnedCrop() =>
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "version", "1" }
+        });
+
+    [Theory]
+    [InlineData("latitude", 20.0)]
+    [InlineData("latitude", 95.0)]
+    [InlineData("latitude", -1.0)]
+    [InlineData("longitude", 10.0)]
+    [InlineData("longitude", 50.5)]
+    public async Task CropUpdate_CoordinateOutsideEthiopia_ReturnsValidationErrorAndDoesNotWrite(
+        string field, double value)
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { field, value }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains($"CROP_VALIDATION: {field} must be between", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("2027-01-01T00:00:00Z")]
+    [InlineData("2099-06-30T12:00:00.000")]
+    public async Task CropUpdate_FutureCreatedAt_ReturnsValidationErrorAndDoesNotWrite(string createdAt)
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "createdAt", createdAt }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("CROP_VALIDATION: createdAt cannot be in the future.", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_MalformedCreatedAt_ReturnsValidationError()
+    {
+        StubOwnedCrop();
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "createdAt", "yesterday" }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("CROP_VALIDATION: createdAt must be an ISO 8601 timestamp.", response.Body);
+    }
+
+    [Fact]
+    public async Task CropUpdate_ValidCoordinatesAndPastCreatedAt_Succeeds()
+    {
+        StubOwnedCrop();
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "2" }
+            }));
+        var op = MakeCropUpdateOp(new Dictionary<string, object>
+        {
+            { "latitude", 9.03 }, { "longitude", 38.74 },
+            { "createdAt", "2026-03-01T10:00:00Z" }, { "quantity", 100 }, { "version", 1 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        await _mockCropRepo.Received(1).UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1);
+    }
+
+    [Fact]
+    public async Task CropUpdate_NullCoordinates_AreTreatedAsAbsent()
+    {
+        // The clients send `latitude: null` when the GPS fix is missing (remote areas).
+        StubOwnedCrop();
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Any<Dictionary<string, object>>(), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "2" }
+            }));
+        var op = MakeCropUpdateOp(new Dictionary<string, object?>
+        {
+            { "latitude", null }, { "longitude", null }, { "quantity", 100 }, { "version", 1 }
+        }!);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
+    [Theory]
+    [InlineData("latitude", 20.0)]
+    [InlineData("longitude", 10.0)]
+    public async Task CropCreate_CoordinateOutsideEthiopia_ReturnsValidationError(string field, double value)
+    {
+        var op = MakeCropCreateOp();
+        op.Data![field] = value;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains($"CROP_VALIDATION: {field} must be between", response.Body);
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_FutureCreatedAt_ReturnsValidationError()
+    {
+        var op = MakeCropCreateOp();
+        op.Data!["createdAt"] = "2027-01-01T00:00:00Z";
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("CROP_VALIDATION: createdAt cannot be in the future.", response.Body);
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_LocalTimeCreatedAtWithinSkew_IsAccepted()
+    {
+        // Mobile sends local time without an offset (Ethiopia is UTC+3); parsed as
+        // UTC that sits hours "ahead". The skew allowance must not reject it.
+        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" }, { "version", "1" }
+            }));
+        var op = MakeCropCreateOp();
+        op.Data!["createdAt"] = DateTime.UtcNow.AddHours(3).ToString("yyyy-MM-ddTHH:mm:ss.fff");
+        op.Data["latitude"] = 9.03;
+        op.Data["longitude"] = 38.74;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
     [Fact]
     public async Task CropUpdate_EchoedIdentityFields_AreStrippedAndUpdateSucceeds()
     {
@@ -2675,7 +2839,7 @@ public class SyncFunctionTests
             Assert.Contains("success", response.Body);
             await _mockCropRepo.Received(1).UpdateAsync(
                 "listing-001",
-                Arg.Is<Dictionary<string, object>>(d => d["quantity"].ToString() == "55.00" && !d.ContainsKey("status")),
+                Arg.Is<Dictionary<string, object>>(d => (double)d["quantity"] == 55.0 && !d.ContainsKey("status")),
                 1);
         }
         finally
@@ -3302,25 +3466,35 @@ public class SyncFunctionTests
     }
 
     /// <summary>A pending trucker delivery for order-001 with the standard test parties.</summary>
-    private static Dictionary<string, AttributeValue> DeliveryItemForOrder(string status = "pending", int version = 1) => new()
+    private static Dictionary<string, AttributeValue> DeliveryItemForOrder(
+        string status = "pending", int version = 1, string? confirmedAt = null)
     {
-        { "deliveryId", new AttributeValue { S = "del-001" } },
-        { "tripId", new AttributeValue { S = "trip-001" } },
-        { "orderId", new AttributeValue { S = "order-001" } },
-        { "listingId", new AttributeValue { S = "listing-001" } },
-        { "farmerId", new AttributeValue { S = "farmer-001" } },
-        { "farmerName", new AttributeValue { S = "Abebe" } },
-        { "truckerId", new AttributeValue { S = "trucker-001" } },
-        { "truckerName", new AttributeValue { S = "Tadesse" } },
-        { "truckerPhone", new AttributeValue { S = "+251922222222" } },
-        { "buyerId", new AttributeValue { S = "buyer-001" } },
-        { "buyerName", new AttributeValue { S = "Mekonnen" } },
-        { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
-        { "status", new AttributeValue { S = status } },
-        { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
-        { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
-        { "version", new AttributeValue { N = version.ToString() } }
-    };
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = "del-001" } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "orderId", new AttributeValue { S = "order-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "farmerName", new AttributeValue { S = "Abebe" } },
+            { "truckerId", new AttributeValue { S = "trucker-001" } },
+            { "truckerName", new AttributeValue { S = "Tadesse" } },
+            { "truckerPhone", new AttributeValue { S = "+251922222222" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "buyerName", new AttributeValue { S = "Mekonnen" } },
+            { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
+            { "status", new AttributeValue { S = status } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } }
+        };
+        if (confirmedAt != null)
+        {
+            item["confirmedAt"] = new AttributeValue { S = confirmedAt };
+        }
+
+        return item;
+    }
 
     private static SyncOperationRequest MakeDeliveryUpdateOp(Dictionary<string, object> data, string action = "update") => new()
     {
@@ -3453,6 +3627,389 @@ public class SyncFunctionTests
 
         Assert.Contains("success", response.Body);
         await _mockOrderRepo.Received(1).ReleaseDeliverySlotAsync("order-001", "del-001");
+    }
+
+    // --- SIM-10: the contract's example payloads and the mobile dispute payload ---
+
+    [Fact]
+    public async Task DeliveryUpdate_ContractPickupPayload_Succeeds()
+    {
+        // delivery-verification-api.md "Confirm Pickup" example: deliveryId + pickedUpAt
+        // were rejected as unknown fields.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "pickedUp" },
+                { "pickedUpAt", "2026-02-18T08:15:00Z" }, { "scannedQrNonce", "nonce-abc-123" },
+                { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+        // The server stamps pickedUpAt itself; the client's value is not written.
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeNames.Values.Contains("pickedUpAt")
+            && !r.ExpressionAttributeNames.Values.Contains("deliveryId")
+            && r.ExpressionAttributeValues.Values.All(v => v.S != "2026-02-18T08:15:00Z")));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_ContractConfirmPayload_Succeeds_WithServerConfirmedAt()
+    {
+        // "Confirm Delivery" example: deliveryId + confirmedAt. confirmedAt anchors the
+        // 48-hour dispute window, so the client's value must be replaced by the server's.
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "delivered" },
+                { "confirmedAt", "2020-01-01T00:00:00Z" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeNames.Values.Contains("confirmedAt")
+            && r.ExpressionAttributeValues.Values.All(v => v.S != "2020-01-01T00:00:00Z")));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_MobileDisputePayload_Succeeds()
+    {
+        // Exactly what the mobile client sends on dispute (deliveryId + updatedAt echoed).
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-24).ToString("o"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "disputed" },
+                { "disputeReason", "Quality issue with delivery" },
+                { "updatedAt", "2026-09-25T08:00:00Z" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DeliveryIdMismatch_ReturnsError()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-999" }, { "status", "cancelled" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("DELIVERY_VALIDATION: deliveryId does not match the operation entityId", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ContractPayloadWithDeliveryIdEcho_Succeeds()
+    {
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["deliveryId"] = "del-001";
+        op.Data["updatedAt"] = "2026-02-18T08:00:00Z";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+    }
+
+    // --- SIM-11: the order follows its delivery ---
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUp_AdvancesOrderToPickupConfirmed()
+    {
+        SetupExistingOrder(status: "accepted");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+    }
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    public async Task DeliveryUpdate_Delivered_AdvancesOrderToDelivered(string orderStatus)
+    {
+        // The fleet run had to hand-step pickup_confirmed -> in_transit -> delivered;
+        // a confirmed handoff now moves the order to delivered from any logistics state.
+        SetupExistingOrder(status: orderStatus);
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "delivered"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_InTransit_AdvancesOrderToInTransit()
+    {
+        SetupExistingOrder(status: "pickup_confirmed");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "inTransit" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 1);
+    }
+
+    [Theory]
+    [InlineData("disputed")]
+    [InlineData("delivered")]
+    [InlineData("cancelled")]
+    public async Task DeliveryUpdate_Delivered_NeverMovesOrderBackwardsOrOutOfTerminal(string orderStatus)
+    {
+        SetupExistingOrder(status: orderStatus);
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_OrderAdvanceFailure_DoesNotFailTheDelivery()
+    {
+        SetupExistingOrder(status: "accepted");
+        _mockOrderRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .ThrowsAsync(new InvalidOperationException("orders table unavailable"));
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_TruckerMaySetLogisticsStatus()
+    {
+        // The fleet run: the order's own trucker was refused pickup_confirmed / in_transit.
+        SetupExistingOrder(status: "accepted");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("trucker-001", "trucker", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        Assert.DoesNotContain("ORDER_UNAUTHORIZED", body);
+    }
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("accepted")]
+    public async Task OrderUpdate_TruckerMayNotSetNonLogisticsStatus(string status)
+    {
+        SetupExistingOrder(status: "funded");
+
+        var body = await UpdateOrderAs("trucker-001", "trucker", new Dictionary<string, object>
+        {
+            { "status", status }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeliveredRefusedUntilTheDeliveryIsConfirmed()
+    {
+        // The fleet run marked an order delivered while its delivery was still inTransit.
+        var order = SetupExistingOrder(status: "in_transit");
+        order["activeDeliveryId"] = "del-001";
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "inTransit"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: The delivery has not been confirmed yet (delivery status: inTransit)", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeliveredAllowedOnceTheDeliveryIsConfirmed()
+    {
+        var order = SetupExistingOrder(status: "in_transit");
+        order["activeDeliveryId"] = "del-001";
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+    }
+
+    // --- SIM-12: a disputed delivery disputes the order and freezes the escrow ---
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_MovesOrderToDisputed()
+    {
+        SetupExistingOrder(status: "delivered");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_OrderNotDelivered_IsLeftAlone()
+    {
+        SetupExistingOrder(status: "in_transit");
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_Disputed_FreezesTheEscrow()
+    {
+        // Without this the 48-hour auto-release still paid the farmer for a disputed handoff.
+        var escrowRepo = Substitute.For<IEscrowRepository>();
+        escrowRepo.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-d1" }, { "createdAt", "2026-02-17T10:00:00.0000000Z" },
+            { "status", "escrowed" }, { "deliveryConfirmedAt", "2026-02-18T10:00:00.0000000Z" },
+            { "version", 1 }
+        });
+        var escrowService = new EscrowService(
+            escrowRepo, Substitute.For<IEscrowAuditRepository>(), idempotencyRepo: null, telebirrGateway: null);
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: _mockOrderRepo,
+            escrowRepo: escrowRepo, orderEscrowService: escrowService);
+        SetupExistingOrder(status: "delivered");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered",
+            confirmedAt: DateTime.UtcNow.AddHours(-2).ToString("o")));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "disputed" }, { "disputeReason", "wet bags" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await escrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-d1", "2026-02-17T10:00:00.0000000Z", "disputed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f["disputedBy"].ToString() == "buyer-001" && f["disputeDescription"].ToString() == "wet bags"));
+    }
+
+    // --- SIM-13: a funded order that dies gives its listing stock back ---
+
+    [Theory]
+    [InlineData("rejected", "farmer-001", "farmer")]
+    [InlineData("cancelled", "buyer-001", "buyer")]
+    public async Task OrderUpdate_FundedOrderDies_RestoresListingStock(string status, string userId, string role)
+    {
+        // The fleet run: wheat 30 -> 22 with 5 sold; the cancelled orders' quintals never came back.
+        SetupExistingOrder(status: "funded");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs(userId, role, new Dictionary<string, object>
+        {
+            { "status", status }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        // 50 kg on the order = 0.5 quintal back on listing-001.
+        await _mockCropRepo.Received(1).TryRestoreStockAsync("listing-001", "order-001", 0.5);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_UnfundedOrderCancelled_DoesNotTouchStock()
+    {
+        // Nothing was taken from the listing before funding, so nothing is given back.
+        SetupExistingOrder(status: "created");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "cancelled" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        await _mockCropRepo.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_StockRestoreFailure_DoesNotFailTheOrderUpdate()
+    {
+        SetupExistingOrder(status: "funded");
+        SetupOrderUpdateSucceeds();
+        _mockCropRepo.TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .ThrowsAsync(new InvalidOperationException("crops table unavailable"));
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "status", "rejected" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
     }
 
     [Fact]

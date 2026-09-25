@@ -37,6 +37,13 @@ public interface ICropRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string cropId);
 
     /// <summary>
+    /// SIM-13: give the listing back the stock a funded order took, when that order is
+    /// rejected, cancelled or refunded. Idempotent per <paramref name="orderId"/> and
+    /// race-safe. Returns true only when stock was added by this call.
+    /// </summary>
+    Task<bool> TryRestoreStockAsync(string cropId, string orderId, double quintals);
+
+    /// <summary>
     /// Query crop listings with optional filters.
     /// </summary>
     /// <param name="farmerId">Filter by farmer ID.</param>

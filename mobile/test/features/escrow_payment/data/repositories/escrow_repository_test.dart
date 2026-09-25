@@ -551,6 +551,9 @@ void main() {
         String deliveryId = '',
         String buyerId = 'buyer-001',
         String farmerId = 'farmer-001',
+        double? farmerPayout,
+        double? truckerPayout,
+        String? truckerId,
       }) =>
           {
             'escrows': [
@@ -563,6 +566,9 @@ void main() {
                 'counterpartyName': 'Abebe',
                 'amount': 1500.0,
                 'commission': 37.5,
+                if (farmerPayout != null) 'farmerPayout': farmerPayout,
+                if (truckerPayout != null) 'truckerPayout': truckerPayout,
+                if (truckerId != null) 'truckerId': truckerId,
                 'currency': 'ETB',
                 'status': 'escrowed',
                 'createdAt': '2026-03-01T10:00:00.0000000Z',
@@ -618,6 +624,62 @@ void main() {
         expect(cached.length, 1);
         expect(cached.first.buyerId, 'buyer-001');
         expect(cached.first.farmerId, 'farmer-001');
+      });
+
+      test(
+          'caches the per-party legs and lets the trucker read its own row '
+          'offline (SIM-15)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(
+            farmerPayout: 1362.5,
+            truckerPayout: 100.0,
+            truckerId: 'trucker-001',
+          ),
+        );
+
+        await repository.refreshHistory(
+          userId: 'trucker-001',
+          roleFilter: 'trucker',
+        );
+
+        // The own-party filter now matches on truckerId too.
+        final cached = await repository.getHistory(userId: 'trucker-001');
+        expect(cached.length, 1);
+        final row = cached.first;
+        expect(row.truckerId, 'trucker-001');
+        expect(row.truckerPayout, 100.0);
+        expect(row.farmerPayout, 1362.5);
+        expect(row.payoutFor('trucker'), 100.0);
+        expect(row.payoutFor('farmer'), 1362.5);
+        expect(row.payoutFor('buyer'), 1500.0);
+        // amount = farmer + trucker + commission.
+        expect(row.farmerPayout + row.truckerPayout! + row.commission, 1500.0);
+      });
+
+      test('derives the farmer leg when an older server sends no legs',
+          () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => summaryJson());
+
+        await repository.refreshHistory(userId: 'farmer-001');
+
+        final cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.first.farmerPayout, 1500.0 - 37.5);
+        expect(cached.first.truckerPayout, isNull);
+        expect(cached.first.payoutFor('trucker'), 0);
       });
     });
 

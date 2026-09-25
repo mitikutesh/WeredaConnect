@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.3.0
+1.4.2
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -77,6 +77,25 @@ Update guards (v1.3.0): `orderId`, `tripId`, `listingId`, `deliveryType`, and th
 buyer/farmer/trucker `Id`, `Name` and `Phone` fields are immutable after create.
 An unchanged echo is dropped; a changed value is rejected with
 `DELIVERY_VALIDATION: <field> is immutable and cannot be changed on update.`
+
+Echo keys (v1.3.1, SIM-10): `deliveryId` may appear in `data` on create and update
+but must equal the operation's `entityId`
+(`DELIVERY_VALIDATION: deliveryId does not match the operation entityId.`).
+`updatedAt`, `pickedUpAt` and `confirmedAt` in `data` are accepted and ignored: the
+server stamps them at the transition (`confirmedAt` anchors the 48-hour dispute
+window, so a client value is never trusted). The example payloads above succeed as
+written.
+
+Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
+transition advances the linked order to `pickup_confirmed`, `in_transit` or
+`delivered` as a system actor (forward only; a self-pickup handoff moves the order
+from `accepted` straight to `delivered`). Clients no longer step the order
+themselves; see `order-lifecycle.md` 1.4.0.
+
+A `disputed` transition (raised by a participant within the 48-hour window) also
+moves a `delivered` order to `disputed` and freezes the escrow behind the delivery
+(v1.4.1, SIM-12). In the other direction, an escrow dispute raised through
+`POST /escrow/dispute` marks the delivery `disputed`.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -191,14 +210,15 @@ An unchanged echo is dropped; a changed value is rejected with
 |-----------|------|----------|-------------|---------|
 | `mine` | boolean | No | Return the caller's own deliveries across all statuses (resolves the buyer via ParticipantIndex) | `mine=true` |
 | `farmerId` | string | No | Return the farmer's deliveries (via FarmerIdCreatedAtIndex). **Must equal the authenticated user** or the request is rejected `403 DELIVERY_UNAUTHORIZED` | `farmerId=farmer-123` |
+| `truckerId` | string | No | Return the trucker's deliveries (via TruckerIdCreatedAtIndex). **Must equal the authenticated user** or the request is rejected `403 DELIVERY_UNAUTHORIZED` | `truckerId=trucker-789` |
 | `tripId` | string | No | Filter by trip | `tripId=trip-101` |
 | `listingId` | string | No | Filter by crop listing | `listingId=crop-456` |
-| `status` | string | No | Filter by status (combined with `farmerId`/`tripId` as a filter; used as the index key when alone) | `status=pending` |
-| `role` | string | No | Filter by user's role in delivery (farmer, trucker, buyer) | `role=trucker` |
+| `status` | string | No | Filter by status (a filter on every party scope and on `tripId`; the index key only for a caller whose token carries no role claim) | `status=pending` |
+| `role` | string | No | Scope an otherwise unfiltered read as `farmer`, `trucker` or `buyer`; defaults to the token's role claim | `role=trucker` |
 | `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
 | `nextToken` | string | No | Pagination token from previous response | `nextToken=base64...` |
 
-> **Scoping note**: A farmer never authors a delivery (the trucker does) and is not the `ParticipantIndex` key (that is the buyer), so a farmer must scope with `farmerId=` to see their deliveries; `mine=true` resolves the buyer. Truckers currently author deliveries locally; a symmetric `truckerId=` scope (needing a `TruckerIdCreatedAtIndex`) is a follow-up.
+> **Scoping (1.5.0, SIM-16)**: with no `farmerId`/`truckerId`/`mine`/`tripId`/`listingId`, the read is scoped to the caller by role (`role=` or the token's role claim): farmer → `FarmerIdCreatedAtIndex`, trucker → `TruckerIdCreatedAtIndex`, buyer → `ParticipantIndex` (same as `mine=true`), each across every status with `status` as an optional filter. It used to fall through to the `status` query (default `pending`), so a buyer's plain read missed her own in-transit delivery and farmers and truckers saw `[]`. A token without a role claim (an access token) still gets that legacy query, post-filtered to the caller's own rows. A farmer never authors a delivery (the trucker does) and is not the `ParticipantIndex` key (that is the buyer), which is why each party has its own index.
 
 **Example Request**:
 ```
@@ -212,6 +232,7 @@ GET /deliveries?role=trucker&status=pending&limit=20
     {
       "deliveryId": "del-101",
       "tripId": "trip-101",
+      "orderId": "order-101",
       "listingId": "crop-456",
       "farmerId": "farmer-123",
       "farmerName": "Alemayehu Bekele",
@@ -259,6 +280,7 @@ GET /deliveries/del-101
 {
   "deliveryId": "del-101",
   "tripId": "trip-101",
+  "orderId": "order-101",
   "listingId": "crop-456",
   "farmerId": "farmer-123",
   "farmerName": "Alemayehu Bekele",
@@ -343,6 +365,7 @@ GET /deliveries/del-101
 |-------|------|----------|-------------|-------------|
 | `deliveryId` | string (UUID) | Yes | -- | Unique delivery identifier |
 | `tripId` | string (UUID) | Yes | -- | Associated trip (links to Trip.tripId) |
+| `orderId` | string (UUID) | No | -- | The order this delivery fulfils (required on create since 1.2.0; returned on list and detail since 1.4.2, SIM-14; absent only for pre-1.2.0 deliveries) |
 | `listingId` | string (UUID) | Yes | -- | Associated crop listing (links to CropListing.listingId) |
 | `farmerId` | string (UUID) | Yes | -- | Farmer who posted the crop |
 | `farmerName` | string | Yes | 1-100 chars | Farmer's display name |
@@ -660,8 +683,12 @@ When connectivity is available:
   - Sort key: `createdAt`
   - Use case: Query the FARMER's deliveries. A farmer is not the `ParticipantIndex`
     key and never authors the delivery, so this is the only way to list their own.
-  - Follow-up: a symmetric `TruckerIdCreatedAtIndex` is not yet added (DynamoDB
-    allows only one GSI addition per table update; truckers author locally today).
+- **GSI: TruckerIdCreatedAtIndex** (1.5.0, sparse):
+  - Partition key: `truckerId`
+  - Sort key: `createdAt`
+  - Use case: Query the TRUCKER's deliveries (`truckerId=` or the trucker's
+    unfiltered read) and the trucker's cross-device pull. A self-pickup delivery
+    carries no `truckerId` and is not indexed.
 
 ### Query Patterns
 
@@ -669,8 +696,9 @@ When connectivity is available:
 |-------|-----------|---------------|--------|
 | All pending deliveries | StatusCreatedAtIndex | PK=`pending` | -- |
 | Deliveries for a trip | TripIdIndex | PK=`trip-101` | -- |
-| My deliveries (as buyer) | ParticipantIndex | PK=`buyer-456` (`mine=true`) | -- |
-| My deliveries (as farmer) | FarmerIdCreatedAtIndex | PK=`farmer-123` (`farmerId=`) | optional `status` |
+| My deliveries (as buyer) | ParticipantIndex | PK=`buyer-456` (`mine=true` or the buyer's unfiltered read) | optional `status` |
+| My deliveries (as farmer) | FarmerIdCreatedAtIndex | PK=`farmer-123` (`farmerId=` or the farmer's unfiltered read) | optional `status` |
+| My deliveries (as trucker) | TruckerIdCreatedAtIndex | PK=`trucker-789` (`truckerId=` or the trucker's unfiltered read) | optional `status` |
 | Single delivery by ID | Primary Key | PK=`del-101` | -- |
 | Disputed deliveries | StatusCreatedAtIndex | PK=`disputed` | -- |
 
@@ -843,9 +871,14 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
 | 1.2.0 | 2026-07-12 | `orderId` required on ALL delivery creates (was self-pickup only): order must exist, be non-terminal, and match the delivery's buyer/farmer; the order's escrow is linked to the delivery at creation (`DELIVERY_ORDER_REQUIRED` error). |
 | 1.3.0 | 2026-09-25 | Delivery guards (SIM-09): order must be `accepted`/`pickup_confirmed`/`in_transit`; trucker-flow creator must be the order's trucker (order without a trucker is self-pickup only); one active delivery per order via `activeDeliveryId` claimed on the order and released on cancel; participant/order/listing/trip/type fields immutable on update. |
+| 1.3.1 | 2026-09-25 | Echo keys (SIM-10): the example payloads' `deliveryId` (must equal `entityId`), `pickedUpAt`, `confirmedAt` and `updatedAt` are accepted; the timestamps are server-stamped and the client values ignored. Also unblocks the mobile dispute call, which echoes `deliveryId` and `updatedAt`. |
+| 1.4.0 | 2026-09-25 | Order coupling (SIM-11): `pickedUp`/`inTransit`/`delivered` advance the linked order server-side (forward only, best-effort, system-audited); self-pickup moves the order `accepted → delivered` in one hop. |
+| 1.4.1 | 2026-09-25 | Dispute propagation (SIM-12): a delivery `disputed` moves the order to `disputed` and freezes the escrow; an escrow dispute marks the delivery `disputed`. |
+| 1.4.2 | 2026-09-25 | `orderId` returned on list and detail (SIM-14); mobile and web keep it locally and prefer it over the trip match when resolving the order behind a delivery. |
+| 1.5.0 | 2026-09-25 | Default list scoping (SIM-16): an unfiltered `GET /deliveries` is scoped to the caller by role (farmer/trucker/buyer index, `status` as a filter); new sparse `TruckerIdCreatedAtIndex` GSI with `truckerId=` (must be the caller); `role=` overrides the claim; `mine=true` now honours `status` server-side; a token without a role claim keeps the legacy `status` query. |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.3.0
+**Version**: 1.5.0
 **Status**: Draft (Phase R4.2)

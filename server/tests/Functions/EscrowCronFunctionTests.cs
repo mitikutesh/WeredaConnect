@@ -266,13 +266,13 @@ public class EscrowCronFunctionTests
         return item;
     }
 
-    private EscrowCronFunction MakeOrderAwareFunction(IOrderRepository? orderRepo)
+    private EscrowCronFunction MakeOrderAwareFunction(IOrderRepository? orderRepo, ICropRepository? cropRepo = null)
     {
         var service = new EscrowService(
             _mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         return new EscrowCronFunction(
             service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway,
-            deliveryRepo: null, orderRepo: orderRepo);
+            deliveryRepo: null, orderRepo: orderRepo, cropRepo: cropRepo);
     }
 
     [Fact]
@@ -339,6 +339,41 @@ public class EscrowCronFunctionTests
                 (string)d["status"] == "cancelled"
                 && (string)d["cancelReason"] == "escrow_refunded"),
             2);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task AutoRefund_OrderSourcedStaleFundedOrder_RestoresListingStock()
+    {
+        // SIM-13: the cancelled order's quintals go back on the listing (kg / 100).
+        var expiredAt = DateTime.UtcNow.AddDays(-1).ToString("o");
+        var escrow = MakeOrderSourcedEscrowItem("escrow-order-ord-3", "ord-3", expiresAt: expiredAt);
+
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-order-ord-3").Returns(escrow);
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("ord-3").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "ord-3" }, { "listingId", "crop-3" }, { "quantity", 500.0 },
+            { "status", "funded" }, { "version", "2" }
+        });
+        orderRepo.UpdateAsync("ord-3", Arg.Any<Dictionary<string, object>>(), 2)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "ord-3" }, { "status", "cancelled" }, { "version", "3" }
+            }));
+        var cropRepo = Substitute.For<ICropRepository>();
+        cropRepo.TryRestoreStockAsync("crop-3", "ord-3", 5.0).Returns(true);
+
+        var function = MakeOrderAwareFunction(orderRepo, cropRepo);
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await cropRepo.Received(1).TryRestoreStockAsync("crop-3", "ord-3", 5.0);
         await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }
 

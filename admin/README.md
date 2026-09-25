@@ -16,9 +16,12 @@ VITE_COGNITO_REGION=eu-north-1
 Without this, login fails with a generic "Service temporarily unavailable"
 before any credential check (Vite bakes these in at build time).
 
-**2. Seed the admin user** — no admin exists by default. From CloudShell
-(Console → `eu-north-1` → CloudShell → Actions → Upload file →
-`scripts/seed-admin-user.sh`) or any shell with AWS credentials:
+**2. Seed the admin user**: on dev, CI does this. Every `deploy-server.yml`
+run seeds `+251900100009` (idempotent) and then runs `scripts/e2e_admin.py`
+against the dashboard API (SIM-18). To seed by hand (another admin, or a
+non-dev environment), from CloudShell (Console → `eu-north-1` → CloudShell →
+Actions → Upload file → `scripts/seed-admin-user.sh`) or any shell with AWS
+credentials:
 
 ```bash
 ADMIN_USER_POOL_ID=eu-north-1_hSYkEt6nd ADMIN_CLIENT_ID=4dntti20l1if7jfutdskjdkrmm bash seed-admin-user.sh

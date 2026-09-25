@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.2.0
+1.2.2
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -148,7 +148,9 @@ exists. The server materializes an escrow record at that moment so
   `buyerFaydaVerified/farmerFaydaVerified = false` unless a users table is wired
   (KYC enforcement belongs on the order-payment leg — follow-up); amounts outside
   the initiate API's 100–500,000 ETB band are still recorded (they reflect money
-  actually held). Listing-stock restore on refund remains a known gap.
+  actually held). Listing-stock restore on refund is implemented (1.2.2, SIM-13): when
+  the sweep cancels a stale-funded order, or a participant rejects/cancels a funded
+  order, the listing gets its quintals back (idempotent per order).
 
 ---
 
@@ -340,6 +342,15 @@ Triggers release of escrowed funds to the farmer. This is an **internal trigger*
 
 Buyer or farmer raises a dispute. Must be within 48 hours of delivery confirmation.
 
+Propagation (1.2.1, SIM-12): a successful dispute also moves the linked order from
+`delivered` to `disputed` (which blocks ratings) and the delivery from `delivered` to
+`disputed`, best-effort as a system side effect; a failure is written to the escrow
+audit ledger as `dispute_propagation_failed`. The reverse holds too: a delivery
+disputed through `POST /sync` freezes its `escrowed` escrow the same way (reason
+`other`, the delivery's free-text reason as the description, the same audit entry, no
+extra idempotency record), so the 48-hour auto-release can never pay out a disputed
+handoff.
+
 #### Request Body
 
 ```json
@@ -506,14 +517,14 @@ When a dispute exists:
 | Status | Error Code | Description |
 |--------|-----------|-------------|
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `403` | `ESCROW_022` | User is not a party to this escrow (buyer, farmer, or admin) |
+| `403` | `ESCROW_022` | User is not a party to this escrow (buyer, farmer, the trucker the order was bound to, or admin) |
 | `404` | `ESCROW_016` | Escrow not found |
 
 ---
 
 ### 6. GET /escrow/by-delivery/{deliveryId}
 
-Get the escrow associated with a specific delivery (escrow is 1:1 with a delivery, resolved via the `DeliveryIndex` GSI). Only the buyer, farmer, or an admin party to the escrow may read it. **F-33.**
+Get the escrow associated with a specific delivery (escrow is 1:1 with a delivery, resolved via the `DeliveryIndex` GSI). Only the buyer, the farmer, the trucker the order was bound to (it carries the transport leg), or an admin may read it. **F-33.**
 
 #### Path Parameters
 
@@ -530,7 +541,7 @@ Get the escrow associated with a specific delivery (escrow is 1:1 with a deliver
 | Status | Error Code | Description |
 |--------|-----------|-------------|
 | `401` | `ESCROW_005` | Invalid or expired JWT token |
-| `403` | `ESCROW_022` | User is not a party to this escrow (buyer, farmer, or admin) |
+| `403` | `ESCROW_022` | User is not a party to this escrow (buyer, farmer, the trucker the order was bound to, or admin) |
 | `404` | `ESCROW_016` | No escrow exists for the given delivery |
 
 ---
@@ -544,7 +555,7 @@ Get the authenticated user's payment history.
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
 | `status` | string | No | Filter by escrow status | `status=escrowed` |
-| `role` | string | No | Filter by user's role in transaction: `buyer` or `farmer` | `role=buyer` |
+| `role` | string | No | The caller's role in the transaction: `buyer`, `farmer` or `trucker`. Selects the GSI (`BuyerStatusIndex` / `FarmerStatusIndex` / `TruckerStatusIndex`) keyed by the caller's user id. Defaults to the token's role claim (1.2.4); a token without one reads as `buyer` | `role=trucker` |
 | `fromDate` | string | No | Start date (ISO 8601) | `fromDate=2026-01-01T00:00:00Z` |
 | `toDate` | string | No | End date (ISO 8601) | `toDate=2026-02-28T23:59:59Z` |
 | `limit` | number | No | Results per page (default: 20, max: 50) | `limit=20` |
@@ -568,6 +579,9 @@ Get the authenticated user's payment history.
       "counterpartyName": "Alemayehu Bekele",
       "amount": 15000.00,
       "commission": 375.00,
+      "farmerPayout": 13625.00,
+      "truckerPayout": 1000.00,
+      "truckerId": "trucker-789",
       "currency": "ETB",
       "status": "completed",
       "createdAt": "2026-02-17T10:00:00Z",
@@ -579,6 +593,8 @@ Get the authenticated user's payment history.
   "total": 1
 }
 ```
+
+Money legs (SIM-15): `amount = farmerPayout + truckerPayout + commission` on every row. `truckerPayout` and `truckerId` are `null` when the order carried no trucker split. Each client renders only the caller's own leg in its Payments and Profile views (buyer: `amount`, farmer: `farmerPayout`, trucker: `truckerPayout`); the escrow detail shows the full breakdown. `counterpartyName` is the farmer for a buyer and the buyer for a farmer or trucker.
 
 #### Error Responses
 
@@ -602,7 +618,9 @@ Get the authenticated user's payment history.
 | `amount` | number | Yes | 100.00 - 500,000.00 | Total payment amount (ETB) |
 | `commission` | number | Yes | Calculated: amount * rate | Platform commission (ETB) |
 | `commissionRate` | number | Yes | Server-configured, default 0.025 | Commission percentage (2.5%) |
-| `farmerPayout` | number | Yes | amount - commission | Net amount farmer receives (ETB) |
+| `farmerPayout` | number | Yes | Crop leg of amount | Net amount farmer receives (ETB); with a trucker split amount = farmerPayout + truckerPayout + commission |
+| `truckerPayout` | number | No | Transport leg of amount; null without a trucker split | Net amount the trucker receives on release (ETB) |
+| `truckerId` | string (UUID) | No | References User entity; stamped at creation from the order, or backfilled at delivery linkage | Trucker paid out of this escrow (the truck the order was bound to) |
 | `currency` | string | Yes | Fixed: `"ETB"` | Ethiopian Birr |
 | `status` | enum | Yes | See State Machine | Current escrow state |
 | `telebirrRef` | string | No | Null until Telebirr confirms | Telebirr transaction reference |
@@ -813,6 +831,11 @@ Examples:
 - Sort key: `createdAt`
 - Use case: Farmer's payment history, sorted by recency
 
+**GSI: TruckerStatusIndex** (sparse):
+- Partition key: `truckerId`
+- Sort key: `createdAt`
+- Use case: Trucker's payout history (`GET /escrow/history?role=trucker`); only escrows whose order was bound to a truck carry `truckerId`
+
 **GSI: StatusExpiresIndex**:
 - Partition key: `status`
 - Sort key: `expiresAt`
@@ -843,6 +866,7 @@ TTL field: `expiresAt` (30 days). No GSIs needed.
 | Get escrow for delivery | DeliveryIndex | `deliveryId = X` | -- |
 | Buyer's history | BuyerStatusIndex | `buyerId = X`, SK between dates | `status = Y` (optional) |
 | Farmer's history | FarmerStatusIndex | `farmerId = X`, SK between dates | `status = Y` (optional) |
+| Trucker's history | TruckerStatusIndex | `truckerId = X`, SK between dates | `status = Y` (optional) |
 | Expiring escrows | StatusExpiresIndex | `status = escrowed`, SK < now + 24h | -- |
 | Audit trail | EscrowAuditTable | `escrowId = X` | -- |
 | Idempotency check | EscrowIdempotencyTable (PK) | `idempotencyKey = X` | -- |
@@ -1150,6 +1174,10 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.4 | 2026-09-25 | Default history scoping (SIM-16): without `role=` the history is scoped by the token's role claim instead of always the buyer GSI, so a farmer (including the farmer of a self-pickup, whose escrow is order-funded with no delivery) and a trucker read their own rows unfiltered |
+| 1.2.3 | 2026-09-25 | Trucker money view (SIM-15): `EscrowDto` and history rows carry `truckerPayout` + `truckerId`, history rows carry `farmerPayout`; `role=trucker` reads the new sparse `TruckerStatusIndex` GSI; the order's trucker is a party for `GET /escrow/{id}` and `by-delivery`; delivery linkage backfills a missing `truckerId` from the order; clients show each role its own leg |
+| 1.2.2 | 2026-09-25 | Stock restore (SIM-13): the refund sweep's cancel of a stale-funded order (and a participant's reject/cancel of a funded order) returns the listing's quintals, idempotent per order; the escrow cron Lambda gains `CROPS_TABLE` |
+| 1.2.1 | 2026-09-25 | Dispute propagation (SIM-12): an escrow dispute mirrors onto the order (`delivered → disputed`, blocks ratings) and the delivery; a delivery-level dispute freezes the escrow; failures land in the audit ledger as `dispute_propagation_failed` |
 | 1.2.0 | 2026-09-25 | Initiate hardening (SIM-04): buyer role only (`ESCROW_025`), caller must be the delivery's buyer (`ESCROW_026`), `farmerId` must be the delivery's farmer (`ESCROW_027`), `amount` must equal the linked order's `orderTotal` (`ESCROW_028`), client `orderId` may only echo the delivery's; payout split always taken from the linked order |
 | 1.1.0 | 2026-07-12 | Order-funded escrow leg: record created at order funding (deterministic escrow-order-{orderId} key, source=order, no deliveryId until linkage), delivery linkage + self-heal, reject/cancel refund scheduling via expiresAt, order-aware auto-refund, ESCROW_024 double-charge guard, EscrowSummaryDto gains orderId/buyerId/farmerId |
 | 1.0.0 | 2026-02-17 | Initial contract: escrow lifecycle, endpoints, data models, Telebirr integration, idempotency, DynamoDB design, security, Ethiopian context, offline behavior, error handling, automated processes |
@@ -1157,5 +1185,5 @@ A scheduled Lambda runs every 6 hours:
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.2.0
+**Version**: 1.2.4
 **Status**: Draft (Phase R4)

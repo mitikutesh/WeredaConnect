@@ -1858,6 +1858,12 @@ abstract class AppLocalizations {
   /// **'Farmer Receives'**
   String get escrowFarmerReceives;
 
+  /// Label for the transport leg the trucker receives from the escrow
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker Receives'**
+  String get escrowTruckerReceives;
+
   /// Button label to confirm and initiate escrow payment
   ///
   /// In en, this message translates to:

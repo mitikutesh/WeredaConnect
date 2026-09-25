@@ -139,6 +139,11 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.farmerPayout")}>
                 {formatETB(Number(escrow.farmerPayout) || 0, locale)}
               </Field>
+              {escrow.truckerPayout != null && (
+                <Field label={t("transactions.truckerPayout")}>
+                  {formatETB(Number(escrow.truckerPayout) || 0, locale)}
+                </Field>
+              )}
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
               <Field label={t("transactions.telebirrRef")}>{s(escrow.telebirrRef)}</Field>

@@ -135,6 +135,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `id` | Id | Yes | Isar auto-increment ID | N/A |
 | `deliveryId` | String | Yes | Server-assigned UUID | Unique delivery identifier |
 | `tripId` | String | Yes | Associated trip ID | Links to Trip.tripId |
+| `orderId` | String? | No | The order this delivery fulfils | Links to Order.orderId; required on create since delivery-verification-api 1.2.0, exposed on list/detail and stored locally since 1.4.2 (SIM-14); null only for pre-1.2.0 deliveries |
 | `listingId` | String | Yes | Associated crop listing ID | Links to CropListing.listingId |
 | `qrToken` | String | Yes | QR code verification token | Scanned at pickup/dropoff |
 | `gpsPickup` | LatLng? | No | GPS at pickup location | Null until trucker confirms pickup |
@@ -335,6 +336,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 |---------|------|---------|--------|
 | 1.0.0 | 2026-02-14 | Initial schema definitions for all 6 core entities | @Mobile |
 | 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
+| 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
 
 ---
 

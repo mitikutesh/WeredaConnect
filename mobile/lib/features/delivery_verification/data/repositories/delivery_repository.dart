@@ -235,6 +235,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     final delivery = Delivery()
       ..deliveryId = deliveryId
       ..tripId = tripId
+      ..orderId = orderId
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName
@@ -313,6 +314,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
       // same). truckerId/truckerName/qrToken are empty — there is no trucker and
       // the farmer generates the QR after the delivery exists.
       ..tripId = deliveryId
+      ..orderId = orderId
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName

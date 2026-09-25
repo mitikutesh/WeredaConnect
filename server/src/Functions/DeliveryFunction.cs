@@ -83,8 +83,10 @@ public class DeliveryFunction
     /// <summary>
     /// GET /deliveries - Query deliveries with optional filters.
     /// Authentication required.
-    /// Query parameters: status, tripId, listingId, farmerId, mine, limit, nextToken
-    /// (farmerId must equal the authenticated user; mine=true resolves the buyer.)
+    /// Query parameters: status, tripId, listingId, farmerId, truckerId, mine, role,
+    /// limit, nextToken (farmerId/truckerId must equal the authenticated user;
+    /// mine=true resolves the buyer). Without a party or entity filter the list is
+    /// scoped to the caller by role (?role= or the token's role claim). SIM-16.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetDeliveriesAsync(
         APIGatewayProxyRequest request,
@@ -103,11 +105,13 @@ public class DeliveryFunction
         queryParams.TryGetValue("tripId", out var tripId);
         queryParams.TryGetValue("listingId", out var listingId);
         queryParams.TryGetValue("farmerId", out var farmerId);
+        queryParams.TryGetValue("truckerId", out var truckerId);
+        queryParams.TryGetValue("role", out var roleParam);
         // mine=true returns the caller's own deliveries across all statuses via the
         // ParticipantIndex (keyed on buyerId). Used by the buyer's mobile pull so a
         // buyer's device receives trucker-driven status changes. A farmer is not the
         // ParticipantIndex key, so a farmer scopes with farmerId= (FarmerIdCreatedAtIndex)
-        // instead. (Trucker pull is a follow-up: no truckerId GSI yet.)
+        // and a trucker with truckerId= (TruckerIdCreatedAtIndex).
         var mine = queryParams.TryGetValue("mine", out var mineStr)
             && mineStr.Equals("true", StringComparison.OrdinalIgnoreCase);
 
@@ -137,22 +141,57 @@ public class DeliveryFunction
         {
             var userId = GetAuthenticatedUserId(request);
 
-            // Security: a farmer may only query their OWN deliveries (mirrors the
-            // orders endpoint). Reject a farmerId that isn't the authenticated user.
+            // Security: a farmer or trucker may only query their OWN deliveries
+            // (mirrors the orders endpoint). Reject a party id that is not the caller.
             if (!string.IsNullOrEmpty(farmerId) && farmerId != userId)
             {
                 return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED",
                     "You can only query your own deliveries.");
             }
 
+            if (!string.IsNullOrEmpty(truckerId) && truckerId != userId)
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED",
+                    "You can only query your own deliveries.");
+            }
+
+            // Default scope (SIM-16): with no party scope and no trip/listing filter,
+            // scope by role (?role= wins, else the token's role claim). The old
+            // default was the pending-status query, so a buyer's plain read missed
+            // her own in-transit delivery and farmers/truckers saw []. A caller
+            // without a role claim (access token) keeps the legacy status query,
+            // which is still post-filtered to their own rows below.
+            var role = string.IsNullOrWhiteSpace(roleParam)
+                ? AuthHelper.GetRole(request)
+                : roleParam.Trim().ToLowerInvariant();
+            var hasEntityFilter = !string.IsNullOrEmpty(tripId) || !string.IsNullOrEmpty(listingId);
+            if (string.IsNullOrEmpty(farmerId) && string.IsNullOrEmpty(truckerId) && !mine
+                && !hasEntityFilter && !string.IsNullOrEmpty(userId))
+            {
+                switch (role)
+                {
+                    case "farmer":
+                        farmerId = userId;
+                        break;
+                    case "trucker":
+                        truckerId = userId;
+                        break;
+                    case "buyer":
+                        mine = true;
+                        break;
+                }
+            }
+
             // Query deliveries: farmer-scoped when farmerId is given (a farmer is not
-            // the ParticipantIndex key), participant-scoped when mine=true, else by
-            // status/trip.
+            // the ParticipantIndex key), trucker-scoped when truckerId is given,
+            // participant-scoped (buyer) when mine=true, else by status/trip.
             var queryResult = !string.IsNullOrEmpty(farmerId)
                 ? await _deliveryRepo.QueryByFarmerAsync(farmerId, status, limit, exclusiveStartKey)
-                : mine
-                    ? await _deliveryRepo.QueryByParticipantAsync(userId ?? string.Empty, limit, exclusiveStartKey)
-                    : await _deliveryRepo.QueryDeliveriesAsync(status, tripId, listingId, limit, exclusiveStartKey);
+                : !string.IsNullOrEmpty(truckerId)
+                    ? await _deliveryRepo.QueryByTruckerAsync(truckerId, status, limit, exclusiveStartKey)
+                    : mine
+                        ? await _deliveryRepo.QueryByParticipantAsync(userId ?? string.Empty, limit, exclusiveStartKey, status)
+                        : await _deliveryRepo.QueryDeliveriesAsync(status, tripId, listingId, limit, exclusiveStartKey);
             var items = queryResult.Items;
             var lastEvaluatedKey = queryResult.LastEvaluatedKey;
 
@@ -357,6 +396,7 @@ public class DeliveryFunction
         {
             DeliveryId = GetString(item, "deliveryId"),
             TripId = GetString(item, "tripId"),
+            OrderId = GetStringOrNull(item, "orderId"),
             ListingId = GetString(item, "listingId"),
             FarmerId = GetString(item, "farmerId"),
             FarmerName = GetString(item, "farmerName"),

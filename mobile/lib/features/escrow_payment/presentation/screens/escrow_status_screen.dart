@@ -320,6 +320,18 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                       ),
                       valueColor: AppTheme.onStatusSuccessContainer,
                     ),
+                    // Transport leg (SIM-15): total = commission + farmer +
+                    // trucker. Hidden for orders without a trucker split.
+                    if ((payment.truckerPayout ?? 0) > 0) ...[
+                      const SizedBox(height: 8),
+                      _DetailRow(
+                        label: l10n.escrowTruckerReceives,
+                        value: l10n.escrowEtbAmount(
+                          _amountFormat.format(payment.truckerPayout),
+                        ),
+                        valueColor: AppTheme.onStatusSuccessContainer,
+                      ),
+                    ],
                   ],
                 ),
               ),

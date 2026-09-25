@@ -1225,6 +1225,10 @@
   "@escrowFarmerReceives": {
     "description": "Label for net amount farmer will receive after commission"
   },
+  "escrowTruckerReceives": "Trucker Receives",
+  "@escrowTruckerReceives": {
+    "description": "Label for the transport leg the trucker receives from the escrow"
+  },
   "escrowConfirmPayment": "Confirm Payment",
   "@escrowConfirmPayment": {
     "description": "Button label to confirm and initiate escrow payment"

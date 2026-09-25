@@ -59,6 +59,11 @@ class Delivery {
   /// delivery and how it transitions (see server SyncFunction).
   String? deliveryType;
 
+  /// The order this delivery fulfils (SIM-14). Set on local create and from the
+  /// server DTO on pull; null only for deliveries pulled from a server that
+  /// predates the field.
+  String? orderId;
+
   /// GPS coordinates at pickup location (farmer's location)
   LatLng? gpsPickup;
 

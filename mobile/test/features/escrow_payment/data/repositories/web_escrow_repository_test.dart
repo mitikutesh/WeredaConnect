@@ -30,6 +30,59 @@ void main() {
         'expiresAt': '2026-02-26T10:00:00Z',
       };
 
+  group('WebEscrowRepository payout legs (SIM-15)', () {
+    test('parses the trucker leg and keeps the server farmer leg', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer(
+        (_) async => {
+          ...escrowDto(),
+          'amount': 16000.0,
+          'truckerPayout': 1000.0,
+          'truckerId': 'trucker-001',
+        },
+      );
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.farmerPayout, 14625.0);
+      expect(result.truckerPayout, 1000.0);
+      expect(result.truckerId, 'trucker-001');
+      expect(result.payoutFor('trucker'), 1000.0);
+      expect(result.payoutFor('farmer'), 14625.0);
+      expect(result.payoutFor('buyer'), 16000.0);
+    });
+
+    test('derives the farmer leg for history rows from older servers',
+        () async {
+      final legacy = escrowDto()..remove('farmerPayout');
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'escrows': [
+            legacy,
+            {...legacy, 'escrowId': 'esc-002', 'truckerPayout': 1000.0},
+          ],
+          'hasMore': false,
+        },
+      );
+
+      final rows = await repo.refreshHistory(
+        userId: 'farmer-001',
+        roleFilter: 'farmer',
+      );
+
+      expect(rows.length, 2);
+      expect(rows[0].farmerPayout, 15000.0 - 375.0);
+      expect(rows[1].farmerPayout, 15000.0 - 375.0 - 1000.0);
+      expect(rows[1].truckerPayout, 1000.0);
+    });
+  });
+
   group('WebEscrowRepository.getEscrowByDelivery (F-33)', () {
     test('calls the by-delivery endpoint and returns that escrow', () async {
       when(

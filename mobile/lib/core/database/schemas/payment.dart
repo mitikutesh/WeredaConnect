@@ -37,8 +37,16 @@ class Payment {
   /// Commission rate (server-configured, default 0.025)
   late double commissionRate;
 
-  /// Net amount farmer receives: amount - commission
+  /// Crop leg the farmer receives on release. With a trucker split:
+  /// amount = farmerPayout + truckerPayout + commission.
   late double farmerPayout;
+
+  /// Transport leg paid to the trucker out of [amount]; null when the order
+  /// carried no trucker split.
+  double? truckerPayout;
+
+  /// Trucker paid out of this escrow (the truck the order was bound to).
+  String? truckerId;
 
   /// Telebirr transaction reference
   /// Null until payment is initiated with Telebirr API
@@ -78,6 +86,15 @@ class Payment {
 
   /// Version number for optimistic concurrency control
   late int version;
+
+  /// ETB this party takes home from the held [amount]: the buyer sees the full
+  /// held amount, the farmer the crop leg, the trucker the transport leg (0 when
+  /// the order carried no trucker split). [role] is a `UserRole.name`.
+  double payoutFor(String role) => switch (role) {
+        'farmer' => farmerPayout,
+        'trucker' => truckerPayout ?? 0,
+        _ => amount,
+      };
 }
 
 /// Status of a payment in its lifecycle

@@ -379,6 +379,7 @@ class _HistoryContent extends StatelessWidget {
             for (final payment in state.payments)
               _PaymentCard(
                 payment: payment,
+                viewerRole: roleFilter,
                 // Open the detail under its OWN scoped EscrowBloc (reusing the
                 // same repository) so its load lifecycle can't poison this
                 // still-mounted list — the shared-bloc trap that otherwise
@@ -488,9 +489,13 @@ class _FilterChip extends StatelessWidget {
 
 class _PaymentCard extends StatelessWidget {
   final Payment payment;
+
+  /// `UserRole.name` of the viewer: each party sees only its own leg of the
+  /// held amount (buyer: total, farmer: crop leg, trucker: transport leg).
+  final String? viewerRole;
   final VoidCallback? onTap;
 
-  const _PaymentCard({required this.payment, this.onTap});
+  const _PaymentCard({required this.payment, this.viewerRole, this.onTap});
 
   static final _dateFormat = DateFormat.yMMMd();
 
@@ -511,7 +516,9 @@ class _PaymentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    AmountDisplay(amount: payment.amount),
+                    AmountDisplay(
+                      amount: payment.payoutFor(viewerRole ?? 'buyer'),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '${AppLocalizations.of(context)!.escrowDeliveryShort(payment.deliveryId.length > 8 ? payment.deliveryId.substring(0, 8) : payment.deliveryId)}'

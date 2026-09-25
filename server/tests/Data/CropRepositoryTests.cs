@@ -148,6 +148,104 @@ public class CropRepositoryTests
             Arg.Any<CancellationToken>());
     }
 
+    // --- SIM-13: stock restore ---
+
+    private static Dictionary<string, AttributeValue> ListingItem(
+        string quantity, string status, int version, bool numericQuantity = true, params string[] restoredFor)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "cropId", new AttributeValue { S = "crop-001" } },
+            { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+            { "version", new AttributeValue { N = version.ToString() } },
+            { "status", new AttributeValue { S = status } },
+            { "quantity", numericQuantity ? new AttributeValue { N = quantity } : new AttributeValue { S = quantity } }
+        };
+        if (restoredFor.Length > 0)
+        {
+            item["stockRestoredFor"] = new AttributeValue { SS = restoredFor.ToList() };
+        }
+
+        return item;
+    }
+
+    [Fact]
+    public async Task TryRestoreStockAsync_AddsQuintalsFlipsReservedAndRecordsTheOrder()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("0", "reserved", 4)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var restored = await _repository.TryRestoreStockAsync("crop-001", "order-9", 5);
+
+        Assert.True(restored);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "5.00"
+                && r.ExpressionAttributeValues[":expectedVersion"].N == "4"
+                && r.ExpressionAttributeValues[":orderIdSet"].SS.Contains("order-9")
+                && r.ExpressionAttributeValues[":available"].S == "available"
+                && r.ConditionExpression.Contains("NOT contains(#restored, :orderId)")
+                && r.UpdateExpression.Contains("ADD #restored :orderIdSet")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryRestoreStockAsync_AlreadyRestoredForThatOrder_IsANoOp()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("55", "available", 5, true, "order-9")] });
+
+        var restored = await _repository.TryRestoreStockAsync("crop-001", "order-9", 5);
+
+        Assert.False(restored);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryRestoreStockAsync_ParsesTheOldStringQuantityAndLeavesStatusAlone()
+    {
+        // Listings decremented before SIM-13 hold quantity as a formatted string.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("55.00", "available", 2, numericQuantity: false)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var restored = await _repository.TryRestoreStockAsync("crop-001", "order-9", 5);
+
+        Assert.True(restored);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "60.00"
+                && !r.ExpressionAttributeValues.ContainsKey(":available")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryRestoreStockAsync_VersionConflict_ReReadsAndRetries()
+    {
+        // Race: another funding or restore moved the version between read and write.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse { Items = [ListingItem("10", "available", 2)] },
+                new QueryResponse { Items = [ListingItem("8", "available", 3)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => throw new ConditionalCheckFailedException("version moved"),
+                _ => new UpdateItemResponse());
+
+        var restored = await _repository.TryRestoreStockAsync("crop-001", "order-9", 5);
+
+        Assert.True(restored);
+        await _mockDynamoDb.Received(2).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "13.00"
+                && r.ExpressionAttributeValues[":expectedVersion"].N == "3"),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task UpdateAsync_VersionConflict_Returns409()
     {

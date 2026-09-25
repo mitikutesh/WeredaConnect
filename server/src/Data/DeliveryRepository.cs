@@ -137,7 +137,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByParticipantAsync(
         string participantId,
         int limit = 50,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? status = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -158,10 +159,19 @@ public sealed class DeliveryRepository : IDeliveryRepository
             {
                 { ":pid", new AttributeValue { S = participantId } }
             },
-            FilterExpression = "attribute_not_exists(#deletedAt)",
             Limit = limit,
             ScanIndexForward = false // newest first
         };
+
+        var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filterParts);
 
         if (exclusiveStartKey != null)
         {
@@ -227,10 +237,125 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByTruckerAsync(
+        string truckerId,
+        string? status = null,
+        int limit = 20,
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+    {
+        if (limit < 1 || limit > 50)
+        {
+            limit = 20;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "TruckerIdCreatedAtIndex",
+            KeyConditionExpression = "#truckerId = :truckerId",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#truckerId", "truckerId" },
+                { "#deletedAt", "deletedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":truckerId", new AttributeValue { S = truckerId } }
+            },
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        // Always exclude soft-deleted deliveries; apply the optional status
+        // filter on the non-key attribute (a FilterExpression, since status is
+        // not part of this GSI's key).
+        var filterParts = new List<string> { "attribute_not_exists(#deletedAt)" };
+        if (!string.IsNullOrEmpty(status))
+        {
+            filterParts.Add("#status = :status");
+            request.ExpressionAttributeNames["#status"] = "status";
+            request.ExpressionAttributeValues[":status"] = new AttributeValue { S = status };
+        }
+
+        request.FilterExpression = string.Join(" AND ", filterParts);
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(CropRepository.FromItem).ToList();
+        return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, object>?> GetByIdAsync(string deliveryId)
     {
         var item = await GetItemAsync(deliveryId);
         return item != null ? CropRepository.FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkDisputedAsync(string deliveryId, string disputedBy, string? reason)
+    {
+        var existing = await GetItemAsync(deliveryId);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        // The sync handler keys deliveries on deliveryId + tripId (self-pickup stores a
+        // synthetic tripId), so the same key is used here.
+        var tripId = existing.TryGetValue("tripId", out var tripAttr) ? tripAttr.S ?? "" : "";
+        var version = existing.TryGetValue("version", out var vAttr)
+            && int.TryParse(vAttr.N, out var parsed) ? parsed : 1;
+        var now = DateTime.UtcNow.ToString("o");
+
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+            { "#disputedBy", "disputedBy" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":disputed", new AttributeValue { S = "disputed" } },
+            { ":delivered", new AttributeValue { S = "delivered" } },
+            { ":updated", new AttributeValue { S = now } },
+            { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
+            { ":disputedBy", new AttributeValue { S = disputedBy } }
+        };
+        var setParts = "#status = :disputed, #updated = :updated, #v = :newVersion, #disputedBy = :disputedBy";
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            attrNames["#reason"] = "disputeReason";
+            attrValues[":reason"] = new AttributeValue { S = reason };
+            setParts += ", #reason = :reason";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET " + setParts,
+            ConditionExpression = "#status = :delivered",
+            ExpressionAttributeNames = attrNames,
+            ExpressionAttributeValues = attrValues
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

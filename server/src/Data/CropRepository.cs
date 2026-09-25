@@ -264,6 +264,98 @@ public sealed class CropRepository : ICropRepository
     internal static List<object> FromList(List<AttributeValue> list)
         => DynamoDbHelper.FromList(list);
 
+    /// <summary>
+    /// SIM-13: give a listing back the stock a funded order took, when that order is
+    /// rejected, cancelled or refunded. Idempotent per order (the listing keeps the set
+    /// of order ids already restored in <c>stockRestoredFor</c>) and race-safe (version
+    /// CAS with a bounded retry): two concurrent restores for different orders both
+    /// land, a repeat for the same order is a no-op. A listing that went
+    /// <c>reserved</c> when it hit zero comes back as <c>available</c>; other statuses
+    /// (sold, deleted) are left alone. Returns true only when this call added stock.
+    /// </summary>
+    public async Task<bool> TryRestoreStockAsync(string cropId, string orderId, double quintals)
+    {
+        if (quintals <= 0)
+        {
+            return false;
+        }
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var existing = await GetItemAsync(cropId);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            if (existing.TryGetValue("stockRestoredFor", out var restored)
+                && restored.SS != null
+                && restored.SS.Contains(orderId))
+            {
+                return false;
+            }
+
+            var current = existing.TryGetValue("quantity", out var q)
+                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
+                ? parsedQuantity
+                : 0.0;
+            var version = existing.TryGetValue("version", out var v)
+                && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
+            var status = existing.TryGetValue("status", out var s) ? s.S : null;
+            var newQuantity = Math.Round(current + quintals, 2);
+
+            var attrNames = new Dictionary<string, string>
+            {
+                { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
+                { "#restored", "stockRestoredFor" }
+            };
+            var attrValues = new Dictionary<string, AttributeValue>
+            {
+                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
+                { ":expectedVersion", new AttributeValue { N = version.ToString() } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":orderIdSet", new AttributeValue { SS = new List<string> { orderId } } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            };
+            var setExpression = "SET #q = :q, #v = :newVersion, #updated = :updated";
+            if (status == "reserved")
+            {
+                attrNames["#status"] = "status";
+                attrValues[":available"] = new AttributeValue { S = "available" };
+                setExpression += ", #status = :available";
+            }
+
+            var request = new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "cropId", new AttributeValue { S = cropId } },
+                    { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+                },
+                UpdateExpression = setExpression + " ADD #restored :orderIdSet",
+                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#restored) OR NOT contains(#restored, :orderId))",
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues
+            };
+
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return true;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                // The version moved (another funding or restore landed) or this order was
+                // restored concurrently: re-read and decide again.
+            }
+        }
+
+        return false;
+    }
+
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryCropsAsync(
         string? farmerId = null,

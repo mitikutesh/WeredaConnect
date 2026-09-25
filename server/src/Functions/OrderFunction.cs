@@ -62,7 +62,8 @@ public class OrderFunction
 
     /// <summary>
     /// GET /orders - Query orders with optional filters.
-    /// Query parameters: buyerId, farmerId, truckerId, status, listingId, limit, nextToken
+    /// Query parameters: buyerId, farmerId, truckerId, status, listingId, limit, nextToken.
+    /// Without a party filter the list is scoped to the caller by their role claim.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetOrdersAsync(
         APIGatewayProxyRequest request,
@@ -124,10 +125,23 @@ public class OrderFunction
                 "You can only query your own orders.");
         }
 
-        // Default: if no role-specific filter provided, assume buyer
+        // Default: no party filter given, so scope by the caller's role claim
+        // (SIM-16). This used to assume buyer, so a farmer or trucker reading
+        // GET /orders without farmerId=/truckerId= silently got [].
         if (string.IsNullOrEmpty(buyerId) && string.IsNullOrEmpty(farmerId) && string.IsNullOrEmpty(truckerId))
         {
-            buyerId = authenticatedUserId;
+            switch (AuthHelper.GetRole(request))
+            {
+                case "farmer":
+                    farmerId = authenticatedUserId;
+                    break;
+                case "trucker":
+                    truckerId = authenticatedUserId;
+                    break;
+                default:
+                    buyerId = authenticatedUserId;
+                    break;
+            }
         }
 
         try
@@ -256,7 +270,11 @@ public class OrderFunction
 
     private static int GetInt(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return 0;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return 0;
+        }
+
         return value switch
         {
             int i => i,
@@ -267,7 +285,11 @@ public class OrderFunction
 
     private static double GetDouble(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return 0.0;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return 0.0;
+        }
+
         return value switch
         {
             double d => d,
@@ -281,7 +303,11 @@ public class OrderFunction
 
     private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
     {
-        if (!item.TryGetValue(key, out var value)) return null;
+        if (!item.TryGetValue(key, out var value))
+        {
+            return null;
+        }
+
         return value switch
         {
             double d => d,
