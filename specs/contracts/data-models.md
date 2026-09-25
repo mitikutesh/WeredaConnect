@@ -318,7 +318,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 |---------|---------------------|
 | **Phone format** | +251 country code, E.164 format |
 | **Location** | Woreda (district) names instead of GPS for UX |
-| **Measurement** | Quintals (100kg) for crop quantity |
+| **Measurement** | Quintals (100kg) for listing stock and trip capacity; `order.quantity` travels in kilograms and `pricePerUnit` is ETB/kg (see `order-lifecycle.md`, Units) |
 | **Currency** | Ethiopian Birr (ETB) |
 | **Languages** | Amharic, Afan Oromo, English (Unicode support) |
 | **Payment** | Telebirr (dominant mobile money platform) |
@@ -334,6 +334,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 1.0.0 | 2026-02-14 | Initial schema definitions for all 6 core entities | @Mobile |
+| 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
 
 ---
 

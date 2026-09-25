@@ -165,6 +165,7 @@ class CropRecord:
     crop_id: str
     farmer_idx: int
     crop_type: str
+    price_per_kg: float = 0.0  # orders must quote exactly this (SIM-05)
 
 
 @dataclass
@@ -173,6 +174,7 @@ class TripRecord:
     trucker_idx: int
     from_woreda: str
     to_woreda: str
+    price_per_quintal: float = 0.0  # transportCost = kg / 100 x this (SIM-05)
 
 
 @dataclass
@@ -373,7 +375,8 @@ def phase_create_crops(state: TestState):
             results = resp.json().get("results", [])
             if results and results[0].get("status") == "success":
                 state.crop_ids.append(crop_id)
-                state.crops.append(CropRecord(crop_id=crop_id, farmer_idx=listing["farmer_idx"], crop_type=listing["cropType"]))
+                state.crops.append(CropRecord(crop_id=crop_id, farmer_idx=listing["farmer_idx"], crop_type=listing["cropType"],
+                                              price_per_kg=listing["pricePerKg"]))
                 created_any = True
                 state.record(
                     f"Create {listing['cropType']} ({farmer.display_name})",
@@ -414,7 +417,8 @@ def phase_create_crops(state: TestState):
                         fidx = farmer_id_to_idx[fid]
                         if cid not in state.crop_ids:
                             state.crop_ids.append(cid)
-                            state.crops.append(CropRecord(crop_id=cid, farmer_idx=fidx, crop_type=ctype))
+                            state.crops.append(CropRecord(crop_id=cid, farmer_idx=fidx, crop_type=ctype,
+                                                          price_per_kg=float(item.get("pricePerKg") or 0)))
             time.sleep(0.2)
 
         if state.crops:
@@ -474,7 +478,8 @@ def phase_create_trips(state: TestState):
             if results and results[0].get("status") == "success":
                 state.trip_ids.append(trip_id)
                 state.trips.append(TripRecord(trip_id=trip_id, trucker_idx=trip_def["trucker_idx"],
-                                              from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"]))
+                                              from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"],
+                                              price_per_quintal=trip_def["pricePerQuintal"]))
                 state.record(f"Create trip {route}", True, f"tripId={trip_id[:12]}...")
             else:
                 msg = results[0].get("message", "unknown") if results else "no results"
@@ -600,13 +605,13 @@ def phase_create_deliveries(state: TestState):
                     "buyerName": buyer.display_name,
                     "farmerId": farmer.user_id,
                     "farmerName": farmer.display_name,
-                    "cropType": "teff",
-                    "quantity": 10.0,
-                    "pricePerUnit": 50.0,
+                    "cropType": crop.crop_type,
+                    "quantity": 10.0,  # kilograms (order-lifecycle.md, Units)
+                    "pricePerUnit": crop.price_per_kg,
                     "tripId": trip_id,
                     "truckerId": trucker.user_id,
                     "truckerName": trucker.display_name,
-                    "transportCost": 200.0,
+                    "transportCost": 10.0 / 100 * trip.price_per_quintal,
                     "paymentMethod": "telebirr",
                     "status": "created",
                 },

@@ -778,7 +778,7 @@ public class SyncFunctionTests
     }
 
     private void SetupExistingTrip(string tripId, string truckerId, string status, int version,
-        string? deletedAt = null, string? truckerPhone = null)
+        string? deletedAt = null, string? truckerPhone = null, double? pricePerQuintal = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -799,6 +799,13 @@ public class SyncFunctionTests
         if (truckerPhone != null)
         {
             item["truckerPhone"] = new AttributeValue { S = truckerPhone };
+        }
+        if (pricePerQuintal != null)
+        {
+            item["pricePerQuintal"] = new AttributeValue
+            {
+                N = pricePerQuintal.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            };
         }
         _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>())
             .Returns(new QueryResponse
@@ -2202,14 +2209,11 @@ public class SyncFunctionTests
     private static SyncOperationRequest MakeOrderCreateOp(
         string buyerId = "buyer-001",
         string opId = "op-order-create",
-        string entityId = "order-001") => new()
-        {
-            OperationId = opId,
-            IdempotencyKey = $"user:order:{entityId}:create:12345",
-            EntityType = "order",
-            EntityId = entityId,
-            Action = "create",
-            Data = new Dictionary<string, object>
+        string entityId = "order-001",
+        Dictionary<string, object>? dataOverrides = null)
+    {
+        // 50 kg of farmer-001's teff at 45.5 ETB/kg (see SetupListing).
+        var data = new Dictionary<string, object>
         {
             { "buyerId", buyerId },
             { "farmerId", "farmer-001" },
@@ -2219,8 +2223,67 @@ public class SyncFunctionTests
             { "cropType", "teff" },
             { "quantity", 50 },
             { "pricePerUnit", 45.5 }
-        }
         };
+        if (dataOverrides != null)
+        {
+            foreach (var kvp in dataOverrides)
+            {
+                data[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return new SyncOperationRequest
+        {
+            OperationId = opId,
+            IdempotencyKey = $"user:order:{entityId}:create:12345",
+            EntityType = "order",
+            EntityId = entityId,
+            Action = "create",
+            Data = data
+        };
+    }
+
+    /// <summary>
+    /// The listing MakeOrderCreateOp references: farmer-001's teff, 10 quintals at 45.5 ETB/kg.
+    /// </summary>
+    private void SetupListing(
+        string listingId = "listing-001",
+        string farmerId = "farmer-001",
+        string cropType = "teff",
+        double quantityQuintals = 10,
+        double pricePerKg = 45.5,
+        string status = "available")
+    {
+        _mockCropRepo.GetByIdAsync(listingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", listingId }, { "listingId", listingId }, { "farmerId", farmerId },
+            { "farmerName", "Abebe Kebede" }, { "cropType", cropType },
+            { "quantity", quantityQuintals }, { "pricePerKg", pricePerKg },
+            { "status", status }, { "version", "1" }
+        });
+    }
+
+    private Dictionary<string, object>? _createdOrder;
+
+    /// <summary>Let order creates succeed and capture the record handed to the repository.</summary>
+    private void SetupOrderCreateSucceeds()
+    {
+        // Return a plain record (as the DynamoDB repository does) rather than echoing the
+        // request dictionary, whose JsonElement values the response serializer rejects.
+        _mockOrderRepo.CreateAsync(Arg.Any<string>(), Arg.Do<Dictionary<string, object>>(d => _createdOrder = d))
+            .Returns(ci => AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", ci.Arg<string>() }, { "status", "created" }, { "version", "1" }
+            }));
+    }
+
+    private async Task<string> CreateOrderAsBuyer(SyncOperationRequest op)
+    {
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+        Assert.Equal(200, response.StatusCode);
+        return response.Body;
+    }
 
     [Fact]
     public async Task CropCreate_BuyerRole_ReturnsUnauthorized()
@@ -2354,6 +2417,265 @@ public class SyncFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.DoesNotContain("Only buyers can create orders", response.Body);
+    }
+
+    // --- SIM-05: order create is bound to the server's listing and trip records ---
+
+    [Fact]
+    public async Task OrderCreate_Valid_ComputesMoneyFromListingAndTrip()
+    {
+        SetupListing();
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, pricePerQuintal: 120);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "truckerName", "spoofed" },
+            { "farmerName", "spoofed" }, { "transportCost", 60.0 }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        var order = _createdOrder!;
+        Assert.Equal(2275.0, (double)order["cropCost"]);    // 50 kg x 45.5 ETB/kg
+        Assert.Equal(60.0, (double)order["transportCost"]); // 0.5 quintal x 120 ETB/quintal
+        var rate = (double)order["commissionRate"];
+        Assert.Equal(2275.0 * rate, (double)order["commissionAmount"], 6);
+        Assert.Equal(2275.0 + 60.0 + 2275.0 * rate, (double)order["orderTotal"], 6);
+        Assert.Equal("Abebe Kebede", order["farmerName"]);
+        Assert.Equal("Tadesse Worku", order["truckerName"]);
+        Assert.Equal("created", order["status"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_WithoutTrip_HasZeroTransportCost()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("success", body);
+        Assert.Equal(0.0, (double)_createdOrder!["transportCost"]);
+        Assert.Equal(2275.0 + 2275.0 * (double)_createdOrder["commissionRate"],
+            (double)_createdOrder["orderTotal"], 6);
+    }
+
+    [Fact]
+    public async Task OrderCreate_ListingNotFound_ReturnsValidationError()
+    {
+        _mockCropRepo.GetByIdAsync("listing-001").Returns((Dictionary<string, object>?)null);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("ORDER_VALIDATION: Listing not found", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_ListingNotAvailable_ReturnsValidationError()
+    {
+        SetupListing(status: "reserved");
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("ORDER_VALIDATION: Listing is not available", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_FarmerIdNotListingOwner_ReturnsValidationError()
+    {
+        // The fleet run priced orders against a farmer who did not own the listing.
+        SetupListing(farmerId: "farmer-999");
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("ORDER_VALIDATION: farmerId must be the farmer on the listing", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_CropTypeMismatch_ReturnsValidationError()
+    {
+        SetupListing(cropType: "wheat");
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("ORDER_VALIDATION: cropType must match the listing", body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_PriceBelowListing_ReturnsValidationError()
+    {
+        // 1 ETB/kg on a 120 ETB/kg listing was accepted and priced before SIM-05.
+        SetupListing(pricePerKg: 120);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "pricePerUnit", 1.0 }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: pricePerUnit must equal the listing price (120.00 ETB/kg)", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_QuantityExceedsStock_ReturnsValidationError()
+    {
+        // 0.4 quintal = 40 kg in stock, order asks for 50 kg.
+        SetupListing(quantityQuintals: 0.4);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("ORDER_VALIDATION: quantity (50 kg) exceeds the listing stock (40 kg)", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Theory]
+    [InlineData("tripId", "trip-001")]
+    [InlineData("truckerId", "trucker-001")]
+    public async Task OrderCreate_TripAndTruckerNotTogether_ReturnsValidationError(string key, string value)
+    {
+        SetupListing();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { key, value }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: tripId and truckerId must be provided together", body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_TripNotFound_ReturnsValidationError()
+    {
+        SetupListing();
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-missing" }, { "truckerId", "trucker-001" }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: Trip not found", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_TruckerIdNotTripOwner_ReturnsValidationError()
+    {
+        SetupListing();
+        SetupExistingTrip("trip-001", "trucker-999", "open", 1, pricePerQuintal: 120);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: truckerId must be the trucker on the trip", body);
+    }
+
+    [Fact]
+    public async Task OrderCreate_TripNotOpen_ReturnsValidationError()
+    {
+        SetupListing();
+        SetupExistingTrip("trip-001", "trucker-001", "delivered", 3, pricePerQuintal: 120);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: Trip is not open for orders (status: delivered)", body);
+    }
+
+    [Theory]
+    [InlineData(240.0)]
+    [InlineData(-470.6)]
+    public async Task OrderCreate_TransportCostNotDerivedFromTrip_ReturnsValidationError(double sent)
+    {
+        SetupListing();
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, pricePerQuintal: 120);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "transportCost", sent }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: transportCost must equal quantity/100 x the trip pricePerQuintal (60.00 ETB)", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_TransportCostWithoutTrip_ReturnsValidationError()
+    {
+        SetupListing();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "transportCost", 240.0 }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: transportCost requires a tripId", body);
+    }
+
+    [Fact]
+    public async Task OrderFunding_DecreasesListingStockInQuintals()
+    {
+        // SIM-07: a 500 kg order on a 60-quintal listing must leave 55 quintals, not 0.
+        Environment.SetEnvironmentVariable("TELEBIRR_MOCK", "true");
+        try
+        {
+            SetupListing(quantityQuintals: 60);
+            var orderRepo = Substitute.For<IOrderRepository>();
+            orderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+                { "listingId", "listing-001" }, { "quantity", 500.0 },
+                { "status", "created" }, { "version", "1" }
+            });
+            orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+                .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+                {
+                    { "orderId", "order-001" }, { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+                    { "listingId", "listing-001" }, { "quantity", 500.0 }, { "status", "funded" },
+                    { "orderTotal", "23887.50" }, { "cropCost", "22750.00" },
+                    { "paymentVerifiedAt", "2026-03-01T10:00:00.0000000Z" }, { "version", "3" }
+                }));
+            var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+                "test-trips-table", "test-deliveries-table",
+                userRepo: _mockUserRepo, orderRepo: orderRepo);
+
+            var op = new SyncOperationRequest
+            {
+                OperationId = "op-pay-stock",
+                IdempotencyKey = "user:order:order-001:update:12345",
+                EntityType = "order",
+                EntityId = "order-001",
+                Action = "update",
+                Data = new Dictionary<string, object>
+                {
+                    { "status", "payment_submitted" },
+                    { "paymentMethod", "telebirr" }
+                }
+            };
+            var response = await function.FunctionHandler(
+                MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+            Assert.Equal(200, response.StatusCode);
+            Assert.Contains("success", response.Body);
+            await _mockCropRepo.Received(1).UpdateAsync(
+                "listing-001",
+                Arg.Is<Dictionary<string, object>>(d => d["quantity"].ToString() == "55.00" && !d.ContainsKey("status")),
+                1);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
+        }
     }
 
     [Fact]

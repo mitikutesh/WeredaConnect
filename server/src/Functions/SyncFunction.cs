@@ -82,6 +82,18 @@ public partial class SyncFunction
     private static readonly TimeSpan CommissionRateCacheTtl = TimeSpan.FromMinutes(15);
     private const double DefaultCommissionRate = 0.05;
 
+    /// <summary>
+    /// SIM-05/SIM-07 units: order.quantity is KILOGRAMS on the wire; listing stock and
+    /// trip capacity are quintals and trip prices are per quintal (order-lifecycle.md).
+    /// </summary>
+    private const double KgPerQuintal = 100.0;
+
+    /// <summary>Client-echoed money must match the server's computation to the santim.</summary>
+    private const double MoneyTolerance = 0.01;
+
+    /// <summary>Slack for floating-point kg comparisons against quintal stock.</summary>
+    private const double QuantityTolerance = 0.001;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
@@ -1323,61 +1335,61 @@ public partial class SyncFunction
         switch (contextType)
         {
             case "crop":
-            {
-                var crop = await _cropRepo.GetByIdAsync(contextId);
-                if (crop == null)
                 {
-                    return "MESSAGE_VALIDATION: Crop not found.";
-                }
+                    var crop = await _cropRepo.GetByIdAsync(contextId);
+                    if (crop == null)
+                    {
+                        return "MESSAGE_VALIDATION: Crop not found.";
+                    }
 
-                var farmerId = ItemString(crop, "farmerId");
-                // Exactly one party owns the crop (the farmer); the other must be
-                // a buyer (buyers may message about ANY crop).
-                return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
-            }
+                    var farmerId = ItemString(crop, "farmerId");
+                    // Exactly one party owns the crop (the farmer); the other must be
+                    // a buyer (buyers may message about ANY crop).
+                    return await VerifyOwnerBuyerPairAsync(farmerId, "buyer", senderId, recipientId);
+                }
 
             case "trip":
-            {
-                var trip = await GetTripItemAsync(contextId);
-                if (trip == null)
                 {
-                    return "MESSAGE_VALIDATION: Trip not found.";
-                }
+                    var trip = await GetTripItemAsync(contextId);
+                    if (trip == null)
+                    {
+                        return "MESSAGE_VALIDATION: Trip not found.";
+                    }
 
-                var truckerId = AttrString(trip, "truckerId");
-                // Exactly one party owns the trip (the trucker); the other buyer.
-                return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
-            }
+                    var truckerId = AttrString(trip, "truckerId");
+                    // Exactly one party owns the trip (the trucker); the other buyer.
+                    return await VerifyOwnerBuyerPairAsync(truckerId, "buyer", senderId, recipientId);
+                }
 
             case "order":
-            {
-                var order = await _orderRepo.GetByIdAsync(contextId);
-                if (order == null)
                 {
-                    return "MESSAGE_VALIDATION: Order not found.";
-                }
+                    var order = await _orderRepo.GetByIdAsync(contextId);
+                    if (order == null)
+                    {
+                        return "MESSAGE_VALIDATION: Order not found.";
+                    }
 
-                var participants = new HashSet<string>(StringComparer.Ordinal);
-                AddIfPresent(participants, ItemString(order, "buyerId"));
-                AddIfPresent(participants, ItemString(order, "farmerId"));
-                AddIfPresent(participants, ItemString(order, "truckerId"));
-                return VerifyDistinctParticipants(participants, senderId, recipientId);
-            }
+                    var participants = new HashSet<string>(StringComparer.Ordinal);
+                    AddIfPresent(participants, ItemString(order, "buyerId"));
+                    AddIfPresent(participants, ItemString(order, "farmerId"));
+                    AddIfPresent(participants, ItemString(order, "truckerId"));
+                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                }
 
             case "delivery":
-            {
-                var delivery = await GetDeliveryItemAsync(contextId);
-                if (delivery == null)
                 {
-                    return "MESSAGE_VALIDATION: Delivery not found.";
-                }
+                    var delivery = await GetDeliveryItemAsync(contextId);
+                    if (delivery == null)
+                    {
+                        return "MESSAGE_VALIDATION: Delivery not found.";
+                    }
 
-                var participants = new HashSet<string>(StringComparer.Ordinal);
-                AddIfPresent(participants, AttrString(delivery, "buyerId"));
-                AddIfPresent(participants, AttrString(delivery, "farmerId"));
-                AddIfPresent(participants, AttrString(delivery, "truckerId"));
-                return VerifyDistinctParticipants(participants, senderId, recipientId);
-            }
+                    var participants = new HashSet<string>(StringComparer.Ordinal);
+                    AddIfPresent(participants, AttrString(delivery, "buyerId"));
+                    AddIfPresent(participants, AttrString(delivery, "farmerId"));
+                    AddIfPresent(participants, AttrString(delivery, "truckerId"));
+                    return VerifyDistinctParticipants(participants, senderId, recipientId);
+                }
 
             default:
                 return "MESSAGE_VALIDATION: Unknown contextType.";
@@ -4724,13 +4736,58 @@ public partial class SyncFunction
             };
         }
 
-        // Calculate server-side fields
-        var quantity = ParseDouble(operation.Data, "quantity");
+        // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
+        // bind every party, price and quantity to the server's records, and compute the
+        // money fields from those records only.
+        var listingId = operation.Data["listingId"]?.ToString() ?? "";
+        var listing = await _cropRepo.GetByIdAsync(listingId);
+        if (listing == null)
+        {
+            return OrderValidationError(operation, "Listing not found.");
+        }
+
+        var listingError = BindOrderToListing(operation.Data, listing, authenticatedUserId);
+        if (listingError != null)
+        {
+            return OrderValidationError(operation, listingError);
+        }
+
+        var quantityKg = ParseDouble(operation.Data, "quantity");
         var pricePerUnit = ParseDouble(operation.Data, "pricePerUnit");
-        var cropCost = quantity * pricePerUnit;
+        var cropCost = quantityKg * pricePerUnit;
         var commissionRate = GetCommissionRate(context);
         var commissionAmount = cropCost * commissionRate;
-        var transportCost = ParseDoubleOrNull(operation.Data, "transportCost") ?? 0.0;
+
+        var tripId = operation.Data.TryGetValue("tripId", out var tripIdObj) ? tripIdObj?.ToString() : null;
+        var truckerId = operation.Data.TryGetValue("truckerId", out var truckerIdObj) ? truckerIdObj?.ToString() : null;
+        if (string.IsNullOrEmpty(tripId) != string.IsNullOrEmpty(truckerId))
+        {
+            return OrderValidationError(operation, "tripId and truckerId must be provided together.");
+        }
+
+        var clientTransportCost = ParseDoubleOrNull(operation.Data, "transportCost");
+        var transportCost = 0.0;
+        if (!string.IsNullOrEmpty(tripId))
+        {
+            var trip = await GetTripItemAsync(tripId);
+            if (trip == null)
+            {
+                return OrderValidationError(operation, "Trip not found.");
+            }
+
+            var tripError = BindOrderToTrip(
+                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, out transportCost);
+            if (tripError != null)
+            {
+                return OrderValidationError(operation, tripError);
+            }
+        }
+        else if (clientTransportCost is double sentWithoutTrip && sentWithoutTrip != 0.0)
+        {
+            return OrderValidationError(operation, "transportCost requires a tripId.");
+        }
+
+        operation.Data["transportCost"] = transportCost;
         var orderTotal = cropCost + transportCost + commissionAmount;
 
         operation.Data["cropCost"] = cropCost;
@@ -4978,23 +5035,35 @@ public partial class SyncFunction
         try
         {
             var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
-            if (string.IsNullOrEmpty(listingId)) return;
+            if (string.IsNullOrEmpty(listingId))
+            {
+                return;
+            }
 
-            var orderQuantity = ParseDouble(order, "quantity");
-            if (orderQuantity <= 0) return;
+            // SIM-07: order.quantity is kilograms on the wire; listing stock is quintals.
+            var orderQuintals = ParseDouble(order, "quantity") / KgPerQuintal;
+            if (orderQuintals <= 0)
+            {
+                return;
+            }
 
             var listing = await _cropRepo.GetByIdAsync(listingId);
-            if (listing == null) return;
+            if (listing == null)
+            {
+                return;
+            }
 
             var currentQuantity = ParseDouble(listing, "quantity");
             var listingVersion = 1;
             if (listing.TryGetValue("version", out var lvObj))
+            {
                 int.TryParse(lvObj?.ToString(), out listingVersion);
+            }
 
-            var newQuantity = Math.Max(0, currentQuantity - orderQuantity);
+            var newQuantity = Math.Max(0, currentQuantity - orderQuintals);
             var updateData = new Dictionary<string, object>
             {
-                { "quantity", newQuantity.ToString("F2") }
+                { "quantity", newQuantity.ToString("F2", CultureInfo.InvariantCulture) }
             };
 
             if (newQuantity <= 0)
@@ -5197,6 +5266,123 @@ public partial class SyncFunction
         return null;
     }
 
+    private static SyncOperationResult OrderValidationError(SyncOperationRequest operation, string message) => new()
+    {
+        OperationId = operation.OperationId,
+        Status = "error",
+        Message = $"ORDER_VALIDATION: {message}"
+    };
+
+    /// <summary>
+    /// SIM-05: bind an order create to the listing it references (existence is checked
+    /// by the caller). Returns an error message without the code prefix, or null when
+    /// clean. Overwrites farmerName from the listing so the client cannot spoof it.
+    /// </summary>
+    private static string? BindOrderToListing(
+        Dictionary<string, object> data, Dictionary<string, object> listing, string? buyerId)
+    {
+        var listingStatus = listing.TryGetValue("status", out var ls)
+            ? ls?.ToString() ?? "available"
+            : "available";
+        if (!string.Equals(listingStatus, "available", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Listing is not available for orders (status: {listingStatus}).";
+        }
+
+        var listingFarmerId = listing.TryGetValue("farmerId", out var lf) ? lf?.ToString() : null;
+        if (string.IsNullOrEmpty(listingFarmerId)
+            || !string.Equals(data["farmerId"]?.ToString(), listingFarmerId, StringComparison.Ordinal))
+        {
+            return "farmerId must be the farmer on the listing.";
+        }
+
+        if (string.Equals(buyerId, listingFarmerId, StringComparison.Ordinal))
+        {
+            return "Self-trading not allowed. Buyer and farmer must be different users.";
+        }
+
+        var listingCropType = listing.TryGetValue("cropType", out var lc) ? lc?.ToString() : null;
+        if (!string.Equals(data["cropType"]?.ToString(), listingCropType, StringComparison.OrdinalIgnoreCase))
+        {
+            return "cropType must match the listing.";
+        }
+
+        var listingPricePerKg = ParseDouble(listing, "pricePerKg");
+        var pricePerUnit = ParseDouble(data, "pricePerUnit");
+        if (listingPricePerKg <= 0 || Math.Abs(pricePerUnit - listingPricePerKg) > MoneyTolerance)
+        {
+            return "pricePerUnit must equal the listing price "
+                + $"({listingPricePerKg.ToString("0.00", CultureInfo.InvariantCulture)} ETB/kg).";
+        }
+
+        var stockKg = ParseDouble(listing, "quantity") * KgPerQuintal;
+        var quantityKg = ParseDouble(data, "quantity");
+        if (quantityKg > stockKg + QuantityTolerance)
+        {
+            return $"quantity ({quantityKg.ToString("0.##", CultureInfo.InvariantCulture)} kg) exceeds "
+                + $"the listing stock ({stockKg.ToString("0.##", CultureInfo.InvariantCulture)} kg).";
+        }
+
+        if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
+        {
+            data["farmerName"] = lfn.ToString()!;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// SIM-05: bind an order create to the trip it references and derive the transport
+    /// cost (kg / 100 x pricePerQuintal). A client-sent transportCost may only echo it.
+    /// Overwrites truckerName from the trip.
+    /// </summary>
+    private static string? BindOrderToTrip(
+        Dictionary<string, object> data,
+        Dictionary<string, AttributeValue> trip,
+        string truckerId,
+        double quantityKg,
+        double? clientTransportCost,
+        out double transportCost)
+    {
+        transportCost = 0.0;
+
+        var tripStatus = trip.TryGetValue("status", out var ts) ? ts.S ?? "open" : "open";
+        if (tripStatus is not ("open" or "matched"))
+        {
+            return $"Trip is not open for orders (status: {tripStatus}).";
+        }
+
+        var tripTruckerId = trip.TryGetValue("truckerId", out var tt) ? tt.S : null;
+        if (string.IsNullOrEmpty(tripTruckerId)
+            || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
+        {
+            return "truckerId must be the trucker on the trip.";
+        }
+
+        var pricePerQuintal = trip.TryGetValue("pricePerQuintal", out var pq)
+            && double.TryParse(pq.N ?? pq.S, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0.0;
+        if (pricePerQuintal <= 0)
+        {
+            return "Trip has no valid pricePerQuintal.";
+        }
+
+        transportCost = quantityKg / KgPerQuintal * pricePerQuintal;
+        if (clientTransportCost is double sent && Math.Abs(sent - transportCost) > MoneyTolerance)
+        {
+            return "transportCost must equal quantity/100 x the trip pricePerQuintal "
+                + $"({transportCost.ToString("0.00", CultureInfo.InvariantCulture)} ETB).";
+        }
+
+        if (trip.TryGetValue("truckerName", out var tn) && !string.IsNullOrEmpty(tn.S))
+        {
+            data["truckerName"] = tn.S;
+        }
+
+        return null;
+    }
+
     private static List<string> ValidateOrderFields(Dictionary<string, object> data, bool isCreate)
     {
         var errors = new List<string>();
@@ -5204,17 +5390,34 @@ public partial class SyncFunction
         if (isCreate)
         {
             if (!data.ContainsKey("listingId"))
+            {
                 errors.Add("listingId is required.");
+            }
+
             if (!data.ContainsKey("buyerId"))
+            {
                 errors.Add("buyerId is required.");
+            }
+
             if (!data.ContainsKey("farmerId"))
+            {
                 errors.Add("farmerId is required.");
+            }
+
             if (!data.ContainsKey("buyerName"))
+            {
                 errors.Add("buyerName is required.");
+            }
+
             if (!data.ContainsKey("farmerName"))
+            {
                 errors.Add("farmerName is required.");
+            }
+
             if (!data.ContainsKey("cropType"))
+            {
                 errors.Add("cropType is required.");
+            }
         }
 
         // Validate quantity
@@ -5260,35 +5463,45 @@ public partial class SyncFunction
         {
             var name = bnObj?.ToString() ?? "";
             if (name.Length > 100)
+            {
                 errors.Add("buyerName must not exceed 100 characters.");
+            }
         }
 
         if (data.TryGetValue("farmerName", out var fnObj))
         {
             var name = fnObj?.ToString() ?? "";
             if (name.Length > 100)
+            {
                 errors.Add("farmerName must not exceed 100 characters.");
+            }
         }
 
         if (data.TryGetValue("rejectionReason", out var rrObj))
         {
             var reason = rrObj?.ToString() ?? "";
             if (reason.Length > 500)
+            {
                 errors.Add("rejectionReason must not exceed 500 characters.");
+            }
         }
 
         if (data.TryGetValue("cancelReason", out var crObj))
         {
             var reason = crObj?.ToString() ?? "";
             if (reason.Length > 500)
+            {
                 errors.Add("cancelReason must not exceed 500 characters.");
+            }
         }
 
         if (data.TryGetValue("cbeTransactionId", out var cbeObj))
         {
             var txId = cbeObj?.ToString() ?? "";
             if (txId.Length > 100)
+            {
                 errors.Add("cbeTransactionId must not exceed 100 characters.");
+            }
         }
 
         return errors;
@@ -5338,7 +5551,11 @@ public partial class SyncFunction
 
     private static double ParseDouble(Dictionary<string, object> data, string key)
     {
-        if (!data.TryGetValue(key, out var value)) return 0.0;
+        if (!data.TryGetValue(key, out var value))
+        {
+            return 0.0;
+        }
+
         return value switch
         {
             double d => d,
@@ -5354,7 +5571,11 @@ public partial class SyncFunction
 
     private static double? ParseDoubleOrNull(Dictionary<string, object> data, string key)
     {
-        if (!data.TryGetValue(key, out var value)) return null;
+        if (!data.TryGetValue(key, out var value))
+        {
+            return null;
+        }
+
         return value switch
         {
             double d => d,

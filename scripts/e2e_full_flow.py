@@ -171,6 +171,20 @@ def sync_create(u: User, entity, entity_id, data):
     })
 
 
+def listing_price_per_kg(u: User, crop_id: str) -> float:
+    """Server-bound order create (SIM-05): pricePerUnit must equal the listing's pricePerKg."""
+    r = api("GET", f"/crops/{crop_id}", token=u.token)
+    d = r.json() if r.status == 200 else {}
+    return float((d.get("crop") or d).get("pricePerKg") or 0)
+
+
+def trip_price_per_quintal(u: User, trip_id: str) -> float:
+    """transportCost must equal quantity_kg / 100 x the trip's pricePerQuintal."""
+    r = api("GET", f"/trips/{trip_id}", token=u.token)
+    d = r.json() if r.status == 200 else {}
+    return float((d.get("trip") or d).get("pricePerQuintal") or 0)
+
+
 def seed_listings(s: State):
     hdr("PHASE 2 — Farmers create crops, trucker creates trips")
     crops = [
@@ -304,14 +318,16 @@ def create_order(s: State):
         return None
     b0 = USERS["buyer0"]
     teff = [x for x in s.crops if x[2] == "teff"]
-    cid, farmer, _ = (teff or s.crops)[0]
+    cid, farmer, ctype = (teff or s.crops)[0]
     tid, tr = s.trips[0]
     order_id = uid()
+    quantity_kg = 20.0  # order.quantity is kilograms (order-lifecycle.md, Units)
     r = sync_create(b0, "order", order_id, {
         "listingId": cid, "buyerId": b0.user_id, "farmerId": farmer.user_id,
-        "buyerName": b0.name, "farmerName": farmer.name, "cropType": "teff",
-        "quantity": 20.0, "pricePerUnit": 45.0,
-        "tripId": tid, "truckerId": tr.user_id, "truckerName": tr.name, "transportCost": 240.0,
+        "buyerName": b0.name, "farmerName": farmer.name, "cropType": ctype,
+        "quantity": quantity_kg, "pricePerUnit": listing_price_per_kg(b0, cid),
+        "tripId": tid, "truckerId": tr.user_id, "truckerName": tr.name,
+        "transportCost": quantity_kg / 100 * trip_price_per_quintal(b0, tid),
         "paymentMethod": "telebirr", "status": "created",
     })
     ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
@@ -330,17 +346,19 @@ def delivery_and_escrow(s: State):
         s.check("delivery", False, "need crop + trip")
         return
     b0, tr = USERS["buyer0"], USERS["trucker"]
-    cid, farmer, _ = s.crops[0]
+    cid, farmer, ctype = s.crops[0]
     tid, _ = s.trips[0]
     # Deliveries require an orderId (delivery-verification-api.md v1.2.0) with
     # matching buyer/farmer/trucker — create the backing order for THIS crop
     # (Phase 6's order may target a different listing/farmer).
     oid = uid()
+    quantity_kg = 10.0  # order.quantity is kilograms (order-lifecycle.md, Units)
     r = sync_create(b0, "order", oid, {
         "listingId": cid, "buyerId": b0.user_id, "farmerId": farmer.user_id,
-        "buyerName": b0.name, "farmerName": farmer.name, "cropType": "teff",
-        "quantity": 10.0, "pricePerUnit": 50.0,
-        "tripId": tid, "truckerId": tr.user_id, "truckerName": tr.name, "transportCost": 200.0,
+        "buyerName": b0.name, "farmerName": farmer.name, "cropType": ctype,
+        "quantity": quantity_kg, "pricePerUnit": listing_price_per_kg(b0, cid),
+        "tripId": tid, "truckerId": tr.user_id, "truckerName": tr.name,
+        "transportCost": quantity_kg / 100 * trip_price_per_quintal(b0, tid),
         "paymentMethod": "telebirr", "status": "created",
     })
     order_ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
