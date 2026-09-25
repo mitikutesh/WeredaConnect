@@ -572,6 +572,129 @@ public class SyncFunctionTests
         Assert.Contains("CROP_UNAUTHORIZED", response.Body);
     }
 
+    [Theory]
+    [InlineData("farmer-999")]
+    [InlineData("trucker-002")]
+    [InlineData("buyer-003")]
+    public async Task CropUpdate_ChangedFarmerId_ReturnsValidationErrorAndDoesNotWrite(string newFarmerId)
+    {
+        // SIM-02: the owner rewrote farmerId to move the listing into another account.
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "version", "1" }
+        });
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-update-reassign",
+            IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "farmerId", newFarmerId },
+                { "quantity", 100 },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("CROP_VALIDATION: farmerId is immutable", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_ChangedFarmerPhone_ReturnsValidationErrorAndDoesNotWrite()
+    {
+        // SIM-02: spoofing the contact details buyers see on the listing.
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "farmerName", "Abebe Kebede" },
+            { "farmerPhone", "+251911000001" },
+            { "version", "1" }
+        });
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-update-spoof",
+            IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "farmerPhone", "+251922000002" },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("CROP_VALIDATION: farmerPhone is immutable", response.Body);
+        await _mockCropRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task CropUpdate_EchoedIdentityFields_AreStrippedAndUpdateSucceeds()
+    {
+        // A client may resend identity fields unchanged (phone in the local 09
+        // spelling). The update must go through without rewriting them.
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "farmerId", "farmer-001" },
+            { "farmerName", "Abebe Kebede" },
+            { "farmerPhone", "+251911000001" },
+            { "version", "1" }
+        });
+        Dictionary<string, object>? written = null;
+        _mockCropRepo.UpdateAsync("crop-001", Arg.Do<Dictionary<string, object>>(d => written = d), 1)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "cropId", "crop-001" },
+                { "farmerId", "farmer-001" },
+                { "version", "2" }
+            }));
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-update-echo",
+            IdempotencyKey = "user:crop_listing:crop-001:update:12345",
+            EntityType = "crop_listing",
+            EntityId = "crop-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "farmerId", "farmer-001" },
+                { "farmerName", "Abebe Kebede" },
+                { "farmerPhone", "0911000001" },
+                { "quantity", 100 },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "farmer-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.NotNull(written);
+        Assert.False(written!.ContainsKey("farmerId"));
+        Assert.False(written.ContainsKey("farmerName"));
+        Assert.False(written.ContainsKey("farmerPhone"));
+        Assert.True(written.ContainsKey("quantity"));
+    }
+
     [Fact]
     public async Task CropDelete_FarmerIdMismatch_ReturnsUnauthorized()
     {
@@ -655,7 +778,7 @@ public class SyncFunctionTests
     }
 
     private void SetupExistingTrip(string tripId, string truckerId, string status, int version,
-        string? deletedAt = null)
+        string? deletedAt = null, string? truckerPhone = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -672,6 +795,10 @@ public class SyncFunctionTests
         if (deletedAt != null)
         {
             item["deletedAt"] = new AttributeValue { S = deletedAt };
+        }
+        if (truckerPhone != null)
+        {
+            item["truckerPhone"] = new AttributeValue { S = truckerPhone };
         }
         _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>())
             .Returns(new QueryResponse
@@ -1085,6 +1212,103 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
         Assert.Contains("TRIP_UNAUTHORIZED", response.Body);
+    }
+
+    [Fact]
+    public async Task TripUpdate_ChangedTruckerId_ReturnsValidationErrorAndDoesNotWrite()
+    {
+        // SIM-03: the owner rewrote truckerId to hand the trip to another account.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1);
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-reassign",
+            IdempotencyKey = "user:trip:trip-001:update:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "truckerId", "trucker-999" },
+                { "capacity", 200.0 },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("error", response.Body);
+        Assert.Contains("TRIP_VALIDATION: truckerId is immutable", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripUpdate_ChangedTruckerPhone_ReturnsValidationErrorAndDoesNotWrite()
+    {
+        // SIM-03: spoofing the contact details buyers see on the trip.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, truckerPhone: "+251912345678");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-spoof",
+            IdempotencyKey = "user:trip:trip-001:update:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "truckerPhone", "+251922000002" },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("TRIP_VALIDATION: truckerPhone is immutable", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripUpdate_EchoedOwnIdentityFields_AreStrippedAndUpdateSucceeds()
+    {
+        // The web client resends its own truckerId on status transitions. An echo
+        // (including the local 09 phone spelling) must neither fail nor be rewritten.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, truckerPhone: "+251912345678");
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r))
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = MakeUpdatedTripAttributes("trip-001", 2)
+            });
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-trip-echo",
+            IdempotencyKey = "user:trip:trip-001:update:12345",
+            EntityType = "trip",
+            EntityId = "trip-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "truckerId", "trucker-001" },
+                { "truckerName", "Tadesse Worku" },
+                { "truckerPhone", "0912345678" },
+                { "capacity", 200.0 },
+                { "version", 1 }
+            }
+        };
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "trucker-001");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.NotNull(sent);
+        Assert.DoesNotContain("truckerId", sent!.ExpressionAttributeNames.Values);
+        Assert.DoesNotContain("truckerName", sent.ExpressionAttributeNames.Values);
+        Assert.DoesNotContain("truckerPhone", sent.ExpressionAttributeNames.Values);
+        Assert.Contains("capacity", sent.ExpressionAttributeNames.Values);
     }
 
     // --- Trip Delete Tests ---

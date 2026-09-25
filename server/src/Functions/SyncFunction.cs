@@ -142,6 +142,22 @@ public partial class SyncFunction
     /// <summary>Upper bound for the JSON-string `impressions` payload (bytes-ish).</summary>
     private const int MaxImpressionsLength = 8192;
 
+    /// <summary>
+    /// SIM-02: identity fields a crop update may echo unchanged (web clients resend
+    /// them) but may never CHANGE. Rewriting farmerId moved listings into other
+    /// users' accounts; farmerName/farmerPhone spoofed the contact shown to buyers.
+    /// </summary>
+    private static readonly HashSet<string> ImmutableCropIdentityFields = new()
+    {
+        "farmerId", "farmerName", "farmerPhone"
+    };
+
+    /// <summary>SIM-03: same guard for trips (truckerId/Name/Phone).</summary>
+    private static readonly HashSet<string> ImmutableTripIdentityFields = new()
+    {
+        "truckerId", "truckerName", "truckerPhone"
+    };
+
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
@@ -625,6 +641,44 @@ public partial class SyncFunction
                 Message = "Internal server error."
             };
         }
+    }
+
+    /// <summary>
+    /// Reject an update that changes an immutable identity field; strip identity
+    /// fields that merely echo the stored value so they are not rewritten.
+    /// Phone fields are compared in normalized (+251...) form because a client may
+    /// echo the local 09... spelling of a number the server stored normalized.
+    /// Returns an error message (without the code prefix) or null when clean.
+    /// </summary>
+    private static string? RejectImmutableFieldChanges(
+        Dictionary<string, object> data,
+        HashSet<string> immutableFields,
+        Func<string, string?> storedValue)
+    {
+        foreach (var field in immutableFields)
+        {
+            if (!data.TryGetValue(field, out var incoming))
+            {
+                continue;
+            }
+
+            var incomingText = (incoming?.ToString() ?? "").Trim();
+            var stored = (storedValue(field) ?? "").Trim();
+            if (field.EndsWith("Phone", StringComparison.Ordinal))
+            {
+                incomingText = Validation.RequestValidator.NormalizePhoneNumber(incomingText) ?? incomingText;
+                stored = Validation.RequestValidator.NormalizePhoneNumber(stored) ?? stored;
+            }
+
+            if (!string.Equals(incomingText, stored, StringComparison.Ordinal))
+            {
+                return $"{field} is immutable and cannot be changed on update.";
+            }
+
+            data.Remove(field);
+        }
+
+        return null;
     }
 
     private static List<string> ValidateCropFields(Dictionary<string, object> data, bool isCreate)
@@ -1925,6 +1979,21 @@ public partial class SyncFunction
                         };
                     }
 
+                    // SIM-02: ownership/contact fields are immutable after create.
+                    var cropIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableCropIdentityFields,
+                        key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+                    if (cropIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {cropIdentityError}"
+                        };
+                    }
+
                     // FIX-009: Validate crop field values
                     var updateValidationErrors = ValidateCropFields(operation.Data, isCreate: false);
                     if (updateValidationErrors.Count > 0)
@@ -2317,6 +2386,21 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = $"TRIP_VALIDATION: Unknown fields: {string.Join(", ", unknownFields)}"
+                        };
+                    }
+
+                    // SIM-03: ownership/contact fields are immutable after create.
+                    var tripIdentityError = RejectImmutableFieldChanges(
+                        operation.Data,
+                        ImmutableTripIdentityFields,
+                        key => existing.TryGetValue(key, out var stored) ? stored.S : null);
+                    if (tripIdentityError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {tripIdentityError}"
                         };
                     }
 

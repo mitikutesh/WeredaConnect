@@ -386,6 +386,7 @@ Common route patterns:
 ### Authorization
 - Truckers can only create/update/delete their own trips
 - Server validates `truckerId` matches JWT `sub` claim
+- `truckerId`, `truckerName` and `truckerPhone` are immutable after create. An update that changes any of them is rejected with `TRIP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
 
 ### Rate Limiting
 - **POST /sync**: 100 requests/second per user (API Gateway throttling)
@@ -419,9 +420,10 @@ Common route patterns:
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-16 | Initial contract: Create/browse/get endpoints, data model, validation rules, status transitions, Ethiopian context |
+| 1.1.0 | 2026-09-25 | Update: `truckerId`/`truckerName`/`truckerPhone` are immutable after create (SIM-03); a changed value is rejected with `TRIP_VALIDATION`, an echoed value is stripped |
 
 ---
 
-**Last Updated**: 2026-02-16
-**Version**: 1.0.0
+**Last Updated**: 2026-09-25
+**Version**: 1.1.0
 **Status**: Draft (Phase R4.1)
