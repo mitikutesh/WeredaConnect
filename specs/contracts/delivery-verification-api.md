@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.3.1
+1.4.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -85,6 +85,12 @@ but must equal the operation's `entityId`
 server stamps them at the transition (`confirmedAt` anchors the 48-hour dispute
 window, so a client value is never trusted). The example payloads above succeed as
 written.
+
+Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
+transition advances the linked order to `pickup_confirmed`, `in_transit` or
+`delivered` as a system actor (forward only; a self-pickup handoff moves the order
+from `accepted` straight to `delivered`). Clients no longer step the order
+themselves; see `order-lifecycle.md` 1.4.0.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -852,9 +858,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.2.0 | 2026-07-12 | `orderId` required on ALL delivery creates (was self-pickup only): order must exist, be non-terminal, and match the delivery's buyer/farmer; the order's escrow is linked to the delivery at creation (`DELIVERY_ORDER_REQUIRED` error). |
 | 1.3.0 | 2026-09-25 | Delivery guards (SIM-09): order must be `accepted`/`pickup_confirmed`/`in_transit`; trucker-flow creator must be the order's trucker (order without a trucker is self-pickup only); one active delivery per order via `activeDeliveryId` claimed on the order and released on cancel; participant/order/listing/trip/type fields immutable on update. |
 | 1.3.1 | 2026-09-25 | Echo keys (SIM-10): the example payloads' `deliveryId` (must equal `entityId`), `pickedUpAt`, `confirmedAt` and `updatedAt` are accepted; the timestamps are server-stamped and the client values ignored. Also unblocks the mobile dispute call, which echoes `deliveryId` and `updatedAt`. |
+| 1.4.0 | 2026-09-25 | Order coupling (SIM-11): `pickedUp`/`inTransit`/`delivered` advance the linked order server-side (forward only, best-effort, system-audited); self-pickup moves the order `accepted → delivered` in one hop. |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.3.1
+**Version**: 1.4.0
 **Status**: Draft (Phase R4.2)

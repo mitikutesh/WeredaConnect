@@ -3550,6 +3550,168 @@ public class SyncFunctionTests
         Assert.DoesNotContain("Unknown fields", response.Body);
     }
 
+    // --- SIM-11: the order follows its delivery ---
+
+    [Fact]
+    public async Task DeliveryUpdate_PickedUp_AdvancesOrderToPickupConfirmed()
+    {
+        SetupExistingOrder(status: "accepted");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+    }
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    public async Task DeliveryUpdate_Delivered_AdvancesOrderToDelivered(string orderStatus)
+    {
+        // The fleet run had to hand-step pickup_confirmed -> in_transit -> delivered;
+        // a confirmed handoff now moves the order to delivered from any logistics state.
+        SetupExistingOrder(status: orderStatus);
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "delivered"), 1);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_InTransit_AdvancesOrderToInTransit()
+    {
+        SetupExistingOrder(status: "pickup_confirmed");
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "inTransit" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 1);
+    }
+
+    [Theory]
+    [InlineData("disputed")]
+    [InlineData("delivered")]
+    [InlineData("cancelled")]
+    public async Task DeliveryUpdate_Delivered_NeverMovesOrderBackwardsOrOutOfTerminal(string orderStatus)
+    {
+        SetupExistingOrder(status: orderStatus);
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_OrderAdvanceFailure_DoesNotFailTheDelivery()
+    {
+        SetupExistingOrder(status: "accepted");
+        _mockOrderRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .ThrowsAsync(new InvalidOperationException("orders table unavailable"));
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_TruckerMaySetLogisticsStatus()
+    {
+        // The fleet run: the order's own trucker was refused pickup_confirmed / in_transit.
+        SetupExistingOrder(status: "accepted");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("trucker-001", "trucker", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        Assert.DoesNotContain("ORDER_UNAUTHORIZED", body);
+    }
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("accepted")]
+    public async Task OrderUpdate_TruckerMayNotSetNonLogisticsStatus(string status)
+    {
+        SetupExistingOrder(status: "funded");
+
+        var body = await UpdateOrderAs("trucker-001", "trucker", new Dictionary<string, object>
+        {
+            { "status", status }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeliveredRefusedUntilTheDeliveryIsConfirmed()
+    {
+        // The fleet run marked an order delivered while its delivery was still inTransit.
+        var order = SetupExistingOrder(status: "in_transit");
+        order["activeDeliveryId"] = "del-001";
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "inTransit"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: The delivery has not been confirmed yet (delivery status: inTransit)", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeliveredAllowedOnceTheDeliveryIsConfirmed()
+    {
+        var order = SetupExistingOrder(status: "in_transit");
+        order["activeDeliveryId"] = "del-001";
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "delivered"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "delivered" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+    }
+
     [Fact]
     public async Task OrderUpdate_PaymentSubmitted_MockMode_AutoFundsOrder()
     {

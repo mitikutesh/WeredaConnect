@@ -4392,6 +4392,18 @@ public partial class SyncFunction
                             await _orderRepo.ReleaseDeliverySlotAsync(cancelOid.S, operation.EntityId);
                         }
 
+                        // SIM-11: the order follows its delivery (pickedUp -> pickup_confirmed,
+                        // inTransit -> in_transit, delivered -> delivered; a self-pickup jumps
+                        // from accepted straight to delivered). Best-effort, system actor.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var followStatusObj)
+                            && followStatusObj?.ToString() is string followStatus
+                            && existing.TryGetValue("orderId", out var followOid)
+                            && !string.IsNullOrEmpty(followOid.S))
+                        {
+                            await TryAdvanceOrderForDeliveryAsync(followOid.S, followStatus, context);
+                        }
+
                         // Bridge delivery confirmation -> escrow release. When the buyer
                         // confirms delivery, stamp the linked escrow's deliveryConfirmedAt +
                         // disputeWindowEndsAt so the auto-release cron settles to the farmer
@@ -4949,11 +4961,18 @@ public partial class SyncFunction
             };
         }
 
-        // Authorization: only buyer or farmer of this order can update
+        // Authorization: the buyer or farmer of this order can update it; the order's
+        // matched trucker may only drive the logistics statuses (SIM-11; the contract
+        // says "either participant" for pickup_confirmed / in_transit / delivered).
         var orderBuyerId = existingOrder.TryGetValue("buyerId", out var bid) ? bid?.ToString() : null;
         var orderFarmerId = existingOrder.TryGetValue("farmerId", out var fid) ? fid?.ToString() : null;
+        var orderTruckerId = existingOrder.TryGetValue("truckerId", out var otid) ? otid?.ToString() : null;
+        var isBuyerOrFarmer = authenticatedUserId == orderBuyerId || authenticatedUserId == orderFarmerId;
+        var isTruckerOnly = !isBuyerOrFarmer
+            && !string.IsNullOrEmpty(orderTruckerId)
+            && authenticatedUserId == orderTruckerId;
 
-        if (authenticatedUserId != orderBuyerId && authenticatedUserId != orderFarmerId)
+        if (!isBuyerOrFarmer && !isTruckerOnly)
         {
             return new SyncOperationResult
             {
@@ -4961,6 +4980,20 @@ public partial class SyncFunction
                 Status = "error",
                 Message = "ORDER_UNAUTHORIZED: You can only update orders you are a participant in."
             };
+        }
+
+        if (isTruckerOnly)
+        {
+            var truckerStatus = operation.Data.TryGetValue("status", out var tsObj) ? tsObj?.ToString() : null;
+            if (truckerStatus is not ("pickup_confirmed" or "in_transit" or "delivered"))
+            {
+                return new SyncOperationResult
+                {
+                    OperationId = operation.OperationId,
+                    Status = "error",
+                    Message = "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered."
+                };
+            }
         }
 
         // Strip server-controlled fields
@@ -5037,6 +5070,26 @@ public partial class SyncFunction
                     Status = "error",
                     Message = transitionError
                 };
+            }
+
+            // SIM-11: the order becomes "delivered" only once its delivery is confirmed.
+            // The confirmation itself advances the order server-side, so a client request
+            // is honoured only when the active delivery already says so. Orders with no
+            // active delivery on record (created before 1.4.0) keep the old behaviour.
+            if (newStatus == "delivered"
+                && existingOrder.TryGetValue("activeDeliveryId", out var adObj)
+                && adObj?.ToString() is string activeDeliveryId
+                && !string.IsNullOrEmpty(activeDeliveryId))
+            {
+                var activeDelivery = await GetDeliveryItemAsync(activeDeliveryId);
+                var activeDeliveryStatus = activeDelivery != null
+                    && activeDelivery.TryGetValue("status", out var adsAttr) ? adsAttr.S : null;
+                if (activeDeliveryStatus != "delivered")
+                {
+                    return OrderValidationError(operation,
+                        $"The delivery has not been confirmed yet (delivery status: {activeDeliveryStatus ?? "unknown"}); "
+                        + "confirm the delivery instead of marking the order delivered.");
+                }
             }
 
             // Add server-side timestamps for specific transitions
@@ -5154,6 +5207,78 @@ public partial class SyncFunction
             ServerData = serverData,
             Message = updateResult.Error?.Message ?? "Version conflict."
         };
+    }
+
+    /// <summary>Order logistics statuses in progression order (SIM-11).</summary>
+    private static readonly string[] OrderLogisticsProgression =
+    {
+        "accepted", "pickup_confirmed", "in_transit", "delivered"
+    };
+
+    /// <summary>
+    /// SIM-11: advance the linked order to mirror a delivery transition. The order only
+    /// ever moves forward along accepted -> pickup_confirmed -> in_transit -> delivered;
+    /// a self-pickup handoff or a pickedUp -> delivered confirmation jumps straight to
+    /// delivered. Best-effort: a failure is logged and never fails the delivery update.
+    /// Audited as a system actor so the monitor shows who really moved the order.
+    /// </summary>
+    private async Task TryAdvanceOrderForDeliveryAsync(
+        string orderId, string deliveryStatus, ILambdaContext context)
+    {
+        var target = deliveryStatus switch
+        {
+            "pickedUp" => "pickup_confirmed",
+            "inTransit" => "in_transit",
+            "delivered" => "delivered",
+            _ => null
+        };
+        if (target == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId);
+            if (order == null)
+            {
+                return;
+            }
+
+            var current = order.TryGetValue("status", out var cs) ? cs?.ToString() ?? "" : "";
+            var currentRank = Array.IndexOf(OrderLogisticsProgression, current);
+            var targetRank = Array.IndexOf(OrderLogisticsProgression, target);
+            if (currentRank < 0 || currentRank >= targetRank)
+            {
+                // Outside the logistics run (disputed, cancelled, ...) or already at/after
+                // the target: never move an order backwards or out of a terminal state.
+                return;
+            }
+
+            var version = 1;
+            if (order.TryGetValue("version", out var v))
+            {
+                int.TryParse(v?.ToString(), out version);
+            }
+
+            var result = await _orderRepo.UpdateAsync(
+                orderId, new Dictionary<string, object> { { "status", target } }, version);
+            if (!result.IsSuccess)
+            {
+                context.Logger.LogWarning(
+                    $"Order {orderId} not advanced to {target} from delivery {deliveryStatus}: {result.Error?.Message}");
+                return;
+            }
+
+            await EmitTxAuditAsync(context, orderId, "order", orderId,
+                OrderActionFor(target), current, target, ctxOverride: AuditContext.ForSystem());
+            context.Logger.LogInformation($"Order {orderId}: {current} -> {target} (delivery {deliveryStatus})");
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Failed to advance order {orderId} for delivery {deliveryStatus}: [{ex.GetType().Name}] {ex.Message}");
+        }
     }
 
     /// <summary>
