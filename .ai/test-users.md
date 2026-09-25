@@ -21,9 +21,17 @@ against a dedicated **AdminUserPool** (`infra/lib/stacks/api-stack.ts`), and
 authorization is by membership in the Cognito **`admin` group** — the three
 marketplace users above are not admins and cannot log in to the dashboard.
 
-No admin user is seeded by default. Create one with `scripts/seed-admin-user.sh`.
+**Dev: CI seeds it.** Every `deploy-server.yml` run for dev ends with
+"Seed the dashboard admin user" (`scripts/seed-admin-user.sh` with the pool and
+client ids read from that deploy's CDK outputs) followed by a non-blocking
+"Admin dashboard API e2e" (`scripts/e2e_admin.py`: Cognito login + every
+dashboard endpoint). Check the run log (`gh run view <id> --log`) for both. The
+seed step also warns when the `COGNITO_ADMIN_USER_POOL_ID` secret has drifted
+from the deployed pool. Staging/prod are never auto-seeded.
+
 The script is idempotent (safe to re-run; also resets a forgotten password) and
 verifies at the end that login works and the token carries the `admin` group.
+Run it by hand only when you need a different admin or a non-dev environment:
 
 **First-time setup (dev) — the command that works today:**
 
@@ -42,6 +50,10 @@ ApiStack outputs `AdminUserPoolId` / `AdminClientId` (also printed in every
 1. AWS Console (account `471112574693`) → region `eu-north-1` → open **CloudShell**.
 2. **Actions → Upload file** → pick `scripts/seed-admin-user.sh`.
 3. Run the command above. Success ends with `Login OK, token carries 'admin' group.`
+
+**Functional check without AWS CLI:** `python3 scripts/e2e_admin.py` (dev
+defaults baked in; `--base-url`, `--client-id`, `--phone`, `ADMIN_PASSWORD` to
+override). Exit 2 means the login failed, so the user is not seeded yet.
 
 | Role | Phone | Password | Notes |
 |------|-------|----------|-------|

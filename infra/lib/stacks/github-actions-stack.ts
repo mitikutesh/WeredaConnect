@@ -186,6 +186,30 @@ export class GithubActionsStack extends cdk.Stack {
       );
     }
 
+    // Non-prod only: the deploy workflow seeds the dashboard's test admin
+    // (scripts/seed-admin-user.sh, SIM-18) after `cdk deploy`. The admin pool
+    // id is only known to the API stack, and this stack deploys FIRST
+    // (`--exclusively`, see deploy-server.yml) so a new cross-stack export
+    // would break that ordering on its first run; scope to this account's
+    // pools in this region instead. Prod admins are created by hand (MFA).
+    if (!envConfig.isProd) {
+      deployRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: "SeedAdminUser",
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "cognito-idp:AdminGetUser",
+            "cognito-idp:AdminCreateUser",
+            "cognito-idp:AdminSetUserPassword",
+            "cognito-idp:AdminAddUserToGroup",
+          ],
+          resources: [
+            `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`,
+          ],
+        }),
+      );
+    }
+
     this.deployRoleArn = deployRole.roleArn;
 
     new cdk.CfnOutput(this, "DeployRoleArn", {

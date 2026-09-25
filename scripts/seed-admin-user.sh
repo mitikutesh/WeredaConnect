@@ -15,6 +15,11 @@
 #   ./scripts/seed-admin-user.sh
 #   ADMIN_PHONE=+251900100009 ADMIN_PASSWORD='AdminPass1dev' ./scripts/seed-admin-user.sh
 #   ADMIN_USER_POOL_ID=... ADMIN_CLIENT_ID=... ./scripts/seed-admin-user.sh   # skip auto-discovery
+#   SEED_ADMIN_STRICT=true ./scripts/seed-admin-user.sh   # exit 1 when the login check fails (CI)
+#
+# CI: deploy-server.yml runs this after every dev deploy with the ids taken
+# from the deploy's own CDK outputs (SIM-18), so the dashboard's test admin
+# always exists on dev. Idempotent: safe to re-run, also resets the password.
 #
 # Prerequisites:
 #   - AWS CLI configured with eu-north-1 access
@@ -27,6 +32,7 @@ ADMIN_PHONE="${ADMIN_PHONE:-+251900100009}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-AdminPass1dev}"
 ADMIN_DISPLAY_NAME="${ADMIN_DISPLAY_NAME:-Platform Admin}"
 ADMIN_GROUP="admin"
+STRICT="${SEED_ADMIN_STRICT:-false}"
 
 # Discover the admin pool + client from CloudFormation outputs unless supplied.
 # The outputs are AdminUserPoolId / AdminClientId (api-stack.ts:1579).
@@ -104,19 +110,29 @@ ID_TOKEN=$(aws cognito-idp initiate-auth \
   --query 'AuthenticationResult.IdToken' \
   --output text 2>&1) || true
 
+VERIFY_OK=false
 if [ -n "$ID_TOKEN" ] && [ "$ID_TOKEN" != "None" ] && [[ "$ID_TOKEN" == *.*.* ]]; then
-  GROUPS=$(python3 -c "
+  # NOTE: not named GROUPS. In bash, GROUPS is a special variable (the user's
+  # group ids) and assignments to it are silently ignored, which made this
+  # check always report the admin group as missing.
+  TOKEN_GROUPS=$(python3 -c "
 import base64, json, sys
 p = '$ID_TOKEN'.split('.')[1]; p += '=' * (-len(p) % 4)
 print(','.join(json.loads(base64.urlsafe_b64decode(p)).get('cognito:groups', [])))
 " 2>/dev/null || echo "")
-  if [[ ",$GROUPS," == *",$ADMIN_GROUP,"* ]]; then
+  if [[ ",$TOKEN_GROUPS," == *",$ADMIN_GROUP,"* ]]; then
     echo "    Login OK, token carries '$ADMIN_GROUP' group."
+    VERIFY_OK=true
   else
-    echo "    WARNING: logged in but token groups = [$GROUPS] (missing '$ADMIN_GROUP')."
+    echo "    WARNING: logged in but token groups = [$TOKEN_GROUPS] (missing '$ADMIN_GROUP')."
   fi
 else
-  echo "    WARNING: Login verification failed — $ID_TOKEN"
+  echo "    WARNING: Login verification failed: $ID_TOKEN"
+fi
+
+if [ "$VERIFY_OK" != true ] && [ "$STRICT" = true ]; then
+  echo "ERROR: SEED_ADMIN_STRICT is set and the login check failed." >&2
+  exit 1
 fi
 
 echo ""

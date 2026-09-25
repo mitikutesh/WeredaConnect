@@ -142,4 +142,47 @@ jobs:
         run: |
           npx cdk deploy --all \
             --context environment=${{ github.event.inputs.environment || 'dev' }} \
-            --require-approval never
+            --require-approval never \
+            --outputs-file "${{ github.workspace }}/cdk-outputs.json"
+
+      # Dev only (SIM-18): make sure the dashboard's test admin exists in the
+      # AdminUserPool. The pool/client ids come from the outputs of the deploy
+      # that just ran, so a replaced pool is seeded as well. The admin app is
+      # built from the COGNITO_ADMIN_* GitHub secrets (deploy-admin.yml), so
+      # the step warns when the secret has drifted from the deployed pool.
+      - name: Seed the dashboard admin user (dev only, idempotent)
+        if: ${{ (github.event.inputs.environment || 'dev') == 'dev' }}
+        env:
+          REGION: ${{ steps.region.outputs.region }}
+          SEED_ADMIN_STRICT: 'true'
+          SECRET_ADMIN_POOL_ID: ${{ secrets.COGNITO_ADMIN_USER_POOL_ID }}
+        run: |
+          read_output() {
+            python3 -c "import json,sys; d=json.load(open('cdk-outputs.json')); print(next(v[sys.argv[1]] for v in d.values() if sys.argv[1] in v))" "$1"
+          }
+          ADMIN_USER_POOL_ID="$(read_output AdminUserPoolId)"
+          ADMIN_CLIENT_ID="$(read_output AdminClientId)"
+          export ADMIN_USER_POOL_ID ADMIN_CLIENT_ID
+          echo "AdminUserPoolId=$ADMIN_USER_POOL_ID AdminClientId=$ADMIN_CLIENT_ID"
+          if [ -n "$SECRET_ADMIN_POOL_ID" ] && [ "$SECRET_ADMIN_POOL_ID" != "$ADMIN_USER_POOL_ID" ]; then
+            echo "::warning::GitHub secret COGNITO_ADMIN_USER_POOL_ID differs from the deployed AdminUserPoolId ($ADMIN_USER_POOL_ID). The admin app is built against a stale pool: update the secret and re-run deploy-admin.yml."
+          fi
+          ./scripts/seed-admin-user.sh
+
+      # Dev only: log in as that admin and read every dashboard endpoint
+      # (stats, users, escrows, transactions, audit, fraud signals, disputes,
+      # health, compliance, analytics). Non-blocking: the deploy stays green,
+      # the functional result is in this run's log.
+      - name: Admin dashboard API e2e (dev only, non-blocking)
+        if: ${{ (github.event.inputs.environment || 'dev') == 'dev' }}
+        continue-on-error: true
+        env:
+          REGION: ${{ steps.region.outputs.region }}
+        run: |
+          read_output() {
+            python3 -c "import json,sys; d=json.load(open('cdk-outputs.json')); print(next(v[sys.argv[1]] for v in d.values() if sys.argv[1] in v))" "$1"
+          }
+          python3 scripts/e2e_admin.py \
+            --base-url "$(read_output ApiUrl)" \
+            --client-id "$(read_output AdminClientId)" \
+            --region "$REGION"
