@@ -554,6 +554,9 @@ void main() {
         double? farmerPayout,
         double? truckerPayout,
         String? truckerId,
+        String? expiresAt,
+        bool? refundPending,
+        String? refundReason,
       }) =>
           {
             'escrows': [
@@ -569,6 +572,9 @@ void main() {
                 if (farmerPayout != null) 'farmerPayout': farmerPayout,
                 if (truckerPayout != null) 'truckerPayout': truckerPayout,
                 if (truckerId != null) 'truckerId': truckerId,
+                if (expiresAt != null) 'expiresAt': expiresAt,
+                if (refundPending != null) 'refundPending': refundPending,
+                if (refundReason != null) 'refundReason': refundReason,
                 'currency': 'ETB',
                 'status': 'escrowed',
                 'createdAt': '2026-03-01T10:00:00.0000000Z',
@@ -661,6 +667,39 @@ void main() {
         expect(row.payoutFor('buyer'), 1500.0);
         // amount = farmer + trucker + commission.
         expect(row.farmerPayout + row.truckerPayout! + row.commission, 1500.0);
+      });
+
+      test(
+          'caches the order reference, expiry and refund-pending flag of a '
+          'cancelled-order escrow (SIM-20)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(
+            expiresAt: '2026-03-01T10:05:00.000Z',
+            refundPending: true,
+            refundReason: 'order_cancelled',
+          ),
+        );
+
+        await repository.refreshHistory(userId: 'farmer-001');
+
+        final row = (await repository.getHistory(userId: 'farmer-001')).single;
+        expect(row.orderId, 'ord-1');
+        expect(row.deliveryId, isEmpty);
+        // Isar hands DateTimes back in local time: compare the instant.
+        expect(
+          row.expiresAt!.toUtc(),
+          DateTime.parse('2026-03-01T10:05:00.000Z'),
+        );
+        expect(row.refundPending, isTrue);
+        expect(row.refundReason, 'order_cancelled');
+        expect(row.isRefundPending, isTrue);
       });
 
       test('derives the farmer leg when an older server sends no legs',

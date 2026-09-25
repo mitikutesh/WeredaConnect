@@ -1458,6 +1458,17 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowDescRefunded => 'ገንዘቡ ለገዢው ተመልሷል';
 
   @override
+  String get escrowStatusRefundPending => 'ተመላሽ በመጠበቅ ላይ';
+
+  @override
+  String get escrowDescRefundPending => 'ትዕዛዙ ተሰርዟል። ገንዘቡ ለገዢው እየተመለሰ ነው';
+
+  @override
+  String escrowOrderShort(String id) {
+    return 'ትዕዛዝ #$id';
+  }
+
+  @override
   String get conflictFieldCropType => 'የሰብል ዓይነት';
 
   @override

@@ -283,7 +283,11 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
             ],
 
             // Status badge (large)
-            EscrowStatusBadge(status: payment.status, large: true),
+            EscrowStatusBadge(
+              status: payment.status,
+              large: true,
+              refundPending: payment.isRefundPending,
+            ),
             const SizedBox(height: 24),
 
             // Amount breakdown

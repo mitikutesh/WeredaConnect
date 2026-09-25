@@ -48,6 +48,17 @@ class Payment {
   /// Trucker paid out of this escrow (the truck the order was bound to).
   String? truckerId;
 
+  /// Backing order; an order-funded escrow carries it before any delivery.
+  String? orderId;
+
+  /// Server flag (SIM-20): the money is still held but on its way back to the
+  /// buyer (order cancelled/rejected, or the hold expired and the refund sweep
+  /// has not run yet). Such a row must never read as "Funds held safely".
+  bool refundPending = false;
+
+  /// Why the refund was scheduled, when the server recorded one.
+  String? refundReason;
+
   /// Telebirr transaction reference
   /// Null until payment is initiated with Telebirr API
   String? telebirrRef;
@@ -95,6 +106,16 @@ class Payment {
         'trucker' => truckerPayout ?? 0,
         _ => amount,
       };
+
+  @ignore
+
+  /// Refund on its way: the server flag, or (older servers) an escrowed hold
+  /// whose expiry has passed, which the refund sweep returns to the buyer.
+  bool get isRefundPending =>
+      refundPending ||
+      (status == PaymentStatus.escrowed &&
+          expiresAt != null &&
+          expiresAt!.isBefore(DateTime.now()));
 }
 
 /// Status of a payment in its lifecycle

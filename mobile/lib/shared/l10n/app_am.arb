@@ -1861,6 +1861,24 @@
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
   },
+  "escrowStatusRefundPending": "ተመላሽ በመጠበቅ ላይ",
+  "@escrowStatusRefundPending": {
+    "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"
+  },
+  "escrowDescRefundPending": "ትዕዛዙ ተሰርዟል። ገንዘቡ ለገዢው እየተመለሰ ነው",
+  "@escrowDescRefundPending": {
+    "description": "Status description for an escrowed hold whose refund is on its way"
+  },
+  "escrowOrderShort": "ትዕዛዝ #{id}",
+  "@escrowOrderShort": {
+    "description": "Short order reference with ID, shown when an escrow has no delivery yet",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
   "conflictFieldCropType": "የሰብል ዓይነት",
   "@conflictFieldCropType": {
     "description": "Field label for crop type in conflict resolution"

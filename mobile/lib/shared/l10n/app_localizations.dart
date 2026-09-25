@@ -2866,6 +2866,24 @@ abstract class AppLocalizations {
   /// **'Funds returned to buyer'**
   String get escrowDescRefunded;
 
+  /// Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)
+  ///
+  /// In en, this message translates to:
+  /// **'Refund Pending'**
+  String get escrowStatusRefundPending;
+
+  /// Status description for an escrowed hold whose refund is on its way
+  ///
+  /// In en, this message translates to:
+  /// **'Order cancelled. Funds are being returned to the buyer'**
+  String get escrowDescRefundPending;
+
+  /// Short order reference with ID, shown when an escrow has no delivery yet
+  ///
+  /// In en, this message translates to:
+  /// **'Order #{id}'**
+  String escrowOrderShort(String id);
+
   /// Field label for crop type in conflict resolution
   ///
   /// In en, this message translates to:

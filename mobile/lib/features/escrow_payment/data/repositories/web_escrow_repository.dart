@@ -246,6 +246,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
               ((m['truckerPayout'] as num?)?.toDouble() ?? 0))
       ..truckerPayout = (m['truckerPayout'] as num?)?.toDouble()
       ..truckerId = m['truckerId'] as String?
+      ..orderId = m['orderId'] as String?
+      ..refundPending = m['refundPending'] as bool? ?? false
+      ..refundReason = m['refundReason'] as String?
       ..telebirrRef = m['telebirrRef'] as String?
       ..status = _parsePaymentStatus(m['status'] as String?)
       ..createdAt =

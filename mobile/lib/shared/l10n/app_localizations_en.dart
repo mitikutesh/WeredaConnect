@@ -1503,6 +1503,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get escrowDescRefunded => 'Funds returned to buyer';
 
   @override
+  String get escrowStatusRefundPending => 'Refund Pending';
+
+  @override
+  String get escrowDescRefundPending =>
+      'Order cancelled. Funds are being returned to the buyer';
+
+  @override
+  String escrowOrderShort(String id) {
+    return 'Order #$id';
+  }
+
+  @override
   String get conflictFieldCropType => 'Crop Type';
 
   @override

@@ -53,6 +53,27 @@ void main() {
       expect(result.payoutFor('buyer'), 16000.0);
     });
 
+    test('parses the order reference and refund-pending flag (SIM-20)',
+        () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer(
+        (_) async => {
+          ...escrowDto(),
+          'orderId': 'ord-1',
+          'refundPending': true,
+          'refundReason': 'order_cancelled',
+        },
+      );
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.orderId, 'ord-1');
+      expect(result.refundPending, isTrue);
+      expect(result.refundReason, 'order_cancelled');
+      expect(result.isRefundPending, isTrue);
+    });
+
     test('derives the farmer leg for history rows from older servers',
         () async {
       final legacy = escrowDto()..remove('farmerPayout');

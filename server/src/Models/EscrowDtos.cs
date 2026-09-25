@@ -243,6 +243,10 @@ public sealed record EscrowDto
     public string? ReleasedAt { get; init; }
     public string? RefundedAt { get; init; }
     public string? CompletedAt { get; init; }
+
+    /// <summary>See <see cref="EscrowSummaryDto.RefundPending"/>. SIM-20.</summary>
+    public bool RefundPending { get; init; }
+    public string? RefundReason { get; init; }
     public required int Version { get; init; }
 }
 
@@ -299,6 +303,20 @@ public sealed record EscrowSummaryDto
     public required string Status { get; init; }
     public required string CreatedAt { get; init; }
     public string? CompletedAt { get; init; }
+
+    /// <summary>Auto-refund deadline; set to "now" when a cancelled order's refund is scheduled.</summary>
+    public string? ExpiresAt { get; init; }
+
+    /// <summary>
+    /// True while the money is still held but on its way back to the buyer: the
+    /// order was cancelled or rejected (refund scheduled), or the hold expired
+    /// and the refund sweep has not run yet. Clients label such rows
+    /// "Refund pending", never "Funds held safely". SIM-20.
+    /// </summary>
+    public bool RefundPending { get; init; }
+
+    /// <summary>Why the refund was scheduled, when the server recorded one.</summary>
+    public string? RefundReason { get; init; }
 }
 
 /// <summary>

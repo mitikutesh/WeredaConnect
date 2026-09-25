@@ -377,9 +377,15 @@ void main() {
         'farmerPayout': 13625.0,
         'truckerPayout': 1000.0,
         'truckerId': 'trucker-789',
+        'expiresAt': '2026-02-24T10:00:00Z',
+        'refundPending': true,
+        'refundReason': 'order_cancelled',
       };
 
       final summary = EscrowSummary.fromJson(json);
+      expect(summary.expiresAt, '2026-02-24T10:00:00Z');
+      expect(summary.refundPending, isTrue);
+      expect(summary.refundReason, 'order_cancelled');
       expect(summary.escrowId, 'esc-001');
       expect(summary.amount, 15000.0);
       expect(summary.commission, 375.0);
@@ -413,6 +419,10 @@ void main() {
       expect(summary.farmerPayout, isNull);
       expect(summary.truckerPayout, isNull);
       expect(summary.truckerId, isNull);
+      // Pre-SIM-20 servers send no refund flag: never pending by default.
+      expect(summary.expiresAt, isNull);
+      expect(summary.refundPending, isFalse);
+      expect(summary.refundReason, isNull);
     });
   });
 

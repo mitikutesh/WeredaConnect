@@ -447,6 +447,9 @@ class ConflictResolver {
         payment!.truckerPayout =
             (serverData['truckerPayout'] as num?)?.toDouble();
         payment!.truckerId = serverData['truckerId'] as String?;
+        payment!.orderId = serverData['orderId'] as String?;
+        payment!.refundPending = serverData['refundPending'] as bool? ?? false;
+        payment!.refundReason = serverData['refundReason'] as String?;
         payment!.telebirrRef = serverData['telebirrRef'] as String?;
 
         // Parse status enum

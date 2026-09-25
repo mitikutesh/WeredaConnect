@@ -1505,6 +1505,18 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowDescRefunded => 'Maallaqni bitaadhaaf deebi\'eera';
 
   @override
+  String get escrowStatusRefundPending => 'Deebii Eegamaa Jira';
+
+  @override
+  String get escrowDescRefundPending =>
+      'Ajajni haqameera. Maallaqni gara bitaatti deebi\'aa jira';
+
+  @override
+  String escrowOrderShort(String id) {
+    return 'Ajaja #$id';
+  }
+
+  @override
   String get conflictFieldCropType => 'Gosa Midhaan';
 
   @override

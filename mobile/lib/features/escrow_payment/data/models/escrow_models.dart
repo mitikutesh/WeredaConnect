@@ -183,6 +183,12 @@ class EscrowDetailResponse {
   /// split. amount = farmerPayout + truckerPayout + commission.
   final double? truckerPayout;
   final String? truckerId;
+
+  /// Backing order (order-funded escrows), and the refund-on-its-way flag
+  /// (SIM-20, see EscrowSummary).
+  final String? orderId;
+  final bool refundPending;
+  final String? refundReason;
   final String currency;
   final String status;
   final String createdAt;
@@ -214,6 +220,9 @@ class EscrowDetailResponse {
     this.telebirrRef,
     this.truckerPayout,
     this.truckerId,
+    this.orderId,
+    this.refundPending = false,
+    this.refundReason,
     this.dispute,
     this.disputeWindowEndsAt,
     this.releasedAt,
@@ -237,6 +246,9 @@ class EscrowDetailResponse {
       farmerPayout: (json['farmerPayout'] as num?)?.toDouble() ?? 0,
       truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
       truckerId: json['truckerId'] as String?,
+      orderId: json['orderId'] as String?,
+      refundPending: json['refundPending'] as bool? ?? false,
+      refundReason: json['refundReason'] as String?,
       currency: json['currency'] as String? ?? 'ETB',
       status: json['status'] as String,
       createdAt: json['createdAt'] as String? ?? '',
@@ -310,6 +322,15 @@ class EscrowSummary {
   final String? counterpartyName;
   final String? completedAt;
 
+  /// Auto-refund deadline; the server sets it to "now" when a cancelled
+  /// order's refund is scheduled.
+  final String? expiresAt;
+
+  /// SIM-20: the money is still held but on its way back to the buyer. Such a
+  /// row is labelled "Refund pending", never "Funds held safely".
+  final bool refundPending;
+  final String? refundReason;
+
   const EscrowSummary({
     required this.escrowId,
     required this.deliveryId,
@@ -326,6 +347,9 @@ class EscrowSummary {
     this.truckerId,
     this.counterpartyName,
     this.completedAt,
+    this.expiresAt,
+    this.refundPending = false,
+    this.refundReason,
   });
 
   factory EscrowSummary.fromJson(Map<String, dynamic> json) {
@@ -347,6 +371,9 @@ class EscrowSummary {
       createdAt: json['createdAt'] as String,
       counterpartyName: json['counterpartyName'] as String?,
       completedAt: json['completedAt'] as String?,
+      expiresAt: json['expiresAt'] as String?,
+      refundPending: json['refundPending'] as bool? ?? false,
+      refundReason: json['refundReason'] as String?,
     );
   }
 }

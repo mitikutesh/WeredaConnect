@@ -499,6 +499,28 @@ class _PaymentCard extends StatelessWidget {
 
   static final _dateFormat = DateFormat.yMMMd();
 
+  static String _short(String id) => id.length > 8 ? id.substring(0, 8) : id;
+
+  /// The delivery when one is linked, else the backing order (an order-funded
+  /// escrow has no delivery until the trucker creates one; this used to render
+  /// a blank "Del. #"). Null when neither is known.
+  String? _reference(AppLocalizations l10n) {
+    if (payment.deliveryId.isNotEmpty) {
+      return l10n.escrowDeliveryShort(_short(payment.deliveryId));
+    }
+    final orderId = payment.orderId;
+    if (orderId != null && orderId.isNotEmpty) {
+      return l10n.escrowOrderShort(_short(orderId));
+    }
+    return null;
+  }
+
+  String _subtitle(AppLocalizations l10n) {
+    final reference = _reference(l10n);
+    final date = _dateFormat.format(payment.createdAt);
+    return reference == null ? date : '$reference · $date';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -521,8 +543,7 @@ class _PaymentCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${AppLocalizations.of(context)!.escrowDeliveryShort(payment.deliveryId.length > 8 ? payment.deliveryId.substring(0, 8) : payment.deliveryId)}'
-                      ' · ${_dateFormat.format(payment.createdAt)}',
+                      _subtitle(AppLocalizations.of(context)!),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -531,7 +552,10 @@ class _PaymentCard extends StatelessWidget {
                   ],
                 ),
               ),
-              EscrowStatusBadge(status: payment.status),
+              EscrowStatusBadge(
+                status: payment.status,
+                refundPending: payment.isRefundPending,
+              ),
             ],
           ),
         ),

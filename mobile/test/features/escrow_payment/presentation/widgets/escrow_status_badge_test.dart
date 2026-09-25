@@ -34,6 +34,42 @@ void main() {
         });
       }
 
+      testWidgets(
+          'escrowed with a pending refund reads Refund Pending (SIM-20)',
+          (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrapWithL10n(
+            const EscrowStatusBadge(
+              status: PaymentStatus.escrowed,
+              refundPending: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Refund Pending'), findsOneWidget);
+        expect(find.text('Funds Held Safely'), findsNothing);
+        final icon = tester.widget<Icon>(find.byType(Icon));
+        expect(icon.icon, Icons.replay);
+        expect(icon.color, AppTheme.onStatusInfoContainer);
+      });
+
+      testWidgets('refundPending is ignored for a non-escrowed status',
+          (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrapWithL10n(
+            const EscrowStatusBadge(
+              status: PaymentStatus.refunded,
+              refundPending: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Refunded'), findsOneWidget);
+        expect(find.text('Refund Pending'), findsNothing);
+      });
+
       testWidgets('initiated shows neutral hourglass_empty',
           (WidgetTester tester) async {
         await tester.pumpWidget(
