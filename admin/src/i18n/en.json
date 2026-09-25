@@ -140,6 +140,7 @@
     "orderTotal": "Order total",
     "commission": "Commission",
     "farmerPayout": "Farmer payout",
+    "truckerPayout": "Trucker payout",
     "status": "Status",
     "stage": "Stage",
     "escrowStatus": "Escrow status",

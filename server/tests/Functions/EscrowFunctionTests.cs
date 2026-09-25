@@ -478,6 +478,23 @@ public class EscrowFunctionTests
         Assert.Equal(200, response.StatusCode);
     }
 
+    [Fact]
+    public async Task FunctionHandler_GetHistory_RoleTrucker_QueriesTruckerIndex()
+    {
+        // SIM-15: ?role=trucker reaches the trucker GSI, not the buyer default.
+        _mockEscrowRepo.QueryByTruckerAsync("trucker-789", null, 20, null)
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+
+        var request = MakeGetRequest("/escrow/history", "trucker-789",
+            queryParams: new Dictionary<string, string> { { "role", "trucker" } });
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockEscrowRepo.Received(1).QueryByTruckerAsync("trucker-789", null, 20, null);
+        await _mockEscrowRepo.DidNotReceive().QueryByBuyerAsync(Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
     // ──────────────────────────────────────────────
     // Error response format (EscrowErrorResponse with code, message)
     // ──────────────────────────────────────────────

@@ -374,6 +374,9 @@ void main() {
         'createdAt': '2026-02-17T10:00:00Z',
         'counterpartyName': 'Alemayehu B.',
         'completedAt': '2026-02-18T10:00:00Z',
+        'farmerPayout': 13625.0,
+        'truckerPayout': 1000.0,
+        'truckerId': 'trucker-789',
       };
 
       final summary = EscrowSummary.fromJson(json);
@@ -382,6 +385,14 @@ void main() {
       expect(summary.commission, 375.0);
       expect(summary.counterpartyName, 'Alemayehu B.');
       expect(summary.completedAt, '2026-02-18T10:00:00Z');
+      // Per-party legs reconcile to the held amount (SIM-15).
+      expect(summary.farmerPayout, 13625.0);
+      expect(summary.truckerPayout, 1000.0);
+      expect(summary.truckerId, 'trucker-789');
+      expect(
+        summary.farmerPayout! + summary.truckerPayout! + summary.commission,
+        summary.amount,
+      );
     });
 
     test('fromJson handles null optional fields', () {
@@ -398,6 +409,39 @@ void main() {
       final summary = EscrowSummary.fromJson(json);
       expect(summary.counterpartyName, isNull);
       expect(summary.completedAt, isNull);
+      // Pre-SIM-15 servers send no legs at all.
+      expect(summary.farmerPayout, isNull);
+      expect(summary.truckerPayout, isNull);
+      expect(summary.truckerId, isNull);
+    });
+  });
+
+  group('EscrowDetailResponse trucker leg (SIM-15)', () {
+    test('parses truckerPayout and truckerId, null when absent', () {
+      final withTrucker = EscrowDetailResponse.fromJson(<String, dynamic>{
+        'escrowId': 'esc-001',
+        'status': 'escrowed',
+        'amount': 16000.0,
+        'commission': 375.0,
+        'farmerPayout': 14625.0,
+        'truckerPayout': 1000.0,
+        'truckerId': 'trucker-789',
+      });
+      expect(withTrucker.truckerPayout, 1000.0);
+      expect(withTrucker.truckerId, 'trucker-789');
+      expect(
+        withTrucker.farmerPayout +
+            withTrucker.truckerPayout! +
+            withTrucker.commission,
+        withTrucker.amount,
+      );
+
+      final withoutTrucker = EscrowDetailResponse.fromJson(<String, dynamic>{
+        'escrowId': 'esc-002',
+        'status': 'escrowed',
+      });
+      expect(withoutTrucker.truckerPayout, isNull);
+      expect(withoutTrucker.truckerId, isNull);
     });
   });
 

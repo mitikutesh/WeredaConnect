@@ -220,6 +220,12 @@ public sealed record EscrowDto
     public required decimal Commission { get; init; }
     public required decimal CommissionRate { get; init; }
     public required decimal FarmerPayout { get; init; }
+
+    /// <summary>Transport leg of the held amount; null when the order carried no trucker split.</summary>
+    public decimal? TruckerPayout { get; init; }
+
+    /// <summary>Trucker paid out of this escrow (the truck the order was bound to), when any.</summary>
+    public string? TruckerId { get; init; }
     public required string Currency { get; init; }
     public required string Status { get; init; }
     public string? TelebirrRef { get; init; }
@@ -280,6 +286,15 @@ public sealed record EscrowSummaryDto
     public required string CounterpartyName { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>Crop leg of the held amount: what the farmer receives on release.</summary>
+    public decimal FarmerPayout { get; init; }
+
+    /// <summary>Transport leg of the held amount; null when the order carried no trucker split.</summary>
+    public decimal? TruckerPayout { get; init; }
+
+    /// <summary>Trucker paid out of this escrow (the truck the order was bound to), when any.</summary>
+    public string? TruckerId { get; init; }
     public required string Currency { get; init; }
     public required string Status { get; init; }
     public required string CreatedAt { get; init; }

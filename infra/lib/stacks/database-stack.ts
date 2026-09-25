@@ -315,6 +315,16 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI: Trucker's payout history (SIM-15). Sparse: only escrows whose order
+    // was bound to a truck carry truckerId (the transport leg of the held amount).
+    // See EscrowService.GetHistoryAsync role=trucker.
+    this.escrowsTable.addGlobalSecondaryIndex({
+      indexName: "TruckerStatusIndex",
+      partitionKey: { name: "truckerId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // GSI: Find escrowed items nearing expiry (for auto-refund/auto-release cron)
     this.escrowsTable.addGlobalSecondaryIndex({
       indexName: "StatusExpiresIndex",

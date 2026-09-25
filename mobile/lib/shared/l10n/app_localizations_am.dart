@@ -918,6 +918,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowFarmerReceives => 'ገበሬው የሚቀበለው';
 
   @override
+  String get escrowTruckerReceives => 'አጓጓዡ የሚቀበለው';
+
+  @override
   String get escrowConfirmPayment => 'ክፍያ አረጋግጥ';
 
   @override

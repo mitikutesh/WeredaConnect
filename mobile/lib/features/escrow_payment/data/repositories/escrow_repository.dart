@@ -276,7 +276,7 @@ class EscrowRepository extends BaseEscrowRepository {
 
   /// Get payment history from local cache, scoped by userId.
   ///
-  /// Returns only payments where [userId] is the farmer or buyer.
+  /// Returns only payments where [userId] is the farmer, buyer or trucker.
   @override
   Future<List<Payment>> getHistory({
     required String userId,
@@ -284,7 +284,12 @@ class EscrowRepository extends BaseEscrowRepository {
     String? roleFilter,
   }) async {
     var query = _isar.payments.filter().paymentIdIsNotEmpty().group(
-          (q) => q.farmerIdEqualTo(userId).or().buyerIdEqualTo(userId),
+          (q) => q
+              .farmerIdEqualTo(userId)
+              .or()
+              .buyerIdEqualTo(userId)
+              .or()
+              .truckerIdEqualTo(userId),
         );
 
     if (statusFilter != null) {
@@ -377,6 +382,8 @@ class EscrowRepository extends BaseEscrowRepository {
             // (older server payloads).
             if (payment.buyerId.isEmpty) payment.buyerId = existing.buyerId;
             if (payment.farmerId.isEmpty) payment.farmerId = existing.farmerId;
+            payment.truckerId ??= existing.truckerId;
+            payment.truckerPayout ??= existing.truckerPayout;
             payment.commissionRate = existing.commissionRate;
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt = existing.expiresAt;
@@ -555,6 +562,8 @@ class EscrowRepository extends BaseEscrowRepository {
       ..commission = response.commission
       ..commissionRate = response.commissionRate
       ..farmerPayout = response.farmerPayout
+      ..truckerPayout = response.truckerPayout
+      ..truckerId = response.truckerId
       ..telebirrRef = response.telebirrRef
       ..status = PaymentStatus.values.byName(response.status)
       ..createdAt = DateTime.parse(response.createdAt)
@@ -590,7 +599,12 @@ class EscrowRepository extends BaseEscrowRepository {
       ..commission = summary.commission
       ..commissionRate =
           summary.amount > 0 ? summary.commission / summary.amount : 0.025
-      ..farmerPayout = summary.amount - summary.commission
+      // Pre-SIM-15 servers send no per-party legs: the farmer leg is then the
+      // remainder after commission and any trucker leg.
+      ..farmerPayout = summary.farmerPayout ??
+          (summary.amount - summary.commission - (summary.truckerPayout ?? 0))
+      ..truckerPayout = summary.truckerPayout
+      ..truckerId = summary.truckerId
       ..status = PaymentStatus.values.byName(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)
       ..updatedAt = DateTime.parse(summary.createdAt)

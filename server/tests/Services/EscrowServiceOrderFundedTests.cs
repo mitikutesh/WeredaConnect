@@ -68,10 +68,25 @@ public class EscrowServiceOrderFundedTests
             { "version", 3 }
         };
 
-        if (orderTotal.HasValue) order["orderTotal"] = orderTotal.Value;
-        if (cropCost.HasValue) order["cropCost"] = cropCost.Value;
-        if (transportCost.HasValue) order["transportCost"] = transportCost.Value;
-        if (truckerId != null) order["truckerId"] = truckerId;
+        if (orderTotal.HasValue)
+        {
+            order["orderTotal"] = orderTotal.Value;
+        }
+
+        if (cropCost.HasValue)
+        {
+            order["cropCost"] = cropCost.Value;
+        }
+
+        if (transportCost.HasValue)
+        {
+            order["transportCost"] = transportCost.Value;
+        }
+
+        if (truckerId != null)
+        {
+            order["truckerId"] = truckerId;
+        }
 
         return order;
     }
@@ -97,8 +112,15 @@ public class EscrowServiceOrderFundedTests
             { "version", 1 }
         };
 
-        if (deliveryId != null) escrow["deliveryId"] = deliveryId;
-        if (deliveryConfirmedAt != null) escrow["deliveryConfirmedAt"] = deliveryConfirmedAt;
+        if (deliveryId != null)
+        {
+            escrow["deliveryId"] = deliveryId;
+        }
+
+        if (deliveryConfirmedAt != null)
+        {
+            escrow["deliveryConfirmedAt"] = deliveryConfirmedAt;
+        }
 
         return escrow;
     }
@@ -236,6 +258,56 @@ public class EscrowServiceOrderFundedTests
             Arg.Is<Dictionary<string, object>>(f => (string)f["deliveryId"] == DeliveryId));
         await _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(a =>
             (string)a["action"] == "delivery_linked"));
+    }
+
+    [Fact]
+    public async Task LinkDelivery_EscrowWithoutTrucker_BackfillsTruckerIdFromOrder()
+    {
+        // SIM-15: the fixture escrow predates the truck binding (no truckerId), the
+        // order carries one. Linking stamps it so the trucker index sees the row.
+        _mockEscrowRepo.QueryByOrderIdAsync(OrderId, Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { MakeOrderEscrow() });
+
+        var actual = await _sut.LinkDeliveryToOrderEscrowAsync(
+            OrderId, DeliveryId, MakeFundedOrder(status: "accepted"), "system");
+
+        Assert.True(actual);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            $"escrow-order-{OrderId}", PaymentVerifiedAt, "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                (string)f["deliveryId"] == DeliveryId && (string)f["truckerId"] == TruckerId));
+    }
+
+    [Fact]
+    public async Task LinkDelivery_EscrowWithTrucker_KeepsItsTruckerId()
+    {
+        var escrow = MakeOrderEscrow();
+        escrow["truckerId"] = "trucker-original";
+        _mockEscrowRepo.QueryByOrderIdAsync(OrderId, Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+
+        var actual = await _sut.LinkDeliveryToOrderEscrowAsync(
+            OrderId, DeliveryId, MakeFundedOrder(status: "accepted"), "system");
+
+        Assert.True(actual);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            $"escrow-order-{OrderId}", PaymentVerifiedAt, "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => !f.ContainsKey("truckerId")));
+    }
+
+    [Fact]
+    public async Task LinkDelivery_OrderWithoutTrucker_StampsNoTruckerId()
+    {
+        _mockEscrowRepo.QueryByOrderIdAsync(OrderId, Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { MakeOrderEscrow() });
+
+        var actual = await _sut.LinkDeliveryToOrderEscrowAsync(
+            OrderId, DeliveryId, MakeFundedOrder(status: "accepted", truckerId: null), "system");
+
+        Assert.True(actual);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            $"escrow-order-{OrderId}", PaymentVerifiedAt, "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => !f.ContainsKey("truckerId")));
     }
 
     [Fact]

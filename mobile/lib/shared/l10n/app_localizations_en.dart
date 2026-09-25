@@ -940,6 +940,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get escrowFarmerReceives => 'Farmer Receives';
 
   @override
+  String get escrowTruckerReceives => 'Trucker Receives';
+
+  @override
   String get escrowConfirmPayment => 'Confirm Payment';
 
   @override

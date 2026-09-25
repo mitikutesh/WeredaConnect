@@ -1169,6 +1169,48 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task GetByDeliveryAsync_AsBoundTrucker_ReturnsEscrowDto()
+    {
+        // SIM-15: the trucker the order was bound to is a party (paid the transport leg).
+        var escrowItem = MakeEscrowItem();
+        escrowItem["truckerId"] = "trucker-789";
+        escrowItem["truckerPayout"] = 1_000m;
+        _mockEscrowRepo.GetByDeliveryIdAsync("delivery-001").Returns(escrowItem);
+
+        var result = await _service.GetByDeliveryAsync("delivery-001", "trucker-789", "trucker");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("trucker-789", result.Value!.TruckerId);
+        Assert.Equal(1_000m, result.Value.TruckerPayout);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_AsBoundTrucker_ReturnsEscrowDto()
+    {
+        var escrowItem = MakeEscrowItem();
+        escrowItem["truckerId"] = "trucker-789";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var result = await _service.GetByIdAsync("escrow-001", "trucker-789", "trucker");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("escrow-001", result.Value!.EscrowId);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_OtherTrucker_ReturnsEscrow022()
+    {
+        var escrowItem = MakeEscrowItem();
+        escrowItem["truckerId"] = "trucker-789";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var result = await _service.GetByIdAsync("escrow-001", "trucker-000", "trucker");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_022", result.Error!.Code);
+    }
+
+    [Fact]
     public async Task GetByDeliveryAsync_NonParty_ReturnsEscrow022()
     {
         var escrowItem = MakeEscrowItem();
@@ -1216,6 +1258,50 @@ public class EscrowServiceTests
             Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
     }
 
+    [Fact]
+    public async Task GetHistoryAsync_AsTrucker_QueriesTruckerIndex()
+    {
+        // SIM-15: role=trucker reads the TruckerStatusIndex and maps the trucker leg.
+        var item = MakeEscrowItem(amount: 16_000m, commission: 375m, farmerPayout: 14_625m);
+        item["truckerId"] = "trucker-789";
+        item["truckerPayout"] = 1_000m;
+        item["buyerName"] = "Mekonnen";
+        _mockEscrowRepo.QueryByTruckerAsync("trucker-789", "escrowed", 20, null)
+            .Returns((new List<Dictionary<string, object>> { item }, (Dictionary<string, AttributeValue>?)null));
+
+        var result = await _service.GetHistoryAsync("trucker-789", "escrowed", "trucker", null, null, 20, null);
+
+        Assert.True(result.IsSuccess);
+        var summary = Assert.Single(result.Value!.Escrows);
+        Assert.Equal("trucker-789", summary.TruckerId);
+        Assert.Equal(1_000m, summary.TruckerPayout);
+        Assert.Equal(14_625m, summary.FarmerPayout);
+        // The trucker faces the buyer, like the farmer does.
+        Assert.Equal("Mekonnen", summary.CounterpartyName);
+        // The view reconciles: amount = farmer + trucker + commission.
+        Assert.Equal(summary.Amount, summary.FarmerPayout + summary.TruckerPayout!.Value + summary.Commission);
+        await _mockEscrowRepo.DidNotReceive().QueryByBuyerAsync(Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockEscrowRepo.DidNotReceive().QueryByFarmerAsync(Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_Summary_CarriesFarmerLegAndNoTruckerLegWithoutSplit()
+    {
+        var items = new List<Dictionary<string, object>> { MakeEscrowItem() };
+        _mockEscrowRepo.QueryByFarmerAsync(FarmerId, null, 20, null)
+            .Returns((items, (Dictionary<string, AttributeValue>?)null));
+
+        var result = await _service.GetHistoryAsync(FarmerId, null, "farmer", null, null, 20, null);
+
+        var summary = Assert.Single(result.Value!.Escrows);
+        Assert.Equal(14_625m, summary.FarmerPayout);
+        Assert.Null(summary.TruckerPayout);
+        Assert.Null(summary.TruckerId);
+        Assert.Equal(summary.Amount, summary.FarmerPayout + summary.Commission);
+    }
+
     // ──────────────────────────────────────────────
     // MapToEscrowDto
     // ──────────────────────────────────────────────
@@ -1238,6 +1324,22 @@ public class EscrowServiceTests
         Assert.Equal("ETB", dto.Currency);
         Assert.Equal("escrowed", dto.Status);
         Assert.Null(dto.Dispute);
+        Assert.Null(dto.TruckerPayout);
+        Assert.Null(dto.TruckerId);
+    }
+
+    [Fact]
+    public void MapToEscrowDto_WithTruckerSplit_MapsTruckerLeg()
+    {
+        var item = MakeEscrowItem(amount: 16_000m, commission: 375m, farmerPayout: 14_625m);
+        item["truckerId"] = "trucker-789";
+        item["truckerPayout"] = 1_000m;
+
+        var dto = EscrowService.MapToEscrowDto(item);
+
+        Assert.Equal("trucker-789", dto.TruckerId);
+        Assert.Equal(1_000m, dto.TruckerPayout);
+        Assert.Equal(dto.Amount, dto.FarmerPayout + dto.TruckerPayout!.Value + dto.Commission);
     }
 
     [Fact]

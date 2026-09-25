@@ -756,15 +756,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   static String _formatEtb(double amount) => _etbFormat.format(amount);
 
-  /// ETB this user has locked in escrow on one order: full order value for
-  /// farmer/buyer, only the transport fee for a trucker.
-  static double _escrowStake(UserRole role, Order order) =>
-      role == UserRole.trucker
-          ? (order.transportCost ?? 0)
-          : orderEscrowValue(
-              orderTotal: order.orderTotal,
-              subtotal: order.quantity * order.pricePerUnit,
-            );
+  /// ETB this user has locked in escrow on one order, own leg only: the
+  /// buyer's full held total, the farmer's crop cost, the trucker's transport
+  /// fee (SIM-15).
+  static double _escrowStake(UserRole role, Order order) {
+    final subtotal = order.quantity * order.pricePerUnit;
+    return switch (role) {
+      UserRole.trucker => order.transportCost ?? 0,
+      UserRole.farmer =>
+        farmerEscrowShare(cropCost: order.cropCost, subtotal: subtotal),
+      UserRole.buyer =>
+        orderEscrowValue(orderTotal: order.orderTotal, subtotal: subtotal),
+    };
+  }
 
   Future<Map<String, String>> _loadProfileStats(
     String userId,
@@ -862,13 +866,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (!escrowHeldOrderStatusNames.contains(orderStatusFromWire(status))) {
           continue;
         }
-        escrowEtb += role == UserRole.trucker
-            ? wireDouble(item['transportCost'])
-            : orderEscrowValue(
-                orderTotal: wireDouble(item['orderTotal']),
-                subtotal: wireDouble(item['quantity']) *
-                    wireDouble(item['pricePerUnit']),
-              );
+        final subtotal =
+            wireDouble(item['quantity']) * wireDouble(item['pricePerUnit']);
+        escrowEtb += switch (role) {
+          UserRole.trucker => wireDouble(item['transportCost']),
+          UserRole.farmer => farmerEscrowShare(
+              cropCost: wireDouble(item['cropCost']),
+              subtotal: subtotal,
+            ),
+          UserRole.buyer => orderEscrowValue(
+              orderTotal: wireDouble(item['orderTotal']),
+              subtotal: subtotal,
+            ),
+        };
       }
       return {'trades': '0', 'rating': '-', 'escrow': _formatEtb(escrowEtb)};
     } on Object {

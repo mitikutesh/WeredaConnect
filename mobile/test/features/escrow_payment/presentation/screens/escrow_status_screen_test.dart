@@ -23,6 +23,7 @@ Payment _makePayment({
   double amount = 15000.0,
   double commission = 375.0,
   double farmerPayout = 14625.0,
+  double? truckerPayout,
   DateTime? disputeWindowEndsAt,
   DateTime? updatedAt,
   String? disputeReason,
@@ -39,6 +40,7 @@ Payment _makePayment({
     ..commission = commission
     ..commissionRate = 0.025
     ..farmerPayout = farmerPayout
+    ..truckerPayout = truckerPayout
     ..status = status
     ..createdAt = now
     ..updatedAt = updatedAt ?? now
@@ -137,6 +139,36 @@ void main() {
       expect(find.textContaining('15,000.00'), findsWidgets);
       expect(find.textContaining('375.00'), findsOneWidget);
       expect(find.textContaining('14,625.00'), findsOneWidget);
+    });
+
+    testWidgets('shows the trucker leg when the order had a trucker split',
+        (WidgetTester tester) async {
+      // 16,000 = 375 commission + 14,625 farmer + 1,000 trucker (SIM-15).
+      final payment = _makePayment(amount: 16000.0, truckerPayout: 1000.0);
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Trucker Receives'), findsOneWidget);
+      expect(find.textContaining('1,000.00'), findsOneWidget);
+      expect(find.textContaining('14,625.00'), findsOneWidget);
+    });
+
+    testWidgets('hides the trucker leg without a trucker split',
+        (WidgetTester tester) async {
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: _makePayment()));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Trucker Receives'), findsNothing);
     });
 
     testWidgets('shows dispute button for escrowed payment within window',

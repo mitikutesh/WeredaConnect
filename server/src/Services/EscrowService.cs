@@ -429,13 +429,24 @@ public sealed class EscrowService
         if (linkedOrder != null)
         {
             if (linkedOrder.TryGetValue("cropCost", out var cc))
+            {
                 orderCropCost = decimal.TryParse(cc?.ToString(), out var ccVal) ? ccVal : null;
+            }
+
             if (linkedOrder.TryGetValue("transportCost", out var tc))
+            {
                 orderTransportCost = decimal.TryParse(tc?.ToString(), out var tcVal) ? tcVal : null;
+            }
+
             if (linkedOrder.TryGetValue("commissionAmount", out var ca))
+            {
                 orderCommissionAmount = decimal.TryParse(ca?.ToString(), out var caVal) ? caVal : null;
+            }
+
             if (linkedOrder.TryGetValue("truckerId", out var tid))
+            {
                 truckerId = tid?.ToString();
+            }
         }
 
         // When an order supplies split amounts, use them instead of the default calculation —
@@ -479,17 +490,30 @@ public sealed class EscrowService
         };
 
         if (!string.IsNullOrEmpty(linkedOrderId))
+        {
             escrowRecord["orderId"] = linkedOrderId;
+        }
+
         if (truckerPayout > 0)
+        {
             escrowRecord["truckerPayout"] = truckerPayout;
+        }
+
         if (!string.IsNullOrEmpty(truckerId))
+        {
             escrowRecord["truckerId"] = truckerId;
+        }
         // Persist counterparty names (sourced from the delivery record above) so escrow
         // history shows a human name rather than falling back to the raw UUID.
         if (!string.IsNullOrEmpty(counterpartyBuyerName))
+        {
             escrowRecord["buyerName"] = counterpartyBuyerName;
+        }
+
         if (!string.IsNullOrEmpty(counterpartyFarmerName))
+        {
             escrowRecord["farmerName"] = counterpartyFarmerName;
+        }
 
         // 10. Store idempotency record BEFORE calling Telebirr (conditional write prevents races)
         var stored = await _idempotencyRepo.StoreAsync(request.IdempotencyKey, escrowId, "processing");
@@ -715,15 +739,26 @@ public sealed class EscrowService
         };
 
         if (truckerPayout > 0)
+        {
             record["truckerPayout"] = truckerPayout;
+        }
+
         if (!string.IsNullOrEmpty(truckerId))
+        {
             record["truckerId"] = truckerId;
+        }
+
         var buyerName = GetStringOrNull(order, "buyerName");
         var farmerName = GetStringOrNull(order, "farmerName");
         if (!string.IsNullOrEmpty(buyerName))
+        {
             record["buyerName"] = buyerName;
+        }
+
         if (!string.IsNullOrEmpty(farmerName))
+        {
             record["farmerName"] = farmerName;
+        }
 
         try
         {
@@ -821,9 +856,22 @@ public sealed class EscrowService
             }
         }
 
+        var linkFields = new Dictionary<string, object> { { "deliveryId", deliveryId } };
+
+        // SIM-15: an escrow minted before the order was bound to a truck carries no
+        // truckerId; stamp it from the order now so the trucker's history
+        // (TruckerStatusIndex) and by-delivery reads see it. The payout split is
+        // never touched here (commission is the exact remainder fixed at creation).
+        var orderTruckerId = GetStringOrNull(order, "truckerId");
+        if (string.IsNullOrEmpty(GetStringOrNull(escrow, "truckerId"))
+            && !string.IsNullOrEmpty(orderTruckerId))
+        {
+            linkFields["truckerId"] = orderTruckerId;
+        }
+
         await _escrowRepo.UpdateStatusAsync(
             escrowId, createdAt, "escrowed", expectedCurrentStatus: "escrowed",
-            additionalFields: new Dictionary<string, object> { { "deliveryId", deliveryId } });
+            additionalFields: linkFields);
 
         await AppendAuditAsync(
             escrowId, "delivery_linked", "escrowed", "escrowed", actor,
@@ -1072,9 +1120,14 @@ public sealed class EscrowService
             { "version", currentVersion + 1 }
         };
         if (!string.IsNullOrEmpty(truckerReleaseRef))
+        {
             releaseFields["truckerTelebirrRef"] = truckerReleaseRef;
+        }
+
         if (truckerReleasePending)
+        {
             releaseFields["truckerPayoutPending"] = true;
+        }
 
         // We hold the settlement lock, so the status is still `currentStatus`; this CAS
         // therefore succeeds. Funds have ALREADY moved (Telebirr disbursed above), so the
@@ -1587,12 +1640,8 @@ public sealed class EscrowService
             return EscrowResult<EscrowDto>.Failure(404, "ESCROW_016", "Escrow not found.");
         }
 
-        // 2. Validate user is buyer, farmer, or admin → ESCROW_022
-        var buyerId = GetString(escrowItem, "buyerId");
-        var farmerId = GetString(escrowItem, "farmerId");
-        if (!string.Equals(authenticatedUserId, buyerId, StringComparison.Ordinal)
-            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal)
-            && !await IsSystemOrAdminAsync(authenticatedUserId, role))
+        // 2. Validate user is buyer, farmer, trucker, or admin → ESCROW_022
+        if (!await IsEscrowPartyOrAdminAsync(escrowItem, authenticatedUserId, role))
         {
             return EscrowResult<EscrowDto>.Failure(
                 403, "ESCROW_022", "You are not a party to this escrow.");
@@ -1617,12 +1666,8 @@ public sealed class EscrowService
             return EscrowResult<EscrowDto>.Failure(404, "ESCROW_016", "Escrow not found.");
         }
 
-        // 2. Validate user is buyer, farmer, or admin → ESCROW_022
-        var buyerId = GetString(escrowItem, "buyerId");
-        var farmerId = GetString(escrowItem, "farmerId");
-        if (!string.Equals(authenticatedUserId, buyerId, StringComparison.Ordinal)
-            && !string.Equals(authenticatedUserId, farmerId, StringComparison.Ordinal)
-            && !await IsSystemOrAdminAsync(authenticatedUserId, role))
+        // 2. Validate user is buyer, farmer, trucker, or admin → ESCROW_022
+        if (!await IsEscrowPartyOrAdminAsync(escrowItem, authenticatedUserId, role))
         {
             return EscrowResult<EscrowDto>.Failure(
                 403, "ESCROW_022", "You are not a party to this escrow.");
@@ -1630,6 +1675,30 @@ public sealed class EscrowService
 
         // 3. Map to EscrowDto
         return EscrowResult<EscrowDto>.Success(MapToEscrowDto(escrowItem));
+    }
+
+    /// <summary>
+    /// Who may read an escrow: its buyer, its farmer, the trucker the order bound to
+    /// it (paid the transport leg out of the held amount), or an admin/system caller.
+    /// SIM-15.
+    /// </summary>
+    private async Task<bool> IsEscrowPartyOrAdminAsync(
+        Dictionary<string, object> escrowItem, string authenticatedUserId, string? role)
+    {
+        if (IsParty(escrowItem, "buyerId", authenticatedUserId)
+            || IsParty(escrowItem, "farmerId", authenticatedUserId)
+            || IsParty(escrowItem, "truckerId", authenticatedUserId))
+        {
+            return true;
+        }
+
+        return await IsSystemOrAdminAsync(authenticatedUserId, role);
+    }
+
+    private static bool IsParty(Dictionary<string, object> item, string field, string userId)
+    {
+        var value = GetStringOrNull(item, field);
+        return !string.IsNullOrEmpty(value) && string.Equals(value, userId, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1656,13 +1725,20 @@ public sealed class EscrowService
             }
         }
 
-        // 1. Query by buyer or farmer GSI based on role parameter
+        // 1. Query by buyer, farmer or trucker GSI based on role parameter
         List<Dictionary<string, object>> items;
         Dictionary<string, AttributeValue>? lastEvaluatedKey;
 
         if (string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase))
         {
             var result = await _escrowRepo.QueryByFarmerAsync(userId, status, limit, exclusiveStartKey);
+            items = result.Items;
+            lastEvaluatedKey = result.LastEvaluatedKey;
+        }
+        else if (string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase))
+        {
+            // SIM-15: escrows carrying this trucker's transport leg (TruckerStatusIndex).
+            var result = await _escrowRepo.QueryByTruckerAsync(userId, status, limit, exclusiveStartKey);
             items = result.Items;
             lastEvaluatedKey = result.LastEvaluatedKey;
         }
@@ -1690,7 +1766,9 @@ public sealed class EscrowService
         }
 
         // 3. Map to EscrowSummaryDto list
-        var isBuyer = !string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase);
+        // Farmer and trucker both face the buyer as counterparty.
+        var isBuyer = !string.Equals(role, "farmer", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(role, "trucker", StringComparison.OrdinalIgnoreCase);
         var escrows = items.Select(i => MapToEscrowSummaryDto(i, isBuyer)).ToList();
 
         // 4. Return with pagination
@@ -1755,6 +1833,8 @@ public sealed class EscrowService
             Commission = GetDecimal(item, "commission"),
             CommissionRate = GetDecimal(item, "commissionRate"),
             FarmerPayout = GetDecimal(item, "farmerPayout"),
+            TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
+            TruckerId = GetStringOrNull(item, "truckerId"),
             Currency = GetString(item, "currency"),
             Status = GetString(item, "status"),
             TelebirrRef = GetStringOrNull(item, "telebirrRef"),
@@ -1794,6 +1874,10 @@ public sealed class EscrowService
             CounterpartyName = counterpartyName,
             Amount = GetDecimal(item, "amount"),
             Commission = GetDecimal(item, "commission"),
+            // Each party's own leg; amount = farmerPayout + truckerPayout + commission.
+            FarmerPayout = GetDecimal(item, "farmerPayout"),
+            TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
+            TruckerId = GetStringOrNull(item, "truckerId"),
             Currency = GetString(item, "currency"),
             Status = GetString(item, "status"),
             CreatedAt = GetString(item, "createdAt"),

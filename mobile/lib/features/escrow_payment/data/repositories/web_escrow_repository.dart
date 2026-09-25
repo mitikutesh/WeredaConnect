@@ -238,7 +238,14 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..amount = (m['amount'] as num?)?.toDouble() ?? 0
       ..commission = (m['commission'] as num?)?.toDouble() ?? 0
       ..commissionRate = (m['commissionRate'] as num?)?.toDouble() ?? 0.025
-      ..farmerPayout = (m['farmerPayout'] as num?)?.toDouble() ?? 0
+      // Pre-SIM-15 history rows carry no per-party legs: the farmer leg is then
+      // the remainder after commission and any trucker leg.
+      ..farmerPayout = (m['farmerPayout'] as num?)?.toDouble() ??
+          (((m['amount'] as num?)?.toDouble() ?? 0) -
+              ((m['commission'] as num?)?.toDouble() ?? 0) -
+              ((m['truckerPayout'] as num?)?.toDouble() ?? 0))
+      ..truckerPayout = (m['truckerPayout'] as num?)?.toDouble()
+      ..truckerId = m['truckerId'] as String?
       ..telebirrRef = m['telebirrRef'] as String?
       ..status = _parsePaymentStatus(m['status'] as String?)
       ..createdAt =

@@ -178,6 +178,11 @@ class EscrowDetailResponse {
   final double commission;
   final double commissionRate;
   final double farmerPayout;
+
+  /// Transport leg of the held amount; null when the order carried no trucker
+  /// split. amount = farmerPayout + truckerPayout + commission.
+  final double? truckerPayout;
+  final String? truckerId;
   final String currency;
   final String status;
   final String createdAt;
@@ -207,6 +212,8 @@ class EscrowDetailResponse {
     required this.expiresAt,
     required this.version,
     this.telebirrRef,
+    this.truckerPayout,
+    this.truckerId,
     this.dispute,
     this.disputeWindowEndsAt,
     this.releasedAt,
@@ -228,6 +235,8 @@ class EscrowDetailResponse {
       commission: (json['commission'] as num?)?.toDouble() ?? 0,
       commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 0.025,
       farmerPayout: (json['farmerPayout'] as num?)?.toDouble() ?? 0,
+      truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
+      truckerId: json['truckerId'] as String?,
       currency: json['currency'] as String? ?? 'ETB',
       status: json['status'] as String,
       createdAt: json['createdAt'] as String? ?? '',
@@ -288,6 +297,13 @@ class EscrowSummary {
   final String farmerId;
   final double amount;
   final double commission;
+
+  /// Per-party legs of [amount] (amount = farmerPayout + truckerPayout +
+  /// commission). Null on responses from servers that predate SIM-15; callers
+  /// fall back to amount - commission - truckerPayout.
+  final double? farmerPayout;
+  final double? truckerPayout;
+  final String? truckerId;
   final String currency;
   final String status;
   final String createdAt;
@@ -305,6 +321,9 @@ class EscrowSummary {
     this.orderId,
     this.buyerId = '',
     this.farmerId = '',
+    this.farmerPayout,
+    this.truckerPayout,
+    this.truckerId,
     this.counterpartyName,
     this.completedAt,
   });
@@ -320,6 +339,9 @@ class EscrowSummary {
       farmerId: json['farmerId'] as String? ?? '',
       amount: (json['amount'] as num).toDouble(),
       commission: (json['commission'] as num).toDouble(),
+      farmerPayout: (json['farmerPayout'] as num?)?.toDouble(),
+      truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
+      truckerId: json['truckerId'] as String?,
       currency: json['currency'] as String,
       status: json['status'] as String,
       createdAt: json['createdAt'] as String,

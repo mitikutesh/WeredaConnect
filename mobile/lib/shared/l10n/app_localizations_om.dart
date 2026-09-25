@@ -944,6 +944,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get escrowFarmerReceives => 'Qonnaan Bulaan Kan Fudhatu';
 
   @override
+  String get escrowTruckerReceives => 'Konkolaachisaan Kan Fudhatu';
+
+  @override
   String get escrowConfirmPayment => 'Kaffaltii Mirkaneessi';
 
   @override

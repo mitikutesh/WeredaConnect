@@ -40,6 +40,14 @@ double orderEscrowValue({required double subtotal, double? orderTotal}) {
   return total > 0 ? total : subtotal;
 }
 
+/// The farmer's own leg of an escrow-held order: the stored crop cost when
+/// present, else the crop subtotal (quantity × price). Never the transport fee
+/// or the platform commission, which belong to the trucker and the platform.
+double farmerEscrowShare({required double subtotal, double? cropCost}) {
+  final crop = cropCost ?? 0;
+  return crop > 0 ? crop : subtotal;
+}
+
 /// Defensive double for wire JSON values (number or numeric string).
 double wireDouble(dynamic value) => switch (value) {
       final num n => n.toDouble(),

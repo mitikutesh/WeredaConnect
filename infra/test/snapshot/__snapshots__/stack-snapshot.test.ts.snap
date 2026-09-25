@@ -686,6 +686,10 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeType": "S",
           },
           {
+            "AttributeName": "truckerId",
+            "AttributeType": "S",
+          },
+          {
             "AttributeName": "status",
             "AttributeType": "S",
           },
@@ -737,6 +741,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "KeySchema": [
               {
                 "AttributeName": "farmerId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "TruckerStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "truckerId",
                 "KeyType": "HASH",
               },
               {
