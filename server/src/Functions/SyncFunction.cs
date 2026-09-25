@@ -3061,6 +3061,17 @@ public partial class SyncFunction
                         };
                     }
 
+                    var createEchoError = StripDeliveryEchoFields(operation);
+                    if (createEchoError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {createEchoError}"
+                        };
+                    }
+
                     // Self-pickup deliveries are created by the BUYER (there is no trucker);
                     // normal deliveries are created by the trucker. Gate authorization on the
                     // party that owns each kind.
@@ -3600,6 +3611,17 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "Update operation requires data payload."
+                        };
+                    }
+
+                    var updateEchoError = StripDeliveryEchoFields(operation);
+                    if (updateEchoError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {updateEchoError}"
                         };
                     }
 
@@ -5373,6 +5395,33 @@ public partial class SyncFunction
         // Logistics transitions (pickup_confirmed, in_transit, delivered):
         // either participant allowed — already gated by participant check
 
+        return null;
+    }
+
+    /// <summary>
+    /// SIM-10: the contract's example payloads and the mobile dispute call echo
+    /// bookkeeping keys the server owns. deliveryId may be sent but must name this
+    /// operation's entity; updatedAt, pickedUpAt and confirmedAt are always stamped by
+    /// the server (confirmedAt anchors the 48-hour dispute window, so a client value
+    /// must never be trusted) and are dropped here. Returns an error message without
+    /// the code prefix, or null when clean.
+    /// </summary>
+    private static string? StripDeliveryEchoFields(SyncOperationRequest operation)
+    {
+        var data = operation.Data!;
+        if (data.TryGetValue("deliveryId", out var echoedDeliveryId))
+        {
+            if (!string.Equals(echoedDeliveryId?.ToString(), operation.EntityId, StringComparison.Ordinal))
+            {
+                return "deliveryId does not match the operation entityId.";
+            }
+
+            data.Remove("deliveryId");
+        }
+
+        data.Remove("updatedAt");
+        data.Remove("pickedUpAt");
+        data.Remove("confirmedAt");
         return null;
     }
 

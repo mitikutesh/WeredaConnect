@@ -3455,6 +3455,101 @@ public class SyncFunctionTests
         await _mockOrderRepo.Received(1).ReleaseDeliverySlotAsync("order-001", "del-001");
     }
 
+    // --- SIM-10: the contract's example payloads and the mobile dispute payload ---
+
+    [Fact]
+    public async Task DeliveryUpdate_ContractPickupPayload_Succeeds()
+    {
+        // delivery-verification-api.md "Confirm Pickup" example: deliveryId + pickedUpAt
+        // were rejected as unknown fields.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "pickedUp" },
+                { "pickedUpAt", "2026-02-18T08:15:00Z" }, { "scannedQrNonce", "nonce-abc-123" },
+                { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+        // The server stamps pickedUpAt itself; the client's value is not written.
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeNames.Values.Contains("pickedUpAt")
+            && !r.ExpressionAttributeNames.Values.Contains("deliveryId")
+            && r.ExpressionAttributeValues.Values.All(v => v.S != "2026-02-18T08:15:00Z")));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_ContractConfirmPayload_Succeeds_WithServerConfirmedAt()
+    {
+        // "Confirm Delivery" example: deliveryId + confirmedAt. confirmedAt anchors the
+        // 48-hour dispute window, so the client's value must be replaced by the server's.
+        SetupExistingDelivery("del-001", "trucker-001", "pickedUp", 1);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "delivered" },
+                { "confirmedAt", "2020-01-01T00:00:00Z" }, { "version", 1 }
+            })), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeNames.Values.Contains("confirmedAt")
+            && r.ExpressionAttributeValues.Values.All(v => v.S != "2020-01-01T00:00:00Z")));
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_MobileDisputePayload_Succeeds()
+    {
+        // Exactly what the mobile client sends on dispute (deliveryId + updatedAt echoed).
+        SetupExistingDeliveryWithConfirmedAt("del-001", "trucker-001", "delivered", 1,
+            DateTime.UtcNow.AddHours(-24).ToString("o"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-001" }, { "status", "disputed" },
+                { "disputeReason", "Quality issue with delivery" },
+                { "updatedAt", "2026-09-25T08:00:00Z" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryUpdate_DeliveryIdMismatch_ReturnsError()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "deliveryId", "del-999" }, { "status", "cancelled" }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("DELIVERY_VALIDATION: deliveryId does not match the operation entityId", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ContractPayloadWithDeliveryIdEcho_Succeeds()
+    {
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["deliveryId"] = "del-001";
+        op.Data["updatedAt"] = "2026-02-18T08:00:00Z";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("Unknown fields", response.Body);
+    }
+
     [Fact]
     public async Task OrderUpdate_PaymentSubmitted_MockMode_AutoFundsOrder()
     {

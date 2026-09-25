@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.3.0
+1.3.1
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -77,6 +77,14 @@ Update guards (v1.3.0): `orderId`, `tripId`, `listingId`, `deliveryType`, and th
 buyer/farmer/trucker `Id`, `Name` and `Phone` fields are immutable after create.
 An unchanged echo is dropped; a changed value is rejected with
 `DELIVERY_VALIDATION: <field> is immutable and cannot be changed on update.`
+
+Echo keys (v1.3.1, SIM-10): `deliveryId` may appear in `data` on create and update
+but must equal the operation's `entityId`
+(`DELIVERY_VALIDATION: deliveryId does not match the operation entityId.`).
+`updatedAt`, `pickedUpAt` and `confirmedAt` in `data` are accepted and ignored: the
+server stamps them at the transition (`confirmedAt` anchors the 48-hour dispute
+window, so a client value is never trusted). The example payloads above succeed as
+written.
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -843,9 +851,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
 | 1.2.0 | 2026-07-12 | `orderId` required on ALL delivery creates (was self-pickup only): order must exist, be non-terminal, and match the delivery's buyer/farmer; the order's escrow is linked to the delivery at creation (`DELIVERY_ORDER_REQUIRED` error). |
 | 1.3.0 | 2026-09-25 | Delivery guards (SIM-09): order must be `accepted`/`pickup_confirmed`/`in_transit`; trucker-flow creator must be the order's trucker (order without a trucker is self-pickup only); one active delivery per order via `activeDeliveryId` claimed on the order and released on cancel; participant/order/listing/trip/type fields immutable on update. |
+| 1.3.1 | 2026-09-25 | Echo keys (SIM-10): the example payloads' `deliveryId` (must equal `entityId`), `pickedUpAt`, `confirmedAt` and `updatedAt` are accepted; the timestamps are server-stamped and the client values ignored. Also unblocks the mobile dispute call, which echoes `deliveryId` and `updatedAt`. |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.3.0
+**Version**: 1.3.1
 **Status**: Draft (Phase R4.2)
