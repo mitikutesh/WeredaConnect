@@ -108,6 +108,13 @@ public sealed record DeliveryDto
     public required string TripId { get; init; }
 
     /// <summary>
+    /// The order this delivery fulfils (required on create since 1.2.0; exposed on
+    /// list and detail since 1.4.2, SIM-14, so clients can tie a delivery to its
+    /// order). Null only for deliveries created before orderId became required.
+    /// </summary>
+    public string? OrderId { get; init; }
+
+    /// <summary>
     /// Associated crop listing ID.
     /// </summary>
     public required string ListingId { get; init; }

@@ -858,16 +858,27 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
     }
   }
 
-  /// The order this delivery fulfils. The delivery record carries no orderId
-  /// locally, so resolve it via the delivery's trip (a matched order shares
-  /// the delivery's tripId). Matching on listing+buyer alone could pick a
-  /// DIFFERENT order of the same buyer on the same listing.
-  Future<Order?> _linkedOrder() => IsarService.instance.db.orders
-      .filter()
-      .listingIdEqualTo(widget.delivery.listingId)
-      .buyerIdEqualTo(widget.currentUserId)
-      .tripIdEqualTo(widget.delivery.tripId)
-      .findFirst();
+  /// The order this delivery fulfils. Prefer the delivery's own orderId (kept
+  /// locally since SIM-14); rows pulled before that carry none, so fall back to
+  /// the delivery's trip (a matched order shares the delivery's tripId).
+  /// Matching on listing+buyer alone could pick a DIFFERENT order of the same
+  /// buyer on the same listing.
+  Future<Order?> _linkedOrder() async {
+    final orderId = widget.delivery.orderId;
+    if (orderId != null && orderId.isNotEmpty) {
+      final byId = await IsarService.instance.db.orders
+          .filter()
+          .orderIdEqualTo(orderId)
+          .findFirst();
+      if (byId != null) return byId;
+    }
+    return IsarService.instance.db.orders
+        .filter()
+        .listingIdEqualTo(widget.delivery.listingId)
+        .buyerIdEqualTo(widget.currentUserId)
+        .tripIdEqualTo(widget.delivery.tripId)
+        .findFirst();
+  }
 
   Future<bool> _moneyAlreadyHeld() async {
     // NOT 'initiated': a stale abandoned initiation would hide the button
@@ -979,17 +990,27 @@ class _SelfPickupScanButtonState extends State<_SelfPickupScanButton> {
           statusName == 'completed';
       // Order-funded escrow: the buyer already paid when the order was funded,
       // so the local Payment row may not exist yet (it appears after a history
-      // refresh). ANY escrow-held order on this listing counts as paid — the
-      // delivery record carries no orderId locally (self-pickup orders have no
-      // trip to match on), and both wrong directions are safe: the server QR
-      // gate fail-closes an unpaid scan, and a wrongly disabled button only
-      // asks the buyer to pay first.
+      // refresh). Prefer the delivery's own orderId (kept locally since SIM-14);
+      // for older rows without one, ANY escrow-held order on this listing counts
+      // as paid (self-pickup orders have no trip to match on). Both wrong
+      // directions are safe: the server QR gate fail-closes an unpaid scan, and
+      // a wrongly disabled button only asks the buyer to pay first.
       if (!funded) {
-        final orders = await IsarService.instance.db.orders
-            .filter()
-            .listingIdEqualTo(widget.delivery.listingId)
-            .buyerIdEqualTo(widget.currentUserId)
-            .findAll();
+        var orders = <Order>[];
+        final orderId = widget.delivery.orderId;
+        if (orderId != null && orderId.isNotEmpty) {
+          orders = await IsarService.instance.db.orders
+              .filter()
+              .orderIdEqualTo(orderId)
+              .findAll();
+        }
+        if (orders.isEmpty) {
+          orders = await IsarService.instance.db.orders
+              .filter()
+              .listingIdEqualTo(widget.delivery.listingId)
+              .buyerIdEqualTo(widget.currentUserId)
+              .findAll();
+        }
         for (final order in orders) {
           final orderStatus = order.status.name;
           if (orderStatus == 'funded' ||

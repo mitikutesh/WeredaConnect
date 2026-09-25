@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.4.1
+1.4.2
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -231,6 +231,7 @@ GET /deliveries?role=trucker&status=pending&limit=20
     {
       "deliveryId": "del-101",
       "tripId": "trip-101",
+      "orderId": "order-101",
       "listingId": "crop-456",
       "farmerId": "farmer-123",
       "farmerName": "Alemayehu Bekele",
@@ -278,6 +279,7 @@ GET /deliveries/del-101
 {
   "deliveryId": "del-101",
   "tripId": "trip-101",
+  "orderId": "order-101",
   "listingId": "crop-456",
   "farmerId": "farmer-123",
   "farmerName": "Alemayehu Bekele",
@@ -362,6 +364,7 @@ GET /deliveries/del-101
 |-------|------|----------|-------------|-------------|
 | `deliveryId` | string (UUID) | Yes | -- | Unique delivery identifier |
 | `tripId` | string (UUID) | Yes | -- | Associated trip (links to Trip.tripId) |
+| `orderId` | string (UUID) | No | -- | The order this delivery fulfils (required on create since 1.2.0; returned on list and detail since 1.4.2, SIM-14; absent only for pre-1.2.0 deliveries) |
 | `listingId` | string (UUID) | Yes | -- | Associated crop listing (links to CropListing.listingId) |
 | `farmerId` | string (UUID) | Yes | -- | Farmer who posted the crop |
 | `farmerName` | string | Yes | 1-100 chars | Farmer's display name |
@@ -865,9 +868,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.3.1 | 2026-09-25 | Echo keys (SIM-10): the example payloads' `deliveryId` (must equal `entityId`), `pickedUpAt`, `confirmedAt` and `updatedAt` are accepted; the timestamps are server-stamped and the client values ignored. Also unblocks the mobile dispute call, which echoes `deliveryId` and `updatedAt`. |
 | 1.4.0 | 2026-09-25 | Order coupling (SIM-11): `pickedUp`/`inTransit`/`delivered` advance the linked order server-side (forward only, best-effort, system-audited); self-pickup moves the order `accepted → delivered` in one hop. |
 | 1.4.1 | 2026-09-25 | Dispute propagation (SIM-12): a delivery `disputed` moves the order to `disputed` and freezes the escrow; an escrow dispute marks the delivery `disputed`. |
+| 1.4.2 | 2026-09-25 | `orderId` returned on list and detail (SIM-14); mobile and web keep it locally and prefer it over the trip match when resolving the order behind a delivery. |
 
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.4.1
+**Version**: 1.4.2
 **Status**: Draft (Phase R4.2)

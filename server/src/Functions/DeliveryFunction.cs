@@ -357,6 +357,7 @@ public class DeliveryFunction
         {
             DeliveryId = GetString(item, "deliveryId"),
             TripId = GetString(item, "tripId"),
+            OrderId = GetStringOrNull(item, "orderId"),
             ListingId = GetString(item, "listingId"),
             FarmerId = GetString(item, "farmerId"),
             FarmerName = GetString(item, "farmerName"),

@@ -180,6 +180,8 @@ class ConflictResolver {
         // qrToken), so a hard `as String` on those threw a TypeError and the
         // conflict failed to auto-resolve instead of applying server-wins.
         delivery!.tripId = serverData['tripId'] as String? ?? '';
+        delivery!.orderId =
+            serverData['orderId'] as String? ?? delivery!.orderId;
         delivery!.listingId = serverData['listingId'] as String? ?? '';
         delivery!.farmerId = serverData['farmerId'] as String? ?? '';
         delivery!.farmerName = serverData['farmerName'] as String? ?? '';

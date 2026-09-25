@@ -64,6 +64,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     return Delivery()
       ..deliveryId = deliveryId
       ..tripId = tripId
+      ..orderId = orderId
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName
@@ -122,6 +123,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     return Delivery()
       ..deliveryId = deliveryId
       ..tripId = deliveryId
+      ..orderId = orderId
       ..listingId = listingId
       ..farmerId = farmerId
       ..farmerName = farmerName
@@ -439,6 +441,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..buyerName = m['buyerName'] as String? ?? ''
       ..qrToken = m['qrToken'] as String? ?? ''
       ..deliveryType = m['deliveryType'] as String?
+      ..orderId = m['orderId'] as String?
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')

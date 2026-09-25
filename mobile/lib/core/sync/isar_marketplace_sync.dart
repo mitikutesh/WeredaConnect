@@ -358,6 +358,7 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..buyerId = m['buyerId'] as String? ?? ''
       ..buyerName = m['buyerName'] as String? ?? ''
       ..qrToken = m['qrToken'] as String? ?? ''
+      ..orderId = m['orderId'] as String?
       ..qrNonce = m['qrNonce'] as String?
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickupPhotoRef = m['pickupPhotoRef'] as String?

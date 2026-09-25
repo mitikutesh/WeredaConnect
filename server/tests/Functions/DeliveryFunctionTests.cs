@@ -188,6 +188,7 @@ public class DeliveryFunctionTests
             CreateDeliveryItem("del-001"),
             CreateDeliveryItem("del-002", "pickedUp")
         };
+        deliveries[0]["orderId"] = "order-9"; // SIM-14: exposed so clients can tie a delivery to its order
 
         _mockDeliveryRepo.QueryDeliveriesAsync(
             Arg.Any<string?>(),
@@ -204,6 +205,7 @@ public class DeliveryFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("del-001", response.Body);
         Assert.Contains("del-002", response.Body);
+        Assert.Contains("\"orderId\":\"order-9\"", response.Body);
     }
 
     [Fact]

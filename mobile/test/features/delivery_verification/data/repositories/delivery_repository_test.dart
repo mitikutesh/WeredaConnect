@@ -120,6 +120,7 @@ void main() {
       );
 
       expect(delivery.tripId, 'trip-001');
+      expect(delivery.orderId, 'order-test-001');
       expect(delivery.listingId, 'listing-001');
       expect(delivery.farmerId, 'farmer-001');
       expect(delivery.farmerName, 'Abebe Kebede');
