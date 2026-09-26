@@ -1,23 +1,104 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/hooks/useLocale";
 import { normalizeEthiopianPhone } from "@/lib/phone";
+import type { LoginResult, MfaType } from "@/lib/auth";
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 
+type Step =
+  | { kind: "credentials" }
+  | { kind: "totp"; mfaType: MfaType }
+  | { kind: "mfaSetup"; secretCode: string; otpauthUrl: string }
+  | { kind: "newPassword" };
+
+const INPUT_CLASS =
+  "mt-1 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+const PRIMARY_BUTTON_CLASS =
+  "w-full rounded-lg bg-primary py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50";
+const LINK_BUTTON_CLASS =
+  "w-full text-center text-sm text-text-muted underline hover:text-primary";
+
 export function LoginPage() {
-  const { login } = useAuth();
+  const {
+    login,
+    submitTotp,
+    completeMfaSetup,
+    completeNewPassword,
+    cancelChallenge,
+  } = useAuth();
   const { t } = useLocale();
+  const navigate = useNavigate();
+  const [step, setStep] = useState<Step>({ kind: "credentials" });
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [code, setCode] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
+  function translateError(errorKey: string): string {
+    const key = `auth.${errorKey}`;
+    const translated = t(key);
+    // If t() returns the raw key, no i18n entry exists, so use the generic fallback
+    return translated !== key ? translated : t("auth.genericError");
+  }
+
+  function resetToCredentials() {
+    cancelChallenge();
+    setStep({ kind: "credentials" });
+    setPassword("");
+    setCode("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setCopied(false);
+  }
+
+  /** Move to whatever step the latest Cognito response asks for. */
+  function applyResult(result: LoginResult) {
+    setCode("");
+    switch (result.status) {
+      case "success":
+        navigate("/", { replace: true });
+        return;
+      case "totpRequired":
+        setStep({ kind: "totp", mfaType: result.mfaType });
+        return;
+      case "mfaSetupRequired":
+        setStep({
+          kind: "mfaSetup",
+          secretCode: result.secretCode,
+          otpauthUrl: result.otpauthUrl,
+        });
+        return;
+      case "newPasswordRequired":
+        setStep({ kind: "newPassword" });
+        return;
+      case "error":
+        if (result.error === "sessionExpired") resetToCredentials();
+        setError(translateError(result.error));
+        return;
+    }
+  }
+
+  async function run(action: () => Promise<LoginResult>) {
+    setLoading(true);
+    try {
+      applyResult(await action());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCredentials(e: FormEvent) {
     e.preventDefault();
     setError("");
 
-    // Validate + normalize the phone BEFORE entering the loading state —
+    // Validate + normalize the phone BEFORE entering the loading state:
     // invalid input must never reach Cognito.
     if (!phone.trim()) {
       setPhoneError(t("auth.phoneRequired"));
@@ -29,21 +110,256 @@ export function LoginPage() {
       return;
     }
     setPhoneError("");
-    setLoading(true);
+    await run(() => login(normalizedPhone, password));
+  }
 
-    const result = await login(normalizedPhone, password);
-    if (!result.success) {
-      const key = `auth.${result.error}`;
-      const translated = t(key);
-      // If t() returns the raw key, it means no i18n entry exists — use generic fallback
-      setError(translated !== key ? translated : t("auth.genericError"));
+  async function handleCode(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError(t("auth.codeRequired"));
+      return;
     }
-    setLoading(false);
+    const submitted = code;
+    await run(() =>
+      step.kind === "mfaSetup"
+        ? completeMfaSetup(submitted, deviceName)
+        : submitTotp(submitted),
+    );
+  }
+
+  async function handleNewPassword(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError(t("auth.passwordsDontMatch"));
+      return;
+    }
+    await run(() => completeNewPassword(newPassword));
+  }
+
+  async function copySecret(secret: string) {
+    try {
+      await navigator.clipboard.writeText(secret);
+      setCopied(true);
+    } catch {
+      // Clipboard blocked (insecure context or denied): the key stays visible to copy by hand
+    }
+  }
+
+  const errorLine = error ? (
+    <p role="alert" className="text-sm text-danger">
+      {error}
+    </p>
+  ) : null;
+
+  const backButton = (
+    <button
+      type="button"
+      onClick={() => {
+        setError("");
+        resetToCredentials();
+      }}
+      className={LINK_BUTTON_CLASS}
+    >
+      {t("auth.backToLogin")}
+    </button>
+  );
+
+  const codeInput = (
+    <div>
+      <label htmlFor="mfa-code" className="block text-sm font-medium text-text-muted">
+        {t("auth.code")}
+      </label>
+      <input
+        id="mfa-code"
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        pattern="[0-9]{6}"
+        maxLength={6}
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+        placeholder="123456"
+        required
+        autoFocus
+        className={`${INPUT_CLASS} tracking-widest`}
+      />
+    </div>
+  );
+
+  let title: string;
+  let subtitle: string;
+  let body: ReactNode;
+
+  switch (step.kind) {
+    case "credentials":
+      title = t("auth.loginTitle");
+      subtitle = t("auth.loginSubtitle");
+      body = (
+        // noValidate: localized validation in handleCredentials replaces
+        // browser-native constraint tooltips; required stays for
+        // aria-required semantics.
+        <form onSubmit={handleCredentials} noValidate className="mt-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-muted">
+              {t("auth.phone")}
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="09XXXXXXXX or +251..."
+              required
+              aria-invalid={!!phoneError}
+              aria-describedby={phoneError ? "phone-error" : undefined}
+              className={INPUT_CLASS}
+            />
+            {phoneError && (
+              <p id="phone-error" className="mt-1 text-sm text-danger">
+                {phoneError}
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-muted">
+              {t("auth.password")}
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className={INPUT_CLASS}
+            />
+          </div>
+
+          {errorLine}
+
+          <button type="submit" disabled={loading} className={PRIMARY_BUTTON_CLASS}>
+            {loading ? t("auth.signingIn") : t("auth.login")}
+          </button>
+        </form>
+      );
+      break;
+
+    case "totp":
+      title = t("auth.mfaTitle");
+      subtitle =
+        step.mfaType === "sms" ? t("auth.smsPrompt") : t("auth.totpPrompt");
+      body = (
+        <form onSubmit={handleCode} noValidate className="mt-6 space-y-4">
+          {codeInput}
+          {errorLine}
+          <button type="submit" disabled={loading} className={PRIMARY_BUTTON_CLASS}>
+            {loading ? t("auth.verifying") : t("auth.verify")}
+          </button>
+          {backButton}
+        </form>
+      );
+      break;
+
+    case "mfaSetup":
+      title = t("auth.mfaSetupTitle");
+      subtitle = t("auth.mfaSetupIntro");
+      body = (
+        <form onSubmit={handleCode} noValidate className="mt-6 space-y-4">
+          <div>
+            <p className="block text-sm font-medium text-text-muted">
+              {t("auth.secretKey")}
+            </p>
+            <div className="mt-1 flex items-start gap-2">
+              <code
+                data-testid="mfa-secret"
+                className="flex-1 break-all rounded-lg bg-gray-50 px-3 py-2 font-mono text-sm"
+              >
+                {step.secretCode}
+              </code>
+              <button
+                type="button"
+                onClick={() => copySecret(step.secretCode)}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-primary"
+              >
+                {copied ? t("auth.copied") : t("auth.copy")}
+              </button>
+            </div>
+            <a
+              href={step.otpauthUrl}
+              className="mt-2 inline-block text-sm text-primary underline"
+            >
+              {t("auth.openInApp")}
+            </a>
+          </div>
+          {codeInput}
+          <div>
+            <label htmlFor="mfa-device" className="block text-sm font-medium text-text-muted">
+              {t("auth.deviceName")}
+            </label>
+            <input
+              id="mfa-device"
+              type="text"
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              maxLength={64}
+              className={INPUT_CLASS}
+            />
+          </div>
+          {errorLine}
+          <button type="submit" disabled={loading} className={PRIMARY_BUTTON_CLASS}>
+            {loading ? t("auth.verifying") : t("auth.verify")}
+          </button>
+          {backButton}
+        </form>
+      );
+      break;
+
+    case "newPassword":
+      title = t("auth.newPasswordTitle");
+      subtitle = t("auth.newPasswordIntro");
+      body = (
+        <form onSubmit={handleNewPassword} noValidate className="mt-6 space-y-4">
+          <div>
+            <label htmlFor="new-password" className="block text-sm font-medium text-text-muted">
+              {t("auth.newPassword")}
+            </label>
+            <input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              autoFocus
+              className={INPUT_CLASS}
+            />
+          </div>
+          <div>
+            <label htmlFor="confirm-password" className="block text-sm font-medium text-text-muted">
+              {t("auth.confirmPassword")}
+            </label>
+            <input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className={INPUT_CLASS}
+            />
+          </div>
+          {errorLine}
+          <button type="submit" disabled={loading} className={PRIMARY_BUTTON_CLASS}>
+            {loading ? t("auth.verifying") : t("auth.savePassword")}
+          </button>
+          {backButton}
+        </form>
+      );
+      break;
   }
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      {/* Left panel — branding (desktop only) */}
+      {/* Left panel: branding (desktop only) */}
       <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-[#1a6b5c] px-12">
         <svg className="w-16 h-16 text-white" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <path d="M19.5,12c0.93,0,1.78,0.28,2.5,0.76V8c0-1.1-0.9-2-2-2h-6.29l-1.06-1.06l1.41-1.41l-0.71-0.71L9.82,6.35l0.71,0.71l1.41-1.41L13,6.71V9c0,1.1-0.9,2-2,2h-0.54c0.95,1.06,1.54,2.46,1.54,4c0,0.34-0.04,0.67-0.09,1h3.14C15.3,13.75,17.19,12,19.5,12z"/>
@@ -57,7 +373,7 @@ export function LoginPage() {
         </p>
       </div>
 
-      {/* Right panel — login form */}
+      {/* Right panel: sign-in steps */}
       <div className="flex min-h-screen md:min-h-0 w-full md:w-1/2 flex-col items-center justify-center bg-cream px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-6 flex justify-center">
@@ -65,61 +381,12 @@ export function LoginPage() {
           </div>
           <div className="rounded-xl bg-white p-8 shadow-sm">
             <h1 className="text-center text-2xl font-bold text-primary">
-              {t("auth.loginTitle")}
+              {title}
             </h1>
             <p className="mt-2 text-center text-sm text-text-muted">
-              {t("auth.loginSubtitle")}
+              {subtitle}
             </p>
-
-            {/* noValidate: localized validation in handleSubmit replaces
-                browser-native constraint tooltips; required stays for
-                aria-required semantics. */}
-            <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-muted">
-                  {t("auth.phone")}
-                </label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="09XXXXXXXX or +251..."
-                  required
-                  aria-invalid={!!phoneError}
-                  aria-describedby={phoneError ? "phone-error" : undefined}
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-                {phoneError && (
-                  <p id="phone-error" className="mt-1 text-sm text-danger">
-                    {phoneError}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-muted">
-                  {t("auth.password")}
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-              </div>
-
-              {error && (
-                <p className="text-sm text-danger">{error}</p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-              >
-                {loading ? t("auth.signingIn") : t("auth.login")}
-              </button>
-            </form>
+            {body}
           </div>
         </div>
       </div>
