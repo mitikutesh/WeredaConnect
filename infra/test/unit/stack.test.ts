@@ -140,12 +140,13 @@ describe('ApiStack', () => {
         expect(props.ExplicitAuthFlows).not.toContain('ALLOW_USER_SRP_AUTH');
       }
     }
-    // Admin pool requires TOTP MFA in every environment (dev template here); SMS
-    // is not offered outside prod (SNS sandbox would lock admins out).
+    // Admin pool requires MFA in every environment (dev template here). TOTP is
+    // always offered; SMS stays enabled because Cognito refuses to turn SMS_MFA
+    // off on a pool with an SMS configuration once MFA is required.
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UserPoolName: 'wereda-connect-dev-admins',
       MfaConfiguration: 'ON',
-      EnabledMfas: ['SOFTWARE_TOKEN_MFA'],
+      EnabledMfas: ['SMS_MFA', 'SOFTWARE_TOKEN_MFA'],
     });
     // Escrow settlement routes sit on the admin authorizer, initiate stays on mobile.
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
