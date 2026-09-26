@@ -147,6 +147,8 @@ describe('ApiStack', () => {
       UserPoolName: 'wereda-connect-dev-admins',
       MfaConfiguration: 'ON',
       EnabledMfas: ['SMS_MFA', 'SOFTWARE_TOKEN_MFA'],
+      // Phone-only recovery is rejected by Cognito alongside SMS MFA.
+      AccountRecoverySetting: { RecoveryMechanisms: [{ Name: 'admin_only', Priority: 1 }] },
     });
     // Escrow settlement routes sit on the admin authorizer, initiate stays on mobile.
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
