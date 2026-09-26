@@ -98,6 +98,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get errorOccurred => 'An error occurred';
 
   @override
+  String get errorNoPermission => 'You do not have permission to view this.';
+
+  @override
+  String get errorSecureConnectionFailed =>
+      'Could not make a secure connection to the server. Update the app or try another network.';
+
+  @override
   String get noInternetConnection => 'No internet connection';
 
   @override

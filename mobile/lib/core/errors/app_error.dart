@@ -11,7 +11,15 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 enum AppErrorCode {
   network,
   timeout,
+
+  /// 401: the session is gone.
   auth,
+
+  /// 403: signed in, but this role may not read the resource (SIM-23).
+  forbidden,
+
+  /// TLS/certificate failure while online (SIM-23).
+  secureConnection,
   validation,
   notFound,
   conflict,
@@ -27,6 +35,9 @@ AppErrorCode mapErrorToCode(Object error) {
   return switch (error) {
     TimeoutException() => AppErrorCode.timeout,
     NetworkException() => AppErrorCode.network,
+    SecureConnectionException() => AppErrorCode.secureConnection,
+    AuthException(:final statusCode) when statusCode == 403 =>
+      AppErrorCode.forbidden,
     AuthException() => AppErrorCode.auth,
     ValidationException() => AppErrorCode.validation,
     NotFoundException() => AppErrorCode.notFound,
@@ -46,6 +57,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
   return switch (code) {
     AppErrorCode.network || AppErrorCode.timeout => l10n.noInternetConnection,
     AppErrorCode.auth => l10n.errorSessionExpired,
+    AppErrorCode.forbidden => l10n.errorNoPermission,
+    AppErrorCode.secureConnection => l10n.errorSecureConnectionFailed,
     AppErrorCode.conflict => l10n.errorConflict,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
@@ -58,3 +71,14 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
 /// Convenience: classify and localize in one step from a caught error.
 String localizeError(Object error, AppLocalizations l10n) =>
     localizeErrorCode(mapErrorToCode(error), l10n);
+
+/// Subtitle for an offline-first list that failed to load. Only a genuine
+/// connectivity failure earns the reassuring "will sync when online" copy;
+/// a 403, a TLS failure or a server error says what actually happened
+/// (SIM-23: a forbidden read was shown as "waiting for network").
+String localizeLoadError(AppErrorCode code, AppLocalizations l10n) {
+  return switch (code) {
+    AppErrorCode.network || AppErrorCode.timeout => l10n.dataWillSyncWhenOnline,
+    _ => localizeErrorCode(code, l10n),
+  };
+}

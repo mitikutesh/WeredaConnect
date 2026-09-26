@@ -263,6 +263,12 @@ class ApiClient {
 
   /// Transform Dio errors into custom ApiException types
   ApiException _handleError(Object error) {
+    // A rejected certificate chain (pinning) is not a connectivity problem:
+    // classify it before the type switch, which would call it "network".
+    if (isSecureConnectionFailure(error)) {
+      return const SecureConnectionException();
+    }
+
     if (error is DioException) {
       switch (error.type) {
         case DioExceptionType.connectionTimeout:
@@ -297,7 +303,7 @@ class ApiClient {
           return const NetworkException('Request cancelled');
 
         case DioExceptionType.badCertificate:
-          return const NetworkException('SSL certificate verification failed');
+          return const SecureConnectionException();
 
         case DioExceptionType.unknown:
           return UnknownException(error.message ?? 'Unknown error occurred');

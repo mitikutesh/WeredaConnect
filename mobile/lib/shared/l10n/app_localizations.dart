@@ -274,6 +274,18 @@ abstract class AppLocalizations {
   /// **'An error occurred'**
   String get errorOccurred;
 
+  /// Shown when the server refuses a read with 403 for the signed-in role
+  ///
+  /// In en, this message translates to:
+  /// **'You do not have permission to view this.'**
+  String get errorNoPermission;
+
+  /// Shown when the TLS handshake or certificate pin check fails while the device is online
+  ///
+  /// In en, this message translates to:
+  /// **'Could not make a secure connection to the server. Update the app or try another network.'**
+  String get errorSecureConnectionFailed;
+
   /// Error message when offline
   ///
   /// In en, this message translates to:

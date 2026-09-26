@@ -100,6 +100,26 @@ void main() {
         }
       });
 
+      test('a rejected certificate is a SecureConnectionException (SIM-23)',
+          () async {
+        const path = '/pinned';
+        dioAdapter.onGet(
+          path,
+          (server) => server.throws(
+            0,
+            DioException(
+              requestOptions: RequestOptions(path: path),
+              type: DioExceptionType.badCertificate,
+            ),
+          ),
+        );
+
+        await expectLater(
+          ApiClient().get<Map<String, dynamic>>(path),
+          throwsA(isA<SecureConnectionException>()),
+        );
+      });
+
       test('GET request with custom headers', () async {
         // Arrange
         const path = '/data';

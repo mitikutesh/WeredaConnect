@@ -121,6 +121,14 @@
   "@errorOccurred": {
     "description": "Generic error message"
   },
+  "errorNoPermission": "You do not have permission to view this.",
+  "@errorNoPermission": {
+    "description": "Shown when the server refuses a read with 403 for the signed-in role"
+  },
+  "errorSecureConnectionFailed": "Could not make a secure connection to the server. Update the app or try another network.",
+  "@errorSecureConnectionFailed": {
+    "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
+  },
   "noInternetConnection": "No internet connection",
   "@noInternetConnection": {
     "description": "Error message when offline"

@@ -57,6 +57,7 @@ String localizeAuthError(
     // Mobile-only errors
     AuthErrorCode.apiNotConfigured => l10n.authApiNotConfigured,
     AuthErrorCode.networkError => l10n.authNetworkError,
+    AuthErrorCode.secureConnectionFailed => l10n.errorSecureConnectionFailed,
     AuthErrorCode.offlineNotAvailable => l10n.authOfflineNotAvailable,
     AuthErrorCode.secureStorageError => l10n.authErrorSecureStorage,
     AuthErrorCode.databaseError => l10n.authErrorDatabase,
