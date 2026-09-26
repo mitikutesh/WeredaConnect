@@ -428,7 +428,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               final rated =
                                   summary != null && summary.count > 0;
                               return ListingCard(
-                                title: listing.cropType,
+                                title: CropType.labelFor(
+                                  listing.cropType,
+                                  l10n,
+                                ),
                                 location: listing.locationName,
                                 sellerName: listing.farmerName.isNotEmpty
                                     ? listing.farmerName

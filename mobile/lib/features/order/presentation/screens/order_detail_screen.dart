@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -144,7 +145,7 @@ class _OrderDetailBody extends StatelessWidget {
                     ),
                     const Divider(height: 16),
                     _InfoRow(
-                      label: order.cropType,
+                      label: CropType.labelFor(order.cropType, l10n),
                       value: l10n.quantityKg(
                         order.quantity.toStringAsFixed(0),
                       ),

@@ -72,4 +72,22 @@ enum CropType {
       orElse: () => CropType.teff,
     );
   }
+
+  /// Parse a stored key, or null when it is not one of the nine crops. Unlike
+  /// [fromKey] this never turns an unknown value into teff, so user-facing
+  /// text can fall back to the raw key instead of a wrong translation.
+  static CropType? tryFromKey(String key) {
+    final normalized = key.trim().toLowerCase();
+    for (final type in CropType.values) {
+      if (type.name == normalized) return type;
+    }
+    return null;
+  }
+
+  /// Localized name for a stored crop key: "teff" reads as Teff, ጤፍ or
+  /// Xaafii depending on the locale; an unknown key is shown as-is. Every
+  /// card, summary row and activity line that prints a crop must use this
+  /// rather than the raw key (SIM-22).
+  static String labelFor(String key, AppLocalizations l10n) =>
+      tryFromKey(key)?.displayName(l10n) ?? key;
 }
