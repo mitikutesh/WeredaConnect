@@ -97,10 +97,11 @@ describe('ApiStack', () => {
     template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
   });
 
-  test('creates twenty-two Lambda functions on ARM64', () => {
+  test('creates twenty-four Lambda functions (dev) on ARM64', () => {
     // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
-    // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22.
-    template.resourceCountIs('AWS::Lambda::Function', 22);
+    // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
+    // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24.
+    template.resourceCountIs('AWS::Lambda::Function', 24);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -118,8 +119,81 @@ describe('ApiStack', () => {
     //                 /match (buyer intent matching), /device-tokens (push alerts),
     //                 /ratings, /ratings/{id} (buyer ratings),
     //                 /messages, /messages/{id} (in-app chat)
-    // Plus admin routes and the delivery-qr-secrets work → 49 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 49);
+    // Plus admin routes and the delivery-qr-secrets work → 49,
+    // plus /auth/verify-otp, /auth/resend-otp, /auth/fayda-start, /user/fayda-start,
+    // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 55);
+  });
+
+  test('auth hardening: password login only through the server, settlement only for admins', () => {
+    // The public mobile client cannot run USER_PASSWORD_AUTH; the server uses the
+    // admin flow (IAM signed), so lockout, suspension and audit cannot be bypassed.
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      ClientName: 'wereda-connect-dev-mobile',
+      ExplicitAuthFlows: Match.arrayWith(['ALLOW_ADMIN_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH']),
+    });
+    const clients = template.findResources('AWS::Cognito::UserPoolClient');
+    for (const resource of Object.values(clients)) {
+      const props = (resource as Record<string, Record<string, unknown>>).Properties;
+      if (props?.ClientName === 'wereda-connect-dev-mobile') {
+        expect(props.ExplicitAuthFlows).not.toContain('ALLOW_USER_PASSWORD_AUTH');
+        expect(props.ExplicitAuthFlows).not.toContain('ALLOW_USER_SRP_AUTH');
+      }
+    }
+    // Admin pool requires TOTP MFA in every environment (dev template here); SMS
+    // is not offered outside prod (SNS sandbox would lock admins out).
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      UserPoolName: 'wereda-connect-dev-admins',
+      MfaConfiguration: 'ON',
+      EnabledMfas: ['SOFTWARE_TOKEN_MFA'],
+    });
+    // Escrow settlement routes sit on the admin authorizer, initiate stays on mobile.
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['POST /escrow/release', 'POST /escrow/refund']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+    // Phone proof and Fayda link-later routes exist; the OTP routes are public.
+    for (const routeKey of ['POST /auth/verify-otp', 'POST /auth/resend-otp', 'POST /auth/fayda-start']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'NONE',
+      });
+    }
+    for (const routeKey of ['POST /user/fayda-start', 'POST /user/fayda-link', 'DELETE /device-tokens']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+      });
+    }
+  });
+
+  test('dev: mock Fayda provider is deployed and the server points at it', () => {
+    // faydaMode 'mock' in dev: the mock eSignet Lambda carries the FAYDA_MOCK
+    // marker (refused in prod by ProductionBypassGuard) and the SSM issuer /
+    // client parameters are wired to it, so the server code needs no branch.
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-fayda-mock',
+      Environment: { Variables: Match.objectLike({ FAYDA_MOCK: 'true' }) },
+    });
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-dev/fayda/client-id',
+      Value: 'weredaconnect-wereda-connect-dev',
+    });
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-dev/fayda/client-secret-mock',
+    });
+    // Dev auth Lambdas: OTP bypass on, SMS off (SNS sandbox); never in prod (see T-SEC tests).
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-auth-verify-otp',
+      Environment: { Variables: Match.objectLike({ DEV_OTP_BYPASS: 'true', SMS_ENABLED: 'false' }) },
+    });
   });
 
   test('creates JWT authorizers for mobile and admin routes', () => {
@@ -143,11 +217,13 @@ describe('ApiStack', () => {
         }),
       },
     });
+    // Dev runs faydaMode 'mock': the client secret is a stack-owned parameter
+    // (no seed step); the signing secret is still the seeded SecureString.
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-auth-fayda-verify',
       Environment: {
         Variables: Match.objectLike({
-          FAYDA_CLIENT_SECRET_ARN: '/wereda-connect-dev/fayda/client-secret',
+          FAYDA_CLIENT_SECRET_ARN: '/wereda-connect-dev/fayda/client-secret-mock',
           FAYDA_SIGNING_SECRET_ARN: '/wereda-connect-dev/fayda/signing-secret',
         }),
       },
@@ -338,6 +414,8 @@ describe('ApiStack (prod security)', () => {
       expect(env).not.toHaveProperty('TELEBIRR_MOCK');
       // SRV-01/CHAIN-04: dev OTP bypass must never reach prod.
       expect(env).not.toHaveProperty('DEV_OTP_BYPASS');
+      // The mock Fayda provider (faydaMode 'mock') must never be deployed beside prod.
+      expect(env).not.toHaveProperty('FAYDA_MOCK');
     }
   });
 

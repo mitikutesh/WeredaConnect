@@ -73,32 +73,93 @@ def http(method, url, headers=None, body=None, timeout=30):
         return 0, str(e.reason)
 
 
-def cognito_login(region, client_id, phone, password, token_kind):
-    """USER_PASSWORD_AUTH against the admin pool's app client (no secret)."""
-    status, body = http(
+def totp_code(secret_base32, at=None):
+    """RFC 6238 TOTP (SHA-1, 6 digits, 30 s) with the standard library only."""
+    import hmac
+    import hashlib
+    import struct
+    import time
+    padded = secret_base32.strip().upper() + "=" * (-len(secret_base32.strip()) % 8)
+    key = base64.b32decode(padded)
+    counter = int((at if at is not None else time.time()) // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return f"{value % 1_000_000:06d}"
+
+
+def cognito_call(region, target, body):
+    status, raw = http(
         "POST",
         f"https://cognito-idp.{region}.amazonaws.com/",
         headers={
             "Content-Type": "application/x-amz-json-1.1",
-            "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth",
+            "X-Amz-Target": f"AWSCognitoIdentityProviderService.{target}",
         },
-        body={
-            "AuthFlow": "USER_PASSWORD_AUTH",
-            "ClientId": client_id,
-            "AuthParameters": {"USERNAME": phone, "PASSWORD": password},
-        },
+        body=body,
     )
     try:
-        payload = json.loads(body) if body else {}
+        payload = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
-        payload = {"message": body}
+        payload = {"message": raw}
+    return status, payload
+
+
+def cognito_login(region, client_id, phone, password, token_kind):
+    """USER_PASSWORD_AUTH against the admin pool's app client (no secret), then the
+    TOTP challenges the pool requires: MFA_SETUP enrols a fresh authenticator
+    (seed-admin-user.sh clears the preference before every run); SOFTWARE_TOKEN_MFA
+    answers with ADMIN_TOTP_SECRET when a secret is provided."""
+    status, payload = cognito_call(region, "InitiateAuth", {
+        "AuthFlow": "USER_PASSWORD_AUTH",
+        "ClientId": client_id,
+        "AuthParameters": {"USERNAME": phone, "PASSWORD": password},
+    })
     if status != 200:
-        return None, f"{payload.get('__type', status)}: {payload.get('message', body)}"
-    result = payload.get("AuthenticationResult") or {}
-    token = result.get("IdToken" if token_kind == "id" else "AccessToken")
-    if not token:
-        return None, f"no {token_kind} token in response ({payload.get('ChallengeName', 'unknown challenge')})"
-    return token, None
+        return None, f"{payload.get('__type', status)}: {payload.get('message', payload)}"
+
+    for _ in range(3):
+        result = payload.get("AuthenticationResult") or {}
+        if result:
+            token = result.get("IdToken" if token_kind == "id" else "AccessToken")
+            return (token, None) if token else (None, f"no {token_kind} token in response")
+
+        challenge = payload.get("ChallengeName")
+        session = payload.get("Session")
+        if challenge == "MFA_SETUP":
+            status, assoc = cognito_call(region, "AssociateSoftwareToken", {"Session": session})
+            if status != 200:
+                return None, f"AssociateSoftwareToken: {assoc.get('message', assoc)}"
+            secret = assoc["SecretCode"]
+            status, verified = cognito_call(region, "VerifySoftwareToken", {
+                "Session": assoc["Session"],
+                "UserCode": totp_code(secret),
+                "FriendlyDeviceName": "ci-e2e",
+            })
+            if status != 200:
+                return None, f"VerifySoftwareToken: {verified.get('message', verified)}"
+            status, payload = cognito_call(region, "RespondToAuthChallenge", {
+                "ChallengeName": "MFA_SETUP",
+                "ClientId": client_id,
+                "Session": verified["Session"],
+                "ChallengeResponses": {"USERNAME": phone},
+            })
+        elif challenge == "SOFTWARE_TOKEN_MFA":
+            secret = os.environ.get("ADMIN_TOTP_SECRET")
+            if not secret:
+                return None, "SOFTWARE_TOKEN_MFA challenge but ADMIN_TOTP_SECRET is not set"
+            status, payload = cognito_call(region, "RespondToAuthChallenge", {
+                "ChallengeName": "SOFTWARE_TOKEN_MFA",
+                "ClientId": client_id,
+                "Session": session,
+                "ChallengeResponses": {"USERNAME": phone, "SOFTWARE_TOKEN_MFA_CODE": totp_code(secret)},
+            })
+        else:
+            return None, f"unexpected challenge: {challenge or 'none'}"
+        if status != 200:
+            return None, f"{payload.get('__type', status)}: {payload.get('message', payload)}"
+
+    return None, "too many challenge rounds"
 
 
 def jwt_claims(token):
@@ -136,7 +197,7 @@ def main():
     print(f"Client: {args.client_id}")
     print(f"Admin:  {args.phone}")
 
-    print("\n--- Cognito login (USER_PASSWORD_AUTH)")
+    print("\n--- Cognito login (USER_PASSWORD_AUTH + TOTP challenge)")
     token, err = cognito_login(args.region, args.client_id, args.phone, args.password, args.token)
     if not token:
         print(f"  [X] login: FAIL -- {err}")

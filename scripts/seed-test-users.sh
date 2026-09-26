@@ -127,8 +127,11 @@ for entry in "${USERS[@]}"; do
   fi
 
   # 5. Verify login works
-  LOGIN_RESULT=$(aws cognito-idp initiate-auth \
-    --auth-flow USER_PASSWORD_AUTH \
+  # The mobile app client has USER_PASSWORD_AUTH disabled (password logins go
+  # through the server); the admin flow verifies the credentials with IAM instead.
+  LOGIN_RESULT=$(aws cognito-idp admin-initiate-auth \
+    --auth-flow ADMIN_USER_PASSWORD_AUTH \
+    --user-pool-id "$USER_POOL_ID" \
     --client-id "$CLIENT_ID" \
     --auth-parameters "USERNAME=$PHONE,PASSWORD=$PASSWORD" \
     --region "$REGION" \
