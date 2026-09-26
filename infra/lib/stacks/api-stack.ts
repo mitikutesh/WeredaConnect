@@ -205,11 +205,16 @@ export class ApiStack extends cdk.Stack {
       autoVerify: { phone: false },
       // Required everywhere: dev and staging admins hold the same escrow powers as
       // prod admins, and the admin web app drives the TOTP challenge and setup.
-      // TOTP is the second factor in every environment (SMS would lock dev and
-      // staging admins out while SNS is sandboxed); prod additionally allows SMS.
+      // TOTP is the second factor admins enrol in every environment. SMS stays
+      // enabled as a pool-level factor everywhere: the pool carries an SMS
+      // configuration (phone alias + phone recovery), and Cognito rejects turning
+      // SMS_MFA off on such a pool once MFA is REQUIRED, which rolled back the
+      // dev deploy. Dev/staging admins are not SMS-challenged because their phone
+      // is unverified and the seed disables SMS MFA per user, so login answers
+      // MFA_SETUP and they enrol TOTP.
       mfa: cognito.Mfa.REQUIRED,
       mfaSecondFactor: {
-        sms: envConfig.isProd,
+        sms: true,
         otp: true,
       },
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,

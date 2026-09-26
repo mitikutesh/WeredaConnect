@@ -99,6 +99,7 @@ aws cognito-idp admin-set-user-mfa-preference \
   --user-pool-id "$ADMIN_USER_POOL_ID" \
   --username "$ADMIN_PHONE" \
   --software-token-mfa-settings Enabled=false,PreferredMfa=false \
+  --sms-mfa-settings Enabled=false,PreferredMfa=false \
   --region "$REGION"
 echo "--- MFA preference reset (e2e enrols a fresh TOTP)."
 
