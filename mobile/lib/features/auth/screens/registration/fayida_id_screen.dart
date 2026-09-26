@@ -14,6 +14,9 @@ class FayidaIdScreen extends StatelessWidget {
   final VoidCallback onFaydaVerifyRequested;
   final VoidCallback? onCancelVerification;
   final bool isVerifying;
+
+  /// Text under the spinner while verifying; defaults to "Verifying...".
+  final String? verifyingMessage;
   final bool isVerified;
   final String? verifiedName;
   final String? errorMessage;
@@ -22,6 +25,7 @@ class FayidaIdScreen extends StatelessWidget {
     required this.onFaydaVerifyRequested,
     this.onCancelVerification,
     this.isVerifying = false,
+    this.verifyingMessage,
     this.isVerified = false,
     this.verifiedName,
     this.errorMessage,
@@ -156,7 +160,8 @@ class FayidaIdScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        l10n.faydaVerifying,
+                        verifyingMessage ?? l10n.faydaVerifying,
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 14,
                           color: AppTheme.textMuted,

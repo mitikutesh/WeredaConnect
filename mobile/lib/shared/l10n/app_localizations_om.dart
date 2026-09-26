@@ -2597,4 +2597,111 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get contextUnavailable => 'Bal\'inaaleen amma hin argaman';
+
+  @override
+  String get stepUpRequiredMessage =>
+      'Nageenya keessaniif, kaffaltii kana dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get kycRequiredFaydaMessage =>
+      'Kaffaltiin qarshii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, achiis kaffaltii irra deebi\'aa galchaa.';
+
+  @override
+  String get kycRequiredPhoneMessage =>
+      'Lakkoofsi bilbila keessanii ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Eenyummaa keessan mirkaneessaa, achiis kaffaltii irra deebi\'aa galchaa.';
+
+  @override
+  String get kycRequiredTitle => 'Mirkaneessuun barbaachisa';
+
+  @override
+  String authRateLimitRetryIn(int seconds) {
+    return 'Yaaliin baay\'ee ta\'eera. Sekondii $seconds booda irra deebi\'aa yaalaa.';
+  }
+
+  @override
+  String get otpInvalidOrExpired =>
+      'Koodiin kun dogoggora ykn yeroon isaa darbeera. SMS ilaalaa ykn koodii haaraa gaafadhaa.';
+
+  @override
+  String get otpVerificationTitle => 'Bilbila keessan mirkaneessaa';
+
+  @override
+  String otpSentTo(String phone) {
+    return 'Koodii lakkoofsa 6 qabu SMS\'n gara $phone ergineerra.';
+  }
+
+  @override
+  String get otpCodeHint => 'Koodii lakkoofsa 6';
+
+  @override
+  String otpExpiresAt(String time) {
+    return 'Koodiin sa\'aatii $time irratti dhumata.';
+  }
+
+  @override
+  String get stepUpTitle => 'Isin ta\'uu keessan mirkaneessaa';
+
+  @override
+  String stepUpPhoneLabel(String phone) {
+    return 'Bilbila: $phone';
+  }
+
+  @override
+  String get stepUpConfirm => 'Mirkaneessi';
+
+  @override
+  String get stepUpOfflineError =>
+      'Mirkaneessuuf interneetii barbaaddu. Walqunnamaa irra deebi\'aa yaalaa.';
+
+  @override
+  String get stepUpDone =>
+      'Mirkanaa\'eera. Kaffaltii keessan irra deebi\'amaa jira.';
+
+  @override
+  String get faydaUnavailableVerifyLater =>
+      'Faayidaan amma hin argamu. Itti fufuu fi booda profaayilii keessan irraa mirkaneessuu dandeessu.';
+
+  @override
+  String get faydaStateMismatch =>
+      'Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi\'aa jalqabaa.';
+
+  @override
+  String get faydaStillWaiting =>
+      'Ammallee Faayidaa eeggachaa jira. Brawuzara keessatti xumuraa, achii as deebifamtu.';
+
+  @override
+  String get faydaLinkSuccess =>
+      'ID Faayidaa keessan amma herrega keessan waliin walqabateera.';
+
+  @override
+  String get faydaMobileOnly =>
+      'Mirkaneessi Faayidaa appii moobaayilaa WeredaConnect keessatti argama.';
+
+  @override
+  String get faydaNotVerifiedSubtitle =>
+      'Kaffaltii qarshii 10,000 ol ta\'eef barbaachisa';
+
+  @override
+  String get appLockTitle => 'Cufaa appii';
+
+  @override
+  String get appLockSubtitle =>
+      'Yeroo appii bantan quba ykn PIN bilbilaa gaafadhu';
+
+  @override
+  String get appLockLockedTitle => 'WeredaConnect cufameera';
+
+  @override
+  String get appLockUnlock => 'Bani';
+
+  @override
+  String get appLockReason => 'WeredaConnect bani';
+
+  @override
+  String get qrConfirmAuthReason =>
+      'Geejjiba kana fudhachuuf isin ta\'uu keessan mirkaneessaa';
+
+  @override
+  String get qrConfirmAuthFailed =>
+      'Isin ta\'uu keessan mirkaneessuun hin danda\'amne. Geejjibni hin mirkanoofne.';
 }

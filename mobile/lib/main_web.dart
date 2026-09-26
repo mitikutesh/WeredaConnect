@@ -1,8 +1,6 @@
 // Web-only entry point for WeredaConnect.
 // Build with: flutter build web --target lib/main_web.dart
 // This avoids importing Isar/FFI code that doesn't compile to JavaScript.
-import 'dart:convert' show jsonDecode;
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +17,7 @@ import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/auth/token_refresh.dart';
 import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -86,62 +85,16 @@ Future<void> main() async {
     ),
   );
 
+  // Shared refresh callback: persists the new tokens, restarts the 48h
+  // offline session clock, and signs the user out (SessionSignals) when the
+  // server rejects the refresh token.
   final authInterceptor = AuthInterceptor(
     storage: secureStorage,
     dio: ApiClient().dio,
-    refreshTokenCallback: (refreshToken) async {
-      try {
-        final response = await refreshDio.post<dynamic>(
-          '/auth/refresh',
-          data: {'refreshToken': refreshToken},
-        );
-        // On web, response.data may be a String — decode if needed.
-        final dynamic raw = response.data;
-        final Map<String, dynamic> data = raw is String
-            ? jsonDecode(raw) as Map<String, dynamic>
-            : raw as Map<String, dynamic>;
-        final tokenData = data['tokens'] as Map<String, dynamic>;
-        final newAccessToken = tokenData['accessToken'] as String;
-        final newIdToken = tokenData['idToken'] as String;
-        final newRefreshToken =
-            tokenData['refreshToken'] as String? ?? refreshToken;
-
-        // Refresh the active token slots read by the AuthInterceptor. The
-        // ID token is the bearer (carries custom:role); the access token is
-        // kept for server-side token revocation on logout.
-        await secureStorage.write(key: 'access_token', value: newAccessToken);
-        await secureStorage.write(key: 'id_token', value: newIdToken);
-        await secureStorage.write(
-          key: 'refresh_token',
-          value: newRefreshToken,
-        );
-
-        // Update cached token structure so AuthBloc sees fresh tokens.
-        final phone = await secureStorage.read(key: 'current_user_phone');
-        if (phone != null) {
-          final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
-          final tokensJson = '{'
-              '"accessToken":"$newAccessToken",'
-              '"refreshToken":"$newRefreshToken",'
-              '"idToken":"$newIdToken",'
-              '"expiresAt":"${DateTime.now().add(Duration(seconds: expiresIn)).toIso8601String()}"'
-              '}';
-          await secureStorage.write(
-            key: 'cached_tokens_$phone',
-            value: tokensJson,
-          );
-        }
-
-        // Return the ID token — it becomes the new bearer for retried requests.
-        return newIdToken;
-      } on DioException catch (e) {
-        final statusCode = e.response?.statusCode;
-        if (statusCode != null && (statusCode == 400 || statusCode == 401)) {
-          return null;
-        }
-        rethrow;
-      }
-    },
+    refreshTokenCallback: buildRefreshTokenCallback(
+      refreshDio: refreshDio,
+      storage: secureStorage,
+    ),
   );
   ApiClient().dio.interceptors.insert(0, authInterceptor);
 

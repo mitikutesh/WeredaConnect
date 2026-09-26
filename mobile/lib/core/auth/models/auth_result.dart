@@ -53,6 +53,23 @@ class AuthResult {
   /// (used to show "offline mode" indicator in UI)
   final bool isOfflineAuth;
 
+  /// Registration succeeded but the phone must be confirmed with an SMS OTP
+  /// before any tokens are issued (register 202). [tokens] is null then.
+  final bool otpRequired;
+
+  /// When the pending OTP expires (register 202 / resend-otp), if known.
+  final DateTime? otpExpiresAt;
+
+  /// Fayda verification status from the server's `user` object, when the
+  /// response carried one (login, register, verify-otp).
+  final bool? faydaVerified;
+
+  /// When Fayda verification happened, if the server reported it.
+  final DateTime? faydaVerifiedAt;
+
+  /// The server flagged this login as coming from a device it has not seen.
+  final bool newDevice;
+
   const AuthResult._({
     required this.isSuccess,
     this.tokens,
@@ -64,6 +81,11 @@ class AuthResult {
     this.errorMessage,
     this.retryAfterSeconds,
     this.isOfflineAuth = false,
+    this.otpRequired = false,
+    this.otpExpiresAt,
+    this.faydaVerified,
+    this.faydaVerifiedAt,
+    this.newDevice = false,
   });
 
   /// Create a successful authentication result
@@ -74,6 +96,9 @@ class AuthResult {
     String? userName,
     String? woreda,
     bool isOfflineAuth = false,
+    bool? faydaVerified,
+    DateTime? faydaVerifiedAt,
+    bool newDevice = false,
   }) {
     return AuthResult._(
       isSuccess: true,
@@ -83,6 +108,23 @@ class AuthResult {
       userName: userName,
       woreda: woreda,
       isOfflineAuth: isOfflineAuth,
+      faydaVerified: faydaVerified,
+      faydaVerifiedAt: faydaVerifiedAt,
+      newDevice: newDevice,
+    );
+  }
+
+  /// Registration accepted; the phone must be confirmed with an SMS OTP
+  /// (register 202). No tokens yet. Also used for a successful resend-otp.
+  factory AuthResult.otpRequired({
+    String? userId,
+    DateTime? otpExpiresAt,
+  }) {
+    return AuthResult._(
+      isSuccess: true,
+      userId: userId,
+      otpRequired: true,
+      otpExpiresAt: otpExpiresAt,
     );
   }
 
@@ -119,7 +161,8 @@ class AuthResult {
   @override
   String toString() {
     if (isSuccess) {
-      return 'AuthResult.success(userId: $userId, offline: $isOfflineAuth)';
+      return 'AuthResult.success(userId: $userId, offline: $isOfflineAuth, '
+          'otpRequired: $otpRequired)';
     } else {
       return 'AuthResult.failure(code: $errorCode, message: $errorMessage)';
     }

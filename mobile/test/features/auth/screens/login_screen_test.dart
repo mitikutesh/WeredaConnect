@@ -10,6 +10,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
+import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 // ---------------------------------------------------------------------------
@@ -429,6 +430,45 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'an unconfirmed account (AUTH_016 turned into the OTP state) '
+        'opens the OTP screen once', (tester) async {
+      setMobileSize(tester);
+      final states = StreamController<AuthState>.broadcast();
+      addTearDown(states.close);
+      when(() => authBloc.isClosed).thenReturn(false);
+      await tester.pumpWidget(buildTestWidget(stream: states.stream));
+      await tester.pumpAndSettle();
+
+      const otp = AuthOtpVerificationRequired(phoneNumber: '+251911234567');
+      when(() => authBloc.state).thenReturn(otp);
+      states.add(otp);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      expect(find.byType(OtpVerificationScreen), findsOneWidget);
+      expect(
+        find.text('We sent a 6-digit code by SMS to +251911234567.'),
+        findsOneWidget,
+      );
+
+      // A repeat of the state (resend) must not stack a second screen.
+      states.add(
+        AuthOtpVerificationRequired(
+          phoneNumber: '+251911234567',
+          resentAt: DateTime.utc(2026, 9, 26),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(OtpVerificationScreen), findsOneWidget);
+
+      // Unmount so the OTP countdown timer is cancelled.
+      await tester.pumpWidget(const SizedBox.shrink());
     });
   });
 }

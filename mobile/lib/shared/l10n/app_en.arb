@@ -3277,5 +3277,137 @@
   "contextUnavailable": "Details aren't available right now",
   "@contextUnavailable": {
     "description": "Shown when tapping a chat's linked crop/trip that can't be loaded (offline / not synced / not visible)"
+  },
+  "stepUpRequiredMessage": "For your safety, confirm it's you before this payment.",
+  "@stepUpRequiredMessage": {
+    "description": "Shown when the server needs a fresh password before a high-value money action (AUTH_040)"
+  },
+  "kycRequiredFaydaMessage": "Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda, then submit the payment again.",
+  "@kycRequiredFaydaMessage": {
+    "description": "Explanation when a payment is blocked until the buyer verifies their Fayda ID (ORDER_KYC_REQUIRED)"
+  },
+  "kycRequiredPhoneMessage": "Your phone number is not verified yet, so this payment was not sent. Verify your identity, then submit the payment again.",
+  "@kycRequiredPhoneMessage": {
+    "description": "Explanation when a payment is blocked because the buyer's phone is not verified (ORDER_KYC_REQUIRED)"
+  },
+  "kycRequiredTitle": "Verification needed",
+  "@kycRequiredTitle": {
+    "description": "Title of the dialog shown when a payment needs identity verification"
+  },
+  "authRateLimitRetryIn": "Too many attempts. Try again in {seconds} seconds.",
+  "@authRateLimitRetryIn": {
+    "description": "Rate limit message with a retry countdown",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpInvalidOrExpired": "That code is wrong or has expired. Check the SMS or request a new code.",
+  "@otpInvalidOrExpired": {
+    "description": "OTP verification error AUTH_012"
+  },
+  "otpVerificationTitle": "Confirm your phone",
+  "@otpVerificationTitle": {
+    "description": "Title of the registration OTP screen"
+  },
+  "otpSentTo": "We sent a 6-digit code by SMS to {phone}.",
+  "@otpSentTo": {
+    "description": "OTP screen explanation with the destination phone number",
+    "placeholders": {
+      "phone": {
+        "type": "String"
+      }
+    }
+  },
+  "otpCodeHint": "6-digit code",
+  "@otpCodeHint": {
+    "description": "Hint text inside the OTP input"
+  },
+  "otpExpiresAt": "The code expires at {time}.",
+  "@otpExpiresAt": {
+    "description": "OTP expiry time notice",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "stepUpTitle": "Confirm it's you",
+  "@stepUpTitle": {
+    "description": "Title of the step-up re-authentication dialog"
+  },
+  "stepUpPhoneLabel": "Phone: {phone}",
+  "@stepUpPhoneLabel": {
+    "description": "Read-only phone shown in the step-up dialog",
+    "placeholders": {
+      "phone": {
+        "type": "String"
+      }
+    }
+  },
+  "stepUpConfirm": "Confirm",
+  "@stepUpConfirm": {
+    "description": "Confirm button in the step-up dialog"
+  },
+  "stepUpOfflineError": "You need internet to confirm. Connect and try again.",
+  "@stepUpOfflineError": {
+    "description": "Step-up dialog error when offline"
+  },
+  "stepUpDone": "Confirmed. Retrying your payment.",
+  "@stepUpDone": {
+    "description": "Snackbar after a successful step-up re-authentication"
+  },
+  "faydaUnavailableVerifyLater": "Fayda is unavailable right now. You can continue and verify later from your profile.",
+  "@faydaUnavailableVerifyLater": {
+    "description": "Fayda FAYDA_003 message that lets registration continue"
+  },
+  "faydaStateMismatch": "The Fayda session expired. Please start verification again.",
+  "@faydaStateMismatch": {
+    "description": "Fayda callback state mismatch or FAYDA_002"
+  },
+  "faydaStillWaiting": "Still waiting for Fayda. Finish in the browser and you will be brought back here.",
+  "@faydaStillWaiting": {
+    "description": "Shown on the Fayda verification screen when the app came back from the browser but the Fayda result has not arrived yet"
+  },
+  "faydaLinkSuccess": "Your Fayda ID is now linked to your account.",
+  "@faydaLinkSuccess": {
+    "description": "Success message after linking Fayda from the profile"
+  },
+  "faydaMobileOnly": "Fayda verification is available in the WeredaConnect mobile app.",
+  "@faydaMobileOnly": {
+    "description": "Shown on web where the Fayda deep-link flow is not supported"
+  },
+  "faydaNotVerifiedSubtitle": "Needed for payments above 10,000 ETB",
+  "@faydaNotVerifiedSubtitle": {
+    "description": "Profile menu subtitle under Verify with Fayda"
+  },
+  "appLockTitle": "App lock",
+  "@appLockTitle": {
+    "description": "Profile toggle title for the app lock setting"
+  },
+  "appLockSubtitle": "Ask for your fingerprint or phone PIN when opening the app",
+  "@appLockSubtitle": {
+    "description": "Profile toggle subtitle for the app lock setting"
+  },
+  "appLockLockedTitle": "WeredaConnect is locked",
+  "@appLockLockedTitle": {
+    "description": "Title on the app lock screen"
+  },
+  "appLockUnlock": "Unlock",
+  "@appLockUnlock": {
+    "description": "Unlock button on the app lock screen"
+  },
+  "appLockReason": "Unlock WeredaConnect",
+  "@appLockReason": {
+    "description": "System prompt reason when unlocking the app"
+  },
+  "qrConfirmAuthReason": "Confirm it's you to accept this delivery",
+  "@qrConfirmAuthReason": {
+    "description": "System prompt reason before confirming a delivery by QR"
+  },
+  "qrConfirmAuthFailed": "Could not confirm it's you. The delivery was not confirmed.",
+  "@qrConfirmAuthFailed": {
+    "description": "Shown when device authentication fails before QR delivery confirm"
   }
 }

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -81,6 +83,10 @@ class InitiatePaymentScreen extends StatelessWidget {
             ),
           );
           Navigator.of(context).pop();
+        } else if (state is EscrowError && state.code == stepUpRequiredCode) {
+          // High-value payment with an old session: confirm the password,
+          // then send the same payment again.
+          _retryAfterStepUp(context);
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -293,6 +299,20 @@ class InitiatePaymentScreen extends StatelessWidget {
     );
   }
 
+  InitiatePayment get _paymentEvent => InitiatePayment(
+        deliveryId: deliveryId,
+        buyerId: buyerId,
+        farmerId: farmerId,
+        amount: amount,
+      );
+
+  Future<void> _retryAfterStepUp(BuildContext context) async {
+    final ok = await showStepUpDialog(context);
+    if (ok && context.mounted) {
+      context.read<EscrowBloc>().add(_paymentEvent);
+    }
+  }
+
   void _showConfirmation(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -314,14 +334,7 @@ class InitiatePaymentScreen extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                context.read<EscrowBloc>().add(
-                      InitiatePayment(
-                        deliveryId: deliveryId,
-                        buyerId: buyerId,
-                        farmerId: farmerId,
-                        amount: amount,
-                      ),
-                    );
+                context.read<EscrowBloc>().add(_paymentEvent);
               },
               child: Text(dl10n.escrowPayButton),
             ),

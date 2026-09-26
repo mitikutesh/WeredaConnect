@@ -7,6 +7,7 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
@@ -26,7 +27,10 @@ class EscrowSyncService {
   final ApiClient _apiClient;
   final ConnectivityMonitor _connectivityMonitor;
 
+  final SecurityEvents _securityEvents;
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<void>? _stepUpSubscription;
 
   /// MH4: Processing lock to prevent concurrent intent processing.
   bool _isProcessing = false;
@@ -41,9 +45,11 @@ class EscrowSyncService {
     required Isar isar,
     required ApiClient apiClient,
     required ConnectivityMonitor connectivityMonitor,
+    SecurityEvents? securityEvents,
   })  : _isar = isar,
         _apiClient = apiClient,
-        _connectivityMonitor = connectivityMonitor;
+        _connectivityMonitor = connectivityMonitor,
+        _securityEvents = securityEvents ?? SecurityEvents.instance;
 
   /// Start listening for connectivity changes.
   ///
@@ -60,6 +66,11 @@ class EscrowSyncService {
       }
     });
 
+    // A queued payment that needed step-up (AUTH_040) waits in pendingSync;
+    // retry as soon as the user has re-authenticated.
+    _stepUpSubscription =
+        _securityEvents.onStepUpCompleted.listen((_) => processQueuedIntents());
+
     // Drain the queue once at startup. onConnectivityChanged only emits on
     // *transitions*, so a device that reopens the app already-online would
     // otherwise never fire — leaving a queued payment stuck forever (Review H1).
@@ -71,6 +82,8 @@ class EscrowSyncService {
   void dispose() {
     _connectivitySubscription?.cancel();
     _connectivitySubscription = null;
+    _stepUpSubscription?.cancel();
+    _stepUpSubscription = null;
   }
 
   /// Process all pending intents.
@@ -105,7 +118,13 @@ class EscrowSyncService {
           .findAll();
 
       for (final intent in intents) {
-        await _processIntent(intent);
+        final needsStepUp = await _processIntent(intent);
+        if (needsStepUp) {
+          // Every remaining high-value intent would hit the same gate: stop,
+          // ask the user once, and retry after they re-authenticate.
+          _securityEvents.emit(const StepUpRequired());
+          break;
+        }
       }
     } finally {
       _isProcessing = false;
@@ -183,12 +202,17 @@ class EscrowSyncService {
   }
 
   /// Process a single intent: transition to syncing, call API, update status.
-  Future<void> _processIntent(PaymentIntent intent) async {
+  ///
+  /// Returns true when the server asked for step-up (AUTH_040): the intent is
+  /// put back to pendingSync without burning a retry.
+  Future<bool> _processIntent(PaymentIntent intent) async {
     // MH4: Atomic status transition pendingSync -> syncing
     await _isar.writeTxn(() async {
       // Re-read to ensure still pendingSync (prevents double-pickup)
       final current = await _isar.paymentIntents.get(intent.id);
-      if (current == null || current.status != IntentStatus.pendingSync) return;
+      if (current == null || current.status != IntentStatus.pendingSync) {
+        return;
+      }
 
       current.status = IntentStatus.syncing;
       current.lastAttemptAt = DateTime.now().toUtc();
@@ -197,7 +221,7 @@ class EscrowSyncService {
 
     // Re-read after transaction to verify transition happened
     final syncing = await _isar.paymentIntents.get(intent.id);
-    if (syncing == null || syncing.status != IntentStatus.syncing) return;
+    if (syncing == null || syncing.status != IntentStatus.syncing) return false;
 
     // Apply exponential backoff delay based on retry count
     await _applyBackoff(syncing.retryCount);
@@ -268,11 +292,23 @@ class EscrowSyncService {
           await _isar.paymentIntents.put(current);
         }
       });
+    } on StepUpRequiredException {
+      // The session is too old for this amount. Not a failure: keep the
+      // intent (same idempotency key) and retry after re-authentication.
+      await _isar.writeTxn(() async {
+        final current = await _isar.paymentIntents.get(syncing.id);
+        if (current != null) {
+          current.status = IntentStatus.pendingSync;
+          await _isar.paymentIntents.put(current);
+        }
+      });
+      return true;
     } on ApiException catch (e) {
       await _handleIntentFailure(syncing, e.message);
     } on Exception catch (e) {
       await _handleIntentFailure(syncing, e.toString());
     }
+    return false;
   }
 
   /// Handle a failed intent: increment retry count or mark as failed.

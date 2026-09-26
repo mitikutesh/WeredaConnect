@@ -920,5 +920,47 @@ void main() {
         expect((result as EscrowError).code, 'ESCROW_011');
       });
     });
+
+    group('step-up (403 AUTH_040)', () {
+      setUp(() {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const StepUpRequiredException('AUTH_040: step-up required'),
+        );
+      });
+
+      test('initiatePayment maps to the step-up code, not a queued intent',
+          () async {
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000,
+        );
+
+        expect(result, isA<EscrowError>());
+        expect((result as EscrowError).code, stepUpRequiredCode);
+        expect(await isar.paymentIntents.count(), 0);
+      });
+
+      test('raiseDispute maps to the step-up code', () async {
+        await _insertTestPayment(isar);
+
+        final result = await repository.raiseDispute(
+          escrowId: 'esc-001',
+          disputedBy: 'buyer-001',
+          reason: 'damaged',
+        );
+
+        expect(result, isA<EscrowError>());
+        expect((result as EscrowError).code, stepUpRequiredCode);
+      });
+    });
   });
 }

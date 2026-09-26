@@ -642,6 +642,11 @@ class EscrowRepository extends BaseEscrowRepository {
   ///
   /// MH7: Never log raw request/response bodies. Use error codes only.
   EscrowError _mapApiException(ApiException e) {
+    // Step-up (AUTH_040): the session is valid but too old for this amount.
+    // The screen asks for the password and retries; never "please log in".
+    if (e is StepUpRequiredException) {
+      return EscrowError(stepUpRequiredCode, e.message);
+    }
     if (e is ValidationException) {
       return EscrowError(
         'ESCROW_VALIDATION',

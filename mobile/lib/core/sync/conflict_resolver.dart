@@ -528,6 +528,7 @@ class ConflictResolver {
           .userIdEqualTo(operation.entityId)
           .findFirst();
 
+      final existingUser = user;
       await _isar.writeTxn(() async {
         user ??= User()..userId = operation.entityId;
 
@@ -536,12 +537,21 @@ class ConflictResolver {
         user!.fullName = serverData['fullName'] as String?;
         user!.displayName = serverData['displayName'] as String?;
 
-        // Parse role enum
-        final roleStr = serverData['role'] as String;
-        user!.role = UserRole.values.firstWhere(
-          (e) => e.name == roleStr,
-          orElse: () => UserRole.farmer,
-        );
+        // Parse role enum. Fail closed: an unknown or missing role never
+        // defaults to farmer (that mis-scoped truckers/buyers); keep the role
+        // we already have, and refuse to create a user without one.
+        final roleStr = (serverData['role'] as String?)?.toLowerCase();
+        UserRole? serverRole;
+        for (final r in UserRole.values) {
+          if (r.name.toLowerCase() == roleStr) serverRole = r;
+        }
+        if (serverRole != null) {
+          user!.role = serverRole;
+        } else if (existingUser == null) {
+          throw ConflictResolutionException(
+            'User conflict carried an unrecognized role: $roleStr',
+          );
+        }
 
         user!.woreda = serverData['woreda'] as String;
         user!.faydaId = serverData['faydaId'] as String?;

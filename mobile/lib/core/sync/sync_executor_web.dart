@@ -2,15 +2,21 @@ import 'dart:async';
 
 import 'package:wereda_connect/core/models/sync_operation.dart';
 
-/// Callback for handling sync conflicts (web stub — unused).
+/// Callback for handling sync conflicts (web stub, unused).
 typedef ConflictHandler = Future<void> Function(
   SyncOperation operation,
   Map<String, dynamic> serverData,
   int serverVersion,
 );
 
-/// Callback to obtain current user ID (web stub — unused).
+/// Callback to obtain current user ID (web stub, unused).
 typedef GetCurrentUserIdCallback = Future<String?> Function();
+
+/// Called when the KYC gate rejected an operation (web stub, unused).
+typedef KycRejectionHandler = Future<void> Function(
+  SyncOperation operation,
+  String message,
+);
 
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
@@ -31,6 +37,8 @@ class SyncBatchResult {
   final int succeeded;
   final int conflicted;
   final int failed;
+  final int deferred;
+  final int stepUpRequired;
   final SyncBatchStatus status;
   final String? errorMessage;
   final Map<String, String> operationErrors;
@@ -40,6 +48,8 @@ class SyncBatchResult {
     this.succeeded = 0,
     this.conflicted = 0,
     this.failed = 0,
+    this.deferred = 0,
+    this.stepUpRequired = 0,
     this.status = SyncBatchStatus.empty,
     this.errorMessage,
     this.operationErrors = const {},
@@ -58,6 +68,8 @@ class SyncExecutor {
     dynamic conflictNotificationService,
     void Function()? onSyncComplete,
     GetCurrentUserIdCallback? getCurrentUserId,
+    dynamic securityEvents,
+    KycRejectionHandler? onKycRequired,
   });
 
   Stream<SyncBatchResult> get onSyncResult => const Stream.empty();

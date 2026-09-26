@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 // direct import so QAfterFilterCondition resolves on both platforms.
 // ignore: unnecessary_import
 import 'package:isar/isar.dart' show QAfterFilterCondition;
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
+    if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -22,6 +24,8 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart';
+import 'package:wereda_connect/core/security/app_lock_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -33,14 +37,21 @@ import 'package:wereda_connect/screens/settings_screen.dart';
 ///
 /// Absorbs settings/about/logout that were previously in the drawer.
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  /// Loads the signed-in user (Fayda badge). Defaults to Isar on mobile and
+  /// the cached user on web; tests inject one.
+  final Future<User?> Function(AuthAuthenticated authState)? loadUser;
+
+  /// App lock settings behind the switch; tests inject one.
+  final AppLockService? appLockService;
+
+  const ProfileScreen({this.loadUser, this.appLockService, super.key});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final int _rebuildKey = 0;
+  int _rebuildKey = 0;
   Future<Map<String, String>>? _statsFuture;
   String? _statsUserId;
   UserRole? _statsRole;
@@ -74,7 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   ) {
     return FutureBuilder<User?>(
       key: ValueKey(_rebuildKey),
-      future: _getUser(authState.userId),
+      future: (widget.loadUser ?? _getUser)(authState),
       builder: (context, snapshot) {
         final user = snapshot.data;
         final name = user?.name ?? authState.userName;
@@ -281,6 +292,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               authState,
               l10n,
               _getStatsFuture(authState.userId, authState.role),
+              isVerified: isVerified,
             ),
           ],
         ),
@@ -467,6 +479,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   l10n,
                   isDesktop,
                   _getStatsFuture(authState.userId, authState.role),
+                  isVerified: isVerified,
                 ),
               ],
             ),
@@ -481,14 +494,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     BuildContext context,
     AuthAuthenticated authState,
     AppLocalizations l10n,
-    Future<Map<String, String>> statsFuture,
-  ) {
+    Future<Map<String, String>> statsFuture, {
+    bool isVerified = false,
+  }) {
     return FutureBuilder<Map<String, String>>(
       future: statsFuture,
       builder: (context, snap) {
         final stats =
             snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
-        final items = _menuItemWidgets(context, l10n, stats);
+        final items =
+            _menuItemWidgets(context, l10n, stats, isVerified: isVerified);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
@@ -513,14 +528,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     AuthAuthenticated authState,
     AppLocalizations l10n,
     bool isDesktop,
-    Future<Map<String, String>> statsFuture,
-  ) {
+    Future<Map<String, String>> statsFuture, {
+    bool isVerified = false,
+  }) {
     return FutureBuilder<Map<String, String>>(
       future: statsFuture,
       builder: (context, snap) {
         final stats =
             snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
-        final items = _menuItemWidgets(context, l10n, stats);
+        final items =
+            _menuItemWidgets(context, l10n, stats, isVerified: isVerified);
 
         if (isDesktop) {
           // Two-column grid layout
@@ -583,10 +600,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<Widget> _menuItemWidgets(
     BuildContext context,
     AppLocalizations l10n,
-    Map<String, String> stats,
-  ) {
+    Map<String, String> stats, {
+    bool isVerified = false,
+  }) {
     final trades = stats['trades'] ?? '0';
     return [
+      // Link-later Fayda: needed for payments above 10,000 ETB.
+      if (!isVerified)
+        _ProfileMenuItem(
+          key: const Key('profile_verify_fayda'),
+          icon: Icons.verified_user_outlined,
+          title: l10n.verifyWithFayda,
+          subtitle: l10n.faydaNotVerifiedSubtitle,
+          iconColor: AppTheme.accentGold,
+          onTap: () => _openFaydaVerification(context),
+        ),
+      // Device lock on app open (hidden on web / devices without a lock).
+      _AppLockMenuItem(service: widget.appLockService),
       _ProfileMenuItem(
         icon: Icons.account_balance_wallet_outlined,
         title: l10n.wallet,
@@ -739,17 +769,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return _statsFuture!;
   }
 
-  Future<User?> _getUser(String userId) async {
+  Future<User?> _getUser(AuthAuthenticated authState) async {
     if (kIsWeb) {
-      // On web, user data comes from auth state, not Isar
-      return null;
+      // No Isar on web: the cached user JSON carries the verification badge.
+      final phone = authState.phoneNumber;
+      if (phone == null || phone.isEmpty) return null;
+      try {
+        return await OfflineAuthCache().getCachedUser(phone);
+      } on Object {
+        return null;
+      }
     }
     try {
       final isar = IsarService.instance.db;
-      return await isar.users.where().userIdEqualTo(userId).findFirst();
+      return await isar.users
+          .where()
+          .userIdEqualTo(authState.userId)
+          .findFirst();
     } on Object {
       return null;
     }
+  }
+
+  /// Open Fayda link-later verification; refresh the badge on return.
+  Future<void> _openFaydaVerification(BuildContext context) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const FaydaVerificationScreen()),
+    );
+    if (mounted) setState(() => _rebuildKey++);
   }
 
   static final NumberFormat _etbFormat = NumberFormat('#,##0');
@@ -1046,6 +1093,7 @@ class _ProfileMenuItem extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.iconColor,
+    super.key,
   });
 
   @override
@@ -1109,6 +1157,88 @@ class _ProfileMenuItem extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// "App lock" switch. Hidden on web and on devices that cannot authenticate
+/// the user (no lock screen). Turning it off needs a device check first.
+class _AppLockMenuItem extends StatefulWidget {
+  final AppLockService? service;
+
+  const _AppLockMenuItem({this.service});
+
+  @override
+  State<_AppLockMenuItem> createState() => _AppLockMenuItemState();
+}
+
+class _AppLockMenuItemState extends State<_AppLockMenuItem> {
+  late final AppLockService _service = widget.service ?? AppLockService();
+  bool? _supported;
+  bool _enabled = false;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final supported = await _service.isSupported();
+    final enabled = supported && await _service.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _supported = supported;
+      _enabled = enabled;
+    });
+  }
+
+  Future<void> _toggle(bool value) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      if (!value) {
+        final reason = AppLocalizations.of(context)!.appLockReason;
+        if (!await _service.unlock(reason)) return;
+      }
+      await _service.setEnabled(enabled: value);
+      if (mounted) setState(() => _enabled = value);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_supported != true) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderLight),
+      ),
+      child: SwitchListTile(
+        key: const Key('profile_app_lock_switch'),
+        contentPadding: EdgeInsets.zero,
+        secondary: const Icon(Icons.lock_outline, color: AppTheme.primaryGreen),
+        title: Text(
+          l10n.appLockTitle,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textDark,
+          ),
+        ),
+        subtitle: Text(
+          l10n.appLockSubtitle,
+          style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+        ),
+        value: _enabled,
+        onChanged: _busy ? null : _toggle,
       ),
     );
   }

@@ -4,6 +4,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/features/auth/widgets/kyc_required_dialog.dart';
+import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -71,6 +74,11 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
         );
   }
 
+  Future<void> _retryAfterStepUp() async {
+    final ok = await showStepUpDialog(context);
+    if (ok && mounted) _submitPayment();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -89,6 +97,17 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             Navigator.of(context)
               ..pop() // pop payment instructions
               ..pop(); // pop place order (if still in stack) or crop detail
+          } else if (state is OrderError &&
+              state.code == AppErrorCode.stepUpRequired) {
+            // Web submits straight to /sync: confirm the password, then
+            // submit the same payment again.
+            _retryAfterStepUp();
+          } else if (state is OrderError &&
+              state.code == AppErrorCode.kycRequired) {
+            showKycRequiredDialog(
+              context,
+              phoneNotVerified: KycRequired.isPhoneProblem(state.message),
+            );
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(localizeErrorCode(state.code, l10n))),

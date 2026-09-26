@@ -31,6 +31,33 @@ final class AuthException extends ApiException {
   ]);
 }
 
+/// Server error code for "step-up required": the ID token's `auth_time` is
+/// older than the freshness window for a high-value money action.
+const String stepUpRequiredCode = 'AUTH_040';
+
+/// Sync rejection prefix when a payment needs Fayda KYC or a verified phone.
+const String orderKycRequiredCode = 'ORDER_KYC_REQUIRED';
+
+/// The server wants the user to re-enter their password before a money
+/// action (REST 403 `AUTH_040`). Not an [AuthException]: the session is still
+/// valid, so callers must re-authenticate and retry instead of logging out.
+final class StepUpRequiredException extends ApiException {
+  const StepUpRequiredException([
+    super.message = 'Please confirm it is you',
+    super.statusCode = 403,
+  ]);
+}
+
+/// Whether a /sync per-operation error message is a step-up rejection
+/// (`AUTH_040: ...`).
+bool isStepUpRequiredMessage(String? message) =>
+    message != null && message.startsWith(stepUpRequiredCode);
+
+/// Whether a /sync per-operation error message is a KYC gate rejection
+/// (`ORDER_KYC_REQUIRED: ...`).
+bool isKycRequiredMessage(String? message) =>
+    message != null && message.startsWith(orderKycRequiredCode);
+
 /// Request validation error (400)
 final class ValidationException extends ApiException {
   const ValidationException(super.message, [super.statusCode = 400]);

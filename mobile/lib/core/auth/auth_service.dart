@@ -2,6 +2,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:wereda_connect/core/auth/device_identity.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
@@ -11,6 +12,7 @@ import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/core/network/json_body.dart';
 
 /// Resolve the authoritative [UserRole] from a server-provided role string.
 ///
@@ -28,6 +30,29 @@ UserRole? resolveServerRole(String? rawRole) {
     }
   }
   return null;
+}
+
+/// Parse the server's `user.faydaVerifiedAt` (ISO-8601) into UTC.
+@visibleForTesting
+DateTime? parseServerTimestamp(Object? raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  return DateTime.tryParse(raw)?.toUtc();
+}
+
+/// Decode a response body that may arrive as a raw JSON String (web).
+Map<String, dynamic> _asMap(Object? data) =>
+    requireJsonMap(data, what: 'auth response');
+
+/// Parse the `tokens` object shared by login, register, verify-otp, refresh.
+AuthTokens _parseTokens(Map<String, dynamic> data, {String? fallbackRefresh}) {
+  final tokenData = data['tokens'] as Map<String, dynamic>;
+  final expiresIn = (tokenData['expiresIn'] as num?)?.toInt() ?? 3600;
+  return AuthTokens(
+    accessToken: tokenData['accessToken'] as String,
+    refreshToken: tokenData['refreshToken'] as String? ?? fallbackRefresh ?? '',
+    idToken: tokenData['idToken'] as String,
+    expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+  );
 }
 
 /// Main authentication service for WeredaConnect.
@@ -53,25 +78,46 @@ class AuthService {
   final Dio _dio;
   final OfflineAuthCache _offlineCache;
   final Connectivity _connectivity;
+  final DeviceIdentity _deviceIdentity;
+  final bool? _apiConfiguredOverride;
+
+  /// Timeout for the best-effort push token unregister on logout.
+  static const deviceTokenUnregisterTimeout = Duration(seconds: 3);
 
   AuthService({
     Dio? dio,
     OfflineAuthCache? offlineCache,
     Connectivity? connectivity,
+    DeviceIdentity? deviceIdentity,
+    @visibleForTesting bool? apiConfigured,
   })  : _dio = dio ?? ApiClient().dio,
         _offlineCache = offlineCache ?? OfflineAuthCache(),
-        _connectivity = connectivity ?? Connectivity() {
+        _connectivity = connectivity ?? Connectivity(),
+        _deviceIdentity = deviceIdentity ?? DeviceIdentity(),
+        _apiConfiguredOverride = apiConfigured {
     // Initialize ApiClient with base URL (cert pinning disabled by default)
     if (dio == null) {
       ApiClient().initialize();
     }
   }
 
+  bool get _isApiConfigured =>
+      _apiConfiguredOverride ?? Environment.isApiConfigured;
+
+  Future<bool> _isOnline() async {
+    final results = await _connectivity.checkConnectivity();
+    return results.any((result) => result != ConnectivityResult.none);
+  }
+
+  Future<Options> _deviceOptions() async =>
+      Options(headers: await _deviceIdentity.headers());
+
   /// Register a new user with phone number, password, and Fayda verification.
   ///
-  /// The user must first complete Fayda OIDC verification to obtain a
-  /// [faydaVerificationToken]. The server validates this token and creates
-  /// the user account, returning auth tokens directly (no OTP step).
+  /// When a [faydaVerificationToken] is supplied and Fayda's phone matches,
+  /// the server answers 201 with tokens. Otherwise it answers 202 and the
+  /// phone must be confirmed with an SMS OTP: the result then has
+  /// [AuthResult.otpRequired] set and no tokens (call [verifyOtp] next).
   ///
   /// Params:
   /// - [phoneNumber]: Ethiopian phone number (+251XXXXXXXXX)
@@ -95,7 +141,7 @@ class AuthService {
     String? buyerType,
     String? companyName,
   }) async {
-    if (!Environment.isApiConfigured) {
+    if (!_isApiConfigured) {
       return _notConfiguredResult();
     }
 
@@ -132,26 +178,31 @@ class AuthService {
         data['companyName'] = companyName;
       }
 
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.registerEndpoint,
         data: data,
+        options: await _deviceOptions(),
       );
 
-      final responseData = response.data as Map<String, dynamic>;
+      final responseData = _asMap(response.data);
 
-      // Server now returns tokens directly (no OTP step)
-      final tokenData = responseData['tokens'] as Map<String, dynamic>;
-      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
-      final tokens = AuthTokens(
-        accessToken: tokenData['accessToken'] as String,
-        refreshToken: tokenData['refreshToken'] as String? ?? '',
-        idToken: tokenData['idToken'] as String,
-        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
-      );
+      // 202: account created but the phone must be confirmed by SMS OTP.
+      // No tokens are issued yet, so nothing is cached here.
+      if (response.statusCode == 202 || responseData['otpRequired'] == true) {
+        return AuthResult.otpRequired(
+          userId: responseData['userId'] as String?,
+          otpExpiresAt: parseServerTimestamp(responseData['otpExpiresAt']),
+        );
+      }
+
+      // 201: Fayda-verified registration returns tokens directly.
+      final tokens = _parseTokens(responseData);
 
       final user = responseData['user'] as Map<String, dynamic>;
       final userId = user['userId'] as String;
       final fullName = user['fullName'] as String?;
+      final faydaVerified = user['faydaVerified'] as bool?;
+      final faydaVerifiedAt = parseServerTimestamp(user['faydaVerifiedAt']);
 
       // Cache credentials for offline use
       try {
@@ -168,15 +219,26 @@ class AuthService {
           drivingLicensePath: drivingLicensePath,
           buyerType: buyerType,
           companyName: companyName,
+          faydaVerified: faydaVerified,
+          faydaVerifiedAt: faydaVerifiedAt,
         );
       } on Object catch (e) {
         debugPrint('[AuthService] Failed to cache credentials: $e');
       }
 
-      return AuthResult.success(tokens, userId: userId);
+      return AuthResult.success(
+        tokens,
+        userId: userId,
+        role: role,
+        userName: name,
+        woreda: woreda,
+        faydaVerified: faydaVerified,
+        faydaVerifiedAt: faydaVerifiedAt,
+      );
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception {
+    } on Object catch (e) {
+      debugPrint('[AuthService] register exception: $e');
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         'Something went wrong. Please try again.',
@@ -198,7 +260,7 @@ class AuthService {
     required String phoneNumber,
     required String password,
   }) async {
-    if (!Environment.isApiConfigured) {
+    if (!_isApiConfigured) {
       return _notConfiguredResult();
     }
 
@@ -214,46 +276,187 @@ class AuthService {
       }
 
       // Call login API
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.loginEndpoint,
         data: {
           'phoneNumber': phoneNumber,
           'password': password,
         },
+        options: await _deviceOptions(),
       );
 
-      final data = response.data as Map<String, dynamic>;
-
-      // Server wraps tokens under "tokens" key with expiresIn (seconds)
-      final tokenData = data['tokens'] as Map<String, dynamic>;
-      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
-      final tokens = AuthTokens(
-        accessToken: tokenData['accessToken'] as String,
-        refreshToken: tokenData['refreshToken'] as String? ?? '',
-        idToken: tokenData['idToken'] as String,
-        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      return await _completeSignIn(
+        _asMap(response.data),
+        phoneNumber: phoneNumber,
+        password: password,
       );
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } on Object catch (e, stackTrace) {
+      debugPrint('[AuthService] loginOnline exception: $e');
+      debugPrint('[AuthService] stackTrace: $stackTrace');
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
+      );
+    }
+  }
 
-      final user = data['user'] as Map<String, dynamic>;
-      final userId = user['userId'] as String;
-      final fullName = user['fullName'] as String?;
-      final displayName = (user['displayName'] as String?) ?? '';
-      final woreda = user['woreda'] as String;
+  /// Confirm the registration SMS OTP (POST /auth/verify-otp).
+  ///
+  /// Returns tokens exactly like a login. [password] (kept in memory by the
+  /// caller since the register or login call, never persisted) is sent with
+  /// the code because the server signs in with it, and it also builds the
+  /// offline credential cache. Without it only the profile and tokens are
+  /// cached. The optional
+  /// role-specific fields are the local-only registration extras.
+  Future<AuthResult> verifyOtp({
+    required String phoneNumber,
+    required String otpCode,
+    String? password,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
+  }) async {
+    if (!_isApiConfigured) {
+      return _notConfiguredResult();
+    }
 
-      // F-34: resolve the authoritative role from the server response BEFORE
-      // caching. An unrecognized/missing role must fail the login loudly — not
-      // be swallowed by the best-effort cache block below, which previously let
-      // the BLoC silently default the role to farmer.
-      final role = resolveServerRole(user['role'] as String?);
-      if (role == null) {
+    try {
+      if (!await _isOnline()) {
         return AuthResult.failure(
-          AuthErrorCode.internalServerError,
-          'Login failed: the server returned an unrecognized account role.',
+          AuthErrorCode.networkError,
+          'Verification requires internet connection',
         );
       }
 
-      // Cache credentials for offline use (best-effort — don't block login)
-      try {
+      final response = await _dio.post<dynamic>(
+        ApiConfig.verifyOtpEndpoint,
+        // The server signs the user in with the password once the OTP
+        // confirms, so it must travel with the code.
+        data: {
+          'phoneNumber': phoneNumber,
+          'otpCode': otpCode,
+          if (password != null) 'password': password,
+        },
+        options: await _deviceOptions(),
+      );
+
+      return await _completeSignIn(
+        _asMap(response.data),
+        phoneNumber: phoneNumber,
+        password: password,
+        drivingLicensePath: drivingLicensePath,
+        buyerType: buyerType,
+        companyName: companyName,
+      );
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } on Object catch (e) {
+      debugPrint('[AuthService] verifyOtp exception: $e');
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
+      );
+    }
+  }
+
+  /// Ask the server to send a fresh registration OTP (POST /auth/resend-otp).
+  ///
+  /// On success the result has [AuthResult.otpRequired] set and carries the
+  /// new [AuthResult.otpExpiresAt].
+  Future<AuthResult> resendOtp({required String phoneNumber}) async {
+    if (!_isApiConfigured) {
+      return _notConfiguredResult();
+    }
+
+    try {
+      if (!await _isOnline()) {
+        return AuthResult.failure(
+          AuthErrorCode.networkError,
+          'Resending the code requires internet connection',
+        );
+      }
+
+      final response = await _dio.post<dynamic>(
+        ApiConfig.resendOtpEndpoint,
+        data: {'phoneNumber': phoneNumber},
+      );
+      final data = _asMap(response.data);
+      return AuthResult.otpRequired(
+        otpExpiresAt: parseServerTimestamp(data['otpExpiresAt']),
+      );
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } on Object catch (e) {
+      debugPrint('[AuthService] resendOtp exception: $e');
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Something went wrong. Please try again.',
+      );
+    }
+  }
+
+  /// Best-effort: tell the server to stop sending pushes for [token]
+  /// (DELETE /device-tokens). Bounded by [deviceTokenUnregisterTimeout];
+  /// every failure is swallowed because logout must never depend on it.
+  Future<void> unregisterDeviceToken(String token) async {
+    if (!_isApiConfigured || token.isEmpty) return;
+    try {
+      await _dio
+          .delete<dynamic>(
+            ApiConfig.deviceTokensEndpoint,
+            data: {'token': token},
+            options: Options(
+              sendTimeout: deviceTokenUnregisterTimeout,
+              receiveTimeout: deviceTokenUnregisterTimeout,
+            ),
+          )
+          .timeout(deviceTokenUnregisterTimeout);
+    } on Object catch (e) {
+      debugPrint('[AuthService] device token unregister skipped: $e');
+    }
+  }
+
+  /// Shared tail of login and verify-otp: parse tokens + `user`, resolve the
+  /// role (fail closed), cache for offline use, and build the result.
+  Future<AuthResult> _completeSignIn(
+    Map<String, dynamic> data, {
+    required String phoneNumber,
+    String? password,
+    String? drivingLicensePath,
+    String? buyerType,
+    String? companyName,
+  }) async {
+    final tokens = _parseTokens(data);
+
+    final user = data['user'] as Map<String, dynamic>;
+    final userId = user['userId'] as String;
+    final fullName = user['fullName'] as String?;
+    final displayName = (user['displayName'] as String?) ?? '';
+    final woreda = user['woreda'] as String;
+    final faydaVerified = user['faydaVerified'] as bool?;
+    final faydaVerifiedAt = parseServerTimestamp(user['faydaVerifiedAt']);
+    final newDevice = data['newDevice'] == true;
+    if (newDevice) {
+      debugPrint('[AuthService] server reports a sign-in from a new device');
+    }
+
+    // F-34: resolve the authoritative role from the server response BEFORE
+    // caching. An unrecognized/missing role must fail the login loudly, not
+    // be swallowed by the best-effort cache block below, which previously let
+    // the BLoC silently default the role to farmer.
+    final role = resolveServerRole(user['role'] as String?);
+    if (role == null) {
+      return AuthResult.failure(
+        AuthErrorCode.internalServerError,
+        'Login failed: the server returned an unrecognized account role.',
+      );
+    }
+
+    // Cache for offline use (best-effort, never blocks login)
+    try {
+      if (password != null) {
         await _offlineCache.cacheCredentials(
           phoneNumber: phoneNumber,
           password: password,
@@ -264,28 +467,46 @@ class AuthService {
           tokens: tokens,
           fullName: fullName,
           displayName: displayName,
+          drivingLicensePath: drivingLicensePath,
+          buyerType: buyerType ?? user['buyerType'] as String?,
+          companyName: companyName ?? user['companyName'] as String?,
+          faydaVerified: faydaVerified,
+          faydaVerifiedAt: faydaVerifiedAt,
         );
-      } on Object catch (e) {
-        debugPrint('[AuthService] Failed to cache credentials: $e');
+      } else {
+        // No password in memory (e.g. OTP confirmed after an app restart):
+        // keep the profile and tokens so the session survives, offline
+        // password login becomes available after the next online login.
+        await _offlineCache.saveUserToIsar(
+          userId: userId,
+          phoneNumber: phoneNumber,
+          name: displayName,
+          role: role,
+          woreda: woreda,
+          fullName: fullName,
+          displayName: displayName,
+          drivingLicensePath: drivingLicensePath,
+          buyerType: buyerType ?? user['buyerType'] as String?,
+          companyName: companyName ?? user['companyName'] as String?,
+          faydaVerified: faydaVerified,
+          faydaVerifiedAt: faydaVerifiedAt,
+        );
+        await _offlineCache.updateTokens(phoneNumber, tokens);
       }
-
-      return AuthResult.success(
-        tokens,
-        userId: userId,
-        role: role,
-        userName: displayName,
-        woreda: woreda,
-      );
-    } on DioException catch (e) {
-      return _handleDioError(e);
-    } on Exception catch (e, stackTrace) {
-      debugPrint('[AuthService] loginOnline exception: $e');
-      debugPrint('[AuthService] stackTrace: $stackTrace');
-      return AuthResult.failure(
-        AuthErrorCode.internalServerError,
-        'Something went wrong. Please try again.',
-      );
+    } on Object catch (e) {
+      debugPrint('[AuthService] Failed to cache credentials: $e');
     }
+
+    return AuthResult.success(
+      tokens,
+      userId: userId,
+      role: role,
+      userName: displayName,
+      woreda: woreda,
+      faydaVerified: faydaVerified,
+      faydaVerifiedAt: faydaVerifiedAt,
+      newDevice: newDevice,
+    );
   }
 
   /// Login with cached credentials (offline mode).
@@ -381,7 +602,7 @@ class AuthService {
 
       if (isOnline) {
         // Online login requires API config
-        if (!Environment.isApiConfigured) {
+        if (!_isApiConfigured) {
           // Fall back to offline login if cached credentials exist
           final offlineResult = await loginOffline(
             phoneNumber: phoneNumber,
@@ -433,7 +654,7 @@ class AuthService {
   ///
   /// Returns [AuthResult] with new tokens on success.
   Future<AuthResult> refreshToken(String refreshToken) async {
-    if (!Environment.isApiConfigured) {
+    if (!_isApiConfigured) {
       return _notConfiguredResult();
     }
 
@@ -449,29 +670,22 @@ class AuthService {
       }
 
       // Call refresh API
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         ApiConfig.refreshEndpoint,
         data: {
           'refreshToken': refreshToken,
         },
       );
 
-      final data = response.data as Map<String, dynamic>;
+      final data = _asMap(response.data);
 
       // Server wraps tokens under "tokens" key with expiresIn (seconds)
-      final tokenData = data['tokens'] as Map<String, dynamic>;
-      final expiresIn = tokenData['expiresIn'] as int? ?? 3600;
-      final tokens = AuthTokens(
-        accessToken: tokenData['accessToken'] as String,
-        refreshToken: tokenData['refreshToken'] as String? ?? refreshToken,
-        idToken: tokenData['idToken'] as String,
-        expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
-      );
+      final tokens = _parseTokens(data, fallbackRefresh: refreshToken);
 
       return AuthResult.success(tokens);
     } on DioException catch (e) {
       return _handleDioError(e);
-    } on Exception {
+    } on Object {
       return AuthResult.failure(
         AuthErrorCode.internalServerError,
         'Something went wrong. Please try again.',
@@ -529,7 +743,7 @@ class AuthService {
   Future<AuthResult> forgotPassword({
     required String phoneNumber,
   }) async {
-    if (!Environment.isApiConfigured) {
+    if (!_isApiConfigured) {
       return _notConfiguredResult();
     }
 
@@ -571,7 +785,7 @@ class AuthService {
     required String confirmationCode,
     required String newPassword,
   }) async {
-    if (!Environment.isApiConfigured) {
+    if (!_isApiConfigured) {
       return _notConfiguredResult();
     }
 
@@ -626,7 +840,14 @@ class AuthService {
   AuthResult _handleDioError(DioException e) {
     if (e.response != null) {
       final statusCode = e.response!.statusCode;
-      final data = e.response!.data;
+      Object? data = e.response!.data;
+      if (data is String) {
+        try {
+          data = _asMap(data);
+        } on Object {
+          // Not JSON: fall through to the status-code handling below.
+        }
+      }
 
       if (data is Map<String, dynamic>) {
         // Handle structured error response: {"error": {"code": ..., "message": ..., "retryAfterSeconds": ...}}
@@ -637,7 +858,7 @@ class AuthService {
           return AuthResult.failure(
             error['code'] as String? ?? AuthErrorCode.internalServerError,
             error['message'] as String? ?? 'Server error',
-            retryAfterSeconds: retryAfter is int ? retryAfter : null,
+            retryAfterSeconds: retryAfter is num ? retryAfter.toInt() : null,
           );
         }
 

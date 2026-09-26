@@ -15,6 +15,8 @@
 
     <!-- Push notifications (Android 13+ runtime permission) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Device authentication (biometric or PIN/pattern) for QR delivery confirm + app lock -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
 
     <application
         android:label="WeredaConnect"

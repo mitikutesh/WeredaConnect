@@ -4809,6 +4809,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Details aren\'t available right now'**
   String get contextUnavailable;
+
+  /// Shown when the server needs a fresh password before a high-value money action (AUTH_040)
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before this payment.'**
+  String get stepUpRequiredMessage;
+
+  /// Explanation when a payment is blocked until the buyer verifies their Fayda ID (ORDER_KYC_REQUIRED)
+  ///
+  /// In en, this message translates to:
+  /// **'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda, then submit the payment again.'**
+  String get kycRequiredFaydaMessage;
+
+  /// Explanation when a payment is blocked because the buyer's phone is not verified (ORDER_KYC_REQUIRED)
+  ///
+  /// In en, this message translates to:
+  /// **'Your phone number is not verified yet, so this payment was not sent. Verify your identity, then submit the payment again.'**
+  String get kycRequiredPhoneMessage;
+
+  /// Title of the dialog shown when a payment needs identity verification
+  ///
+  /// In en, this message translates to:
+  /// **'Verification needed'**
+  String get kycRequiredTitle;
+
+  /// Rate limit message with a retry countdown
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Try again in {seconds} seconds.'**
+  String authRateLimitRetryIn(int seconds);
+
+  /// OTP verification error AUTH_012
+  ///
+  /// In en, this message translates to:
+  /// **'That code is wrong or has expired. Check the SMS or request a new code.'**
+  String get otpInvalidOrExpired;
+
+  /// Title of the registration OTP screen
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm your phone'**
+  String get otpVerificationTitle;
+
+  /// OTP screen explanation with the destination phone number
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a 6-digit code by SMS to {phone}.'**
+  String otpSentTo(String phone);
+
+  /// Hint text inside the OTP input
+  ///
+  /// In en, this message translates to:
+  /// **'6-digit code'**
+  String get otpCodeHint;
+
+  /// OTP expiry time notice
+  ///
+  /// In en, this message translates to:
+  /// **'The code expires at {time}.'**
+  String otpExpiresAt(String time);
+
+  /// Title of the step-up re-authentication dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you'**
+  String get stepUpTitle;
+
+  /// Read-only phone shown in the step-up dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Phone: {phone}'**
+  String stepUpPhoneLabel(String phone);
+
+  /// Confirm button in the step-up dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get stepUpConfirm;
+
+  /// Step-up dialog error when offline
+  ///
+  /// In en, this message translates to:
+  /// **'You need internet to confirm. Connect and try again.'**
+  String get stepUpOfflineError;
+
+  /// Snackbar after a successful step-up re-authentication
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed. Retrying your payment.'**
+  String get stepUpDone;
+
+  /// Fayda FAYDA_003 message that lets registration continue
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda is unavailable right now. You can continue and verify later from your profile.'**
+  String get faydaUnavailableVerifyLater;
+
+  /// Fayda callback state mismatch or FAYDA_002
+  ///
+  /// In en, this message translates to:
+  /// **'The Fayda session expired. Please start verification again.'**
+  String get faydaStateMismatch;
+
+  /// Shown on the Fayda verification screen when the app came back from the browser but the Fayda result has not arrived yet
+  ///
+  /// In en, this message translates to:
+  /// **'Still waiting for Fayda. Finish in the browser and you will be brought back here.'**
+  String get faydaStillWaiting;
+
+  /// Success message after linking Fayda from the profile
+  ///
+  /// In en, this message translates to:
+  /// **'Your Fayda ID is now linked to your account.'**
+  String get faydaLinkSuccess;
+
+  /// Shown on web where the Fayda deep-link flow is not supported
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda verification is available in the WeredaConnect mobile app.'**
+  String get faydaMobileOnly;
+
+  /// Profile menu subtitle under Verify with Fayda
+  ///
+  /// In en, this message translates to:
+  /// **'Needed for payments above 10,000 ETB'**
+  String get faydaNotVerifiedSubtitle;
+
+  /// Profile toggle title for the app lock setting
+  ///
+  /// In en, this message translates to:
+  /// **'App lock'**
+  String get appLockTitle;
+
+  /// Profile toggle subtitle for the app lock setting
+  ///
+  /// In en, this message translates to:
+  /// **'Ask for your fingerprint or phone PIN when opening the app'**
+  String get appLockSubtitle;
+
+  /// Title on the app lock screen
+  ///
+  /// In en, this message translates to:
+  /// **'WeredaConnect is locked'**
+  String get appLockLockedTitle;
+
+  /// Unlock button on the app lock screen
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get appLockUnlock;
+
+  /// System prompt reason when unlocking the app
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock WeredaConnect'**
+  String get appLockReason;
+
+  /// System prompt reason before confirming a delivery by QR
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you to accept this delivery'**
+  String get qrConfirmAuthReason;
+
+  /// Shown when device authentication fails before QR delivery confirm
+  ///
+  /// In en, this message translates to:
+  /// **'Could not confirm it\'s you. The delivery was not confirmed.'**
+  String get qrConfirmAuthFailed;
 }
 
 class _AppLocalizationsDelegate

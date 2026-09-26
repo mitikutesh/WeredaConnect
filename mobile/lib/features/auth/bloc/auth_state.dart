@@ -31,6 +31,11 @@ class AuthAuthenticated extends AuthState {
   final String? phoneNumber;
   final String? woreda;
 
+  /// True when the session was restored from the cache on app start
+  /// (auto-login) rather than by entering a password. The app lock prompts
+  /// for device authentication only in this case.
+  final bool isRestoredSession;
+
   const AuthAuthenticated({
     required this.userId,
     required this.tokens,
@@ -39,11 +44,53 @@ class AuthAuthenticated extends AuthState {
     this.userName = '',
     this.phoneNumber,
     this.woreda,
+    this.isRestoredSession = false,
+  });
+
+  /// Same session with fresh tokens (step-up re-authentication).
+  AuthAuthenticated withTokens(AuthTokens newTokens) => AuthAuthenticated(
+        userId: userId,
+        tokens: newTokens,
+        role: role,
+        userName: userName,
+        phoneNumber: phoneNumber,
+        woreda: woreda,
+        isRestoredSession: isRestoredSession,
+      );
+
+  @override
+  List<Object?> get props => [
+        userId,
+        tokens,
+        isOfflineAuth,
+        role,
+        userName,
+        phoneNumber,
+        woreda,
+        isRestoredSession,
+      ];
+}
+
+/// Registration (or a login for an unconfirmed account) needs the SMS OTP
+/// sent to [phoneNumber]. No tokens exist yet.
+class AuthOtpVerificationRequired extends AuthState {
+  final String phoneNumber;
+
+  /// When the current code expires, if the server said.
+  final DateTime? expiresAt;
+
+  /// Set when this state follows a successful resend, so a repeated state
+  /// with the same expiry still counts as a change.
+  final DateTime? resentAt;
+
+  const AuthOtpVerificationRequired({
+    required this.phoneNumber,
+    this.expiresAt,
+    this.resentAt,
   });
 
   @override
-  List<Object?> get props =>
-      [userId, tokens, isOfflineAuth, role, userName, phoneNumber, woreda];
+  List<Object?> get props => [phoneNumber, expiresAt, resentAt];
 }
 
 /// Unauthenticated state (user is not logged in).

@@ -37,8 +37,28 @@ class ApiConfig {
   /// POST /auth/register - Register new user
   static const String registerEndpoint = '/auth/register';
 
+  /// POST /auth/verify-otp - Confirm the SMS OTP sent after registration
+  static const String verifyOtpEndpoint = '/auth/verify-otp';
+
+  /// POST /auth/resend-otp - Send a fresh registration OTP
+  static const String resendOtpEndpoint = '/auth/resend-otp';
+
+  /// POST /auth/fayda-start - Server builds the Fayda authorize URL + state
+  /// (pre-registration, public)
+  static const String faydaStartEndpoint = '/auth/fayda-start';
+
   /// POST /auth/fayda-verify - Exchange Fayda auth code for verification token
   static const String faydaVerifyEndpoint = '/auth/fayda-verify';
+
+  /// POST /user/fayda-start - Server builds the Fayda authorize URL + state
+  /// for an existing (authenticated) user linking Fayda later
+  static const String userFaydaStartEndpoint = '/user/fayda-start';
+
+  /// POST /user/fayda-link - Link a verified Fayda identity to the caller
+  static const String userFaydaLinkEndpoint = '/user/fayda-link';
+
+  /// POST / DELETE /device-tokens - Register / unregister the FCM push token
+  static const String deviceTokensEndpoint = '/device-tokens';
 
   /// POST /auth/login - Login with phone/password
   static const String loginEndpoint = '/auth/login';

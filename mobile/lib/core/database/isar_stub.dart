@@ -30,6 +30,8 @@ class Isar {
   dynamic get users => null;
   dynamic get syncOperations => null;
   dynamic get buyerIntents => null;
+  dynamic get messages => null;
+  dynamic get ratings => null;
 
   /// Catch-all for any other collection accessors.
   @override

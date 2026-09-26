@@ -88,6 +88,8 @@ class OfflineAuthCache {
     String? drivingLicensePath,
     String? buyerType,
     String? companyName,
+    bool? faydaVerified,
+    DateTime? faydaVerifiedAt,
   }) async {
     // Store user profile in Isar first — required for profile screen.
     await saveUserToIsar(
@@ -101,6 +103,8 @@ class OfflineAuthCache {
       drivingLicensePath: drivingLicensePath,
       buyerType: buyerType,
       companyName: companyName,
+      faydaVerified: faydaVerified,
+      faydaVerifiedAt: faydaVerifiedAt,
     );
 
     // Cache password hash and tokens in secure storage for offline auth.
@@ -142,6 +146,8 @@ class OfflineAuthCache {
     String? drivingLicensePath,
     String? buyerType,
     String? companyName,
+    bool? faydaVerified,
+    DateTime? faydaVerifiedAt,
   }) async {
     final isar = IsarService.instance.db;
     await isar.writeTxn(() async {
@@ -164,10 +170,39 @@ class OfflineAuthCache {
             drivingLicensePath ?? existing?.drivingLicensePath
         ..buyerType = buyerType ?? existing?.buyerType
         ..companyName = companyName ?? existing?.companyName
+        // Verification status from the server's `user` object. Null means the
+        // response didn't carry it, so keep what we already know. The profile
+        // "Verified" badge reads isVerified, which tracks Fayda verification.
+        ..faydaVerified = faydaVerified ?? existing?.faydaVerified ?? false
+        ..faydaVerifiedAt =
+            faydaVerified == null ? existing?.faydaVerifiedAt : faydaVerifiedAt
+        ..isVerified = faydaVerified ?? existing?.isVerified ?? false
         ..createdAt = existing?.createdAt ?? DateTime.now().toUtc()
         ..updatedAt = DateTime.now().toUtc()
         ..version = (existing?.version ?? 0) + 1;
 
+      await isar.users.put(user);
+    });
+  }
+
+  /// Record a successful Fayda link on the cached user (profile badge).
+  ///
+  /// No-op when the user isn't cached on this device.
+  Future<void> updateVerification({
+    required String userId,
+    required String phoneNumber,
+    required bool faydaVerified,
+    DateTime? faydaVerifiedAt,
+  }) async {
+    final isar = IsarService.instance.db;
+    await isar.writeTxn(() async {
+      final user = await isar.users.where().userIdEqualTo(userId).findFirst();
+      if (user == null) return;
+      user
+        ..faydaVerified = faydaVerified
+        ..faydaVerifiedAt = faydaVerifiedAt
+        ..isVerified = faydaVerified
+        ..updatedAt = DateTime.now().toUtc();
       await isar.users.put(user);
     });
   }
