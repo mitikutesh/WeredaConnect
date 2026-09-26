@@ -270,6 +270,50 @@ void main() {
       );
     });
 
+    test('keeps the server code on a 409: ESCROW_024 is funds already held',
+        () async {
+      // SIM-24: mirrors the mobile repository.
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(
+        const ConflictException(
+          'Funds for this order are already held in escrow.',
+          409,
+          'ESCROW_024',
+        ),
+      );
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect((result as EscrowError).code, 'ESCROW_024');
+    });
+
+    test('a 409 without a server code still reads as ESCROW_009', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/escrow/initiate',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(const ConflictException('Conflict'));
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000.0,
+      );
+
+      expect((result as EscrowError).code, 'ESCROW_009');
+    });
+
     test('toPayUrl is null for a mock/sync gateway response', () async {
       when(
         () => api.post<Map<String, dynamic>>(

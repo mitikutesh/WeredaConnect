@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -17,6 +18,7 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/listing_card.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -95,6 +97,7 @@ void main() {
     bool showHeader = true,
     bool ownerMode = false,
     bool embedded = false,
+    Locale? locale,
   }) {
     return MultiBlocProvider(
       providers: [
@@ -105,6 +108,7 @@ void main() {
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
         home: Scaffold(
           body: BrowseListingsScreen(
             showHeader: showHeader,
@@ -209,6 +213,69 @@ void main() {
 
       verify(() => ratingRepo.getRatingSummary('farmer-1')).called(1);
       verify(() => ratingRepo.getRatingSummary('farmer-2')).called(1);
+    });
+  });
+
+  group('BrowseListingsScreen load errors (SIM-23)', () {
+    Future<AppLocalizations> pumpError(
+      WidgetTester tester,
+      AppErrorCode code,
+    ) async {
+      final state = CropListingError(message: 'x', code: code);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      return AppLocalizations.delegate.load(const Locale('en'));
+    }
+
+    testWidgets('a 403 says no permission, not waiting for network',
+        (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.forbidden);
+      expect(find.text(l10n.errorNoPermission), findsOneWidget);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsNothing);
+    });
+
+    testWidgets('a connectivity failure keeps the offline copy',
+        (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.network);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsOneWidget);
+    });
+
+    testWidgets('a TLS failure names the secure connection', (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.secureConnection);
+      expect(find.text(l10n.errorSecureConnectionFailed), findsOneWidget);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsNothing);
+    });
+  });
+
+  group('BrowseListingsScreen crop names (SIM-22)', () {
+    testWidgets('card title is the localized crop name, not the stored key',
+        (tester) async {
+      final state = CropListingsLoaded(listings: [_listing()]);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ListingCard, 'Teff'), findsOneWidget);
+      expect(find.widgetWithText(ListingCard, 'teff'), findsNothing);
+    });
+
+    testWidgets('Amharic shows the Amharic crop name on the card',
+        (tester) async {
+      final state = CropListingsLoaded(listings: [_listing()]);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+
+      await tester.pumpWidget(buildTestWidget(locale: const Locale('am')));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ListingCard, am.cropTypeTeff), findsOneWidget);
+      expect(find.widgetWithText(ListingCard, 'teff'), findsNothing);
+      expect(find.widgetWithText(ListingCard, 'Teff'), findsNothing);
     });
   });
 

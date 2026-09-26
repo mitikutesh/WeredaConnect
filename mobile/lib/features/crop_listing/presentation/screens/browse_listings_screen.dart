@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
@@ -355,7 +356,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            l10n.dataWillSyncWhenOnline,
+                            localizeLoadError(state.code, l10n),
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppTheme.textMuted,
@@ -428,7 +429,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               final rated =
                                   summary != null && summary.count > 0;
                               return ListingCard(
-                                title: listing.cropType,
+                                title: CropType.labelFor(
+                                  listing.cropType,
+                                  l10n,
+                                ),
                                 location: listing.locationName,
                                 sellerName: listing.farmerName.isNotEmpty
                                     ? listing.farmerName

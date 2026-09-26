@@ -12,6 +12,8 @@ import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
+import 'package:wereda_connect/core/network/api_exception.dart'
+    show isSecureConnectionFailure;
 import 'package:wereda_connect/core/network/json_body.dart';
 
 /// Resolve the authoritative [UserRole] from a server-provided role string.
@@ -886,6 +888,17 @@ class AuthService {
           'Server is temporarily unavailable. Please try again.',
         );
       }
+    }
+
+    // A rejected certificate chain (pinning) arrives as `unknown` wrapping a
+    // HandshakeException. It used to read as "no internet", which sent
+    // login() into the offline fallback and the user saw "log in online
+    // first" while online (SIM-23). It is its own, non-fallback failure.
+    if (isSecureConnectionFailure(e)) {
+      return AuthResult.failure(
+        AuthErrorCode.secureConnectionFailed,
+        'Secure connection to the server failed.',
+      );
     }
 
     // Network errors

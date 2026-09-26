@@ -98,6 +98,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get errorOccurred => 'An error occurred';
 
   @override
+  String get errorNoPermission => 'You do not have permission to view this.';
+
+  @override
+  String get errorSecureConnectionFailed =>
+      'Could not make a secure connection to the server. Update the app or try another network.';
+
+  @override
   String get noInternetConnection => 'No internet connection';
 
   @override
@@ -1106,6 +1113,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get escrowErrorAlreadyExists =>
       'Payment already exists for this delivery.';
+
+  @override
+  String get escrowErrorOrderAlreadyFunded =>
+      'Payment for this order is already held in escrow.';
 
   @override
   String get escrowErrorGateway => 'Telebirr service error. Please try again.';

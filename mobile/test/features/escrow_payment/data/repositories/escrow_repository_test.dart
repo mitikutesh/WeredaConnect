@@ -856,6 +856,57 @@ void main() {
         expect((result as EscrowError).code, 'ESCROW_009');
       });
 
+      test('keeps the server code on a 409: ESCROW_024 is funds already held',
+          () async {
+        // SIM-24: a 409 is not always "already paid for this delivery".
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ConflictException(
+            'Funds for this order are already held in escrow.',
+            409,
+            'ESCROW_024',
+          ),
+        );
+
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        expect(result, isA<EscrowError>());
+        expect((result as EscrowError).code, 'ESCROW_024');
+      });
+
+      test('keeps a 403 ESCROW_007 over the generic login fallback', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const AuthException('Fayda verification required', 403, 'ESCROW_007'),
+        );
+
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        expect((result as EscrowError).code, 'ESCROW_007');
+      });
+
       test('maps ServerException 502 to ESCROW_013 (gateway error)', () async {
         when(() => connectivityMonitor.isConnected())
             .thenAnswer((_) async => true);

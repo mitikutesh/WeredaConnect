@@ -274,6 +274,18 @@ abstract class AppLocalizations {
   /// **'An error occurred'**
   String get errorOccurred;
 
+  /// Shown when the server refuses a read with 403 for the signed-in role
+  ///
+  /// In en, this message translates to:
+  /// **'You do not have permission to view this.'**
+  String get errorNoPermission;
+
+  /// Shown when the TLS handshake or certificate pin check fails while the device is online
+  ///
+  /// In en, this message translates to:
+  /// **'Could not make a secure connection to the server. Update the app or try another network.'**
+  String get errorSecureConnectionFailed;
+
   /// Error message when offline
   ///
   /// In en, this message translates to:
@@ -2151,6 +2163,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Payment already exists for this delivery.'**
   String get escrowErrorAlreadyExists;
+
+  /// Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)
+  ///
+  /// In en, this message translates to:
+  /// **'Payment for this order is already held in escrow.'**
+  String get escrowErrorOrderAlreadyFunded;
 
   /// Error when Telebirr gateway returns an error
   ///

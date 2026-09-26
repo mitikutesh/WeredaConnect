@@ -121,6 +121,14 @@
   "@errorOccurred": {
     "description": "Generic error message"
   },
+  "errorNoPermission": "You do not have permission to view this.",
+  "@errorNoPermission": {
+    "description": "Shown when the server refuses a read with 403 for the signed-in role"
+  },
+  "errorSecureConnectionFailed": "Could not make a secure connection to the server. Update the app or try another network.",
+  "@errorSecureConnectionFailed": {
+    "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
+  },
   "noInternetConnection": "No internet connection",
   "@noInternetConnection": {
     "description": "Error message when offline"
@@ -1457,6 +1465,10 @@
   "escrowErrorAlreadyExists": "Payment already exists for this delivery.",
   "@escrowErrorAlreadyExists": {
     "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorOrderAlreadyFunded": "Payment for this order is already held in escrow.",
+  "@escrowErrorOrderAlreadyFunded": {
+    "description": "Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)"
   },
   "escrowErrorGateway": "Telebirr service error. Please try again.",
   "@escrowErrorGateway": {

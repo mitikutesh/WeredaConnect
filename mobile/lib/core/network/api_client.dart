@@ -264,6 +264,12 @@ class ApiClient {
 
   /// Transform Dio errors into custom ApiException types
   ApiException _handleError(Object error) {
+    // A rejected certificate chain (pinning) is not a connectivity problem:
+    // classify it before the type switch, which would call it "network".
+    if (isSecureConnectionFailure(error)) {
+      return const SecureConnectionException();
+    }
+
     if (error is DioException) {
       switch (error.type) {
         case DioExceptionType.connectionTimeout:
@@ -276,34 +282,35 @@ class ApiClient {
 
         case DioExceptionType.badResponse:
           final statusCode = error.response?.statusCode;
-          final message = _extractErrorMessage(error.response?.data) ??
+          final data = error.response?.data;
+          final message = _extractErrorMessage(data) ??
               error.response?.statusMessage ??
               'Server error';
+          final code = _extractErrorCode(data);
 
           if (statusCode == 400) {
-            return ValidationException(message, statusCode);
-          } else if (statusCode == 403 &&
-              _extractErrorCode(error.response?.data) == stepUpRequiredCode) {
+            return ValidationException(message, statusCode, code);
+          } else if (statusCode == 403 && code == stepUpRequiredCode) {
             // Step-up: the session is valid but too old for this money
             // action. Callers re-authenticate and retry; never a logout.
             return StepUpRequiredException(message, statusCode);
           } else if (statusCode == 401 || statusCode == 403) {
-            return AuthException(message, statusCode);
+            return AuthException(message, statusCode, code);
           } else if (statusCode == 404) {
-            return NotFoundException(message, statusCode);
+            return NotFoundException(message, statusCode, code);
           } else if (statusCode == 409) {
-            return ConflictException(message, statusCode);
+            return ConflictException(message, statusCode, code);
           } else if (statusCode == 429) {
-            return RateLimitException(message, statusCode);
+            return RateLimitException(message, statusCode, code);
           } else {
-            return ServerException(message, statusCode);
+            return ServerException(message, statusCode, code);
           }
 
         case DioExceptionType.cancel:
           return const NetworkException('Request cancelled');
 
         case DioExceptionType.badCertificate:
-          return const NetworkException('SSL certificate verification failed');
+          return const SecureConnectionException();
 
         case DioExceptionType.unknown:
           return UnknownException(error.message ?? 'Unknown error occurred');

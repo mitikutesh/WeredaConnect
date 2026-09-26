@@ -329,6 +329,7 @@
     "ESCROW_001": "Invalid amount.",
     "ESCROW_005": "Authentication required.",
     "ESCROW_009": "Escrow already exists for this delivery.",
+    "ESCROW_024": "Funds for this order are already held in escrow.",
     "ESCROW_012": "Server error. Please try again.",
     "ESCROW_013": "Telebirr service error. Please try again.",
     "ESCROW_014": "Telebirr is currently unavailable.",

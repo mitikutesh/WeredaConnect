@@ -208,7 +208,7 @@ public sealed class EscrowService
                 "farmerId");
         }
 
-        // 6b. Check for existing active escrow on this delivery → ESCROW_009
+        // 6b. Check for an existing active escrow on this delivery.
         var existingEscrowForDelivery = await _escrowRepo.GetByDeliveryIdAsync(request.DeliveryId);
         if (existingEscrowForDelivery != null)
         {
@@ -217,6 +217,20 @@ public sealed class EscrowService
             // Only block if escrow is in an active state (not refunded/completed/expired)
             if (existingStatus is "initiated" or "escrowed" or "released" or "disputed")
             {
+                // SIM-24: when that escrow is the order-funded record (the buyer paid at
+                // order time and delivery linkage stamped this deliveryId on it), the
+                // truthful answer is the double-charge code ESCROW_024, which clients key
+                // their copy on. It is decided BEFORE the per-delivery duplicate answer so
+                // the linked case cannot shadow it; ESCROW_009 is reserved for a second
+                // delivery-initiated escrow.
+                if (IsOrderFundedEscrow(existingEscrowForDelivery))
+                {
+                    return EscrowResult<InitiateEscrowResponse>.Failure(
+                        409, "ESCROW_024",
+                        "Funds for this order are already held in escrow.",
+                        "orderId");
+                }
+
                 return EscrowResult<InitiateEscrowResponse>.Failure(
                     409, "ESCROW_009",
                     "An active escrow already exists for this delivery.",
@@ -2165,6 +2179,20 @@ public sealed class EscrowService
     // ──────────────────────────────────────────────
     // Dictionary accessor helpers (DynamoDB item → typed value)
     // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// True for the record created at order funding (source=order, deterministic
+    /// escrow-order-{orderId} id), as opposed to an escrow initiated for a delivery.
+    /// </summary>
+    internal static bool IsOrderFundedEscrow(Dictionary<string, object> escrow)
+    {
+        if (string.Equals(GetStringOrNull(escrow, "source"), "order", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return GetStringOrNull(escrow, "escrowId")?.StartsWith("escrow-order-", StringComparison.Ordinal) == true;
+    }
 
     private static string GetString(Dictionary<string, object> item, string key)
         => item.TryGetValue(key, out var value) ? value.ToString() ?? "" : "";

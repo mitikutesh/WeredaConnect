@@ -121,6 +121,14 @@
   "@errorOccurred": {
     "description": "Generic error message"
   },
+  "errorNoPermission": "Kana ilaaluuf hayyama hin qabdan.",
+  "@errorNoPermission": {
+    "description": "Shown when the server refuses a read with 403 for the signed-in role"
+  },
+  "errorSecureConnectionFailed": "Server waliin walqunnamtii nageenya qabu uumuun hin danda'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.",
+  "@errorSecureConnectionFailed": {
+    "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
+  },
   "noInternetConnection": "Walitti Dhufeenya Interneetii Hin Jiru",
   "@noInternetConnection": {
     "description": "Error message when offline"
@@ -1445,6 +1453,10 @@
   "escrowErrorAlreadyExists": "Geejjiba kanaaf kaffaltiin duraan jira.",
   "@escrowErrorAlreadyExists": {
     "description": "Error when escrow payment already exists for delivery"
+  },
+  "escrowErrorOrderAlreadyFunded": "Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.",
+  "@escrowErrorOrderAlreadyFunded": {
+    "description": "Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)"
   },
   "escrowErrorGateway": "Dogoggora tajaajila Telebirr. Maaloo irra deebi'ii yaali.",
   "@escrowErrorGateway": {

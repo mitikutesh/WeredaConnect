@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
-import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 /// Browse screen for viewing and filtering trip listings.
@@ -207,7 +208,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            l10n.dataWillSyncWhenOnline,
+                            localizeLoadError(state.code, l10n),
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppTheme.textMuted,

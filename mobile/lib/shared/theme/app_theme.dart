@@ -30,6 +30,10 @@ class AppTheme {
   static const Color backgroundCream = Color(0xFFF5F3F0);
   static const Color surfaceWhite = Color(0xFFFFFFFF);
   static const Color textDark = Color(0xFF1E293B);
+
+  /// Bundled Ethiopic-script font, appended to every text style (theme text
+  /// and chip labels) so Amharic never waits on a system fallback font.
+  static const List<String> ethiopicFontFallback = ['NotoSansEthiopic'];
   static const Color textMuted = Color(0xFF526071);
   static const Color borderLight = Color(0xFFE2E8F0);
 
@@ -221,7 +225,7 @@ class AppTheme {
       fontFamily: 'NotoSans',
       textTheme: _textTheme(text: text, muted: muted).apply(
         fontFamily: 'NotoSans',
-        fontFamilyFallback: const ['NotoSansEthiopic'],
+        fontFamilyFallback: ethiopicFontFallback,
       ),
 
       // ── AppBar ────────────────────────────────────────────────────
@@ -321,15 +325,22 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: surface,
         selectedColor: colorScheme.primary,
+        // Chip labels do not inherit the text theme's font, so without the
+        // Ethiopic fallback an Amharic label falls to a late-loading system
+        // font on web and the chip is sized to placeholder glyphs (SIM-22).
         labelStyle: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w500,
           color: text,
+          fontFamily: 'NotoSans',
+          fontFamilyFallback: ethiopicFontFallback,
         ),
         secondaryLabelStyle: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w500,
           color: colorScheme.onPrimary,
+          fontFamily: 'NotoSans',
+          fontFamilyFallback: ethiopicFontFallback,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
