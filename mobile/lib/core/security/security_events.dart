@@ -79,8 +79,7 @@ class SecurityEvents {
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {
     final declinedAt = _stepUpDeclinedAt;
-    return declinedAt != null &&
-        _now().difference(declinedAt) < stepUpCooldown;
+    return declinedAt != null && _now().difference(declinedAt) < stepUpCooldown;
   }
 
   /// The user cancelled the background step-up prompt.

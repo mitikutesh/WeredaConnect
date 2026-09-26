@@ -24,7 +24,10 @@ void main() {
     );
 
     await expectLater(
-      ApiClient().post<Map<String, dynamic>>('/escrow/initiate', data: <String, dynamic>{}),
+      ApiClient().post<Map<String, dynamic>>(
+        '/escrow/initiate',
+        data: <String, dynamic>{},
+      ),
       throwsA(
         isA<StepUpRequiredException>()
             .having((e) => e.message, 'message', 'step-up required')
@@ -43,7 +46,10 @@ void main() {
     );
 
     await expectLater(
-      ApiClient().post<Map<String, dynamic>>('/escrow/dispute', data: <String, dynamic>{}),
+      ApiClient().post<Map<String, dynamic>>(
+        '/escrow/dispute',
+        data: <String, dynamic>{},
+      ),
       throwsA(
         isA<AuthException>().having((e) => e.message, 'message', 'not yours'),
       ),

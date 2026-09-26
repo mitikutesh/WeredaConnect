@@ -166,8 +166,7 @@ void main() {
     );
   });
 
-  test('coming back without a callback keeps waiting for a late one',
-      () async {
+  test('coming back without a callback keeps waiting for a late one', () async {
     stubStart();
     when(() => service.link(authCode: 'code-1', state: 'st-1')).thenAnswer(
       (_) async => const FaydaLinkResult(isSuccess: true, faydaVerified: true),
