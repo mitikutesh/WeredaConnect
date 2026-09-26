@@ -1707,7 +1707,9 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       for (final l in listings) {
         items.add(
           _ActivityItem(
-            description: l10n.listingCreatedActivity(l.cropType),
+            description: l10n.listingCreatedActivity(
+              CropType.labelFor(l.cropType, l10n),
+            ),
             timestamp: l.createdAt,
             type: _ActivityType.info,
           ),
@@ -1758,7 +1760,8 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           final status = o.status.name;
           items.add(
             _ActivityItem(
-              description: '${l10n.orders}: ${o.cropType} ($status)',
+              description:
+                  '${l10n.orders}: ${CropType.labelFor(o.cropType, l10n)} ($status)',
               timestamp: o.createdAt,
               type: status == 'delivered'
                   ? _ActivityType.success
@@ -1856,7 +1859,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
         for (final o in orders.take(3)) {
           final m = o as Map<String, dynamic>;
           final status = m['status'] as String? ?? 'created';
-          final cropType = m['cropType'] as String? ?? '';
+          final cropType = CropType.labelFor(
+            m['cropType'] as String? ?? '',
+            l10n,
+          );
           items.add(
             _ActivityItem(
               description: '${l10n.orders}: $cropType ($status)',
@@ -1917,7 +1923,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
               [];
           for (final c in crops.take(3)) {
             final m = c as Map<String, dynamic>;
-            final cropType = m['cropType'] as String? ?? '';
+            final cropType = CropType.labelFor(
+              m['cropType'] as String? ?? '',
+              l10n,
+            );
             items.add(
               _ActivityItem(
                 description: l10n.listingCreatedActivity(cropType),

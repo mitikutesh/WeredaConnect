@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
@@ -49,7 +50,7 @@ class OrderCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${order.cropType} — ${order.quantity.toStringAsFixed(0)} kg',
+                          '${CropType.labelFor(order.cropType, l10n)} · ${order.quantity.toStringAsFixed(0)} kg',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),

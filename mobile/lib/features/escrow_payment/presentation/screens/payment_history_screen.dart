@@ -474,7 +474,14 @@ class _FilterChip extends StatelessWidget {
       label: expand
           ? SizedBox(
               width: double.infinity,
-              child: Text(label, textAlign: TextAlign.center),
+              // A chip that shares a row must never clip a long Amharic label
+              // mid-glyph; ellipsize instead.
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             )
           : Text(label),
       selected: selected,

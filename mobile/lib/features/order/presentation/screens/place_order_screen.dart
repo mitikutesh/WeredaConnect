@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -189,7 +190,10 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                       children: [
                         _SummaryRow(
                           icon: Icons.grass,
-                          label: widget.listing.cropType,
+                          label: CropType.labelFor(
+                            widget.listing.cropType,
+                            l10n,
+                          ),
                           value: '',
                         ),
                         const Divider(height: 16),

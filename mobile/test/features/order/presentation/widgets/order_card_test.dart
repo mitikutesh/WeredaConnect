@@ -46,6 +46,16 @@ void main() {
   AppLocalizations l10nOf(WidgetTester tester) =>
       AppLocalizations.of(tester.element(find.byType(OrderCard)))!;
 
+  group('OrderCard crop name (SIM-22)', () {
+    testWidgets('title shows the localized crop name, not the stored key',
+        (tester) async {
+      await _pumpCard(tester, status: OrderStatus.funded, isFarmerView: true);
+      final l10n = l10nOf(tester);
+      expect(find.textContaining(l10n.cropTypeWheat), findsOneWidget);
+      expect(find.textContaining('wheat'), findsNothing);
+    });
+  });
+
   group('OrderCard farmer accept/reject visibility', () {
     // The farmer can only act once the order is funded (buyer paid into escrow):
     // this is the only valid transition (funded → accepted/rejected) across the
