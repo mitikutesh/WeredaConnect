@@ -255,6 +255,30 @@ void main() {
         expect(intent!.status, IntentStatus.completed);
       });
 
+      test('marks intent completed on 409 ESCROW_024 too (SIM-24)', () async {
+        await _insertTestIntent(isar);
+
+        // Funds already held for the order: the buyer was charged at order
+        // time, so this queued intent is done, not failed.
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ConflictException(
+            'Funds for this order are already held in escrow.',
+            409,
+            'ESCROW_024',
+          ),
+        );
+
+        await syncService.processQueuedIntents();
+
+        final intent = await isar.paymentIntents.where().findFirst();
+        expect(intent!.status, IntentStatus.completed);
+      });
+
       test('uses persisted idempotency key on retry (MH2)', () async {
         const persistedKey = 'buyer-001:del-001:initiate:1708300000000';
         await _insertTestIntent(isar);

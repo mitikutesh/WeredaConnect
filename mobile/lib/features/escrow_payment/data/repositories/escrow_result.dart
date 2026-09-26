@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 
 /// Result type for escrow operations.
 ///
@@ -35,4 +36,13 @@ class EscrowError extends EscrowResult {
   final String code;
   final String message;
   const EscrowError(this.code, this.message);
+}
+
+/// The server's own `ESCROW_*` code when the error envelope carried one, else
+/// [fallback] for the HTTP class. SIM-24: a 409 is `ESCROW_009` (a second
+/// escrow on the delivery) or `ESCROW_024` (funds already held for the order);
+/// the status alone cannot tell them apart and the UI keys its copy on the code.
+String escrowCodeOf(ApiException e, String fallback) {
+  final code = e.code;
+  return code != null && code.startsWith('ESCROW_') ? code : fallback;
 }

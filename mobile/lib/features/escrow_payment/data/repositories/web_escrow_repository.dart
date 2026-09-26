@@ -59,16 +59,20 @@ class WebEscrowRepository extends BaseEscrowRepository {
     if (e is StepUpRequiredException) {
       return EscrowError(stepUpRequiredCode, e.message);
     }
+    // The server's own ESCROW_* code wins over the per-status fallback
+    // (SIM-24): a 409 may be ESCROW_024, a 403 may be ESCROW_007.
     if (e is ValidationException) {
-      return EscrowError('ESCROW_VALIDATION', e.message);
+      return EscrowError(escrowCodeOf(e, 'ESCROW_VALIDATION'), e.message);
     }
     if (e is AuthException) {
-      return const EscrowError('ESCROW_005', 'Please log in to continue.');
+      return EscrowError(escrowCodeOf(e, 'ESCROW_005'), e.message);
     }
     if (e is NotFoundException) {
-      return const EscrowError('ESCROW_016', 'Payment not found.');
+      return EscrowError(escrowCodeOf(e, 'ESCROW_016'), e.message);
     }
-    if (e is ConflictException) return EscrowError('ESCROW_009', e.message);
+    if (e is ConflictException) {
+      return EscrowError(escrowCodeOf(e, 'ESCROW_009'), e.message);
+    }
     if (e is RateLimitException) {
       return const EscrowError(
         'ESCROW_011',

@@ -323,6 +323,73 @@ void main() {
         );
       });
 
+      test('nested error envelope yields the message and code (SIM-24)',
+          () async {
+        const path = '/escrow/initiate';
+        dioAdapter.onPost(
+          path,
+          (server) => server.reply(409, {
+            'error': {
+              'code': 'ESCROW_024',
+              'message': 'Funds for this order are already held in escrow.',
+              'field': 'orderId',
+            },
+          }),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          () => ApiClient().post<dynamic>(path, data: <String, dynamic>{}),
+          throwsA(
+            isA<ConflictException>()
+                .having((e) => e.code, 'code', 'ESCROW_024')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  'Funds for this order are already held in escrow.',
+                ),
+          ),
+        );
+      });
+
+      test('nested 400 envelope keeps its ESCROW_001 code', () async {
+        const path = '/escrow/initiate-400';
+        dioAdapter.onPost(
+          path,
+          (server) => server.reply(400, {
+            'error': {'code': 'ESCROW_001', 'message': 'Invalid amount.'},
+          }),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          () => ApiClient().post<dynamic>(path, data: <String, dynamic>{}),
+          throwsA(
+            isA<ValidationException>()
+                .having((e) => e.code, 'code', 'ESCROW_001')
+                .having((e) => e.message, 'message', 'Invalid amount.'),
+          ),
+        );
+      });
+
+      test('flat message body has no code', () async {
+        const path = '/flat409';
+        dioAdapter.onPost(
+          path,
+          (server) => server.reply(409, {'message': 'Conflict'}),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          () => ApiClient().post<dynamic>(path, data: <String, dynamic>{}),
+          throwsA(
+            isA<ConflictException>()
+                .having((e) => e.code, 'code', isNull)
+                .having((e) => e.message, 'message', 'Conflict'),
+          ),
+        );
+      });
+
       test('429 error throws RateLimitException', () async {
         // Arrange
         const path = '/api';

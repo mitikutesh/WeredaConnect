@@ -2157,6 +2157,73 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public async Task InitiateAsync_OrderFundedEscrowLinkedToDelivery_ReturnsEscrow024NotEscrow009()
+    {
+        // SIM-24: the buyer paid at order time; delivery linkage stamped the deliveryId
+        // on the order-funded record, so the per-delivery lookup finds it first. The
+        // double-charge code must win over the duplicate-delivery code.
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "orderId", "order-001" },
+            { "deliveryId", DeliveryId }, { "status", "escrowed" }, { "source", "order" }
+        });
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_024", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+        Assert.Equal("orderId", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_OrderFundedEscrowWithoutSourceAttr_ReturnsEscrow024ByDeterministicId()
+    {
+        // Older order-funded rows are still recognised by their deterministic id.
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "orderId", "order-001" }, { "status", "escrowed" }
+        });
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.Equal("ESCROW_024", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_DeliveryEscrowCarryingOrderId_StillReturnsEscrow009()
+    {
+        // A second delivery-initiated escrow (source=delivery) is a duplicate for the
+        // delivery, not a double charge of the order.
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-existing" }, { "orderId", "order-001" },
+            { "status", "escrowed" }, { "source", "delivery" }
+        });
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_009", result.Error!.Code);
+        Assert.Equal("deliveryId", result.Error.Field);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_RefundedOrderFundedEscrowOnDelivery_DoesNotBlock()
+    {
+        // An inert (refunded) order-funded record must not raise either 409.
+        _mockEscrowRepo.GetByDeliveryIdAsync(DeliveryId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-order-001" }, { "status", "refunded" }, { "source", "order" }
+        });
+
+        var result = await _service.InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.NotEqual("ESCROW_024", result.Error?.Code);
+        Assert.NotEqual("ESCROW_009", result.Error?.Code);
+    }
+
+    [Fact]
     public async Task InitiateAsync_DuplicateKeyForAnotherBuyersEscrow_Returns403()
     {
         // Attacker presents a victim's idempotency key; the cached escrow belongs to a

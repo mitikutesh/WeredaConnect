@@ -1466,6 +1466,10 @@
   "@escrowErrorAlreadyExists": {
     "description": "Error when escrow payment already exists for delivery"
   },
+  "escrowErrorOrderAlreadyFunded": "Payment for this order is already held in escrow.",
+  "@escrowErrorOrderAlreadyFunded": {
+    "description": "Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)"
+  },
   "escrowErrorGateway": "Telebirr service error. Please try again.",
   "@escrowErrorGateway": {
     "description": "Error when Telebirr gateway returns an error"

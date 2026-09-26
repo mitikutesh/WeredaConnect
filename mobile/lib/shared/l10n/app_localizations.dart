@@ -2164,6 +2164,12 @@ abstract class AppLocalizations {
   /// **'Payment already exists for this delivery.'**
   String get escrowErrorAlreadyExists;
 
+  /// Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)
+  ///
+  /// In en, this message translates to:
+  /// **'Payment for this order is already held in escrow.'**
+  String get escrowErrorOrderAlreadyFunded;
+
   /// Error when Telebirr gateway returns an error
   ///
   /// In en, this message translates to:

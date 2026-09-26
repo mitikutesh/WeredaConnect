@@ -143,7 +143,11 @@ exists. The server materializes an escrow record at that moment so
   and only then is the money refunded, so money and order state agree.
 - **Double-charge guard**: `POST /escrow/initiate` returns `409 ESCROW_024`
   ("Funds for this order are already held in escrow") when the delivery's order
-  already carries an active escrow.
+  already carries an active escrow. The order-funded record is recognised by
+  `source=order` (or its deterministic `escrow-order-{orderId}` id) and the
+  guard is decided before the per-delivery duplicate check, so it also wins
+  once linkage has stamped the delivery on that record (SIM-24). `ESCROW_009`
+  is reserved for a second delivery-initiated escrow on the same delivery.
 - **Documented divergences**: order-funded records carry
   `buyerFaydaVerified/farmerFaydaVerified = false` unless a users table is wired
   (KYC enforcement belongs on the order-payment leg — follow-up); amounts outside
@@ -264,8 +268,8 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `400` | `ESCROW_028` | `amount` does not equal the linked order's `orderTotal` |
 | `422` | `ESCROW_VALIDATION` | Linked order not found, so the amount cannot be verified |
 | `404` | `ESCROW_008` | Delivery not found |
-| `409` | `ESCROW_009` | Escrow already exists for this delivery |
-| `409` | `ESCROW_024` | Funds for this order are already held in escrow (order-funded escrow — see §Order-Funded Escrow) |
+| `409` | `ESCROW_009` | Escrow already exists for this delivery (a second delivery-initiated escrow) |
+| `409` | `ESCROW_024` | Funds for this order are already held in escrow (order-funded escrow, see §Order-Funded Escrow; takes precedence over `ESCROW_009` when that record is already linked to this delivery) |
 | `422` | `ESCROW_010` | Delivery is not in a valid state for payment (must be pending or pickedUp) |
 | `429` | `ESCROW_011` | Rate limit exceeded |
 | `500` | `ESCROW_012` | Internal server error |
@@ -1227,6 +1231,7 @@ required is audited as `webhook_payer_unbound` and rejected.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.1 | 2026-09-26 | Double-charge precedence (SIM-24): an initiate on a delivery whose order-funded escrow is already linked to it returns `ESCROW_024` (field `orderId`), not `ESCROW_009`; clients read the `ESCROW_*` code from the error envelope and show `ESCROW_024` its own message |
 | 1.3.0 | 2026-09-26 | Settlement authority and identity gates: `/escrow/release` and `/escrow/refund` on the admin authorizer (admin group), `dispute_resolved` settled by the hourly sweep, `AUTH_040` step-up on initiate and dispute, payouts resolved to the party's registered phone with `ESCROW_029` when unverified, webhook `merch_code`, fail-closed timestamp and payer binding (`webhook_payer_mismatch`, `webhook_payer_unbound`) |
 | 1.2.5 | 2026-09-25 | Refund-pending labelling (SIM-20): history rows and `EscrowDto` carry `refundPending` + `refundReason` (rows also `expiresAt`); a cancelled order's still-escrowed money reads "Refund pending" with the order as reference instead of "Funds held safely" with a blank delivery |
 | 1.2.4 | 2026-09-25 | Default history scoping (SIM-16): without `role=` the history is scoped by the token's role claim instead of always the buyer GSI, so a farmer (including the farmer of a self-pickup, whose escrow is order-funded with no delivery) and a trucker read their own rows unfiltered |
@@ -1240,5 +1245,5 @@ required is audited as `webhook_payer_unbound` and rejected.
 ---
 
 **Last Updated**: 2026-09-26
-**Version**: 1.3.0
+**Version**: 1.3.1
 **Status**: Draft (Phase R4)

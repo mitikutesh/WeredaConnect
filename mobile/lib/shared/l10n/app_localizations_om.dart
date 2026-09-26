@@ -1120,6 +1120,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Geejjiba kanaaf kaffaltiin duraan jira.';
 
   @override
+  String get escrowErrorOrderAlreadyFunded =>
+      'Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.';
+
+  @override
   String get escrowErrorGateway =>
       'Dogoggora tajaajila Telebirr. Maaloo irra deebi\'ii yaali.';
 

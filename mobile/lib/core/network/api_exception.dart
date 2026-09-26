@@ -5,10 +5,17 @@ import 'package:dio/dio.dart';
 
 /// Base exception for all API errors
 sealed class ApiException implements Exception {
-  const ApiException(this.message, [this.statusCode]);
+  const ApiException(this.message, [this.statusCode, this.code]);
 
   final String message;
   final int? statusCode;
+
+  /// The server's machine-readable error code (for example `ESCROW_024`) from
+  /// the `{"error": {"code": ..., "message": ...}}` envelope, when the
+  /// response carried one. Clients key their copy on it: a status alone
+  /// cannot tell "already paid for this delivery" from "funds already held
+  /// for this order" (SIM-24).
+  final String? code;
 
   @override
   String toString() =>
@@ -22,7 +29,7 @@ final class NetworkException extends ApiException {
 
 /// Server returned an error response (4xx, 5xx)
 final class ServerException extends ApiException {
-  const ServerException(super.message, super.statusCode);
+  const ServerException(super.message, super.statusCode, [super.code]);
 }
 
 /// Authentication/authorization error (401, 403)
@@ -30,6 +37,7 @@ final class AuthException extends ApiException {
   const AuthException([
     super.message = 'Authentication failed',
     super.statusCode = 401,
+    super.code,
   ]);
 }
 
@@ -62,7 +70,11 @@ bool isKycRequiredMessage(String? message) =>
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {
-  const ValidationException(super.message, [super.statusCode = 400]);
+  const ValidationException(
+    super.message, [
+    super.statusCode = 400,
+    super.code,
+  ]);
 }
 
 /// Resource not found (404)
@@ -70,12 +82,17 @@ final class NotFoundException extends ApiException {
   const NotFoundException([
     super.message = 'Resource not found',
     super.statusCode = 404,
+    super.code,
   ]);
 }
 
 /// Conflict error (409) - used for sync conflicts
 final class ConflictException extends ApiException {
-  const ConflictException(super.message, [super.statusCode = 409]);
+  const ConflictException(
+    super.message, [
+    super.statusCode = 409,
+    super.code,
+  ]);
 
   /// Server data that conflicts with local data
   final Map<String, dynamic>? serverData = null;
@@ -86,6 +103,7 @@ final class RateLimitException extends ApiException {
   const RateLimitException([
     super.message = 'Rate limit exceeded',
     super.statusCode = 429,
+    super.code,
   ]);
 }
 

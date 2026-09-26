@@ -1115,6 +1115,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payment already exists for this delivery.';
 
   @override
+  String get escrowErrorOrderAlreadyFunded =>
+      'Payment for this order is already held in escrow.';
+
+  @override
   String get escrowErrorGateway => 'Telebirr service error. Please try again.';
 
   @override

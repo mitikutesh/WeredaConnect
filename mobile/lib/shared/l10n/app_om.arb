@@ -1454,6 +1454,10 @@
   "@escrowErrorAlreadyExists": {
     "description": "Error when escrow payment already exists for delivery"
   },
+  "escrowErrorOrderAlreadyFunded": "Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.",
+  "@escrowErrorOrderAlreadyFunded": {
+    "description": "Error when the buyer tries to pay again for an order whose money is already held in escrow (ESCROW_024)"
+  },
   "escrowErrorGateway": "Dogoggora tajaajila Telebirr. Maaloo irra deebi'ii yaali.",
   "@escrowErrorGateway": {
     "description": "Error when Telebirr gateway returns an error"

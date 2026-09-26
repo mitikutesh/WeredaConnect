@@ -282,27 +282,28 @@ class ApiClient {
 
         case DioExceptionType.badResponse:
           final statusCode = error.response?.statusCode;
-          final message = _extractErrorMessage(error.response?.data) ??
+          final data = error.response?.data;
+          final message = _extractErrorMessage(data) ??
               error.response?.statusMessage ??
               'Server error';
+          final code = _extractErrorCode(data);
 
           if (statusCode == 400) {
-            return ValidationException(message, statusCode);
-          } else if (statusCode == 403 &&
-              _extractErrorCode(error.response?.data) == stepUpRequiredCode) {
+            return ValidationException(message, statusCode, code);
+          } else if (statusCode == 403 && code == stepUpRequiredCode) {
             // Step-up: the session is valid but too old for this money
             // action. Callers re-authenticate and retry; never a logout.
             return StepUpRequiredException(message, statusCode);
           } else if (statusCode == 401 || statusCode == 403) {
-            return AuthException(message, statusCode);
+            return AuthException(message, statusCode, code);
           } else if (statusCode == 404) {
-            return NotFoundException(message, statusCode);
+            return NotFoundException(message, statusCode, code);
           } else if (statusCode == 409) {
-            return ConflictException(message, statusCode);
+            return ConflictException(message, statusCode, code);
           } else if (statusCode == 429) {
-            return RateLimitException(message, statusCode);
+            return RateLimitException(message, statusCode, code);
           } else {
-            return ServerException(message, statusCode);
+            return ServerException(message, statusCode, code);
           }
 
         case DioExceptionType.cancel:

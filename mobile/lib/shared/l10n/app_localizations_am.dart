@@ -1084,6 +1084,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowErrorAlreadyExists => 'ለዚህ ማድረሻ ክፍያ ቀድሞ ተከፍሏል።';
 
   @override
+  String get escrowErrorOrderAlreadyFunded => 'ለዚህ ትዕዛዝ ክፍያ ቀድሞ በኢስክሮ ተይዟል።';
+
+  @override
   String get escrowErrorGateway => 'የቴሌብር አገልግሎት ስህተት። እባክዎ እንደገና ይሞክሩ።';
 
   @override
