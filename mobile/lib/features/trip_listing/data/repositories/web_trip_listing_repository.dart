@@ -232,9 +232,12 @@ class WebTripListingRepository extends BaseTripListingRepository {
     String truckerId, {
     int limit = 5,
   }) async {
+    // Same request as getMostRelevantTrip and the Home dashboard so the
+    // concurrent reads coalesce into one call (ApiClient, SIM-21); the
+    // route limit is applied client-side.
     final data = await _api.get<Map<String, dynamic>>(
       '/trips',
-      queryParameters: {'truckerId': truckerId, 'limit': '$limit'},
+      queryParameters: {'truckerId': truckerId, 'limit': '50'},
     );
     final trips = _parseTrips(data);
     final seen = <String>{};

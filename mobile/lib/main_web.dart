@@ -21,6 +21,7 @@ import 'package:wereda_connect/core/routing/app_router.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -210,7 +211,13 @@ Future<void> main() async {
           BlocProvider<InboxBloc>(
             create: (_) => InboxBloc(
               repository: WebMessageRepository(api: api),
-              contextResolver: WebConversationContextResolver(api: api),
+              contextResolver: WebConversationContextResolver(
+                api: api,
+                roleOf: () {
+                  final state = authBloc.state;
+                  return state is AuthAuthenticated ? state.role : null;
+                },
+              ),
             ),
           ),
           BlocProvider<ConflictBloc>(

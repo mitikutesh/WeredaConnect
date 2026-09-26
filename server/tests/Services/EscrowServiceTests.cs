@@ -1308,6 +1308,34 @@ public class EscrowServiceTests
         Assert.Equal(14_625m, summary.FarmerPayout);
     }
 
+    [Theory]
+    [InlineData("escrowed", "order_cancelled", "2099-01-01T00:00:00Z", true)]
+    [InlineData("escrowed", null, "2020-01-01T00:00:00Z", true)]
+    [InlineData("escrowed", null, "2099-01-01T00:00:00Z", false)]
+    [InlineData("refunded", "order_cancelled", "2020-01-01T00:00:00Z", false)]
+    [InlineData("released", null, "2020-01-01T00:00:00Z", false)]
+    public void MapToEscrowSummaryDto_RefundPending_OnlyWhileHeldMoneyIsGoingBack(
+        string status, string? refundReason, string expiresAt, bool expected)
+    {
+        // SIM-20: a cancelled order's escrow stays "escrowed" until the sweep runs;
+        // it must not read as funds held safely.
+        var item = MakeEscrowItem(status: status);
+        item["expiresAt"] = expiresAt;
+        if (refundReason != null)
+        {
+            item["refundReason"] = refundReason;
+        }
+
+        var summary = EscrowService.MapToEscrowSummaryDto(item, isBuyer: false);
+        var dto = EscrowService.MapToEscrowDto(item);
+
+        Assert.Equal(expected, summary.RefundPending);
+        Assert.Equal(expected, dto.RefundPending);
+        Assert.Equal(expiresAt, summary.ExpiresAt);
+        Assert.Equal(refundReason, summary.RefundReason);
+        Assert.Equal(refundReason, dto.RefundReason);
+    }
+
     [Fact]
     public async Task GetHistoryAsync_Summary_CarriesFarmerLegAndNoTruckerLegWithoutSplit()
     {

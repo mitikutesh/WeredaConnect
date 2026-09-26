@@ -107,9 +107,10 @@ class WebRatingRepository extends BaseRatingRepository {
   @override
   Future<RatingSummary> getRatingSummary(String rateeId) async {
     try {
+      // Only the aggregate is used: smallest page (see RatingRepository).
       final data = await _api.get<Map<String, dynamic>>(
         '/ratings',
-        queryParameters: {'rateeId': rateeId},
+        queryParameters: {'rateeId': rateeId, 'limit': '1'},
       );
       final summary = data['summary'] as Map<String, dynamic>?;
       if (summary == null) return RatingSummary.empty;

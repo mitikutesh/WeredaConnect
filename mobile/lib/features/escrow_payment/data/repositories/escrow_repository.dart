@@ -384,9 +384,10 @@ class EscrowRepository extends BaseEscrowRepository {
             if (payment.farmerId.isEmpty) payment.farmerId = existing.farmerId;
             payment.truckerId ??= existing.truckerId;
             payment.truckerPayout ??= existing.truckerPayout;
+            payment.orderId ??= existing.orderId;
             payment.commissionRate = existing.commissionRate;
             payment.telebirrRef = existing.telebirrRef;
-            payment.expiresAt = existing.expiresAt;
+            payment.expiresAt ??= existing.expiresAt;
             payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
             payment.releasedAt = existing.releasedAt;
             payment.refundedAt = existing.refundedAt;
@@ -564,6 +565,9 @@ class EscrowRepository extends BaseEscrowRepository {
       ..farmerPayout = response.farmerPayout
       ..truckerPayout = response.truckerPayout
       ..truckerId = response.truckerId
+      ..orderId = response.orderId
+      ..refundPending = response.refundPending
+      ..refundReason = response.refundReason
       ..telebirrRef = response.telebirrRef
       ..status = PaymentStatus.values.byName(response.status)
       ..createdAt = DateTime.parse(response.createdAt)
@@ -605,6 +609,12 @@ class EscrowRepository extends BaseEscrowRepository {
           (summary.amount - summary.commission - (summary.truckerPayout ?? 0))
       ..truckerPayout = summary.truckerPayout
       ..truckerId = summary.truckerId
+      ..orderId = summary.orderId
+      ..refundPending = summary.refundPending
+      ..refundReason = summary.refundReason
+      ..expiresAt = summary.expiresAt != null
+          ? DateTime.tryParse(summary.expiresAt!)
+          : null
       ..status = PaymentStatus.values.byName(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)
       ..updatedAt = DateTime.parse(summary.createdAt)

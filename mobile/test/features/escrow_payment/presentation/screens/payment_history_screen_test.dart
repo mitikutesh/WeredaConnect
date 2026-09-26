@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -149,6 +150,62 @@ void main() {
       // held total (SIM-15).
       expect(find.textContaining('14,625.00'), findsWidgets);
       expect(find.textContaining('15,000.00'), findsNothing);
+    });
+
+    testWidgets(
+        'a cancelled-order escrow reads Refund Pending with its order reference',
+        (WidgetTester tester) async {
+      // Order-funded escrow of a cancelled order: no delivery yet, refund
+      // scheduled. It used to render "Funds Held Safely" and a blank "Del. #".
+      final payment = _makePayment()
+        ..deliveryId = ''
+        ..orderId = 'ord-12345678-abcd'
+        ..refundPending = true
+        ..refundReason = 'order_cancelled';
+      final state = PaymentHistoryLoaded(
+        payments: [payment],
+        pendingIntents: [],
+      );
+      when(() => escrowBloc.state).thenReturn(state);
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(EscrowStatusBadge, 'Refund Pending'),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(EscrowStatusBadge, 'Funds Held Safely'),
+        findsNothing,
+      );
+      expect(find.textContaining('Order #ord-1234'), findsOneWidget);
+      expect(find.textContaining('Del. #'), findsNothing);
+    });
+
+    testWidgets('an expired hold reads Refund Pending even without the flag',
+        (WidgetTester tester) async {
+      // Older servers send no refundPending: an escrowed hold past its expiry
+      // is about to be swept back to the buyer.
+      final payment = _makePayment()
+        ..expiresAt = DateTime.now().subtract(const Duration(hours: 1));
+      final state = PaymentHistoryLoaded(
+        payments: [payment],
+        pendingIntents: [],
+      );
+      when(() => escrowBloc.state).thenReturn(state);
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(EscrowStatusBadge, 'Refund Pending'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('buyer sees the full held amount of each payment',

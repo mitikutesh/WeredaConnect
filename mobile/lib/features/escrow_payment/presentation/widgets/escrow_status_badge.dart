@@ -29,18 +29,26 @@ class EscrowStatusBadge extends StatelessWidget {
   final PaymentStatus status;
   final bool large;
 
+  /// SIM-20: an escrowed hold whose refund is on its way (order cancelled or
+  /// the hold expired) reads "Refund pending" instead of "Funds held safely".
+  /// Ignored for any other status.
+  final bool refundPending;
+
   const EscrowStatusBadge({
     required this.status,
     this.large = false,
+    this.refundPending = false,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final kind = escrowStatusKind(status);
-    final icon = _statusIcon(status);
-    final label = _statusLabel(status, l10n);
+    final pending = refundPending && status == PaymentStatus.escrowed;
+    final kind = pending ? StatusKind.info : escrowStatusKind(status);
+    final icon = pending ? Icons.replay : _statusIcon(status);
+    final label =
+        pending ? l10n.escrowStatusRefundPending : _statusLabel(status, l10n);
 
     if (large) {
       final fg = kind.foreground;
@@ -67,7 +75,9 @@ class EscrowStatusBadge extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              _statusDescription(status, l10n),
+              pending
+                  ? l10n.escrowDescRefundPending
+                  : _statusDescription(status, l10n),
               style: TextStyle(
                 color: fg.withValues(alpha: 0.8),
                 fontSize: 14,

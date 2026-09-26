@@ -4,6 +4,71 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 
 void main() {
+  group('webRoutesForRole (SIM-21 web role guard)', () {
+    test('farmer: own crops, orders, deliveries, payments, messages only', () {
+      final routes = webRoutesForRole(UserRole.farmer);
+      expect(
+        routes,
+        containsAll([
+          '/',
+          '/my-crops',
+          '/listings',
+          '/orders',
+          '/deliveries',
+          '/payments',
+          '/messages',
+          '/profile',
+          '/settings',
+        ]),
+      );
+      expect(routes, isNot(contains('/find-crops')));
+      expect(routes, isNot(contains('/marketplace')));
+      expect(routes, isNot(contains('/trips')));
+    });
+
+    test('trucker: trips, deliveries, payments, orders, messages only', () {
+      final routes = webRoutesForRole(UserRole.trucker);
+      expect(
+        routes,
+        containsAll([
+          '/',
+          '/trips',
+          '/deliveries',
+          '/payments',
+          '/orders',
+          '/messages',
+          '/profile',
+          '/settings',
+        ]),
+      );
+      expect(routes, isNot(contains('/my-crops')));
+      expect(routes, isNot(contains('/listings')));
+      expect(routes, isNot(contains('/find-crops')));
+      expect(routes, isNot(contains('/marketplace')));
+    });
+
+    test('buyer: market and ALL trips, never a farmer own-crops view', () {
+      final routes = webRoutesForRole(UserRole.buyer);
+      expect(
+        routes,
+        containsAll([
+          '/',
+          '/find-crops',
+          '/marketplace',
+          '/trips',
+          '/orders',
+          '/deliveries',
+          '/payments',
+          '/messages',
+          '/profile',
+          '/settings',
+        ]),
+      );
+      expect(routes, isNot(contains('/my-crops')));
+      expect(routes, isNot(contains('/listings')));
+    });
+  });
+
   group('tabsForRole — role-shaped bars (design brief 2026-07-06)', () {
     test('farmer: Home · My Crops · Orders · Deliveries', () {
       expect(tabsForRole(UserRole.farmer), const [

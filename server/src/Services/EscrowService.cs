@@ -1852,8 +1852,35 @@ public sealed class EscrowService
             ReleasedAt = GetStringOrNull(item, "releasedAt"),
             RefundedAt = GetStringOrNull(item, "refundedAt"),
             CompletedAt = GetStringOrNull(item, "completedAt"),
+            RefundPending = IsRefundPending(item),
+            RefundReason = GetStringOrNull(item, "refundReason"),
             Version = GetInt(item, "version")
         };
+    }
+
+    /// <summary>
+    /// SIM-20: held money that is on its way back to the buyer. A cancelled or
+    /// rejected order schedules its refund by stamping refundReason and expiring
+    /// the hold (ScheduleRefundForOrderAsync); a 7-day timeout expires it too.
+    /// Either way the hourly sweep refunds it, so it must not read as "held
+    /// safely" in the meantime.
+    /// </summary>
+    internal static bool IsRefundPending(Dictionary<string, object> item)
+    {
+        if (!string.Equals(GetString(item, "status"), "escrowed", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(GetStringOrNull(item, "refundReason")))
+        {
+            return true;
+        }
+
+        return DateTime.TryParse(
+                   GetStringOrNull(item, "expiresAt"), CultureInfo.InvariantCulture,
+                   DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var expiresAt)
+               && expiresAt <= DateTime.UtcNow;
     }
 
     internal static EscrowSummaryDto MapToEscrowSummaryDto(
@@ -1881,7 +1908,10 @@ public sealed class EscrowService
             Currency = GetString(item, "currency"),
             Status = GetString(item, "status"),
             CreatedAt = GetString(item, "createdAt"),
-            CompletedAt = GetStringOrNull(item, "completedAt")
+            CompletedAt = GetStringOrNull(item, "completedAt"),
+            ExpiresAt = GetStringOrNull(item, "expiresAt"),
+            RefundPending = IsRefundPending(item),
+            RefundReason = GetStringOrNull(item, "refundReason")
         };
     }
 

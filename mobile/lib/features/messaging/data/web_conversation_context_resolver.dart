@@ -1,3 +1,4 @@
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 
@@ -9,7 +10,19 @@ import 'package:wereda_connect/features/messaging/domain/conversation_context_re
 class WebConversationContextResolver extends ConversationContextResolver {
   final ApiClient _api;
 
-  WebConversationContextResolver({required ApiClient api}) : _api = api;
+  /// The signed-in role, read at lookup time (login happens after this
+  /// resolver is built). A trucker may not GET crops (`CROP_FORBIDDEN`), so
+  /// crop-backed contexts skip the request instead of collecting a 403 on
+  /// every inbox load (SIM-21).
+  final UserRole? Function()? _roleOf;
+
+  WebConversationContextResolver({
+    required ApiClient api,
+    UserRole? Function()? roleOf,
+  })  : _api = api,
+        _roleOf = roleOf;
+
+  bool get _canReadCrops => _roleOf?.call() != UserRole.trucker;
 
   @override
   Future<ConversationContextInfo?> lookup(
@@ -18,6 +31,7 @@ class WebConversationContextResolver extends ConversationContextResolver {
   ) async {
     switch (contextType) {
       case 'crop':
+        if (!_canReadCrops) return null;
         return _cropInfo(contextType, contextId);
       case 'trip':
         final data = await _api.get<Map<String, dynamic>>('/trips/$contextId');
@@ -40,6 +54,8 @@ class WebConversationContextResolver extends ConversationContextResolver {
         );
       case 'delivery':
         // Deliveries only reference the listing — chain to it for the crop.
+        // Without crop access the chain cannot produce a label: skip both GETs.
+        if (!_canReadCrops) return null;
         final data =
             await _api.get<Map<String, dynamic>>('/deliveries/$contextId');
         final delivery = _unwrap(data, 'delivery');

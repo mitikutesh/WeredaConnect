@@ -12,6 +12,9 @@ class Payment {
   late double farmerPayout;
   double? truckerPayout;
   String? truckerId;
+  String? orderId;
+  bool refundPending = false;
+  String? refundReason;
   String? telebirrRef;
   late PaymentStatus status;
   late DateTime createdAt;
@@ -33,6 +36,14 @@ class Payment {
         'trucker' => truckerPayout ?? 0,
         _ => amount,
       };
+
+  /// Refund on its way: the server flag, or (older servers) an escrowed hold
+  /// whose expiry has passed, which the refund sweep returns to the buyer.
+  bool get isRefundPending =>
+      refundPending ||
+      (status == PaymentStatus.escrowed &&
+          expiresAt != null &&
+          expiresAt!.isBefore(DateTime.now()));
 }
 
 /// Status of a payment in its lifecycle.

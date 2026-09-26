@@ -108,6 +108,30 @@ List<RoleTab> sidebarExtrasForRole(UserRole role) {
   };
 }
 
+/// Web routes (go_router paths) [role] may open. A URL outside this set is
+/// redirected to `/` before any screen mounts, so a wrong-role page never
+/// fires the requests the server would refuse with 403 (SIM-21). Legacy
+/// aliases stay for old bookmarks; buyers may browse ALL trips (their Home
+/// links there), farmers and truckers may not.
+Set<String> webRoutesForRole(UserRole role) {
+  final routes = <String>{
+    for (final tab in tabsForRole(role)) tab.route,
+    for (final tab in sidebarExtrasForRole(role)) tab.route,
+    RoleTab.home.route,
+    '/profile',
+    '/settings',
+  };
+  switch (role) {
+    case UserRole.farmer:
+      routes.add('/listings');
+    case UserRole.buyer:
+      routes.addAll(['/marketplace', '/trips']);
+    case UserRole.trucker:
+      break;
+  }
+  return routes;
+}
+
 /// Index of [tab] in [role]'s bar, or null when it isn't a tab for this
 /// role — callers must then push the destination as a screen instead.
 int? roleTabIndex(UserRole role, RoleTab tab) {

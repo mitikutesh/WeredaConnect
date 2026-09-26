@@ -13,6 +13,8 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_eve
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -23,6 +25,8 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockBuyerIntentBloc extends Mock implements BuyerIntentBloc {}
 
 class MockCropListingBloc extends Mock implements CropListingBloc {}
+
+class MockRatingRepository extends Mock implements BaseRatingRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -46,6 +50,7 @@ void main() {
   late MockAuthBloc authBloc;
   late MockBuyerIntentBloc buyerIntentBloc;
   late MockCropListingBloc cropListingBloc;
+  late RatingBloc ratingBloc;
 
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
@@ -60,6 +65,10 @@ void main() {
     authBloc = MockAuthBloc();
     buyerIntentBloc = MockBuyerIntentBloc();
     cropListingBloc = MockCropListingBloc();
+    final ratingRepo = MockRatingRepository();
+    when(() => ratingRepo.getRatingSummary(any()))
+        .thenAnswer((_) async => RatingSummary.empty);
+    ratingBloc = RatingBloc(repository: ratingRepo);
 
     when(() => authBloc.state).thenReturn(
       const AuthAuthenticated(
@@ -85,6 +94,7 @@ void main() {
         BlocProvider<AuthBloc>.value(value: authBloc),
         BlocProvider<BuyerIntentBloc>.value(value: buyerIntentBloc),
         BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+        BlocProvider<RatingBloc>.value(value: ratingBloc),
       ],
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

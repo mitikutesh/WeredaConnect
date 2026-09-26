@@ -156,9 +156,11 @@ class RatingRepository extends BaseRatingRepository {
     final api = _apiClient;
     if (api != null) {
       try {
+        // Only the aggregate is used: ask for the smallest page so a browse
+        // list (one call per seller) does not download 20 ratings each.
         final data = await api.get<Map<String, dynamic>>(
           '/ratings',
-          queryParameters: {'rateeId': rateeId},
+          queryParameters: {'rateeId': rateeId, 'limit': '1'},
         );
         final summary = data['summary'] as Map<String, dynamic>?;
         if (summary != null) {

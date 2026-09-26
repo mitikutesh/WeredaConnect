@@ -1870,6 +1870,24 @@
   "@escrowDescRefunded": {
     "description": "Status description for refunded escrow"
   },
+  "escrowStatusRefundPending": "Deebii Eegamaa Jira",
+  "@escrowStatusRefundPending": {
+    "description": "Status label for an escrowed hold whose refund is on its way (order cancelled or hold expired)"
+  },
+  "escrowDescRefundPending": "Ajajni haqameera. Maallaqni gara bitaatti deebi'aa jira",
+  "@escrowDescRefundPending": {
+    "description": "Status description for an escrowed hold whose refund is on its way"
+  },
+  "escrowOrderShort": "Ajaja #{id}",
+  "@escrowOrderShort": {
+    "description": "Short order reference with ID, shown when an escrow has no delivery yet",
+    "placeholders": {
+      "id": {
+        "type": "String",
+        "example": "a1b2c3d4"
+      }
+    }
+  },
 
   "conflictFieldCropType": "Gosa Midhaan",
   "@conflictFieldCropType": {

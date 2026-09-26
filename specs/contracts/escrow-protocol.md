@@ -585,7 +585,10 @@ Get the authenticated user's payment history.
       "currency": "ETB",
       "status": "completed",
       "createdAt": "2026-02-17T10:00:00Z",
-      "completedAt": "2026-02-19T10:00:00Z"
+      "completedAt": "2026-02-19T10:00:00Z",
+      "expiresAt": "2026-02-24T10:00:00Z",
+      "refundPending": false,
+      "refundReason": null
     }
   ],
   "nextToken": "base64-encoded-pagination-token",
@@ -595,6 +598,8 @@ Get the authenticated user's payment history.
 ```
 
 Money legs (SIM-15): `amount = farmerPayout + truckerPayout + commission` on every row. `truckerPayout` and `truckerId` are `null` when the order carried no trucker split. Each client renders only the caller's own leg in its Payments and Profile views (buyer: `amount`, farmer: `farmerPayout`, trucker: `truckerPayout`); the escrow detail shows the full breakdown. `counterpartyName` is the farmer for a buyer and the buyer for a farmer or trucker.
+
+Refund pending (SIM-20): `refundPending` is `true` while a row is still `escrowed` but the money is on its way back to the buyer: the order was cancelled or rejected (the server scheduled the refund, `refundReason` says why, `expiresAt` is set to that moment) or the hold passed its `expiresAt`; the hourly sweep refunds it. Clients label such rows "Refund pending" and never "Funds held safely"; a row without a delivery shows its `orderId` as the reference. Both fields are also on `EscrowDto`.
 
 #### Error Responses
 
@@ -637,6 +642,8 @@ Money legs (SIM-15): `amount = farmerPayout + truckerPayout + commission` on eve
 | `disputeWindowEndsAt` | string (ISO 8601) | No | deliveryConfirmedAt + 48h | Dispute deadline |
 | `releasedAt` | string (ISO 8601) | No | Set on release | When funds were released |
 | `refundedAt` | string (ISO 8601) | No | Set on refund | When funds were refunded |
+| `refundPending` | boolean | Yes | `status = escrowed` and (`refundReason` set or `expiresAt` passed) | Money still held but going back to the buyer; label "Refund pending" (SIM-20) |
+| `refundReason` | string | No | Set when a cancelled/rejected order schedules its refund | Why the refund was scheduled |
 | `completedAt` | string (ISO 8601) | No | Set on completion | When transaction settled |
 | `version` | number | Yes | >= 1 | Optimistic concurrency control |
 
@@ -1174,6 +1181,7 @@ A scheduled Lambda runs every 6 hours:
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.5 | 2026-09-25 | Refund-pending labelling (SIM-20): history rows and `EscrowDto` carry `refundPending` + `refundReason` (rows also `expiresAt`); a cancelled order's still-escrowed money reads "Refund pending" with the order as reference instead of "Funds held safely" with a blank delivery |
 | 1.2.4 | 2026-09-25 | Default history scoping (SIM-16): without `role=` the history is scoped by the token's role claim instead of always the buyer GSI, so a farmer (including the farmer of a self-pickup, whose escrow is order-funded with no delivery) and a trucker read their own rows unfiltered |
 | 1.2.3 | 2026-09-25 | Trucker money view (SIM-15): `EscrowDto` and history rows carry `truckerPayout` + `truckerId`, history rows carry `farmerPayout`; `role=trucker` reads the new sparse `TruckerStatusIndex` GSI; the order's trucker is a party for `GET /escrow/{id}` and `by-delivery`; delivery linkage backfills a missing `truckerId` from the order; clients show each role its own leg |
 | 1.2.2 | 2026-09-25 | Stock restore (SIM-13): the refund sweep's cancel of a stale-funded order (and a participant's reject/cancel of a funded order) returns the listing's quintals, idempotent per order; the escrow cron Lambda gains `CROPS_TABLE` |
@@ -1185,5 +1193,5 @@ A scheduled Lambda runs every 6 hours:
 ---
 
 **Last Updated**: 2026-09-25
-**Version**: 1.2.4
+**Version**: 1.2.5
 **Status**: Draft (Phase R4)
