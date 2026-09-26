@@ -15,6 +15,18 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 
+/// Wait until [count] states have been emitted (10s cap). A fixed 100ms sleep
+/// raced the Isar writes on loaded CI runners: the bloc had emitted only
+/// Loading, the assert failed, and the unclosed bloc then hung the rest of
+/// the file ("did not complete"). Falls through on timeout so the following
+/// expect reports the actual emissions.
+Future<void> waitForStates(List<DeliveryState> states, int count) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (states.length < count && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 void main() {
   group('DeliveryBloc', () {
     late Isar isar;
@@ -64,7 +76,7 @@ void main() {
       final subscription = bloc.stream.listen(states.add);
 
       bloc.add(const LoadDeliveries(tripId: 'trip-001', userId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
@@ -94,7 +106,7 @@ void main() {
           qrToken: 'qr-token-abc',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
@@ -122,7 +134,7 @@ void main() {
           buyerName: 'Sara Hailu',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
@@ -307,7 +319,7 @@ void main() {
           tripId: 'trip-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 3);
 
       expect(states.length, 3);
       expect(states[0], isA<DeliveryLoading>());
@@ -348,7 +360,7 @@ void main() {
           tripId: 'trip-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 3);
 
       expect(states.length, 3);
       expect(states[0], isA<DeliveryLoading>());
@@ -406,7 +418,7 @@ void main() {
           statusFilter: 'pickedUp',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
@@ -453,7 +465,7 @@ void main() {
       bloc.add(
         const FilterDeliveries(tripId: 'trip-001', userId: 'trucker-001'),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[1], isA<DeliveriesLoaded>());
@@ -476,7 +488,7 @@ void main() {
           userId: 'trucker-001',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states.length, 2);
       expect(states[0], isA<DeliveryLoading>());
@@ -507,11 +519,11 @@ void main() {
           qrToken: 'qr-token',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       // Now load deliveries
       bloc.add(const LoadDeliveries(tripId: 'trip-001', userId: 'trucker-001'));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 4);
 
       // Should have: Loading, Created, Loading, Loaded(1 delivery)
       expect(states.length, 4);
@@ -542,7 +554,7 @@ void main() {
           qrToken: 'qr-token',
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await waitForStates(states, 2);
 
       expect(states[1], isA<DeliveryCreated>());
       final created = states[1] as DeliveryCreated;
