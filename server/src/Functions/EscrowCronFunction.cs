@@ -108,7 +108,11 @@ public class EscrowCronFunction
             ? new CropRepository(dynamoDb, cropsTable)
             : null;
 
-        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway);
+        // Payout destinations and the release-time identity gate need the profiles.
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
+        var userRepo = usersTable != null ? new UserRepository(dynamoDb, usersTable) : null;
+
+        _escrowService = new EscrowService(_escrowRepo, _auditRepo, idempotencyRepo, _telebirrGateway, userRepo);
     }
 
     /// <summary>
@@ -199,19 +203,22 @@ public class EscrowCronFunction
     {
         var releaseCount = await AutoReleaseAsync(context);
         var refundCount = await AutoRefundAsync(context);
+        var (settledReleases, settledRefunds) = await SettleResolvedDisputesAsync(context);
         var completedCount = await CompleteReleasedAsync(context);
 
         var summary = new Dictionary<string, string>
         {
             { "action", "auto_release_and_refund" },
-            { "released", releaseCount.ToString() },
-            { "refunded", refundCount.ToString() },
+            { "released", (releaseCount + settledReleases).ToString() },
+            { "refunded", (refundCount + settledRefunds).ToString() },
+            { "disputesSettled", (settledReleases + settledRefunds).ToString() },
             { "completed", completedCount.ToString() },
             { "completedAt", DateTime.UtcNow.ToString("o") }
         };
 
         context.Logger.LogInformation(
-            $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, {completedCount} crash-recovered to completed.");
+            $"Auto-release/refund complete: {releaseCount} released, {refundCount} refunded, "
+            + $"{settledReleases + settledRefunds} resolved disputes settled, {completedCount} crash-recovered to completed.");
 
         return new APIGatewayProxyResponse
         {
@@ -219,6 +226,100 @@ public class EscrowCronFunction
             Body = JsonSerializer.Serialize(summary, AppJsonContext.Default.DictionaryStringString),
             Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
         };
+    }
+
+    /// <summary>
+    /// An admin verdict (POST /admin/disputes/{id}/resolve) records disputeResolution
+    /// on the escrow and leaves it in dispute_resolved; this sweep moves the money:
+    /// farmer_wins releases, buyer_wins refunds. partial_refund has no gateway leg yet
+    /// and is left for a manual admin release/refund. Money moves only here and on
+    /// the admin settlement routes, never in the admin Lambda itself.
+    /// </summary>
+    private async Task<(int released, int refunded)> SettleResolvedDisputesAsync(ILambdaContext context)
+    {
+        List<Dictionary<string, object>> escrows;
+        try
+        {
+            escrows = await _escrowRepo.QueryByStatusForCronAsync("dispute_resolved") ?? [];
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Dispute settlement: query failed [{ex.GetType().Name}]; skipping this run.");
+            return (0, 0);
+        }
+
+        var released = 0;
+        var refunded = 0;
+        var hourBucket = DateTime.UtcNow.ToString("yyyyMMddHH");
+
+        foreach (var escrow in escrows)
+        {
+            try
+            {
+                var escrowId = GetString(escrow, "escrowId");
+                var deliveryId = GetStringOrNull(escrow, "deliveryId") ?? "";
+                var resolution = GetStringOrNull(escrow, "disputeResolution");
+
+                switch (resolution)
+                {
+                    case "farmer_wins":
+                    {
+                        var result = await _escrowService.ReleaseAsync(
+                            new ReleaseEscrowRequest
+                            {
+                                EscrowId = escrowId,
+                                Trigger = "dispute_resolved",
+                                DeliveryId = deliveryId,
+                                IdempotencyKey = $"system:{escrowId}:dispute_release:{hourBucket}"
+                            },
+                            authenticatedUserId: "system");
+                        if (result.IsSuccess)
+                        {
+                            released++;
+                        }
+                        else
+                        {
+                            context.Logger.LogError(
+                                $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                        }
+                        break;
+                    }
+                    case "buyer_wins":
+                    {
+                        var result = await _escrowService.RefundAsync(
+                            new RefundEscrowRequest
+                            {
+                                EscrowId = escrowId,
+                                Trigger = "dispute_resolved",
+                                Reason = "Dispute resolved in the buyer's favour.",
+                                IdempotencyKey = $"system:{escrowId}:dispute_refund:{hourBucket}"
+                            },
+                            authenticatedUserId: "system");
+                        if (result.IsSuccess)
+                        {
+                            refunded++;
+                        }
+                        else
+                        {
+                            context.Logger.LogError(
+                                $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                        }
+                        break;
+                    }
+                    default:
+                        context.Logger.LogWarning(
+                            $"Dispute {escrowId} resolved as '{resolution ?? "unset"}': no automatic settlement, admin must release or refund.");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError(
+                    $"Dispute settlement: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+            }
+        }
+
+        return (released, refunded);
     }
 
     /// <summary>

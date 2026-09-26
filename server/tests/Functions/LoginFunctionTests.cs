@@ -27,6 +27,10 @@ public class LoginFunctionTests
         _function = new LoginFunction(_mockAuth, _mockRepo, _mockRateLimit);
         _context = new TestLambdaContext();
 
+        // Default: the source IP is under its cap
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Success(true));
+
         // Default: rate limit allows login
         _mockRateLimit.CheckLoginAllowedAsync(Arg.Any<string>())
             .Returns(AuthResult<bool>.Success(true));
@@ -378,5 +382,108 @@ public class LoginFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("user-123", response.Body);
+    }
+
+    // ===== Per-IP cap and device tracking =====
+
+    private void SetupSuccessfulLogin(UserDto user)
+    {
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(new CognitoAuthTokens
+            {
+                AccessToken = "access-token",
+                IdToken = "id-token",
+                RefreshToken = "refresh-token",
+                ExpiresIn = 900
+            }));
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(user);
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>())
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = ci.Arg<int>() + 1 }));
+    }
+
+    private static APIGatewayProxyRequest LoginFromDevice(string deviceId, string deviceName = "Samsung A12")
+    {
+        var request = MakeRequest(new { phoneNumber = "+251912345678", password = "secure123" });
+        request.Headers = new Dictionary<string, string>
+        {
+            { "X-Device-Id", deviceId },
+            { "X-Device-Name", deviceName }
+        };
+        return request;
+    }
+
+    [Fact]
+    public async Task FunctionHandler_IpCapReached_Returns429WithoutTouchingCognito()
+    {
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), "login", Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests from this network.", retryAfterSeconds: 120));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "+251912345678", password = "secure123" }), _context);
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Equal("120", response.Headers["Retry-After"]);
+        await _mockAuth.DidNotReceive().LoginAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_FirstDevice_IsRememberedButNotFlaggedNew()
+    {
+        SetupSuccessfulLogin(TestUser);
+
+        var response = await _function.FunctionHandler(LoginFromDevice("device-aaaa-1111"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"newDevice\":false", response.Body);
+        await _mockRepo.Received(1).UpdateUserAsync(
+            Arg.Is<UserDto>(u => u.KnownDevices.Contains("device-aaaa-1111")), 1);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_UnknownDevice_IsFlaggedNewAndSmsSentOnlyWhenEnabled()
+    {
+        var sms = Substitute.For<ISmsSender>();
+        sms.SendAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        var function = new LoginFunction(_mockAuth, _mockRepo, _mockRateLimit, sms);
+        SetupSuccessfulLogin(TestUser with { KnownDevices = ["device-known-0000"] });
+
+        Environment.SetEnvironmentVariable("NEW_DEVICE_SMS_ENABLED", null);
+        var quiet = await function.FunctionHandler(LoginFromDevice("device-bbbb-2222"), _context);
+        Assert.Contains("\"newDevice\":true", quiet.Body);
+        await sms.DidNotReceive().SendAsync(Arg.Any<string>(), Arg.Any<string>());
+
+        Environment.SetEnvironmentVariable("NEW_DEVICE_SMS_ENABLED", "true");
+        try
+        {
+            var noisy = await function.FunctionHandler(LoginFromDevice("device-cccc-3333", "Tecno <a href=x>Spark"), _context);
+            Assert.Contains("\"newDevice\":true", noisy.Body);
+            await sms.Received(1).SendAsync("+251912345678", Arg.Is<string>(m => m.Contains("Tecno a hrefxSpark") && !m.Contains("<")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NEW_DEVICE_SMS_ENABLED", null);
+        }
+    }
+
+    [Fact]
+    public async Task FunctionHandler_KnownDevice_IsNotFlaggedAndNothingIsWritten()
+    {
+        SetupSuccessfulLogin(TestUser with { KnownDevices = ["device-known-0000"] });
+
+        var response = await _function.FunctionHandler(LoginFromDevice("device-known-0000"), _context);
+
+        Assert.Contains("\"newDevice\":false", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_MalformedDeviceId_IsIgnored()
+    {
+        SetupSuccessfulLogin(TestUser);
+
+        var response = await _function.FunctionHandler(LoginFromDevice("bad id with spaces!"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
     }
 }

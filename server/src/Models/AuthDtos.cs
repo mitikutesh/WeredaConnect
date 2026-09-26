@@ -33,14 +33,39 @@ public sealed record RegisterResponse
 {
     public required string UserId { get; init; }
     public required string PhoneNumber { get; init; }
-    public required TokenResponse Tokens { get; init; }
+    /// <summary>Null when the phone still has to be confirmed (see OtpRequired).</summary>
+    public TokenResponse? Tokens { get; init; }
     public required UserDto User { get; init; }
+    /// <summary>True (HTTP 202) when the client must complete POST /auth/verify-otp.</summary>
+    public bool OtpRequired { get; init; }
+    public string? OtpExpiresAt { get; init; }
     public string? Message { get; init; }
 }
 
 /// <summary>
 /// POST /auth/login request body.
 /// </summary>
+/// <summary>POST /auth/verify-otp request body.</summary>
+public sealed record VerifyOtpRequest
+{
+    public required string PhoneNumber { get; init; }
+    public required string OtpCode { get; init; }
+    public required string Password { get; init; }
+}
+
+/// <summary>POST /auth/resend-otp request body.</summary>
+public sealed record ResendOtpRequest
+{
+    public required string PhoneNumber { get; init; }
+}
+
+/// <summary>POST /auth/resend-otp response (always 200 for a well-formed phone).</summary>
+public sealed record ResendOtpResponse
+{
+    public required string Message { get; init; }
+    public string? OtpExpiresAt { get; init; }
+}
+
 public sealed record LoginRequest
 {
     public required string PhoneNumber { get; init; }
@@ -55,6 +80,8 @@ public sealed record LoginResponse
 {
     public required TokenResponse Tokens { get; init; }
     public required UserDto User { get; init; }
+    /// <summary>True when this sign-in came from an install id not seen on the account before.</summary>
+    public bool NewDevice { get; init; }
 }
 
 /// <summary>

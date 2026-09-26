@@ -16,6 +16,9 @@ namespace WeredaConnect.Server.Functions;
 /// </summary>
 public class PasswordResetFunction
 {
+    internal const int IpMaxPer15Min = 10;
+    private const int IpWindowSeconds = 900;
+
     private readonly ICognitoAuthService _authService;
     private readonly IRateLimitService _rateLimitService;
 
@@ -114,6 +117,14 @@ public class PasswordResetFunction
         var correlationId = AuditLogger.GetCorrelationId(request);
         var sourceIp = AuditLogger.GetSourceIp(request);
 
+        // Per-IP cap (10 per 15 minutes): SMS pumping and code guessing across many phones.
+        var ipCheck = await _rateLimitService.CheckIpAllowedAsync(sourceIp, "forgot", IpMaxPer15Min, IpWindowSeconds);
+        if (!ipCheck.IsSuccess)
+        {
+            return LambdaResponse.RateLimited(ipCheck.Error!.Code, ipCheck.Error.Message, ipCheck.Error.RetryAfterSeconds);
+        }
+        await _rateLimitService.RecordIpAsync(sourceIp, "forgot", IpWindowSeconds);
+
         var rateLimitResponse = await EnforceOtpRateLimitAsync(
             fpRequest.PhoneNumber, "FORGOT_PASSWORD_RATE_LIMITED", correlationId, sourceIp);
         if (rateLimitResponse != null) return rateLimitResponse;
@@ -207,6 +218,14 @@ public class PasswordResetFunction
 
         var correlationId = AuditLogger.GetCorrelationId(request);
         var sourceIp = AuditLogger.GetSourceIp(request);
+
+        // Per-IP cap (10 per 15 minutes): SMS pumping and code guessing across many phones.
+        var ipCheck = await _rateLimitService.CheckIpAllowedAsync(sourceIp, "reset", IpMaxPer15Min, IpWindowSeconds);
+        if (!ipCheck.IsSuccess)
+        {
+            return LambdaResponse.RateLimited(ipCheck.Error!.Code, ipCheck.Error.Message, ipCheck.Error.RetryAfterSeconds);
+        }
+        await _rateLimitService.RecordIpAsync(sourceIp, "reset", IpWindowSeconds);
 
         // Rate limit: check before calling Cognito so recorded failures have teeth.
         var rateLimitResponse = await EnforceOtpRateLimitAsync(

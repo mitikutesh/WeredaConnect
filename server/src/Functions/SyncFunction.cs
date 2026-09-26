@@ -44,6 +44,10 @@ public partial class SyncFunction
     private readonly IRateLimitService? _rateLimitService;
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
+
+    // auth_time of the current request's token (Lambda handles one request at a
+    // time per instance, so a field is safe); consumed by the payment step-up gate.
+    private long? _requestAuthTime;
     private readonly IIntentRepository? _intentRepo;
     private readonly IMatchEventRepository? _matchEventRepo;
     // Optional: when the escrows table is provisioned, confirming a delivery
@@ -531,6 +535,7 @@ public partial class SyncFunction
         }
 
         var authenticatedRole = AuthHelper.GetClaim(request, "custom:role");
+        _requestAuthTime = AuthHelper.GetAuthTime(request);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -2040,18 +2045,21 @@ public partial class SyncFunction
                         };
                     }
 
-                    // Already exists — return conflict with server data
+                    // Already exists: return conflict with server data, but only to the
+                    // owner: a create that names another farmer's id must not read that
+                    // farmer's listing (role-visibility rule).
                     var existing = await _cropRepo.GetByIdAsync(operation.EntityId);
                     var serverVersion = existing != null && existing.TryGetValue("version", out var v)
                         ? int.TryParse(v.ToString(), out var sv) ? sv : 1
                         : 1;
+                    var isOwner = existing != null && IsParty(existing, authenticatedUserId, "farmerId");
 
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
                         Status = "conflict",
                         ServerVersion = serverVersion,
-                        ServerData = existing,
+                        ServerData = isOwner ? existing : null,
                         Message = "Crop listing already exists on server."
                     };
                 }
@@ -2414,20 +2422,22 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
-                        // Already exists — return conflict with server data
+                        // Already exists: return conflict with server data, only to the
+                        // owning trucker (role-visibility rule).
                         var existing = await GetTripItemAsync(operation.EntityId);
                         var serverVersion = 1;
                         if (existing != null && existing.TryGetValue("version", out var v))
                         {
                             _ = int.TryParse(v.N, out serverVersion);
                         }
+                        var isOwner = existing != null && IsParty(existing, authenticatedUserId, "truckerId");
 
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "conflict",
                             ServerVersion = serverVersion,
-                            ServerData = existing != null ? CropRepository.FromItem(existing) : null,
+                            ServerData = isOwner ? CropRepository.FromItem(existing!) : null,
                             Message = "Trip already exists on server."
                         };
                     }
@@ -3664,19 +3674,22 @@ public partial class SyncFunction
                     }
                     catch (ConditionalCheckFailedException)
                     {
+                        // Echo the existing delivery only to one of its parties.
                         var existing = await GetDeliveryItemAsync(operation.EntityId);
                         var serverVersion = 1;
                         if (existing != null && existing.TryGetValue("version", out var v))
                         {
                             _ = int.TryParse(v.N, out serverVersion);
                         }
+                        var isParty = existing != null
+                            && IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId");
 
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "conflict",
                             ServerVersion = serverVersion,
-                            ServerData = existing != null ? ScrubSyncSecrets(CropRepository.FromItem(existing)) : null,
+                            ServerData = isParty ? ScrubSyncSecrets(CropRepository.FromItem(existing!)) : null,
                             Message = "Delivery already exists on server."
                         };
                     }
@@ -3836,6 +3849,20 @@ public partial class SyncFunction
                                         OperationId = operation.OperationId,
                                         Status = "error",
                                         Message = "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery."
+                                    };
+                                }
+
+                                // A dispute freezes the order's money: above the step-up
+                                // threshold it needs a fresh password (AUTH_040), like the
+                                // escrow dispute endpoint.
+                                var disputeStepUp = await CheckDeliveryDisputeStepUpAsync(existing);
+                                if (disputeStepUp != null)
+                                {
+                                    return new SyncOperationResult
+                                    {
+                                        OperationId = operation.OperationId,
+                                        Status = "error",
+                                        Message = disputeStepUp
                                     };
                                 }
                                 break;
@@ -5009,18 +5036,21 @@ public partial class SyncFunction
             };
         }
 
-        // Already exists — return conflict
+        // Already exists: return conflict; the order (phones, amounts) is echoed only
+        // to one of its parties.
         var existing = await _orderRepo.GetByIdAsync(operation.EntityId);
         var serverVersion = existing != null && existing.TryGetValue("version", out var v)
             ? int.TryParse(v.ToString(), out var sv) ? sv : 1
             : 1;
+        var isParty = existing != null
+            && IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId");
 
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
             Status = "conflict",
             ServerVersion = serverVersion,
-            ServerData = existing,
+            ServerData = isParty ? existing : null,
             Message = "Order already exists on server."
         };
     }
@@ -5161,6 +5191,36 @@ public partial class SyncFunction
                     Status = "error",
                     Message = transitionError
                 };
+            }
+
+            // KYC and step-up gates on the buyer's payment. The order-funded escrow leg is
+            // the real money path, so the checks /escrow/initiate makes (both parties
+            // phone-verified, Fayda above 10,000 ETB) and a fresh password for large
+            // amounts (AUTH_040) run here, before any money moves.
+            if (newStatus == "payment_submitted")
+            {
+                var orderTotal = ReadDecimal(existingOrder, "orderTotal");
+                var kycError = await CheckPaymentKycAsync(authenticatedUserId!, orderFarmerId, orderTotal, context);
+                if (kycError != null)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = kycError
+                    };
+                }
+
+                var stepUpError = StepUpPolicy.Check(_requestAuthTime, orderTotal);
+                if (stepUpError != null)
+                {
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = stepUpError
+                    };
+                }
             }
 
             // SIM-11: the order becomes "delivered" only once its delivery is confirmed.
@@ -5649,6 +5709,100 @@ public partial class SyncFunction
                 $"ORDER_ESCROW_LINK_FAILED orderId={orderId} deliveryId={deliveryId} "
                 + $"reason=[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>
+    /// Both parties must be phone-verified, and Fayda-verified above the NBE
+    /// threshold, before the buyer pays. Fails closed when the profiles cannot be read.
+    /// </summary>
+    private async Task<string?> CheckPaymentKycAsync(
+        string buyerId, string? farmerId, decimal orderTotal, ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            context.Logger.LogError("Payment KYC gate unavailable: user repository not configured.");
+            return $"{KycPolicy.ErrorCode}: Identity verification is unavailable right now. Please try again later.";
+        }
+
+        var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+        var farmer = string.IsNullOrEmpty(farmerId) ? null : await _userRepo.GetUserByIdAsync(farmerId);
+        return KycPolicy.CheckPayment(buyer, farmer, orderTotal);
+    }
+
+    /// <summary>
+    /// Step-up check for a delivery dispute, sized by the linked order's total. A
+    /// delivery without a resolvable order carries no amount and needs no step-up.
+    /// </summary>
+    private async Task<string?> CheckDeliveryDisputeStepUpAsync(Dictionary<string, AttributeValue> delivery)
+    {
+        var orderId = delivery.TryGetValue("orderId", out var oid) ? oid.S : null;
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        Dictionary<string, object>? order;
+        try
+        {
+            order = await _orderRepo.GetByIdAsync(orderId);
+        }
+        catch (Exception)
+        {
+            order = null;
+        }
+
+        return order == null ? null : StepUpPolicy.Check(_requestAuthTime, ReadDecimal(order, "orderTotal"));
+    }
+
+    /// <summary>True when the caller's id equals any of the named id fields.</summary>
+    private static bool IsParty(Dictionary<string, object> item, string? userId, params string[] idFields)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+        foreach (var field in idFields)
+        {
+            if (item.TryGetValue(field, out var raw) && string.Equals(raw?.ToString(), userId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsParty(Dictionary<string, AttributeValue> item, string? userId, params string[] idFields)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+        foreach (var field in idFields)
+        {
+            if (item.TryGetValue(field, out var attr) && string.Equals(attr.S, userId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static decimal ReadDecimal(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var raw) || raw == null)
+        {
+            return 0m;
+        }
+
+        return raw switch
+        {
+            decimal d => d,
+            double dbl => (decimal)dbl,
+            int i => i,
+            long l => l,
+            _ => decimal.TryParse(raw.ToString(), System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : 0m
+        };
     }
 
     /// <summary>

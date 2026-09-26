@@ -59,8 +59,67 @@ public class DeviceTokenFunction
         return request.HttpMethod switch
         {
             "POST" => await HandleRegisterAsync(request, context),
+            "DELETE" => await HandleUnregisterAsync(request, context),
             _ => LambdaResponse.Error(405, "DEVICE_TOKEN_VALIDATION", "Method not allowed.")
         };
+    }
+
+    /// <summary>
+    /// DELETE /device-tokens {token}: called on logout so a shared phone stops
+    /// receiving the previous user's pushes. Only the caller's own registration can
+    /// be removed; an unknown token is a no-op (204 either way).
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleUnregisterAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        var userId = AuthHelper.GetUserId(request);
+        if (string.IsNullOrEmpty(userId))
+        {
+            return LambdaResponse.Error(401, "DEVICE_TOKEN_UNAUTHORIZED", "Authentication required.");
+        }
+
+        RegisterDeviceTokenRequest? body;
+        try
+        {
+            body = JsonSerializer.Deserialize(
+                request.Body ?? "", AppJsonContext.Default.RegisterDeviceTokenRequest);
+        }
+        catch (JsonException)
+        {
+            return LambdaResponse.Error(400, "DEVICE_TOKEN_VALIDATION", "Invalid request body.");
+        }
+
+        if (body == null || string.IsNullOrWhiteSpace(body.Token))
+        {
+            return LambdaResponse.Error(400, "DEVICE_TOKEN_VALIDATION", "token is required.");
+        }
+
+        try
+        {
+            var endpointArn = await _repo.FindEndpointArnByTokenAsync(userId, body.Token!);
+            if (endpointArn != null)
+            {
+                await _repo.DeleteAsync(userId, endpointArn);
+                try
+                {
+                    await _sns.DeleteEndpointAsync(new DeleteEndpointRequest { EndpointArn = endpointArn });
+                }
+                catch (Exception ex)
+                {
+                    // The row is gone, so no push can be routed here any more; the
+                    // orphaned SNS endpoint is harmless and cleaned up by SNS itself.
+                    context.Logger.LogWarning($"Could not delete SNS endpoint: [{ex.GetType().Name}]");
+                }
+            }
+
+            return LambdaResponse.NoContent();
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error unregistering device token: [{ex.GetType().Name}]");
+            return LambdaResponse.Error(500, "DEVICE_TOKEN_SERVER_ERROR", "Failed to unregister device token.");
+        }
     }
 
     private async Task<APIGatewayProxyResponse> HandleRegisterAsync(

@@ -9,6 +9,7 @@ using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Services;
 using Xunit;
+using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
@@ -49,13 +50,16 @@ public class TelebirrWebhookFunctionTests
             .Returns(true);
     }
 
-    private TelebirrWebhookFunction NewFunction()
+    private TelebirrWebhookFunction NewFunction(string? merchantCode = null,
+        IUserRepository? userRepo = null, bool requirePayerMatch = false)
         => new(_escrowRepo, _auditRepo, _idemRepo,
-            new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1));
+            new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
+            merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch);
 
-    private static string SignedBody(string tradeStatus, string totalAmount = "15000.00", bool tamper = false, long? timestampMs = null)
+    private static string SignedBody(string tradeStatus, string totalAmount = "15000.00", bool tamper = false,
+        long? timestampMs = null, string? rawTimestamp = null, string? msisdn = null)
     {
-        var ts = (timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
+        var ts = rawTimestamp ?? (timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
         var signable = new Dictionary<string, object?>
         {
             ["method"] = "payment.notify",
@@ -74,30 +78,57 @@ public class TelebirrWebhookFunctionTests
                 ["trans_id"] = "TXN9",
             },
         };
+        var bizSignable = (Dictionary<string, object?>)signable["biz_content"]!;
+        if (msisdn != null)
+        {
+            bizSignable["msisdn"] = msisdn;
+        }
         var signer = new TelebirrSignatureService(PrivateKeyPem, null, TelebirrSignaturePadding.Pkcs1);
         var sign = tamper ? "AAAA" + signer.SignObject(signable)[4..] : signer.SignObject(signable);
 
-        var notification = new
+        var bizContent = new Dictionary<string, object?>
         {
-            method = "payment.notify",
-            nonce_str = "n-123",
-            timestamp = ts,
-            notify_time = "2026-07-07T10:05:00Z",
-            sign_type = "SHA256WithRSA",
-            sign,
-            biz_content = new
-            {
-                merch_order_id = MerchOrderId,
-                payment_order_id = "TB123",
-                total_amount = totalAmount,
-                trans_currency = "ETB",
-                trade_status = tradeStatus,
-                merch_code = "220100",
-                trans_id = "TXN9",
-            },
+            ["merch_order_id"] = MerchOrderId,
+            ["payment_order_id"] = "TB123",
+            ["total_amount"] = totalAmount,
+            ["trans_currency"] = "ETB",
+            ["trade_status"] = tradeStatus,
+            ["merch_code"] = "220100",
+            ["trans_id"] = "TXN9",
         };
-        // Serialize with camel/snake keys as-is (anonymous type uses these exact names).
+        if (msisdn != null)
+        {
+            bizContent["msisdn"] = msisdn;
+        }
+        var notification = new Dictionary<string, object?>
+        {
+            ["method"] = "payment.notify",
+            ["nonce_str"] = "n-123",
+            ["timestamp"] = ts,
+            ["notify_time"] = "2026-07-07T10:05:00Z",
+            ["sign_type"] = "SHA256WithRSA",
+            ["sign"] = sign,
+            ["biz_content"] = bizContent,
+        };
+        // Keys are serialized as-is (snake_case exactly as Telebirr sends them).
         return JsonSerializer.Serialize(notification);
+    }
+
+    private static IUserRepository BuyerWithPhone(string phone)
+    {
+        var repo = Substitute.For<IUserRepository>();
+        repo.GetUserByIdAsync("buyer-1").Returns(new UserDto
+        {
+            UserId = "buyer-1",
+            PhoneNumber = phone,
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-07-07T09:00:00Z",
+            UpdatedAt = "2026-07-07T09:00:00Z",
+            Version = 1
+        });
+        return repo;
     }
 
     private static APIGatewayProxyRequest Req(string body)
@@ -172,5 +203,111 @@ public class TelebirrWebhookFunctionTests
         // The replay/dedupe key + idempotency completion are recorded only AFTER a
         // successful transition, so a CAS-failing replay does not mark completion.
         await _idemRepo.DidNotReceive().UpdateAsync(MerchOrderId, "completed");
+    }
+
+    // ===== P0-6: fail-closed timestamp and merchant binding =====
+
+    [Fact]
+    public async Task Unparseable_timestamp_does_not_transition()
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "not-a-number")), _ctx);
+
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Empty_timestamp_does_not_transition()
+    {
+        await NewFunction().FunctionHandler(Req(SignedBody("Completed", rawTimestamp: "")), _ctx);
+
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Foreign_merch_code_does_not_transition()
+    {
+        await NewFunction(merchantCode: "999999").FunctionHandler(Req(SignedBody("Completed")), _ctx);
+
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Matching_merch_code_transitions()
+    {
+        await NewFunction(merchantCode: "220100").FunctionHandler(Req(SignedBody("Completed")), _ctx);
+
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    // ===== P0-6: payer binding =====
+
+    private void EscrowHasBuyer()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", EscrowId },
+            { "buyerId", "buyer-1" },
+            { "createdAt", "2026-07-07T10:00:00.0000000Z" },
+            { "amount", 15000m },
+            { "status", "initiated" },
+        });
+    }
+
+    [Fact]
+    public async Task Payer_mismatch_is_recorded_but_allowed_when_not_required()
+    {
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"));
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: "0922000002")), _ctx);
+
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+        await _auditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e.Values.Any(v => v != null && v.ToString() == "webhook_payer_mismatch")));
+    }
+
+    [Fact]
+    public async Task Payer_mismatch_is_rejected_when_required()
+    {
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true);
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: "+251922000002")), _ctx);
+
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Matching_payer_transitions_even_when_required()
+    {
+        EscrowHasBuyer();
+        var fn = NewFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true);
+
+        await fn.FunctionHandler(Req(SignedBody("Completed", msisdn: "0911000001")), _ctx);
+
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Missing_payer_is_rejected_only_when_required()
+    {
+        EscrowHasBuyer();
+
+        await NewFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true)
+            .FunctionHandler(Req(SignedBody("Completed")), _ctx);
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+
+        await NewFunction(userRepo: BuyerWithPhone("+251911000001"))
+            .FunctionHandler(Req(SignedBody("Completed")), _ctx);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
     }
 }

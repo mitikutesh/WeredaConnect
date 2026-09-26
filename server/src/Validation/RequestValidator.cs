@@ -252,12 +252,61 @@ public static partial class RequestValidator
             return ValidationResult.Failure(new ValidationError
             {
                 Field = "otpCode",
-                Code = "AUTH_009",
+                Code = "AUTH_011",
                 Message = "Invalid OTP format. Must be exactly 6 digits."
             });
         }
 
         return ValidationResult.Success();
+    }
+
+    /// <summary>
+    /// Combined validation for POST /auth/verify-otp request.
+    /// </summary>
+    public static ValidationResult ValidateVerifyOtpRequest(VerifyOtpRequest? request)
+    {
+        if (request is null)
+        {
+            return ValidationResult.Failure(new ValidationError
+            {
+                Field = "body",
+                Code = "AUTH_007",
+                Message = "Request body is required."
+            });
+        }
+
+        var errors = new List<ValidationError>();
+        errors.AddRange(ValidatePhoneNumber(request.PhoneNumber).Errors);
+        errors.AddRange(ValidateOtpCode(request.OtpCode).Errors);
+        if (string.IsNullOrEmpty(request.Password))
+        {
+            errors.Add(new ValidationError
+            {
+                Field = "password",
+                Code = "AUTH_007",
+                Message = "Password is required."
+            });
+        }
+
+        return errors.Count > 0 ? ValidationResult.Failure(errors) : ValidationResult.Success();
+    }
+
+    /// <summary>
+    /// Validation for POST /auth/resend-otp request.
+    /// </summary>
+    public static ValidationResult ValidateResendOtpRequest(ResendOtpRequest? request)
+    {
+        if (request is null)
+        {
+            return ValidationResult.Failure(new ValidationError
+            {
+                Field = "body",
+                Code = "AUTH_007",
+                Message = "Request body is required."
+            });
+        }
+
+        return ValidatePhoneNumber(request.PhoneNumber);
     }
 
     /// <summary>

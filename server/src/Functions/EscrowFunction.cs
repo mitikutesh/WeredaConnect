@@ -164,6 +164,16 @@ public class EscrowFunction
             return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can initiate escrow payments.");
         }
 
+        // Step-up: a large payment needs a recent password entry (auth_time), so a
+        // long-lived session on a shared or stolen phone cannot pay on its own.
+        if (StepUpPolicy.Check(request, body.Amount) != null)
+        {
+            AuditLogger.LogAudit("ESCROW", "INITIATE",
+                userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
+                entityType: "escrow", outcome: "failure", errorCode: StepUpPolicy.ErrorCode);
+            return LambdaResponse.Error(403, StepUpPolicy.ErrorCode, StepUpPolicy.ErrorMessage);
+        }
+
         // ── Fraud velocity check (F-14) ──
         if (_fraudService != null)
         {
@@ -270,13 +280,16 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
-        var role = GetAuthenticatedUserRole(request);
+        // The route sits on the admin authorizer: an admin-pool token carries
+        // cognito:groups, not custom:role. Verified here, honoured by the service.
+        var isAdmin = AdminAuthHelper.IsInAdminGroup(request);
+        var role = isAdmin ? "admin" : GetAuthenticatedUserRole(request);
         var releaseCorrelationId = AuditLogger.GetCorrelationId(request);
 
         try
         {
             var result = await _escrowService.ReleaseAsync(
-                body, userId, role, AuditContext.From(request, userId, role));
+                body, userId, role, AuditContext.From(request, userId, role), adminGroupVerified: isAdmin);
 
             AuditLogger.LogAudit("ESCROW", "RELEASE",
                 userId: userId, correlationId: releaseCorrelationId,
@@ -334,6 +347,20 @@ public class EscrowFunction
         }
 
         var disputeCorrelationId = AuditLogger.GetCorrelationId(request);
+
+        // Step-up for disputes on large escrows (the party check happens in the
+        // service; a non-party gets the service's own error below).
+        var existingEscrow = await _escrowService.GetByIdAsync(
+            body.EscrowId, userId, GetAuthenticatedUserRole(request));
+        if (existingEscrow.IsSuccess
+            && StepUpPolicy.Check(request, existingEscrow.Value!.Amount) != null)
+        {
+            AuditLogger.LogAudit("ESCROW", "DISPUTE",
+                userId: userId, correlationId: disputeCorrelationId,
+                entityType: "escrow", entityId: body.EscrowId,
+                outcome: "failure", errorCode: StepUpPolicy.ErrorCode);
+            return LambdaResponse.Error(403, StepUpPolicy.ErrorCode, StepUpPolicy.ErrorMessage);
+        }
 
         try
         {
@@ -395,13 +422,14 @@ public class EscrowFunction
             return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
         }
 
-        var role = GetAuthenticatedUserRole(request);
+        var isAdmin = AdminAuthHelper.IsInAdminGroup(request);
+        var role = isAdmin ? "admin" : GetAuthenticatedUserRole(request);
         var refundCorrelationId = AuditLogger.GetCorrelationId(request);
 
         try
         {
             var result = await _escrowService.RefundAsync(
-                body, userId, role, AuditContext.From(request, userId, role));
+                body, userId, role, AuditContext.From(request, userId, role), adminGroupVerified: isAdmin);
 
             AuditLogger.LogAudit("ESCROW", "REFUND",
                 userId: userId, correlationId: refundCorrelationId,

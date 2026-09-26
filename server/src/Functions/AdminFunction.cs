@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -44,9 +45,20 @@ public class AdminFunction
     private readonly string _deliveriesTable;
     private readonly string _paymentsTable;
 
+    // Account controls that must reach Cognito (disable, global sign-out, role
+    // attribute); null in tests that only exercise DynamoDB behaviour.
+    private readonly ICognitoAuthService? _cognitoAuth;
+
     public AdminFunction()
     {
         _dynamoDb = new AmazonDynamoDBClient();
+        var clientId = Environment.GetEnvironmentVariable("COGNITO_CLIENT_ID");
+        var userPoolId = Environment.GetEnvironmentVariable("COGNITO_USER_POOL_ID");
+        if (!string.IsNullOrEmpty(clientId) && !string.IsNullOrEmpty(userPoolId))
+        {
+            _cognitoAuth = new CognitoAuthService(
+                new Amazon.CognitoIdentityProvider.AmazonCognitoIdentityProviderClient(), clientId, userPoolId);
+        }
         _escrowsTable = Environment.GetEnvironmentVariable("ESCROWS_TABLE") ?? "";
         _escrowAuditTable = Environment.GetEnvironmentVariable("ESCROW_AUDIT_TABLE") ?? "";
         _transactionAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE") ?? "";
@@ -64,10 +76,12 @@ public class AdminFunction
     /// handler can be exercised without a live AWS client. Other table names default to
     /// empty (their handlers short-circuit on empty table names).
     /// </summary>
-    internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable, string fraudSignalsTable = "")
+    internal AdminFunction(IAmazonDynamoDB dynamoDb, string usersTable, string fraudSignalsTable = "",
+        ICognitoAuthService? cognitoAuth = null)
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
+        _cognitoAuth = cognitoAuth;
         _escrowsTable = "";
         _escrowAuditTable = "";
         _transactionAuditTable = "";
@@ -403,8 +417,31 @@ public class AdminFunction
                 "Escrow is not in a disputed state.");
         }
 
-        // Audit: this admin dispute-resolution is otherwise unrecorded (it updates
-        // the escrow directly, not via EscrowService, so no escrow-audit entry).
+        // Every escrow state change gets an escrow-audit entry (escrow-protocol.md
+        // audit-trail rule). The settlement itself is audited by EscrowService when
+        // the cron releases or refunds.
+        if (!string.IsNullOrEmpty(_escrowAuditTable))
+        {
+            try
+            {
+                await new EscrowAuditRepository(_dynamoDb, _escrowAuditTable).AppendAsync(new Dictionary<string, object>
+                {
+                    { "auditId", $"audit-{Guid.NewGuid():N}" },
+                    { "escrowId", escrowId },
+                    { "action", "admin_dispute_resolved" },
+                    { "fromState", "disputed" },
+                    { "toState", "dispute_resolved" },
+                    { "actor", adminUserId },
+                    { "timestamp", now },
+                    { "metadata", body.Resolution }
+                });
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"Escrow audit write failed for dispute resolution: [{ex.GetType().Name}]");
+            }
+        }
+
         var disputeOrderId = item.TryGetValue("orderId", out var doid) && doid.S != null ? doid.S : escrowId;
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, disputeOrderId, "escrow", escrowId,
@@ -420,7 +457,12 @@ public class AdminFunction
             Status = "dispute_resolved",
             Resolution = body.Resolution,
             ResolvedAt = now,
-            Message = "Dispute resolved successfully."
+            Message = body.Resolution switch
+            {
+                "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
+                "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
+                _ => "Verdict recorded. This outcome has no automatic settlement: release or refund the escrow manually."
+            }
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
@@ -756,6 +798,10 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_007", "User not found.");
         }
 
+        // The DynamoDB flag alone left refreshed and live tokens working: push the
+        // change into Cognito so sessions actually end (or the new role is issued).
+        var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
+
         var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
         await TransactionAuditWriter.EmitAsync(
             TxAuditRepo(), context, userId, "user", userId,
@@ -772,10 +818,86 @@ public class AdminFunction
             Action = body.Action,
             Status = "completed",
             UpdatedAt = now,
-            Message = $"User action '{body.Action}' completed successfully."
+            Message = cognitoNote == null
+                ? $"User action '{body.Action}' completed successfully."
+                : $"User action '{body.Action}' recorded, but {cognitoNote}"
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.UserActionResponse);
+    }
+
+    /// <summary>
+    /// suspend: disable the Cognito user and revoke every refresh token (live tokens
+    /// die within 15 minutes). unsuspend: re-enable. change_role: rewrite custom:role
+    /// and sign the user out so no token with the old role outlives the change.
+    /// Returns a note for the admin when Cognito could not be updated; the profile
+    /// row already carries the change, so the action is not rolled back.
+    /// </summary>
+    private async Task<string?> ApplyAccountControlAsync(
+        string userId, string action, Dictionary<string, AttributeValue> attrValues, ILambdaContext context)
+    {
+        if (action is not ("suspend" or "unsuspend" or "change_role"))
+        {
+            return null;
+        }
+
+        if (_cognitoAuth == null)
+        {
+            context.Logger.LogWarning($"Cognito account control unavailable for user_{action} on {userId}.");
+            return "the sign-in service was not updated (no Cognito client configured).";
+        }
+
+        var phone = await ReadUserPhoneAsync(userId);
+        if (string.IsNullOrEmpty(phone))
+        {
+            return "the sign-in service was not updated (profile has no phone number).";
+        }
+
+        var failures = new List<string>();
+        async Task Apply(string what, Task<AuthResult<bool>> call)
+        {
+            var result = await call;
+            if (!result.IsSuccess)
+            {
+                failures.Add(what);
+                AuditLogger.LogSecurity("ADMIN_ACCOUNT_CONTROL_FAILED", userId: userId,
+                    detail: $"{action}:{what}:{result.Error!.Code}", outcome: "failure");
+            }
+        }
+
+        switch (action)
+        {
+            case "suspend":
+                await Apply("disable", _cognitoAuth.AdminDisableUserAsync(phone));
+                await Apply("sign-out", _cognitoAuth.AdminGlobalSignOutAsync(phone));
+                break;
+            case "unsuspend":
+                await Apply("enable", _cognitoAuth.AdminEnableUserAsync(phone));
+                break;
+            case "change_role":
+                var newRole = attrValues.TryGetValue(":newRole", out var roleAttr) ? roleAttr.S : null;
+                if (!string.IsNullOrEmpty(newRole))
+                {
+                    await Apply("role", _cognitoAuth.AdminSetRoleAsync(phone, newRole));
+                }
+                await Apply("sign-out", _cognitoAuth.AdminGlobalSignOutAsync(phone));
+                break;
+        }
+
+        return failures.Count == 0
+            ? null
+            : $"the sign-in service update failed for: {string.Join(", ", failures)}.";
+    }
+
+    private async Task<string?> ReadUserPhoneAsync(string userId)
+    {
+        var response = await _dynamoDb.GetItemAsync(new GetItemRequest
+        {
+            TableName = _usersTable,
+            Key = new Dictionary<string, AttributeValue> { { "userId", new AttributeValue { S = userId } } },
+            ProjectionExpression = "phoneNumber"
+        });
+        return response.Item != null && response.Item.TryGetValue("phoneNumber", out var phone) ? phone.S : null;
     }
 
     // ──────────────────────────────────────────────

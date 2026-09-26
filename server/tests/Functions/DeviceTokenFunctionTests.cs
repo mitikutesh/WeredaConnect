@@ -123,4 +123,62 @@ public class DeviceTokenFunctionTests
         await _repo.DidNotReceive().PutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
+
+    // ===== DELETE /device-tokens (logout on a shared phone) =====
+
+    private static APIGatewayProxyRequest DeleteReq(string? userId, object? body)
+    {
+        var request = Req(userId, body);
+        request.HttpMethod = "DELETE";
+        return request;
+    }
+
+    [Fact]
+    public async Task Unregister_KnownToken_RemovesRowAndEndpoint()
+    {
+        _repo.FindEndpointArnByTokenAsync("buyer-1", "fcm-token-xyz").Returns(EndpointArn);
+
+        var response = await _fn.FunctionHandler(DeleteReq("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(204, response.StatusCode);
+        await _repo.Received(1).DeleteAsync("buyer-1", EndpointArn);
+        await _sns.Received(1).DeleteEndpointAsync(
+            Arg.Is<DeleteEndpointRequest>(r => r.EndpointArn == EndpointArn), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Unregister_UnknownToken_IsANoOp204()
+    {
+        _repo.FindEndpointArnByTokenAsync("buyer-1", "nope").Returns((string?)null);
+
+        var response = await _fn.FunctionHandler(DeleteReq("buyer-1", new { token = "nope" }), _ctx);
+
+        Assert.Equal(204, response.StatusCode);
+        await _repo.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _sns.DidNotReceive().DeleteEndpointAsync(Arg.Any<DeleteEndpointRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Unregister_OnlyLooksUpTheCallersOwnRegistration()
+    {
+        await _fn.FunctionHandler(DeleteReq("buyer-1", new { token = "fcm-token-xyz" }), _ctx);
+
+        await _repo.Received(1).FindEndpointArnByTokenAsync("buyer-1", "fcm-token-xyz");
+    }
+
+    [Fact]
+    public async Task Unregister_MissingToken_Returns400()
+    {
+        var response = await _fn.FunctionHandler(DeleteReq("buyer-1", new { token = "" }), _ctx);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unregister_Unauthenticated_Returns401()
+    {
+        var response = await _fn.FunctionHandler(DeleteReq(null, new { token = "fcm-token-xyz" }), _ctx);
+
+        Assert.Equal(401, response.StatusCode);
+    }
 }

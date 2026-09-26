@@ -5,6 +5,7 @@ using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -12,8 +13,12 @@ namespace WeredaConnect.Server.Tests.Functions;
 
 public class FaydaVerifyFunctionTests
 {
+    private const string StateKey = "AUTHSTATE#OIDC#state-xyz";
+
     private readonly IFaydaOidcService _mockFayda;
     private readonly IUserRepository _mockRepo;
+    private readonly IAuthStateRepository _mockAuthState;
+    private readonly IRateLimitService _mockRateLimit;
     private readonly FaydaVerifyFunction _function;
     private readonly TestLambdaContext _context;
 
@@ -21,226 +26,387 @@ public class FaydaVerifyFunctionTests
     {
         _mockFayda = Substitute.For<IFaydaOidcService>();
         _mockRepo = Substitute.For<IUserRepository>();
-        _function = new FaydaVerifyFunction(_mockFayda, _mockRepo);
+        _mockAuthState = Substitute.For<IAuthStateRepository>();
+        _mockRateLimit = Substitute.For<IRateLimitService>();
+        _function = new FaydaVerifyFunction(_mockFayda, _mockRepo, _mockAuthState, _mockRateLimit);
         _context = new TestLambdaContext();
 
-        // Default: code exchange succeeds
-        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>())
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Success(true));
+
+        // Default: a registration login was started for state-xyz
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("registration"));
+
+        // Default: code exchange succeeds and Fayda released a phone
+        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
             .Returns(AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
             {
                 FaydaId = "FAYDA-123",
-                FullName = "Abebe Kebede"
+                FullName = "Abebe Kebede",
+                PhoneNumber = "+251912345678"
             }));
 
         // Default: no duplicate Fayda ID
-        _mockRepo.GetUserByFaydaIdAsync(Arg.Any<string>())
-            .Returns((UserDto?)null);
+        _mockRepo.GetUserByFaydaIdAsync(Arg.Any<string>()).Returns((UserDto?)null);
 
         // Default: generate a mock verification token
-        _mockFayda.GenerateVerificationToken(Arg.Any<string>(), Arg.Any<string>())
+        _mockFayda.GenerateVerificationToken(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns("mock-verification-token");
+
+        // Default: the provider's authorize URL
+        _mockFayda.BuildAuthorizationUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci => AuthResult<string>.Success(
+                $"https://fayda.test/authorize?state={ci.ArgAt<string>(1)}&nonce={ci.ArgAt<string>(2)}&code_challenge={ci.ArgAt<string>(3)}"));
     }
+
+    private static AuthStateEntry StateRow(string purpose, string? userId = null, string? redirect = null) => new()
+    {
+        Key = StateKey,
+        Attributes = new Dictionary<string, string>
+        {
+            { "nonce", "nonce-1" },
+            { "codeVerifier", "verifier-1" },
+            { "purpose", purpose },
+            { "redirectUri", redirect ?? "weredaconnect://fayda-callback" },
+            { "createdAt", "2026-09-25T10:00:00Z" }
+        }.Concat(userId == null ? [] : new[] { new KeyValuePair<string, string>("userId", userId) })
+         .ToDictionary(kv => kv.Key, kv => kv.Value),
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds()
+    };
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private static APIGatewayProxyRequest MakeRequest(object body) => new()
+    private static APIGatewayProxyRequest MakeRequest(object? body, string path = "/auth/fayda-verify", string? userId = null)
     {
-        Body = JsonSerializer.Serialize(body, SerializerOptions)
+        var request = new APIGatewayProxyRequest
+        {
+            Path = path,
+            Body = body == null ? null : JsonSerializer.Serialize(body, SerializerOptions)
+        };
+        if (userId != null)
+        {
+            request.RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", userId } }
+            };
+        }
+        return request;
+    }
+
+    private static object VerifyBody(string state = "state-xyz", string code = "valid-code",
+        string redirect = "weredaconnect://fayda-callback") => new
+    {
+        authorizationCode = code,
+        state,
+        redirectUri = redirect
     };
 
-    [Fact]
-    public async Task FunctionHandler_ValidCode_Returns200WithVerificationToken()
-    {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
+    // ===== fayda-verify (pre-registration) =====
 
-        var response = await _function.FunctionHandler(request, _context);
+    [Fact]
+    public async Task Verify_ValidCode_Returns200WithPhoneBoundVerificationToken()
+    {
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("mock-verification-token", response.Body);
-        Assert.DoesNotContain("faydaId", response.Body);
         Assert.Contains("Abebe Kebede", response.Body);
+        Assert.Contains("nosniff", response.Headers["X-Content-Type-Options"]);
+        _mockFayda.Received(1).GenerateVerificationToken("FAYDA-123", "Abebe Kebede", "+251912345678");
     }
 
     [Fact]
-    public async Task FunctionHandler_ValidCode_IncludesSecurityHeaders()
+    public async Task Verify_UsesStoredPkceVerifierAndNonce()
     {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
+        await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
 
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal("DENY", response.Headers["X-Frame-Options"]);
-        Assert.Equal("nosniff", response.Headers["X-Content-Type-Options"]);
-        Assert.Equal("no-store", response.Headers["Cache-Control"]);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+        await _mockAuthState.Received(1).ConsumeAsync(StateKey);
     }
 
     [Fact]
-    public async Task FunctionHandler_ValidCode_ChecksDuplicateFaydaId()
+    public async Task Verify_UnknownState_Returns400WithoutExchange()
     {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
+        _mockAuthState.ConsumeAsync(Arg.Any<string>()).Returns((AuthStateEntry?)null);
 
-        await _function.FunctionHandler(request, _context);
-
-        await _mockRepo.Received(1).GetUserByFaydaIdAsync("FAYDA-123");
-    }
-
-    [Fact]
-    public async Task FunctionHandler_DuplicateFaydaId_Returns409()
-    {
-        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123")
-            .Returns(new UserDto
-            {
-                UserId = "existing-user",
-                PhoneNumber = "+251911111111",
-                Role = "farmer",
-                Woreda = "Adama",
-                FaydaId = "FAYDA-123",
-                IsPhoneVerified = true,
-                CreatedAt = "2026-01-01T00:00:00Z",
-                UpdatedAt = "2026-01-01T00:00:00Z",
-                Version = 1
-            });
-
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(409, response.StatusCode);
-        Assert.Contains("FAYDA_004", response.Body);
-        Assert.Contains("already linked", response.Body);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_InvalidCode_Returns400()
-    {
-        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_001",
-                "Invalid or expired authorization code.", "authorizationCode"));
-
-        var request = MakeRequest(new
-        {
-            authorizationCode = "bad-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody(state: "forged")), _context);
 
         Assert.Equal(400, response.StatusCode);
-        Assert.Contains("FAYDA_001", response.Body);
-        // Should NOT have checked for duplicates
-        await _mockRepo.DidNotReceive().GetUserByFaydaIdAsync(Arg.Any<string>());
+        Assert.Contains("FAYDA_002", response.Body);
+        await _mockFayda.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
     }
 
     [Fact]
-    public async Task FunctionHandler_FaydaServiceUnavailable_Returns503()
+    public async Task Verify_StateStartedForLinking_IsRejected()
     {
-        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(AuthResult<FaydaVerificationResult>.Failure(503, "FAYDA_003",
-                "Fayda identity service is temporarily unavailable."));
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-1"));
 
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(503, response.StatusCode);
-        Assert.Contains("FAYDA_003", response.Body);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_InvalidJson_Returns400()
-    {
-        var request = new APIGatewayProxyRequest { Body = "not{json" };
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(400, response.StatusCode);
-        Assert.Contains("AUTH_007", response.Body);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_NullBody_Returns400()
-    {
-        var request = new APIGatewayProxyRequest { Body = null };
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(400, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_MissingAuthorizationCode_Returns400()
-    {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "",
-            state = "state-xyz",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(400, response.StatusCode);
-        Assert.Contains("FAYDA_001", response.Body);
-        // Fayda service should NOT have been called
-        await _mockFayda.DidNotReceive().ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>());
-    }
-
-    [Fact]
-    public async Task FunctionHandler_MissingState_Returns400()
-    {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "",
-            redirectUri = "weredaconnect://fayda-callback"
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("FAYDA_002", response.Body);
     }
 
     [Fact]
-    public async Task FunctionHandler_MissingRedirectUri_Returns400()
+    public async Task Verify_RedirectMismatch_IsRejected()
     {
-        var request = MakeRequest(new
-        {
-            authorizationCode = "valid-code",
-            state = "state-xyz",
-            redirectUri = ""
-        });
-
-        var response = await _function.FunctionHandler(request, _context);
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(redirect: "https://evil.example/cb")), _context);
 
         Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_002", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_DuplicateFaydaId_Returns409()
+    {
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(new UserDto
+        {
+            UserId = "existing-user",
+            PhoneNumber = "+251900000000",
+            Role = "farmer",
+            Woreda = "Adama",
+            FaydaId = "FAYDA-123",
+            FaydaVerified = true,
+            IsPhoneVerified = true,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("FAYDA_004", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_InvalidCode_Returns400()
+    {
+        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+            .Returns(AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_001",
+                "Invalid or expired authorization code.", "authorizationCode"));
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody(code: "bad")), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_001", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_FaydaServiceUnavailable_Returns503()
+    {
+        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+            .Returns(AuthResult<FaydaVerificationResult>.Failure(503, "FAYDA_003",
+                "Fayda identity service is temporarily unavailable."));
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("FAYDA_003", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_InvalidJson_Returns400()
+    {
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/fayda-verify", Body = "{not json" }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("AUTH_007", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_NullBody_Returns400()
+    {
+        var response = await _function.FunctionHandler(MakeRequest(null), _context);
+
+        Assert.Equal(400, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("", "state-xyz", "weredaconnect://fayda-callback", "FAYDA_001")]
+    [InlineData("code", "", "weredaconnect://fayda-callback", "FAYDA_002")]
+    [InlineData("code", "state-xyz", "", "AUTH_007")]
+    public async Task Verify_MissingField_Returns400(string code, string state, string redirect, string expectedCode)
+    {
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { authorizationCode = code, state, redirectUri = redirect }), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains(expectedCode, response.Body);
+    }
+
+    [Fact]
+    public async Task AnyRoute_IpRateLimited_Returns429()
+    {
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), "fayda", Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests.", retryAfterSeconds: 30));
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(429, response.StatusCode);
+        await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+    }
+
+    // ===== fayda-start =====
+
+    [Fact]
+    public async Task Start_StoresStateNoncePkceAndReturnsAuthorizeUrl()
+    {
+        IReadOnlyDictionary<string, string>? stored = null;
+        string? storedKey = null;
+        _mockAuthState.PutAsync(Arg.Do<string>(k => storedKey = k),
+            Arg.Do<IReadOnlyDictionary<string, string>>(a => stored = a), FaydaVerifyFunction.StateTtlSeconds)
+            .Returns(Task.CompletedTask);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "0912345678" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.NotNull(stored);
+        Assert.StartsWith("AUTHSTATE#OIDC#", storedKey);
+        Assert.Equal("registration", stored!["purpose"]);
+        // The proof is bound to the phone Fayda releases, never to a client-supplied one.
+        Assert.False(stored.ContainsKey("phone"));
+        Assert.True(stored["codeVerifier"].Length >= 43);
+        Assert.False(stored.ContainsKey("userId"));
+
+        using var doc = JsonDocument.Parse(response.Body);
+        var state = doc.RootElement.GetProperty("state").GetString();
+        var url = doc.RootElement.GetProperty("authorizeUrl").GetString();
+        Assert.Equal(storedKey, "AUTHSTATE#OIDC#" + state);
+        Assert.Contains($"state={state}", url);
+        Assert.Contains("nonce=" + stored["nonce"], url);
+        Assert.DoesNotContain(stored["codeVerifier"], url);
+    }
+
+    [Fact]
+    public async Task Start_EmptyBody_IsAccepted()
+    {
+        var response = await _function.FunctionHandler(MakeRequest(null, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("authorizeUrl", response.Body);
+    }
+
+    [Fact]
+    public async Task Start_ForeignRedirect_IsRejected()
+    {
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { redirectUri = "https://evil.example/cb" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        await _mockAuthState.DidNotReceive().PutAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task UserStart_RequiresAuthentication()
+    {
+        var response = await _function.FunctionHandler(MakeRequest(null, "/user/fayda-start"), _context);
+
+        Assert.Equal(401, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UserStart_BindsStateToCaller()
+    {
+        IReadOnlyDictionary<string, string>? stored = null;
+        _mockAuthState.PutAsync(Arg.Any<string>(), Arg.Do<IReadOnlyDictionary<string, string>>(a => stored = a), Arg.Any<int>())
+            .Returns(Task.CompletedTask);
+
+        var response = await _function.FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("link", stored!["purpose"]);
+        Assert.Equal("user-7", stored["userId"]);
+    }
+
+    // ===== fayda-link (post-registration) =====
+
+    private UserDto LinkingUser(bool phoneVerified = true) => new()
+    {
+        UserId = "user-7",
+        PhoneNumber = "+251912345678",
+        Role = "buyer",
+        Woreda = "Adama",
+        IsPhoneVerified = phoneVerified,
+        FaydaVerified = false,
+        CreatedAt = "2026-09-01T00:00:00Z",
+        UpdatedAt = "2026-09-01T00:00:00Z",
+        Version = 2
+    };
+
+    [Fact]
+    public async Task Link_ValidCode_MarksProfileVerified()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser());
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 2)
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = 3 }));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"faydaVerified\":true", response.Body);
+        Assert.Contains("Abebe Kebede", response.Body);
+        await _mockRepo.Received(1).UpdateUserAsync(
+            Arg.Is<UserDto>(u => u.FaydaVerified && u.FaydaId == "FAYDA-123" && u.FaydaVerifiedAt != null), 2);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+    }
+
+    [Fact]
+    public async Task Link_MatchingFaydaPhone_AlsoProvesThePhone()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser(phoneVerified: false));
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 2)
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = 3 }));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"phoneVerified\":true", response.Body);
+        await _mockRepo.Received(1).UpdateUserAsync(Arg.Is<UserDto>(u => u.IsPhoneVerified), 2);
+    }
+
+    [Fact]
+    public async Task Link_StateOfAnotherUser_IsRejected()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-8"));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_002", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Link_FaydaIdHeldByAnotherAccount_Returns409()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(LinkingUser() with { UserId = "user-9" });
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("FAYDA_004", response.Body);
+    }
+
+    [Fact]
+    public async Task Link_Unauthenticated_Returns401()
+    {
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody(), "/user/fayda-link"), _context);
+
+        Assert.Equal(401, response.StatusCode);
     }
 }

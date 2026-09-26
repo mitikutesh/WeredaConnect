@@ -7,10 +7,14 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Services;
 
 /// <summary>
-/// Fayda National ID OIDC service implementation.
-/// Exchanges authorization codes with Fayda IdP, validates ID tokens,
-/// and generates/validates short-lived verification tokens for registration.
-/// AOT-compatible — uses System.Text.Json and System.IdentityModel.Tokens.Jwt.
+/// Fayda National ID (VeriFayda eSignet) OpenID Connect client.
+/// Discovers the provider's endpoints, builds the authorization URL the app opens,
+/// exchanges the returned code (with PKCE) for an ID token, validates it against
+/// the provider's JWKS (issuer, audience, lifetime, signature, nonce) and issues
+/// the short-lived verification token that registration consumes once.
+/// AOT-compatible: System.Text.Json source generation and System.IdentityModel.Tokens.Jwt.
+/// Client authentication is client_secret_post; private_key_jwt is a follow-up once
+/// the production credentials are issued.
 /// </summary>
 public sealed class FaydaOidcService : IFaydaOidcService
 {
@@ -22,10 +26,15 @@ public sealed class FaydaOidcService : IFaydaOidcService
 
     private const int VerificationTokenValidityMinutes = 30;
     private const int JwksCacheMinutes = 60;
+    private const int DiscoveryCacheMinutes = 60;
+    private const string DefaultScope = "openid profile phone";
+    private const string DefaultAcrValues = "mosip:idp:acr:generated-code mosip:idp:acr:biometrics";
 
-    // Cached JWKS keys from Fayda issuer (thread-safe via volatile + timestamp check)
+    // Cached provider metadata (thread-safe via volatile + timestamp check)
     private static volatile IList<SecurityKey>? _cachedJwksKeys;
     private static DateTime _jwksCacheExpiry = DateTime.MinValue;
+    private static volatile FaydaDiscoveryDocument? _cachedDiscovery;
+    private static DateTime _discoveryCacheExpiry = DateTime.MinValue;
 
     public FaydaOidcService(
         HttpClient httpClient,
@@ -41,25 +50,65 @@ public sealed class FaydaOidcService : IFaydaOidcService
         _signingSecret = Encoding.UTF8.GetBytes(signingSecret ?? throw new ArgumentNullException(nameof(signingSecret)));
     }
 
+    /// <summary>Test seam: forget cached provider metadata.</summary>
+    internal static void ResetCaches()
+    {
+        _cachedJwksKeys = null;
+        _jwksCacheExpiry = DateTime.MinValue;
+        _cachedDiscovery = null;
+        _discoveryCacheExpiry = DateTime.MinValue;
+    }
+
+    public async Task<AuthResult<string>> BuildAuthorizationUrlAsync(
+        string redirectUri, string state, string nonce, string codeChallenge)
+    {
+        var discovery = await GetDiscoveryAsync();
+        var authorizeEndpoint = discovery?.AuthorizationEndpoint ?? $"{_issuerUrl.TrimEnd('/')}/authorize";
+
+        var query = new Dictionary<string, string>
+        {
+            { "client_id", _clientId },
+            { "redirect_uri", redirectUri },
+            { "response_type", "code" },
+            { "scope", DefaultScope },
+            { "state", state },
+            { "nonce", nonce },
+            { "code_challenge", codeChallenge },
+            { "code_challenge_method", "S256" },
+            { "acr_values", DefaultAcrValues }
+        };
+        var queryString = string.Join("&", query.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+        var separator = authorizeEndpoint.Contains('?') ? "&" : "?";
+
+        return AuthResult<string>.Success($"{authorizeEndpoint}{separator}{queryString}");
+    }
+
     public async Task<AuthResult<FaydaVerificationResult>> ExchangeCodeAsync(
         string authorizationCode,
-        string redirectUri)
+        string redirectUri,
+        string? codeVerifier = null,
+        string? expectedNonce = null)
     {
-        var tokenEndpoint = $"{_issuerUrl.TrimEnd('/')}/token";
+        var discovery = await GetDiscoveryAsync();
+        var tokenEndpoint = discovery?.TokenEndpoint ?? $"{_issuerUrl.TrimEnd('/')}/token";
 
-        var formContent = new FormUrlEncodedContent(new Dictionary<string, string>
+        var form = new Dictionary<string, string>
         {
             { "grant_type", "authorization_code" },
             { "code", authorizationCode },
             { "redirect_uri", redirectUri },
             { "client_id", _clientId },
             { "client_secret", _clientSecret }
-        });
+        };
+        if (!string.IsNullOrEmpty(codeVerifier))
+        {
+            form["code_verifier"] = codeVerifier;
+        }
 
         HttpResponseMessage httpResponse;
         try
         {
-            httpResponse = await _httpClient.PostAsync(tokenEndpoint, formContent);
+            httpResponse = await _httpClient.PostAsync(tokenEndpoint, new FormUrlEncodedContent(form));
         }
         catch (Exception)
         {
@@ -74,7 +123,15 @@ public sealed class FaydaOidcService : IFaydaOidcService
         }
 
         var responseBody = await httpResponse.Content.ReadAsStringAsync();
-        var tokenResponse = JsonSerializer.Deserialize(responseBody, FaydaJsonContext.Default.FaydaTokenResponse);
+        FaydaTokenResponse? tokenResponse;
+        try
+        {
+            tokenResponse = JsonSerializer.Deserialize(responseBody, FaydaJsonContext.Default.FaydaTokenResponse);
+        }
+        catch (JsonException)
+        {
+            tokenResponse = null;
+        }
 
         if (tokenResponse?.IdToken == null)
         {
@@ -90,11 +147,13 @@ public sealed class FaydaOidcService : IFaydaOidcService
                 "Unable to fetch Fayda signing keys for token validation.");
         }
 
-        var handler = new JwtSecurityTokenHandler();
+        // Keep the OIDC claim names: the default inbound map renames "sub" and "name"
+        // to the SOAP claim types, which would make every ID token look identity-less.
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
         var validationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = _issuerUrl.TrimEnd('/'),
+            ValidIssuers = [_issuerUrl.TrimEnd('/'), _issuerUrl.TrimEnd('/') + "/"],
             ValidateAudience = true,
             ValidAudience = _clientId,
             ValidateLifetime = true,
@@ -136,10 +195,22 @@ public sealed class FaydaOidcService : IFaydaOidcService
                 "Invalid ID token from Fayda.", "authorizationCode");
         }
 
+        // The nonce ties this ID token to the login we started (replay defence).
+        if (!string.IsNullOrEmpty(expectedNonce))
+        {
+            var nonce = principal.FindFirst("nonce")?.Value;
+            if (!string.Equals(nonce, expectedNonce, StringComparison.Ordinal))
+            {
+                return AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_002",
+                    "The identity response does not belong to this verification attempt.", "state");
+            }
+        }
+
         var faydaId = principal.FindFirst("sub")?.Value;
         var name = principal.FindFirst("name")?.Value
                    ?? principal.FindFirst("given_name")?.Value
                    ?? "Unknown";
+        var phoneNumber = principal.FindFirst("phone_number")?.Value;
 
         if (string.IsNullOrEmpty(faydaId))
         {
@@ -150,14 +221,50 @@ public sealed class FaydaOidcService : IFaydaOidcService
         return AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
         {
             FaydaId = faydaId,
-            FullName = name
+            FullName = name,
+            PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim()
         });
     }
 
     /// <summary>
-    /// Fetch and cache JWKS keys from the Fayda issuer's well-known endpoint.
-    /// Tries standard OIDC jwks_uri, then falls back to common eSignet path.
-    /// Keys are cached for 60 minutes to avoid per-request network calls.
+    /// OpenID discovery document, cached for an hour. Null when the provider does
+    /// not serve one (callers fall back to conventional paths).
+    /// </summary>
+    private async Task<FaydaDiscoveryDocument?> GetDiscoveryAsync()
+    {
+        if (_cachedDiscovery != null && DateTime.UtcNow < _discoveryCacheExpiry)
+        {
+            return _cachedDiscovery;
+        }
+
+        try
+        {
+            var response = await _httpClient.GetAsync($"{_issuerUrl.TrimEnd('/')}/.well-known/openid-configuration");
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var document = JsonSerializer.Deserialize(json, FaydaJsonContext.Default.FaydaDiscoveryDocument);
+            if (document == null)
+            {
+                return null;
+            }
+
+            _cachedDiscovery = document;
+            _discoveryCacheExpiry = DateTime.UtcNow.AddMinutes(DiscoveryCacheMinutes);
+            return document;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Fetch and cache JWKS keys from the provider: the discovery document's jwks_uri
+    /// first, then the conventional eSignet paths. Cached for 60 minutes.
     /// </summary>
     private async Task<IList<SecurityKey>?> FetchJwksKeysAsync()
     {
@@ -167,17 +274,18 @@ public sealed class FaydaOidcService : IFaydaOidcService
         }
 
         var issuerBase = _issuerUrl.TrimEnd('/');
-        string? jwksJson = null;
-
-        // Try standard OIDC JWKS endpoint
-        var jwksEndpoints = new[]
+        var candidates = new List<string>();
+        var discovery = await GetDiscoveryAsync();
+        if (!string.IsNullOrEmpty(discovery?.JwksUri))
         {
-            $"{issuerBase}/.well-known/jwks.json",
-            $"{issuerBase}/oauth/jwks",
-            $"{issuerBase}/jwks"
-        };
+            candidates.Add(discovery.JwksUri);
+        }
+        candidates.Add($"{issuerBase}/.well-known/jwks.json");
+        candidates.Add($"{issuerBase}/oauth/jwks");
+        candidates.Add($"{issuerBase}/jwks");
 
-        foreach (var endpoint in jwksEndpoints)
+        string? jwksJson = null;
+        foreach (var endpoint in candidates.Distinct())
         {
             try
             {
@@ -212,18 +320,24 @@ public sealed class FaydaOidcService : IFaydaOidcService
         }
     }
 
-    public string GenerateVerificationToken(string faydaId, string name)
+    public string GenerateVerificationToken(string faydaId, string name, string? phoneNumber = null)
     {
         var key = new SymmetricSecurityKey(_signingSecret);
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim("faydaId", faydaId),
-            new Claim("name", name),
-            new Claim("purpose", "fayda-verification")
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("faydaId", faydaId),
+            new("name", name),
+            new("purpose", "fayda-verification")
         };
+        if (!string.IsNullOrWhiteSpace(phoneNumber))
+        {
+            // Binds the proof to the phone Fayda released, so registration can
+            // skip the SMS code only for that number.
+            claims.Add(new Claim("phone", phoneNumber));
+        }
 
         var token = new JwtSecurityToken(
             issuer: "weredaconnect",
@@ -259,8 +373,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
             var faydaId = principal.FindFirst("faydaId")?.Value;
             var name = principal.FindFirst("name")?.Value;
             var purpose = principal.FindFirst("purpose")?.Value;
+            var jti = principal.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+            var phone = principal.FindFirst("phone")?.Value;
 
-            if (purpose != "fayda-verification" || string.IsNullOrEmpty(faydaId))
+            if (purpose != "fayda-verification" || string.IsNullOrEmpty(faydaId) || string.IsNullOrEmpty(jti))
             {
                 return AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_001",
                     "Invalid verification token.", "faydaVerificationToken");
@@ -269,7 +385,9 @@ public sealed class FaydaOidcService : IFaydaOidcService
             return AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
             {
                 FaydaId = faydaId,
-                FullName = name ?? "Unknown"
+                FullName = name ?? "Unknown",
+                PhoneNumber = string.IsNullOrWhiteSpace(phone) ? null : phone,
+                Jti = jti
             });
         }
         catch (SecurityTokenExpiredException)
@@ -303,10 +421,30 @@ internal sealed record FaydaTokenResponse
     public int? ExpiresIn { get; init; }
 }
 
+/// <summary>The subset of the OpenID discovery document this client uses.</summary>
+internal sealed record FaydaDiscoveryDocument
+{
+    [JsonPropertyName("issuer")]
+    public string? Issuer { get; init; }
+
+    [JsonPropertyName("authorization_endpoint")]
+    public string? AuthorizationEndpoint { get; init; }
+
+    [JsonPropertyName("token_endpoint")]
+    public string? TokenEndpoint { get; init; }
+
+    [JsonPropertyName("jwks_uri")]
+    public string? JwksUri { get; init; }
+
+    [JsonPropertyName("userinfo_endpoint")]
+    public string? UserinfoEndpoint { get; init; }
+}
+
 /// <summary>
 /// Source-generated JSON context for Fayda-specific types (AOT-safe).
 /// </summary>
 [JsonSerializable(typeof(FaydaTokenResponse))]
+[JsonSerializable(typeof(FaydaDiscoveryDocument))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal partial class FaydaJsonContext : JsonSerializerContext
 {

@@ -77,4 +77,19 @@ public interface ICognitoAuthService
     /// the user no longer exists.
     /// </summary>
     Task DeleteUserAsync(string phone);
+
+    /// <summary>Disable the Cognito user: refresh and password logins stop immediately.</summary>
+    Task<AuthResult<bool>> AdminDisableUserAsync(string phone);
+
+    /// <summary>Re-enable a disabled Cognito user.</summary>
+    Task<AuthResult<bool>> AdminEnableUserAsync(string phone);
+
+    /// <summary>
+    /// Invalidate every refresh token of the user (admin global sign-out). Issued
+    /// access/ID tokens stay valid until they expire (15 minutes).
+    /// </summary>
+    Task<AuthResult<bool>> AdminGlobalSignOutAsync(string phone);
+
+    /// <summary>Set custom:role so newly issued tokens carry the changed role.</summary>
+    Task<AuthResult<bool>> AdminSetRoleAsync(string phone, string role);
 }

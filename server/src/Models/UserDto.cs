@@ -30,6 +30,8 @@ public sealed record UserDto
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
     public bool Suspended { get; init; }
+    /// <summary>Install ids (X-Device-Id) that have signed in; a new one triggers a notice.</summary>
+    public List<string> KnownDevices { get; init; } = [];
     public string? ProfilePhotoRef { get; init; }
     // Buyer-only identity fields (F-32); null for farmers/truckers.
     public string? BuyerType { get; init; }

@@ -449,6 +449,8 @@ public class EscrowServiceTests
 
         var mockUserRepo = Substitute.For<IUserRepository>();
         mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
         var service = CreateServiceWithUserRepo(mockUserRepo);
 
         var request = new ReleaseEscrowRequest
@@ -981,6 +983,8 @@ public class EscrowServiceTests
 
         var mockUserRepo = Substitute.For<IUserRepository>();
         mockUserRepo.GetUserByIdAsync("resolver").Returns(MakeAdminUser("resolver"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
         var service = CreateServiceWithUserRepo(mockUserRepo);
 
         var request = new RefundEscrowRequest
@@ -1492,6 +1496,8 @@ public class EscrowServiceTests
 
         var mockUserRepo = Substitute.For<IUserRepository>();
         mockUserRepo.GetUserByIdAsync("admin-user").Returns(MakeAdminUser("admin-user"));
+        mockUserRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        mockUserRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
         var service = CreateServiceWithUserRepo(mockUserRepo);
 
         var request = new ReleaseEscrowRequest
@@ -2433,6 +2439,7 @@ public class EscrowServiceTests
     {
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -2460,6 +2467,7 @@ public class EscrowServiceTests
 
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -2488,6 +2496,7 @@ public class EscrowServiceTests
 
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var request = new RefundEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -2514,6 +2523,7 @@ public class EscrowServiceTests
 
         var userRepo = Substitute.For<IUserRepository>();
         userRepo.GetUserByIdAsync("admin-user").Returns(MakeVerifiedUser("admin-user", "admin"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
         var request = new ReleaseEscrowRequest
         {
             EscrowId = "escrow-001",
@@ -2717,5 +2727,101 @@ public class EscrowServiceTests
 
         // refund_failed audit entry
         await _mockAuditRepo.Received(1).AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ===== Payout destination and identity at release (ESCROW_029) =====
+
+    private static ReleaseEscrowRequest SystemRelease(string escrowId = "escrow-001") => new()
+    {
+        EscrowId = escrowId,
+        Trigger = "delivery_confirmed",
+        DeliveryId = DeliveryId,
+        IdempotencyKey = $"system:{escrowId}:release:1708171200999"
+    };
+
+    [Fact]
+    public async Task ReleaseAsync_FarmerPhoneNotVerified_IsBlockedBeforeTelebirr()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed", amount: 5_000m,
+            commission: 125m, farmerPayout: 4_875m));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer"));
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockEscrowRepo.DidNotReceive().TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _mockAuditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e["action"].ToString() == "release_blocked_kyc"));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_LargeAmountFarmerWithoutFayda_IsBlocked()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeUnverifiedFaydaUser(FarmerId, "farmer"));
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        Assert.Contains("Fayda", result.Error.Message);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_PaysTheFarmersRegisteredPhone_NotTheUserId()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.True(result.IsSuccess);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(
+            Arg.Is<ReleaseFundsRequest>(r => r.FarmerPhone == "+251900000000" && r.Amount == 14_625m));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_UnverifiedTrucker_LeavesTheTruckerLegPending()
+    {
+        var item = MakeEscrowItem(status: "escrowed", amount: 16_000m, commission: 400m, farmerPayout: 14_600m);
+        item["truckerPayout"] = 1_000m;
+        item["truckerId"] = "trucker-unverified";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(item);
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        userRepo.GetUserByIdAsync("trucker-unverified").Returns((UserDto?)null);
+
+        var result = await CreateServiceWithUserRepo(userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.True(result.IsSuccess);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.Amount == 14_600m));
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.Amount == 1_000m));
+    }
+
+    [Fact]
+    public async Task RefundAsync_RefundsTheBuyersRegisteredPhone()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(BuyerId).Returns(MakeVerifiedUser(BuyerId, "buyer") with { PhoneNumber = "+251933333333" });
+
+        var result = await CreateServiceWithUserRepo(userRepo).RefundAsync(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            Reason = "No delivery within 7 days.",
+            IdempotencyKey = "system:escrow-001:refund:1708171200999"
+        }, "system");
+
+        Assert.True(result.IsSuccess);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(
+            Arg.Is<RefundFundsRequest>(r => r.BuyerPhone == "+251933333333"));
     }
 }

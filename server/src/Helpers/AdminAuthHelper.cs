@@ -20,22 +20,37 @@ public static class AdminAuthHelper
             return false;
         }
 
-        // 1. Check Cognito groups claim from authorizer context (comma-separated list)
+        if (IsInAdminGroup(request))
+        {
+            return true;
+        }
+
+        // Custom role claims from authorizer context (tests and legacy tokens)
+        var role = AuthHelper.GetClaim(request, "role")
+                   ?? AuthHelper.GetClaim(request, "custom:role");
+        return string.Equals(role, AdminRole, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Membership of the admin pool's "admin" group only (no role-claim shortcut).
+    /// Money-moving admin actions use this: a role claim can be set on a marketplace
+    /// profile, a group can only be granted in the admin user pool.
+    /// </summary>
+    public static bool IsInAdminGroup(APIGatewayProxyRequest request)
+    {
+        if (!AuthHelper.IsAuthenticated(request))
+        {
+            return false;
+        }
+
+        // 1. Cognito groups claim from authorizer context (comma-separated list)
         var groups = AuthHelper.GetClaim(request, "cognito:groups") ?? "";
         if (groups.Split(',').Any(g => string.Equals(g.Trim(), AdminRole, StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        // 2. Check custom role claims from authorizer context
-        var role = AuthHelper.GetClaim(request, "role")
-                   ?? AuthHelper.GetClaim(request, "custom:role");
-        if (string.Equals(role, AdminRole, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        // 3. Fallback: parse cognito:groups from the JWT Authorization header directly.
+        // 2. Fallback: parse cognito:groups from the JWT Authorization header directly.
         //    HTTP API v2 JWT authorizer only forwards string claims, not arrays,
         //    so cognito:groups is silently dropped from the authorizer context.
         return HasAdminGroupInJwt(request);

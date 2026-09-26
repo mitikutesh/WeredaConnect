@@ -33,4 +33,10 @@ public interface IUserRepository
     /// Uses a table scan with filter — acceptable for duplicate check during registration.
     /// </summary>
     Task<UserDto?> GetUserByFaydaIdAsync(string faydaId);
+
+    /// <summary>
+    /// Remove a profile row. Used only to replace an unconfirmed registration
+    /// (phone never verified); never for confirmed accounts.
+    /// </summary>
+    Task DeleteUserAsync(string userId);
 }

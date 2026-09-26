@@ -47,6 +47,31 @@ public static class LambdaResponse
     }
 
     /// <summary>
+    /// 204 No Content response (the action succeeded and has nothing to return).
+    /// </summary>
+    public static APIGatewayProxyResponse NoContent()
+    {
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = 204,
+            Headers = SecurityHeaders
+        };
+    }
+
+    /// <summary>
+    /// 202 Accepted response with serialized body (the request needs a follow-up step).
+    /// </summary>
+    public static APIGatewayProxyResponse Accepted<T>(T body, JsonTypeInfo<T> typeInfo)
+    {
+        return new APIGatewayProxyResponse
+        {
+            StatusCode = 202,
+            Body = JsonSerializer.Serialize(body, typeInfo),
+            Headers = SecurityHeaders
+        };
+    }
+
+    /// <summary>
     /// Error response with AUTH_* code, message, and optional field reference.
     /// </summary>
     public static APIGatewayProxyResponse Error(int statusCode, string code, string message, string? field = null, int? retryAfterSeconds = null)

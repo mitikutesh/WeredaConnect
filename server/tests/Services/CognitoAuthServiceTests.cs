@@ -18,7 +18,7 @@ public class CognitoAuthServiceTests
     public CognitoAuthServiceTests()
     {
         _mockCognito = Substitute.For<IAmazonCognitoIdentityProvider>();
-        _service = new CognitoAuthService(_mockCognito, ClientId);
+        _service = new CognitoAuthService(_mockCognito, ClientId, "eu-north-1_TestPool");
     }
 
     // --- RegisterAsync ---
@@ -150,8 +150,8 @@ public class CognitoAuthServiceTests
     [Fact]
     public async Task LoginAsync_Success_ReturnsTokens()
     {
-        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new InitiateAuthResponse
+        _mockCognito.AdminInitiateAuthAsync(Arg.Any<AdminInitiateAuthRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminInitiateAuthResponse
             {
                 AuthenticationResult = new AuthenticationResultType
                 {
@@ -174,7 +174,7 @@ public class CognitoAuthServiceTests
     [Fact]
     public async Task LoginAsync_NotAuthorized_ReturnsAuth014()
     {
-        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+        _mockCognito.AdminInitiateAuthAsync(Arg.Any<AdminInitiateAuthRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new NotAuthorizedException("bad creds"));
 
         var result = await _service.LoginAsync("+251912345678", "wrong");
@@ -187,7 +187,7 @@ public class CognitoAuthServiceTests
     [Fact]
     public async Task LoginAsync_UserNotConfirmed_ReturnsAuth016()
     {
-        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+        _mockCognito.AdminInitiateAuthAsync(Arg.Any<AdminInitiateAuthRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new UserNotConfirmedException("not confirmed"));
 
         var result = await _service.LoginAsync("+251912345678", "password1");
@@ -200,7 +200,7 @@ public class CognitoAuthServiceTests
     [Fact]
     public async Task LoginAsync_UserNotFound_ReturnsAuth014_PreventEnumeration()
     {
-        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
+        _mockCognito.AdminInitiateAuthAsync(Arg.Any<AdminInitiateAuthRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new UserNotFoundException("not found"));
 
         var result = await _service.LoginAsync("+251912345678", "password1");
@@ -216,8 +216,8 @@ public class CognitoAuthServiceTests
         // C-2: Cognito returns a challenge (e.g. NEW_PASSWORD_REQUIRED / MFA)
         // with a null AuthenticationResult. Must fail closed (401) rather than
         // NRE on result.AccessToken → 500.
-        _mockCognito.InitiateAuthAsync(Arg.Any<InitiateAuthRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new InitiateAuthResponse { AuthenticationResult = null });
+        _mockCognito.AdminInitiateAuthAsync(Arg.Any<AdminInitiateAuthRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminInitiateAuthResponse { AuthenticationResult = null });
 
         var result = await _service.LoginAsync("+251912345678", "password1");
 

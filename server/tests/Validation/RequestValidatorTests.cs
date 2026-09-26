@@ -212,7 +212,7 @@ public class RequestValidatorTests
     {
         var result = RequestValidator.ValidateOtpCode(otp);
         Assert.False(result.IsValid);
-        Assert.Equal("AUTH_009", result.Errors[0].Code);
+        Assert.Equal(string.IsNullOrWhiteSpace(otp) ? "AUTH_009" : "AUTH_011", result.Errors[0].Code);
     }
 
     // --- Register Request ---
