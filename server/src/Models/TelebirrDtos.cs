@@ -139,6 +139,13 @@ public sealed record TelebirrWebhookBiz
 
     [JsonPropertyName("trans_id")]
     public string? TransId { get; init; }
+
+    /// <summary>
+    /// Paying wallet's phone number when Telebirr includes it. Field name to be
+    /// confirmed against the production notify payload; absent in the sandbox.
+    /// </summary>
+    [JsonPropertyName("msisdn")]
+    public string? Msisdn { get; init; }
 }
 
 /// <summary>Inbound Telebirr payment notification (POST to notify_url).</summary>

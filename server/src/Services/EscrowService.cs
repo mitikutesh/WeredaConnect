@@ -351,6 +351,7 @@ public sealed class EscrowService
         var buyerFaydaVerified = false;
         var farmerFaydaVerified = false;
         var requiresFayda = request.Amount > FaydaThreshold;
+        var buyerPhone = request.BuyerId; // resolved from the profile below when available
 
         // Fail closed: a high-value transaction MUST have a verification source.
         if (requiresFayda && _userRepo == null)
@@ -366,6 +367,7 @@ public sealed class EscrowService
         {
             var buyer = await _userRepo.GetUserByIdAsync(request.BuyerId);
             var farmer = await _userRepo.GetUserByIdAsync(request.FarmerId);
+            buyerPhone = buyer?.PhoneNumber ?? buyerPhone;
 
             // Farmer must exist, have the farmer role, and be phone-verified (contract §User
             // Validation). These use ESCROW_VALIDATION (not ESCROW_008/006, which carry
@@ -541,7 +543,7 @@ public sealed class EscrowService
         var holdResponse = await _telebirrGateway.HoldFundsAsync(new HoldFundsRequest
         {
             TransactionRef = request.IdempotencyKey,
-            BuyerPhone = request.BuyerId, // Real impl resolves phone from user profile
+            BuyerPhone = buyerPhone,
             Amount = request.Amount,
             Description = $"WeredaConnect escrow for delivery {request.DeliveryId}"
         });
@@ -961,12 +963,12 @@ public sealed class EscrowService
     /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseAsync(
         ReleaseEscrowRequest request, string authenticatedUserId, string? role = null,
-        AuditContext? auditContext = null)
+        AuditContext? auditContext = null, bool adminGroupVerified = false)
     {
         _auditContext = auditContext;
 
         // 1. Authorization: only system or admin can release funds → ESCROW_015
-        if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
+        if (!await IsSystemOrAdminAsync(authenticatedUserId, role, adminGroupVerified))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 403, "ESCROW_015", "Only system or admin can release escrow funds.");
@@ -1015,7 +1017,7 @@ public sealed class EscrowService
 
         // 4. Validate state transition: must be "escrowed" or "disputed"
         var currentStatus = GetString(escrowItem, "status");
-        if (currentStatus is not ("escrowed" or "disputed"))
+        if (currentStatus is not ("escrowed" or "disputed" or "dispute_resolved"))
         {
             return EscrowResult<ReleaseEscrowResponse>.Failure(
                 422, "ESCROW_INVALID_TRANSITION",
@@ -1027,6 +1029,22 @@ public sealed class EscrowService
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
         var currentVersion = GetInt(escrowItem, "version");
+
+        // 4b. Payout destination and identity. Money goes to the farmer's registered
+        //     phone (immutable since registration), and only to a farmer whose phone
+        //     is proven and, above the NBE threshold, whose Fayda identity is verified.
+        //     Checked before the lock so a blocked release leaves the escrow untouched
+        //     for an admin to settle.
+        var farmerId = GetString(escrowItem, "farmerId");
+        var payout = await ResolvePayoutAsync(farmerId, GetDecimal(escrowItem, "amount"), "farmer");
+        if (!payout.IsSuccess)
+        {
+            await AppendAuditAsync(request.EscrowId, "release_blocked_kyc", currentStatus, currentStatus,
+                authenticatedUserId, metadata: payout.Error!.Code);
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                payout.Error.HttpStatus, payout.Error.Code, payout.Error.Message);
+        }
+        var farmerPhone = payout.Value!;
 
         // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
         //    atomic mutual-exclusion guard: at most ONE settlement (release OR refund, across
@@ -1060,7 +1078,7 @@ public sealed class EscrowService
         {
             TransactionRef = $"release:{request.EscrowId}",
             HoldRef = holdRef,
-            FarmerPhone = GetString(escrowItem, "farmerId"), // Real impl resolves phone
+            FarmerPhone = farmerPhone,
             Amount = farmerPayout,
             PlatformCommission = commission
         });
@@ -1085,14 +1103,19 @@ public sealed class EscrowService
         if (truckerPayout.HasValue && truckerPayout.Value > 0)
         {
             var truckerIdValue = GetStringOrNull(escrowItem, "truckerId") ?? "";
-            var truckerRelease = await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
-            {
-                TransactionRef = $"release:{request.EscrowId}:trucker",
-                HoldRef = holdRef,
-                FarmerPhone = truckerIdValue, // Real impl resolves phone from truckerId
-                Amount = truckerPayout.Value,
-                PlatformCommission = 0m
-            });
+            var truckerPayoutDest = await ResolvePayoutAsync(truckerIdValue, truckerPayout.Value, "trucker");
+            var truckerRelease = truckerPayoutDest.IsSuccess
+                ? await _telebirrGateway.ReleaseFundsAsync(new ReleaseFundsRequest
+                {
+                    TransactionRef = $"release:{request.EscrowId}:trucker",
+                    HoldRef = holdRef,
+                    FarmerPhone = truckerPayoutDest.Value!,
+                    Amount = truckerPayout.Value,
+                    PlatformCommission = 0m
+                })
+                // No verified destination yet: the leg stays pending (truckerPayoutPending)
+                // instead of paying an unknown wallet.
+                : new ReleaseFundsResponse { Success = false, ErrorMessage = truckerPayoutDest.Error!.Message };
 
             if (truckerRelease.Success)
             {
@@ -1485,12 +1508,12 @@ public sealed class EscrowService
     /// <param name="role">The caller's JWT role claim (e.g. "admin"). Pass null for system/cron calls.</param>
     public async Task<EscrowResult<RefundEscrowResponse>> RefundAsync(
         RefundEscrowRequest request, string authenticatedUserId, string? role = null,
-        AuditContext? auditContext = null)
+        AuditContext? auditContext = null, bool adminGroupVerified = false)
     {
         _auditContext = auditContext;
 
         // 1. Authorization: only system or admin can refund → ESCROW_021
-        if (!await IsSystemOrAdminAsync(authenticatedUserId, role))
+        if (!await IsSystemOrAdminAsync(authenticatedUserId, role, adminGroupVerified))
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 403, "ESCROW_021", "Only system or admin can refund escrow funds.");
@@ -1539,7 +1562,7 @@ public sealed class EscrowService
 
         // 4. Validate state: must be "escrowed" or "disputed" → ESCROW_INVALID_TRANSITION
         var currentStatus = GetString(escrowItem, "status");
-        if (currentStatus is not ("escrowed" or "disputed"))
+        if (currentStatus is not ("escrowed" or "disputed" or "dispute_resolved"))
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 422, "ESCROW_INVALID_TRANSITION",
@@ -1580,7 +1603,7 @@ public sealed class EscrowService
         {
             TransactionRef = $"refund:{request.EscrowId}",
             HoldRef = holdRef,
-            BuyerPhone = GetString(escrowItem, "buyerId"), // Real impl resolves phone
+            BuyerPhone = await ResolveRefundPhoneAsync(GetString(escrowItem, "buyerId")),
             Amount = amount
         });
 
@@ -2036,13 +2059,60 @@ public sealed class EscrowService
     // ──────────────────────────────────────────────
 
     /// <summary>
-    /// Check if the actor is the system cron or a verified admin user.
-    /// Release and refund operations are restricted to system/admin.
-    /// System actor ("system") is used by cron jobs and short-circuits (no DB lookup).
-    /// Admin users must have the "admin" JWT role claim AND a matching Role in DynamoDB.
-    /// Fails closed: if _userRepo is null or user is not found, returns false.
+    /// Payout destination for a party: the registered phone from the profile.
+    /// Without a user repository (unit tests, misconfiguration) the user id is
+    /// passed through as before. With one, the party must exist and be
+    /// phone-verified, and Fayda-verified when the escrow amount exceeds the NBE
+    /// threshold; otherwise ESCROW_029 blocks the payout.
     /// </summary>
-    private async Task<bool> IsSystemOrAdminAsync(string userId, string? role)
+    private async Task<EscrowResult<string>> ResolvePayoutAsync(string? userId, decimal amount, string legLabel)
+    {
+        if (_userRepo == null)
+        {
+            return EscrowResult<string>.Success(userId ?? "");
+        }
+
+        var user = string.IsNullOrEmpty(userId) ? null : await _userRepo.GetUserByIdAsync(userId);
+        if (user == null)
+        {
+            return EscrowResult<string>.Failure(422, "ESCROW_029",
+                $"Payout blocked: {legLabel} profile not found.");
+        }
+
+        if (!user.IsPhoneVerified)
+        {
+            return EscrowResult<string>.Failure(403, "ESCROW_029",
+                $"Payout blocked: the {legLabel}'s phone number is not verified.");
+        }
+
+        if (amount > FaydaThreshold && !user.FaydaVerified)
+        {
+            return EscrowResult<string>.Failure(403, "ESCROW_029",
+                $"Payout blocked: the {legLabel} must verify their Fayda ID for amounts above 10,000 ETB.");
+        }
+
+        return EscrowResult<string>.Success(user.PhoneNumber);
+    }
+
+    /// <summary>Refunds go back to the buyer's registered phone (no KYC gate: it is their own money).</summary>
+    private async Task<string> ResolveRefundPhoneAsync(string buyerId)
+    {
+        if (_userRepo == null || string.IsNullOrEmpty(buyerId))
+        {
+            return buyerId;
+        }
+
+        var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+        return buyer?.PhoneNumber ?? buyerId;
+    }
+
+    /// <summary>
+    /// The system actor (cron), or an admin. Admin-pool users are not in the users
+    /// table: the caller verifies their cognito:groups membership at the API layer
+    /// and passes adminGroupVerified. A marketplace user claiming "admin" must also
+    /// hold the admin role on their profile row (fail closed without a repository).
+    /// </summary>
+    private async Task<bool> IsSystemOrAdminAsync(string userId, string? role, bool adminGroupVerified = false)
     {
         if (string.Equals(userId, SystemActor, StringComparison.Ordinal))
         {
@@ -2052,6 +2122,11 @@ public sealed class EscrowService
         if (!string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
         {
             return false;
+        }
+
+        if (adminGroupVerified)
+        {
+            return true;
         }
 
         if (_userRepo == null)

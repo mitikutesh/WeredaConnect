@@ -6,11 +6,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/fayida_id_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/personal_info_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/role_details_screen.dart';
@@ -27,6 +29,8 @@ import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 /// 3. Role-specific details (trucker/buyer only, farmer skips)
 /// 4. Personal info (phone, name, woreda, password)
 /// → Dispatches AuthRegisterRequested with Fayda verification token
+/// → Without a matching Fayda token the server asks for an SMS OTP
+///   (AuthOtpVerificationRequired) and the OTP screen is pushed on top.
 class RegistrationFlow extends StatefulWidget {
   const RegistrationFlow({super.key});
 
@@ -63,6 +67,9 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   // Whether the browser was launched and we're waiting for a callback
   bool _awaitingBrowserReturn = false;
   Timer? _browserReturnTimer;
+
+  // Whether the OTP screen is currently pushed on top of this flow.
+  bool _otpScreenOpen = false;
 
   @override
   void initState() {
@@ -172,61 +179,73 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     }
   }
 
-  String _localizeAuthError(String errorCode, String fallback) {
+  String _localizeAuthError(String errorCode, {int? retryAfterSeconds}) {
     final l10n = AppLocalizations.of(context)!;
-    return localizeAuthError(l10n, errorCode);
+    // FAYDA_003: Fayda is down. Registration continues without it and the
+    // user can verify later from the profile.
+    if (errorCode == AuthErrorCode.faydaServiceUnavailable) {
+      return l10n.faydaUnavailableVerifyLater;
+    }
+    return localizeAuthError(
+      l10n,
+      errorCode,
+      retryAfterSeconds: retryAfterSeconds,
+    );
   }
 
   Future<void> _handleFaydaVerify() async {
-    // Fail fast if Fayda OIDC credentials are not configured via --dart-define
-    if (!FaydaOidcService.isConfigured) {
-      setState(() {
-        _faydaError =
-            'Fayda is not configured. Provide FAYDA_AUTHORIZE_URL and '
-            'FAYDA_CLIENT_ID via --dart-define or .env file.';
-      });
-      return;
-    }
-
     setState(() {
       _faydaVerifying = true;
       _faydaError = null;
     });
 
-    _faydaState = _faydaService.generateState();
-    final url = _faydaService.buildAuthorizationUrl(_faydaState!);
+    // The server builds the authorize URL (client id, nonce, PKCE) and hands
+    // back the state we must see again on the callback.
+    final start = await _faydaService.startRegistration(
+      phoneNumber: _phone.isEmpty ? null : _phone,
+    );
+    if (!mounted) return;
+    if (!start.isSuccess) {
+      setState(() {
+        _faydaVerifying = false;
+        _faydaError = _localizeAuthError(
+          start.errorCode ?? AuthErrorCode.faydaServiceUnavailable,
+          retryAfterSeconds: start.retryAfterSeconds,
+        );
+      });
+      return;
+    }
 
-    debugPrint('[Fayda] isConfigured: ${FaydaOidcService.isConfigured}');
-    debugPrint('[Fayda] Launch URL: $url');
+    _faydaState = start.state;
+    final url = start.authorizeUrl!;
 
     try {
-      final canLaunch = await canLaunchUrl(url);
-      debugPrint('[Fayda] canLaunchUrl: $canLaunch');
-
       final launched =
           await launchUrl(url, mode: LaunchMode.externalApplication);
-      debugPrint('[Fayda] launchUrl result: $launched');
 
+      if (!mounted) return;
       if (launched) {
         _awaitingBrowserReturn = true;
       } else {
         setState(() {
           _faydaVerifying = false;
-          _faydaError = AppLocalizations.of(context)!.faydaUnavailable;
+          _faydaError =
+              AppLocalizations.of(context)!.faydaUnavailableVerifyLater;
         });
       }
     } on Exception catch (e) {
       debugPrint('[Fayda] Launch error: $e');
+      if (!mounted) return;
       setState(() {
         _faydaVerifying = false;
-        _faydaError = 'Failed to open browser: $e';
+        _faydaError = AppLocalizations.of(context)!.faydaUnavailableVerifyLater;
       });
     }
   }
 
   Future<void> _handleFaydaCallback(Uri uri) async {
     // Only handle our callback scheme
-    if (uri.scheme != 'weredaconnect' || uri.host != 'fayda-callback') return;
+    if (!FaydaOidcService.isCallbackUri(uri)) return;
 
     // Callback arrived — cancel the browser-return timer
     _browserReturnTimer?.cancel();
@@ -234,11 +253,11 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
     final callback = _faydaService.parseCallback(uri);
 
-    // Validate state to prevent CSRF
-    if (callback.state != _faydaState) {
+    // Validate state to prevent CSRF: it must match what fayda-start issued.
+    if (_faydaState == null || callback.state != _faydaState) {
       setState(() {
         _faydaVerifying = false;
-        _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
+        _faydaError = AppLocalizations.of(context)!.faydaStateMismatch;
       });
       return;
     }
@@ -246,8 +265,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     if (!callback.isSuccess) {
       setState(() {
         _faydaVerifying = false;
-        _faydaError = callback.errorDescription ??
-            AppLocalizations.of(context)!.faydaVerificationFailed;
+        _faydaError = AppLocalizations.of(context)!.faydaVerificationFailed;
       });
       return;
     }
@@ -273,11 +291,24 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       setState(() {
         _faydaVerifying = false;
         _faydaError = _localizeAuthError(
-          result.errorCode ?? 'FAYDA_001',
-          result.errorMessage ?? 'Verification failed',
+          result.errorCode ?? AuthErrorCode.faydaVerificationFailed,
         );
       });
     }
+  }
+
+  Future<void> _openOtpScreen(AuthOtpVerificationRequired state) async {
+    if (_otpScreenOpen) return;
+    _otpScreenOpen = true;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OtpVerificationScreen(
+          phoneNumber: state.phoneNumber,
+          expiresAt: state.expiresAt,
+        ),
+      ),
+    );
+    _otpScreenOpen = false;
   }
 
   void _handleRegister() {
@@ -317,8 +348,16 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthError) {
-          final msg = _localizeAuthError(state.errorCode, state.errorMessage);
+        if (state is AuthOtpVerificationRequired) {
+          _openOtpScreen(state);
+          return;
+        }
+        // The OTP screen shows its own errors while it is on top.
+        if (state is AuthError && !_otpScreenOpen) {
+          final msg = _localizeAuthError(
+            state.errorCode,
+            retryAfterSeconds: state.retryAfterSeconds,
+          );
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(

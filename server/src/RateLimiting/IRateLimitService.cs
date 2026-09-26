@@ -53,6 +53,27 @@ public interface IRateLimitService
     Task ResetOtpAttemptsAsync(string phoneNumber);
 
     /// <summary>
+    /// Check if another OTP may be sent to this phone today (max 10 per day).
+    /// Returns failure with AUTH_006 (429) if limit exceeded.
+    /// </summary>
+    Task<AuthResult<bool>> CheckOtpSendAllowedAsync(string phoneNumber);
+
+    /// <summary>
+    /// Record an OTP send for the daily cap.
+    /// </summary>
+    Task RecordOtpSendAsync(string phoneNumber);
+
+    /// <summary>
+    /// Per-source-IP limit for the public auth routes (no WAF on an HTTP API).
+    /// <paramref name="bucket"/> names the route family ("login", "register", ...).
+    /// Returns failure with AUTH_006 (429) when the window's cap is reached.
+    /// </summary>
+    Task<AuthResult<bool>> CheckIpAllowedAsync(string? sourceIp, string bucket, int maxPerWindow, int windowSeconds);
+
+    /// <summary>Count one request from the IP in the bucket's window.</summary>
+    Task RecordIpAsync(string? sourceIp, string bucket, int windowSeconds);
+
+    /// <summary>
     /// Check if sync is allowed for this user (max 10 per minute).
     /// Returns failure with SYNC_RATE_LIMITED (429) if limit exceeded.
     /// </summary>

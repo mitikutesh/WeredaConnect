@@ -91,6 +91,17 @@ aws cognito-idp admin-set-user-password \
   --region "$REGION"
 echo "--- Password set."
 
+# 2b. The admin pool requires TOTP MFA in every environment. Clearing the
+#     software-token preference makes the next login answer MFA_SETUP, so the
+#     dashboard e2e (scripts/e2e_admin.py) can enrol a fresh authenticator each
+#     run without a persisted secret. A human admin enrols once in the web app.
+aws cognito-idp admin-set-user-mfa-preference \
+  --user-pool-id "$ADMIN_USER_POOL_ID" \
+  --username "$ADMIN_PHONE" \
+  --software-token-mfa-settings Enabled=false,PreferredMfa=false \
+  --region "$REGION"
+echo "--- MFA preference reset (e2e enrols a fresh TOTP)."
+
 # 3. Add to the "admin" group — THIS is what authorizes /admin/* access.
 #    Both the admin app (cognito:groups) and the server (AdminAuthHelper) gate on it.
 aws cognito-idp admin-add-user-to-group \

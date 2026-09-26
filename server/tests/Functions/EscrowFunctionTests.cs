@@ -673,4 +673,215 @@ public class EscrowFunctionTests
         // Without "id" in PathParameters, the route falls through to the default case
         Assert.Equal(405, response.StatusCode);
     }
+
+    // ──────────────────────────────────────────────
+    // Step-up (AUTH_040) on large initiate / dispute
+    // ──────────────────────────────────────────────
+
+    private static APIGatewayProxyRequest WithAuthTime(APIGatewayProxyRequest request, long authTime)
+    {
+        request.RequestContext!.Authorizer["auth_time"] = authTime.ToString();
+        return request;
+    }
+
+    private static string InitiateBody(decimal amount) => JsonSerializer.Serialize(new InitiateEscrowRequest
+    {
+        DeliveryId = "del-001",
+        BuyerId = BuyerId,
+        FarmerId = FarmerId,
+        Amount = amount,
+        Currency = "ETB",
+        IdempotencyKey = $"{BuyerId}:del-001:initiate:1708084800777"
+    }, AppJsonContext.Default.InitiateEscrowRequest);
+
+    private void SetupEscrow(string escrowId, decimal amount)
+    {
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", escrowId },
+            { "deliveryId", "del-001" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", amount },
+            { "commission", 125m },
+            { "commissionRate", 0.025m },
+            { "farmerPayout", amount - 125m },
+            { "currency", "ETB" },
+            { "status", "escrowed" },
+            { "buyerFaydaVerified", true },
+            { "farmerFaydaVerified", true },
+            { "createdAt", "2026-02-17T10:00:00Z" },
+            { "updatedAt", "2026-02-17T10:00:00Z" },
+            { "expiresAt", "2026-02-24T10:00:00Z" },
+            { "version", 1 }
+        });
+    }
+
+    private static string DisputeBody(string escrowId) => JsonSerializer.Serialize(new DisputeEscrowRequest
+    {
+        EscrowId = escrowId,
+        DisputedBy = BuyerId,
+        Reason = "damaged_goods",
+        IdempotencyKey = $"{BuyerId}:{escrowId}:dispute:1708171200999"
+    }, AppJsonContext.Default.DisputeEscrowRequest);
+
+    [Fact]
+    public async Task Initiate_LargeAmount_WithoutFreshAuth_Returns403StepUp()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_040", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_StaleAuth_Returns403StepUp()
+    {
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId),
+            DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds());
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_040", response.Body);
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_FreshAuth_PassesStepUp()
+    {
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.DoesNotContain("AUTH_040", response.Body);
+    }
+
+    [Fact]
+    public async Task Initiate_SmallAmount_NeedsNoStepUp()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", InitiateBody(5_000m), BuyerId), _context);
+
+        Assert.Equal(201, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dispute_LargeEscrow_WithoutFreshAuth_Returns403StepUp()
+    {
+        SetupEscrow("escrow-big", 15_000m);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-big"), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_040", response.Body);
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "disputed", Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Dispute_LargeEscrow_FreshAuth_Succeeds()
+    {
+        SetupEscrow("escrow-big", 15_000m);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-big"), BuyerId),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dispute_SmallEscrow_NeedsNoStepUp()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dispute_NonParty_GetsServiceErrorNotStepUp()
+    {
+        SetupEscrow("escrow-big", 15_000m);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-big"), "stranger-1"), _context);
+
+        Assert.DoesNotContain("AUTH_040", response.Body);
+        Assert.NotEqual(200, response.StatusCode);
+    }
+
+    // ──────────────────────────────────────────────
+    // Settlement routes: admin pool group, not marketplace roles
+    // ──────────────────────────────────────────────
+
+    private static APIGatewayProxyRequest AdminPoolRequest(string path, string body)
+    {
+        var authorizer = new APIGatewayCustomAuthorizerContext
+        {
+            { "sub", "admin-pool-user" },
+            { "cognito:groups", "admin" }
+        };
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = path,
+            Body = body,
+            RequestContext = new ProxyRequestContext { Authorizer = authorizer }
+        };
+    }
+
+    private static string ReleaseBody(string escrowId) => JsonSerializer.Serialize(new ReleaseEscrowRequest
+    {
+        EscrowId = escrowId,
+        Trigger = "admin_override",
+        DeliveryId = "del-001",
+        IdempotencyKey = $"admin:{escrowId}:release:1708171200111"
+    }, AppJsonContext.Default.ReleaseEscrowRequest);
+
+    [Fact]
+    public async Task Release_AdminPoolToken_IsAllowed()
+    {
+        SetupEscrow("escrow-adm", 5_000m);
+
+        var response = await _function.FunctionHandler(
+            AdminPoolRequest("/escrow/release", ReleaseBody("escrow-adm")), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Release_MarketplaceBuyer_IsRefused()
+    {
+        SetupEscrow("escrow-adm", 5_000m);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/release", ReleaseBody("escrow-adm"), BuyerId, "buyer"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("ESCROW_015", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Release_SelfClaimedAdminRoleWithoutGroup_IsRefused()
+    {
+        SetupEscrow("escrow-adm", 5_000m);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/release", ReleaseBody("escrow-adm"), "someone", "admin"), _context);
+
+        Assert.NotEqual(200, response.StatusCode);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
 }

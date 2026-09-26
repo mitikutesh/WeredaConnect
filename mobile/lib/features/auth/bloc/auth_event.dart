@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+
 import 'package:wereda_connect/core/models/user.dart';
 
 /// Base class for authentication events.
@@ -121,6 +123,13 @@ class AuthCancelRequested extends AuthEvent {
   const AuthCancelRequested();
 }
 
+/// The OTP screen was closed (back, or success) without the code needed any
+/// longer. Drops the password and registration details held for the verify
+/// call so they do not outlive the screen.
+class AuthOtpAbandoned extends AuthEvent {
+  const AuthOtpAbandoned();
+}
+
 /// Event to logout user.
 class AuthLogoutRequested extends AuthEvent {
   final bool clearCache;
@@ -159,4 +168,43 @@ class AuthResetPasswordRequested extends AuthEvent {
 
   @override
   List<Object?> get props => [phoneNumber, confirmationCode, newPassword];
+}
+
+/// Confirm the registration SMS OTP. [phoneNumber] defaults to the phone of
+/// the pending registration / unconfirmed login.
+class AuthVerifyOtpRequested extends AuthEvent {
+  final String otpCode;
+  final String? phoneNumber;
+
+  const AuthVerifyOtpRequested({required this.otpCode, this.phoneNumber});
+
+  @override
+  List<Object?> get props => [otpCode, phoneNumber];
+}
+
+/// Ask the server for a fresh registration OTP.
+class AuthResendOtpRequested extends AuthEvent {
+  final String? phoneNumber;
+
+  const AuthResendOtpRequested({this.phoneNumber});
+
+  @override
+  List<Object?> get props => [phoneNumber];
+}
+
+/// A step-up re-authentication succeeded: swap in [tokens] without clearing
+/// any local data. The login call already refreshed the offline cache.
+class AuthStepUpSucceeded extends AuthEvent {
+  final AuthTokens tokens;
+
+  const AuthStepUpSucceeded({required this.tokens});
+
+  @override
+  List<Object?> get props => [tokens];
+}
+
+/// The server rejected the refresh token (400/401): sign the user out
+/// locally. Unsynced work stays queued for their next login.
+class AuthSessionExpired extends AuthEvent {
+  const AuthSessionExpired();
 }

@@ -54,6 +54,11 @@ class WebEscrowRepository extends BaseEscrowRepository {
   /// Map a typed [ApiException] to a domain EscrowError, mirroring the mobile
   /// EscrowRepository so web surfaces the same specific, localizable codes.
   EscrowError _mapApiException(ApiException e) {
+    // Step-up (AUTH_040): the session is valid but too old for this amount.
+    // The screen asks for the password and retries; never "please log in".
+    if (e is StepUpRequiredException) {
+      return EscrowError(stepUpRequiredCode, e.message);
+    }
     if (e is ValidationException) {
       return EscrowError('ESCROW_VALIDATION', e.message);
     }
@@ -111,6 +116,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
         },
       );
       return EscrowSuccess(_parsePayment(data));
+    } on ApiException catch (e) {
+      // Same mapping as initiate so AUTH_040 reaches the step-up prompt.
+      return _mapApiException(e);
     } on Exception catch (e) {
       return EscrowError('ESCROW_CLIENT', e.toString());
     }

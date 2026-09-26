@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/security/local_auth_gate.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
@@ -20,6 +21,12 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 ///
 /// Two phases: Scanning (camera preview) and Verified (GPS + photo + confirm).
 /// Uses offline HMAC-SHA256 verification — no internet needed.
+///
+/// Confirming a DELIVERY (buyer delivery confirm and buyer self-pickup
+/// confirm) releases the farmer's escrow, so it first asks the device to
+/// confirm the user (biometric or phone PIN / pattern). A device without a
+/// lock screen proceeds with a logged warning; the server stays the
+/// authority. Pickup confirmation (trucker) is not gated.
 class QrScanScreen extends StatefulWidget {
   final Delivery delivery;
   final VerificationType verificationType;
@@ -27,12 +34,17 @@ class QrScanScreen extends StatefulWidget {
   final GpsCaptureService gpsService;
   final PhotoManager photoManager;
 
+  /// Device authentication before a delivery confirm. Defaults to the real
+  /// `local_auth` prompt; tests inject a fake.
+  final LocalAuthGate? localAuthGate;
+
   const QrScanScreen({
     required this.delivery,
     required this.verificationType,
     required this.qrService,
     required this.gpsService,
     required this.photoManager,
+    this.localAuthGate,
     super.key,
   });
 
@@ -120,8 +132,23 @@ class _QrScanScreenState extends State<QrScanScreen> {
     }
   }
 
-  void _confirm() {
+  Future<void> _confirm() async {
+    if (_isConfirming) return;
     setState(() => _isConfirming = true);
+
+    if (widget.verificationType == VerificationType.delivery) {
+      final l10n = AppLocalizations.of(context)!;
+      final gate = widget.localAuthGate ?? DeviceLocalAuthGate();
+      final outcome = await gate.authenticate(l10n.qrConfirmAuthReason);
+      if (!mounted) return;
+      if (!outcome.allowsProceed) {
+        setState(() => _isConfirming = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.qrConfirmAuthFailed)),
+        );
+        return;
+      }
+    }
 
     LatLng? gps;
     if (_gpsResult != null && _gpsResult!.isAvailable) {

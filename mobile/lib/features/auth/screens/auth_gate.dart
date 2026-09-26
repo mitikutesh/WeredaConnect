@@ -6,6 +6,8 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
+import 'package:wereda_connect/features/auth/widgets/app_lock_gate.dart';
+import 'package:wereda_connect/features/auth/widgets/security_prompt_listener.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_state.dart';
@@ -18,7 +20,9 @@ import 'package:wereda_connect/screens/splash_screen.dart';
 /// Uses BlocBuilder to react to AuthBloc state changes:
 /// - AuthInitial → splash screen
 /// - AuthLoading → ignored (current screen stays, shows its own spinner)
-/// - AuthAuthenticated → MainNavigation
+/// - AuthAuthenticated → MainNavigation, behind the security prompts
+///   (step-up password, KYC) raised by background sync. The app lock is
+///   [AuthAppLock], mounted above the Navigator.
 /// - AuthUnauthenticated / AuthError → Check onboarding state
 ///   - FirstLaunch OR hasn't seen welcome → WelcomeScreen
 ///   - ReturningUser → LoginScreen
@@ -50,7 +54,9 @@ class _AuthGateState extends State<AuthGate> {
         if (authState is AuthAuthenticated) {
           // Mark welcome as seen when user successfully authenticates
           context.read<OnboardingBloc>().add(const MarkWelcomeSeen());
-          return const MainNavigation();
+          // The app lock sits above the Navigator (AuthAppLock, mounted
+          // from MaterialApp.builder) so it also covers pushed routes.
+          return const SecurityPromptListener(child: MainNavigation());
         }
 
         // If initial auth check still in progress, show loading splash
@@ -143,6 +149,34 @@ class _LoadingSplash extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The app lock for the whole app, mounted from `MaterialApp.builder` so it
+/// sits above the Navigator and covers every pushed route.
+///
+/// Active only while the user is signed in ([AuthAuthenticated]); the login
+/// and registration screens are never locked. A restored session (auto-login)
+/// locks on start. AuthLoading is ignored so an in-flight auth action does
+/// not drop the lock.
+class AuthAppLock extends StatelessWidget {
+  final Widget child;
+
+  const AuthAppLock({required this.child, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthBloc, AuthState>(
+      buildWhen: (previous, current) => current is! AuthLoading,
+      builder: (context, authState) {
+        final signedIn = authState is AuthAuthenticated;
+        return AppLockGate(
+          active: signedIn,
+          lockOnStart: signedIn && authState.isRestoredSession,
+          child: child,
+        );
+      },
     );
   }
 }

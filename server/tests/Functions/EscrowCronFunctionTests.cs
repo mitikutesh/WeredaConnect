@@ -46,6 +46,10 @@ public class EscrowCronFunctionTests
                 UpdatedAt = DateTime.UtcNow.ToString("o")
             });
 
+        // Default: every status sweep sees an empty page (tests override the ones they exercise).
+        _mockEscrowRepo.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+
         var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
         _function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
         _context = new TestLambdaContext();
@@ -879,5 +883,72 @@ public class EscrowCronFunctionTests
         Assert.Equal(200, response.StatusCode);
         // Delivery confirmed → should not be auto-refunded
         Assert.Contains("\"refunded\":\"0\"", response.Body);
+    }
+
+    // ──────────────────────────────────────────────
+    // Resolved disputes are settled by the sweep
+    // ──────────────────────────────────────────────
+
+    private Dictionary<string, object> ResolvedDispute(string escrowId, string resolution) => new()
+    {
+        { "escrowId", escrowId },
+        { "deliveryId", "del-dr" },
+        { "buyerId", "buyer-dr" },
+        { "farmerId", "farmer-dr" },
+        { "amount", 8000m },
+        { "commission", 200m },
+        { "farmerPayout", 7800m },
+        { "currency", "ETB" },
+        { "status", "dispute_resolved" },
+        { "disputeResolution", resolution },
+        { "telebirrHoldRef", "HOLD-dr" },
+        { "createdAt", "2026-09-20T10:00:00.0000000Z" },
+        { "expiresAt", "2026-09-27T10:00:00.0000000Z" },
+        { "version", 3 }
+    };
+
+    private void SweepFinds(Dictionary<string, object> escrow)
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("dispute_resolved", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync((string)escrow["escrowId"]).Returns(escrow);
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_FarmerWins_IsReleased()
+    {
+        SweepFinds(ResolvedDispute("escrow-dr-1", "farmer_wins"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"disputesSettled\":\"1\"", response.Body);
+        await _mockTelebirrGateway.Received(1).ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.Amount == 7800m));
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_BuyerWins_IsRefunded()
+    {
+        SweepFinds(ResolvedDispute("escrow-dr-2", "buyer_wins"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"disputesSettled\":\"1\"", response.Body);
+        await _mockTelebirrGateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_PartialRefund_IsLeftForAdmin()
+    {
+        SweepFinds(ResolvedDispute("escrow-dr-3", "partial_refund"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"disputesSettled\":\"0\"", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }
 }

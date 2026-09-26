@@ -7,6 +7,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:wereda_connect/core/models/sync_operation.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
@@ -36,6 +38,14 @@ typedef ConflictHandler = Future<void> Function(
 /// preventing User A's offline ops from being sent with User B's token
 /// on shared devices.
 typedef GetCurrentUserIdCallback = Future<String?> Function();
+
+/// Called when the server's KYC gate rejected an operation
+/// (`ORDER_KYC_REQUIRED: ...`), so the caller can undo the optimistic local
+/// change (e.g. put the order back to `accepted`).
+typedef KycRejectionHandler = Future<void> Function(
+  SyncOperation operation,
+  String message,
+);
 
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
@@ -82,6 +92,11 @@ class SyncBatchResult {
   /// delivery pickup/confirm whose QR secret hasn't synced up. Re-queued without
   /// burning a retry; NOT counted as a failure (so no backoff / failure UI).
   final int deferred;
+
+  /// Operations the server refused until the user re-authenticates
+  /// (`AUTH_040` step-up). Kept pending without burning a retry and NOT
+  /// counted as failures; they go again after the step-up completes.
+  final int stepUpRequired;
   final SyncBatchStatus status;
   final String? errorMessage;
 
@@ -95,6 +110,7 @@ class SyncBatchResult {
     this.conflicted = 0,
     this.failed = 0,
     this.deferred = 0,
+    this.stepUpRequired = 0,
     this.status = SyncBatchStatus.success,
     this.errorMessage,
     this.operationErrors = const {},
@@ -106,6 +122,7 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         deferred = 0,
+        stepUpRequired = 0,
         status = SyncBatchStatus.empty,
         errorMessage = null,
         operationErrors = const {};
@@ -116,6 +133,7 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         deferred = 0,
+        stepUpRequired = 0,
         status = SyncBatchStatus.skipped,
         errorMessage = null,
         operationErrors = const {};
@@ -126,6 +144,7 @@ class SyncBatchResult {
         conflicted = 0,
         failed = 0,
         deferred = 0,
+        stepUpRequired = 0,
         status = SyncBatchStatus.noInternet,
         errorMessage = null,
         operationErrors = const {};
@@ -162,6 +181,7 @@ class SyncBatchResult {
       conflicted: newConflicted,
       failed: newFailed,
       deferred: newDeferred,
+      stepUpRequired: stepUpRequired + other.stepUpRequired,
       status: newFailed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
       errorMessage: other.errorMessage ?? errorMessage,
       operationErrors: {...operationErrors, ...other.operationErrors},
@@ -170,7 +190,8 @@ class SyncBatchResult {
 
   @override
   String toString() => 'SyncBatchResult(status: $status, total: $total, '
-      'succeeded: $succeeded, conflicted: $conflicted, failed: $failed)';
+      'succeeded: $succeeded, conflicted: $conflicted, failed: $failed, '
+      'stepUpRequired: $stepUpRequired)';
 }
 
 /// Orchestrates syncing queued operations to the server.
@@ -191,6 +212,10 @@ class SyncBatchResult {
 /// - `success` → mark synced, remove from queue
 /// - `conflict` → invoke [ConflictHandler] (server wins default), mark synced
 /// - `duplicate` → already processed, mark synced
+/// - `error` with `AUTH_040` (step-up) → keep pending, ask the UI for the
+///   password, retry after [SecurityEvents.stepUpCompleted]
+/// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
+///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// Error handling per HTTP error:
@@ -215,8 +240,11 @@ class SyncExecutor {
   final ConflictNotificationService? _conflictNotificationService;
   final VoidCallback? _onSyncComplete;
   final GetCurrentUserIdCallback? _getCurrentUserId;
+  final SecurityEvents _securityEvents;
+  final KycRejectionHandler? _onKycRequired;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<void>? _stepUpSubscription;
   StreamSubscription<void>? _enqueueSubscription;
   Timer? _enqueueDebounce;
   bool _isSyncing = false;
@@ -268,6 +296,8 @@ class SyncExecutor {
     ConflictNotificationService? conflictNotificationService,
     VoidCallback? onSyncComplete,
     GetCurrentUserIdCallback? getCurrentUserId,
+    SecurityEvents? securityEvents,
+    KycRejectionHandler? onKycRequired,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -276,7 +306,9 @@ class SyncExecutor {
         _conflictResolver = conflictResolver,
         _conflictNotificationService = conflictNotificationService,
         _onSyncComplete = onSyncComplete,
-        _getCurrentUserId = getCurrentUserId;
+        _getCurrentUserId = getCurrentUserId,
+        _securityEvents = securityEvents ?? SecurityEvents.instance,
+        _onKycRequired = onKycRequired;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -306,6 +338,13 @@ class SyncExecutor {
         }
       },
     );
+
+    // Operations held back by a step-up (AUTH_040) are still pending: send
+    // them as soon as the user has re-authenticated.
+    _stepUpSubscription?.cancel();
+    _stepUpSubscription = _securityEvents.onStepUpCompleted.listen((_) {
+      syncNow();
+    });
 
     // Trigger sync when a new operation is enqueued (debounced).
     // Rapid enqueues (e.g., 5 listings in a row) coalesce into one sync call.
@@ -389,7 +428,9 @@ class SyncExecutor {
         // synced). No forward progress is possible this session, so stop WITHOUT
         // backoff, retries, or a failure result. The ops stay pending and the next
         // sync trigger (connectivity change / periodic worker) retries them.
-        if (result.deferred > 0 &&
+        // Same for operations waiting on a step-up: they stay pending until
+        // the user re-authenticates (the stepUpCompleted listener resyncs).
+        if (result.deferred + result.stepUpRequired > 0 &&
             result.succeeded == 0 &&
             result.conflicted == 0 &&
             !result.hasErrors) {
@@ -534,6 +575,7 @@ class SyncExecutor {
     var conflicted = 0;
     var failed = 0;
     var deferred = 0;
+    var stepUpRequired = 0;
     final operationErrors = <String, String>{};
 
     // Build lookup map for O(1) access by operationId
@@ -614,6 +656,31 @@ class SyncExecutor {
           deferred++;
 
         default:
+          // Step-up (AUTH_040): the session is too old for this amount. The
+          // op is valid, so keep it pending WITHOUT burning a retry and never
+          // mark it failed; it goes again after the user re-authenticates.
+          if (status == 'error' && isStepUpRequiredMessage(message)) {
+            await _syncQueue.revertToPending(operationId);
+            stepUpRequired++;
+            continue;
+          }
+          // KYC gate (ORDER_KYC_REQUIRED): replaying the same payload can't
+          // pass until the buyer verifies, so reject it and let the caller
+          // undo the optimistic local change; the buyer pays again after.
+          if (status == 'error' && isKycRequiredMessage(message)) {
+            operationErrors[operationId] = message!;
+            await _syncQueue.markAsRejected(operationId);
+            try {
+              await _onKycRequired?.call(operation, message);
+            } on Object catch (e) {
+              debugPrint('[SYNC] KYC rejection handler failed: $e');
+            }
+            _securityEvents.emit(
+              KycRequired(orderId: operation.entityId, message: message),
+            );
+            failed++;
+            continue;
+          }
           // 'error' or unknown status — capture per-operation error message
           // for fraud detection codes (FRAUD_DUPLICATE_LISTING,
           // FRAUD_VELOCITY_EXCEEDED) and other server rejections.
@@ -641,6 +708,10 @@ class SyncExecutor {
       }
     }
 
+    if (stepUpRequired > 0) {
+      _securityEvents.emit(const StepUpRequired());
+    }
+
     // Use the first fraud-related error as the batch error message for UI
     final fraudError = operationErrors.values.cast<String?>().firstWhere(
           (msg) =>
@@ -656,6 +727,7 @@ class SyncExecutor {
       conflicted: conflicted,
       failed: failed,
       deferred: deferred,
+      stepUpRequired: stepUpRequired,
       status: failed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
       errorMessage: fraudError,
       operationErrors: operationErrors,
@@ -796,6 +868,8 @@ class SyncExecutor {
     _enqueueSubscription = null;
     _enqueueDebounce?.cancel();
     _enqueueDebounce = null;
+    _stepUpSubscription?.cancel();
+    _stepUpSubscription = null;
   }
 
   /// Release all resources held by this executor.

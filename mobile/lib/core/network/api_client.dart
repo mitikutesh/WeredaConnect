@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/network/json_body.dart';
 import 'package:wereda_connect/core/network/cert_pinning_stub.dart'
     if (dart.library.io) 'package:wereda_connect/core/network/cert_pinning_io.dart'
     as cert_pinning;
@@ -281,6 +282,11 @@ class ApiClient {
 
           if (statusCode == 400) {
             return ValidationException(message, statusCode);
+          } else if (statusCode == 403 &&
+              _extractErrorCode(error.response?.data) == stepUpRequiredCode) {
+            // Step-up: the session is valid but too old for this money
+            // action. Callers re-authenticate and retry; never a logout.
+            return StepUpRequiredException(message, statusCode);
           } else if (statusCode == 401 || statusCode == 403) {
             return AuthException(message, statusCode);
           } else if (statusCode == 404) {
@@ -307,15 +313,37 @@ class ApiClient {
     return UnknownException(error.toString());
   }
 
+  /// Extract the structured error code (`{"error":{"code":...}}`), if any.
+  static String? _extractErrorCode(dynamic data) {
+    final map = decodeJsonMap(data);
+    final error = map?['error'];
+    if (error is Map) {
+      final code = error['code'];
+      if (code is String) return code;
+    }
+    return null;
+  }
+
   /// Extract error message from response data
   String? _extractErrorMessage(dynamic data) {
     if (data == null) return null;
 
-    if (data is Map<String, dynamic>) {
+    final map = decodeJsonMap(data);
+    if (map != null) {
+      // Structured error body: {"error": {"code": ..., "message": ...}}.
+      // Reading `error` as a String here used to throw a TypeError.
+      final error = map['error'];
+      if (error is Map) {
+        final message = error['message'];
+        if (message is String) return message;
+      }
       // Try common error message fields
-      return data['message'] as String? ??
-          data['error'] as String? ??
-          data['detail'] as String?;
+      final message = map['message'];
+      if (message is String) return message;
+      if (error is String) return error;
+      final detail = map['detail'];
+      if (detail is String) return detail;
+      return null;
     }
 
     if (data is String) {

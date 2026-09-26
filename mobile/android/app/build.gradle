@@ -90,5 +90,7 @@ flutter {
 }
 
 dependencies {
-    // No additional dependencies needed for base setup
+    // Theme.AppCompat parents in res/values*/styles.xml (local_auth needs
+    // an AppCompat theme with FlutterFragmentActivity).
+    implementation "androidx.appcompat:appcompat:1.7.0"
 }

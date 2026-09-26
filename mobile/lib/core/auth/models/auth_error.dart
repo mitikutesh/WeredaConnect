@@ -27,6 +27,10 @@ class AuthErrorCode {
   static const faydaServiceUnavailable = 'FAYDA_003';
   static const faydaAlreadyLinked = 'FAYDA_004';
 
+  // Registration OTP errors (POST /auth/verify-otp)
+  static const otpInvalidFormat = 'AUTH_011';
+  static const otpInvalidOrExpired = 'AUTH_012';
+
   // Legacy (AUTH_013 still used by login)
   static const userNotFound = 'AUTH_013';
 
@@ -51,6 +55,9 @@ class AuthErrorCode {
 
   // Login: account suspended by an administrator (server returns 403 AUTH_025).
   static const accountSuspended = 'AUTH_025';
+
+  // Step-up: the session is too old for a high-value money action.
+  static const stepUpRequired = 'AUTH_040';
 
   // Aliases for backward compatibility within mobile code
   static const tokenExpired = 'AUTH_018';
@@ -101,6 +108,14 @@ extension AuthErrorCodeExtension on String {
         return 'Invalid or expired Fayda verification. Please verify again';
       case AuthErrorCode.userNotFound:
         return 'User not found. Please register first';
+
+      // OTP errors
+      case AuthErrorCode.otpInvalidFormat:
+        return 'Enter the 6-digit code';
+      case AuthErrorCode.otpInvalidOrExpired:
+        return 'Invalid or expired verification code';
+      case AuthErrorCode.stepUpRequired:
+        return 'Please confirm it is you';
 
       // Login errors
       case AuthErrorCode.invalidCredentials:

@@ -1,17 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:isar/isar.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_stub.dart';
 import 'package:wereda_connect/core/auth/auth_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
     if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
+import 'package:wereda_connect/core/auth/session_signals.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
+import 'package:wereda_connect/core/models/rating.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 
@@ -27,6 +34,8 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 /// State transitions:
 /// - AuthInitial → AuthLoading → AuthAuthenticated/AuthUnauthenticated/AuthError
 /// - AuthUnauthenticated → AuthLoading → AuthAuthenticated/AuthError (registration)
+/// - Register without matching Fayda → AuthOtpVerificationRequired →
+///   AuthVerifyOtpRequested → AuthAuthenticated
 ///
 /// Ethiopian context:
 /// - Supports offline authentication with cached credentials
@@ -36,8 +45,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final OfflineAuthCache _offlineCache;
   final Isar? _isar;
+  final Future<String?> Function()? _pushTokenProvider;
+  StreamSubscription<void>? _sessionExpiredSub;
   String? _currentPhoneNumber;
   bool _cancelled = false;
+
+  // Registration waiting for its SMS OTP. The password stays in memory only
+  // (never persisted) so the offline credential cache can be built once the
+  // OTP confirms and tokens arrive.
+  String? _pendingOtpPhone;
+  String? _pendingOtpPassword;
+  String? _pendingDrivingLicensePath;
+  String? _pendingBuyerType;
+  String? _pendingCompanyName;
+
+  /// Budget for the best-effort push-token unregister on logout.
+  static const pushUnregisterBudget = Duration(seconds: 3);
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -56,13 +79,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// ID token, not the access token.
   static const _activeIdTokenKey = 'id_token';
 
+  /// [pushTokenProvider] returns this device's current FCM token (mobile
+  /// only) so logout can ask the server to stop pushing to it.
+  /// [sessionExpired] fires when the server rejects the refresh token.
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
     Isar? isar,
+    Future<String?> Function()? pushTokenProvider,
+    Stream<void>? sessionExpired,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _isar = isar,
+        _pushTokenProvider = pushTokenProvider,
         super(const AuthInitial()) {
     // Register event handlers
     on<AuthCheckRequested>(_onAuthCheckRequested);
@@ -72,9 +101,70 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthLoginOfflineRequested>(_onAuthLoginOfflineRequested);
     on<AuthRefreshTokenRequested>(_onAuthRefreshTokenRequested);
     on<AuthCancelRequested>(_onAuthCancelRequested);
+    on<AuthOtpAbandoned>(_onOtpAbandoned);
     on<AuthLogoutRequested>(_onAuthLogoutRequested);
     on<AuthForgotPasswordRequested>(_onForgotPassword);
     on<AuthResetPasswordRequested>(_onResetPassword);
+    on<AuthVerifyOtpRequested>(_onVerifyOtp);
+    on<AuthResendOtpRequested>(_onResendOtp);
+    on<AuthStepUpSucceeded>(_onStepUpSucceeded);
+    on<AuthSessionExpired>(_onSessionExpired);
+
+    _sessionExpiredSub =
+        (sessionExpired ?? SessionSignals.instance.onSessionExpired)
+            .listen((_) => add(const AuthSessionExpired()));
+  }
+
+  /// The auth service, for flows that talk to it directly (step-up dialog).
+  AuthService get authService => _authService;
+
+  @override
+  Future<void> close() async {
+    await _sessionExpiredSub?.cancel();
+    return super.close();
+  }
+
+  void _clearPendingOtp() {
+    _pendingOtpPhone = null;
+    _pendingOtpPassword = null;
+    _pendingDrivingLicensePath = null;
+    _pendingBuyerType = null;
+    _pendingCompanyName = null;
+  }
+
+  void _onOtpAbandoned(AuthOtpAbandoned event, Emitter<AuthState> emit) =>
+      _clearPendingOtp();
+
+  AuthError _errorFrom(AuthResult result, String fallback) => AuthError(
+        errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
+        errorMessage:
+            result.errorMessage ?? result.errorCode?.userMessage ?? fallback,
+        canRetry: result.errorCode?.isRecoverable ?? true,
+        retryAfterSeconds: result.retryAfterSeconds,
+      );
+
+  /// A login for an account whose phone was never confirmed (AUTH_016):
+  /// send a fresh OTP and move to the OTP screen instead of failing.
+  /// Returns true when the OTP state was emitted.
+  Future<bool> _redirectUnconfirmedLogin(
+    AuthResult result,
+    String phoneNumber,
+    String password,
+    Emitter<AuthState> emit,
+  ) async {
+    if (result.errorCode != AuthErrorCode.userNotConfirmed) return false;
+    final resend = await _authService.resendOtp(phoneNumber: phoneNumber);
+    if (_cancelled || !resend.isSuccess) return false;
+    _clearPendingOtp();
+    _pendingOtpPhone = phoneNumber;
+    _pendingOtpPassword = password;
+    emit(
+      AuthOtpVerificationRequired(
+        phoneNumber: phoneNumber,
+        expiresAt: resend.otpExpiresAt,
+      ),
+    );
+    return true;
   }
 
   /// Save the current session phone number and user ID to secure storage.
@@ -173,6 +263,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           userName: user.name,
           phoneNumber: phone,
           woreda: user.woreda,
+          isRestoredSession: true,
         ),
       );
     } on Exception {
@@ -222,7 +313,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // User navigated away — discard the result
       if (_cancelled) return;
 
-      if (result.isSuccess) {
+      if (result.isSuccess && result.otpRequired) {
+        // 202: the phone must be confirmed by SMS before tokens are issued.
+        _clearPendingOtp();
+        _pendingOtpPhone = event.phoneNumber;
+        _pendingOtpPassword = event.password;
+        _pendingDrivingLicensePath = event.drivingLicensePath;
+        _pendingBuyerType = event.buyerType;
+        _pendingCompanyName = event.companyName;
+        emit(
+          AuthOtpVerificationRequired(
+            phoneNumber: event.phoneNumber,
+            expiresAt: result.otpExpiresAt,
+          ),
+        );
+      } else if (result.isSuccess) {
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
 
@@ -306,16 +411,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           ),
         );
       } else {
-        emit(
-          AuthError(
-            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-            errorMessage: result.errorMessage ??
-                result.errorCode?.userMessage ??
-                'Login failed',
-            canRetry: result.errorCode?.isRecoverable ?? true,
-            retryAfterSeconds: result.retryAfterSeconds,
-          ),
-        );
+        if (await _redirectUnconfirmedLogin(
+          result,
+          event.phoneNumber,
+          event.password,
+          emit,
+        )) {
+          return;
+        }
+        emit(_errorFrom(result, 'Login failed'));
       }
     } on Object catch (e) {
       if (_cancelled) return;
@@ -374,15 +478,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           ),
         );
       } else {
-        emit(
-          AuthError(
-            errorCode: result.errorCode ?? AuthErrorCode.internalServerError,
-            errorMessage: result.errorMessage ??
-                result.errorCode?.userMessage ??
-                'Login failed',
-            canRetry: result.errorCode?.isRecoverable ?? true,
-          ),
-        );
+        if (await _redirectUnconfirmedLogin(
+          result,
+          event.phoneNumber,
+          event.password,
+          emit,
+        )) {
+          return;
+        }
+        emit(_errorFrom(result, 'Login failed'));
       }
     } on Object catch (e) {
       if (_cancelled) return;
@@ -524,6 +628,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final currentState = state;
+    // Never keep an abandoned registration's password past a logout.
+    _clearPendingOtp();
 
     if (currentState is AuthAuthenticated) {
       emit(const AuthLoading());
@@ -532,6 +638,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // _clearSession() nulls _currentPhoneNumber — capture it first.
       final phoneNumber = _currentPhoneNumber ?? currentState.phoneNumber ?? '';
       final tokens = currentState.tokens;
+
+      // Stop pushes to this device for the leaving user. Runs first, while
+      // the bearer token is still in storage, and is bounded so a slow
+      // network never holds up logout.
+      await _unregisterPushToken();
 
       // Always clear business data to prevent data leakage on shared devices
       if (_isar != null) {
@@ -568,6 +679,161 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         // Ignore — server-side tokens expire on their own.
       }
     }
+  }
+
+  /// Best-effort DELETE /device-tokens for this device's FCM token.
+  Future<void> _unregisterPushToken() async {
+    final provider = _pushTokenProvider;
+    if (provider == null) return;
+    try {
+      await () async {
+        final token = await provider();
+        if (token != null && token.isNotEmpty) {
+          await _authService.unregisterDeviceToken(token);
+        }
+      }()
+          .timeout(pushUnregisterBudget);
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] push token unregister skipped: $e');
+    }
+  }
+
+  /// Confirm the registration OTP; on success the session starts exactly
+  /// like a login.
+  Future<void> _onVerifyOtp(
+    AuthVerifyOtpRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final phone = event.phoneNumber ?? _pendingOtpPhone;
+    if (phone == null || phone.isEmpty) {
+      emit(
+        const AuthError(
+          errorCode: AuthErrorCode.otpInvalidOrExpired,
+          errorMessage: 'No verification in progress. Please register again.',
+        ),
+      );
+      return;
+    }
+    _cancelled = false;
+    emit(const AuthLoading());
+
+    try {
+      final result = await _authService.verifyOtp(
+        phoneNumber: phone,
+        otpCode: event.otpCode,
+        password: phone == _pendingOtpPhone ? _pendingOtpPassword : null,
+        drivingLicensePath:
+            phone == _pendingOtpPhone ? _pendingDrivingLicensePath : null,
+        buyerType: phone == _pendingOtpPhone ? _pendingBuyerType : null,
+        companyName: phone == _pendingOtpPhone ? _pendingCompanyName : null,
+      );
+      if (_cancelled) return;
+
+      if (!result.isSuccess) {
+        emit(_errorFrom(result, 'Verification failed'));
+        return;
+      }
+      if (result.role == null || result.tokens == null) {
+        emit(
+          const AuthError(
+            errorCode: AuthErrorCode.internalServerError,
+            errorMessage:
+                'Could not determine your account role. Please log in again.',
+          ),
+        );
+        return;
+      }
+
+      _clearPendingOtp();
+      await _saveSession(phone, result.userId!);
+      await _saveActiveTokens(result.tokens!);
+      emit(
+        AuthAuthenticated(
+          userId: result.userId!,
+          tokens: result.tokens!,
+          role: result.role!,
+          userName: result.userName ?? '',
+          phoneNumber: phone,
+          woreda: result.woreda,
+        ),
+      );
+    } on Object catch (e) {
+      if (_cancelled) return;
+      debugPrint('[AuthBloc] OTP verification failed unexpectedly: $e');
+      emit(
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Something went wrong. Please try again.',
+        ),
+      );
+    }
+  }
+
+  /// Send a fresh OTP and re-emit the OTP state with the new expiry.
+  Future<void> _onResendOtp(
+    AuthResendOtpRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final phone = event.phoneNumber ?? _pendingOtpPhone;
+    if (phone == null || phone.isEmpty) return;
+    emit(const AuthLoading());
+    try {
+      final result = await _authService.resendOtp(phoneNumber: phone);
+      if (result.isSuccess) {
+        emit(
+          AuthOtpVerificationRequired(
+            phoneNumber: phone,
+            expiresAt: result.otpExpiresAt,
+            resentAt: DateTime.now().toUtc(),
+          ),
+        );
+      } else {
+        emit(_errorFrom(result, 'Failed to resend the code'));
+      }
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] OTP resend failed unexpectedly: $e');
+      emit(
+        const AuthError(
+          errorCode: AuthErrorCode.internalServerError,
+          errorMessage: 'Failed to resend the code. Please try again.',
+        ),
+      );
+    }
+  }
+
+  /// Step-up re-authentication: keep the session and all local data, only
+  /// swap in the fresh tokens (whose auth_time satisfies the server).
+  Future<void> _onStepUpSucceeded(
+    AuthStepUpSucceeded event,
+    Emitter<AuthState> emit,
+  ) async {
+    final current = state;
+    if (current is! AuthAuthenticated) return;
+    await _saveActiveTokens(event.tokens);
+    emit(current.withTokens(event.tokens));
+  }
+
+  /// The refresh token was rejected: the interceptor already wiped the
+  /// active tokens, so sign out locally instead of leaving the UI "logged
+  /// in" with no credentials. The offline cache for this phone is cleared
+  /// (its tokens are dead), but business data and the sync queue are kept
+  /// so unsynced work goes up after the user signs in again.
+  Future<void> _onSessionExpired(
+    AuthSessionExpired event,
+    Emitter<AuthState> emit,
+  ) async {
+    final current = state;
+    if (current is! AuthAuthenticated) return;
+    final phone = _currentPhoneNumber ?? current.phoneNumber;
+    if (phone != null && phone.isNotEmpty) {
+      try {
+        await _offlineCache.clearCredentials(phone);
+      } on Object catch (e) {
+        debugPrint('[AuthBloc] clearing expired session cache failed: $e');
+      }
+    }
+    await _clearSession();
+    emit(const AuthUnauthenticated());
   }
 
   /// Handle forgot password request (sends verification code).
@@ -709,6 +975,34 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         orderIds.add(o.id);
       }
       await isar.orders.deleteAll(orderIds.toList());
+
+      // Delete chat messages the user sent or received.
+      final sent =
+          await isar.messages.filter().senderIdEqualTo(userId).findAll();
+      final received =
+          await isar.messages.filter().recipientIdEqualTo(userId).findAll();
+      final messageIds = <int>{
+        for (final m in [...sent, ...received]) m.id,
+      };
+      await isar.messages.deleteAll(messageIds.toList());
+
+      // Delete ratings the user gave or received.
+      final given =
+          await isar.ratings.filter().raterIdEqualTo(userId).findAll();
+      final got = await isar.ratings.filter().rateeIdEqualTo(userId).findAll();
+      final ratingIds = <int>{
+        for (final r in [...given, ...got]) r.id,
+      };
+      await isar.ratings.deleteAll(ratingIds.toList());
+
+      // Delete the user's queued sync operations (idempotency keys are
+      // `{userId}:...`) so the next person on a shared device can never
+      // send them, matching the payment-intent cancellation above.
+      final ops = await isar.syncOperations
+          .filter()
+          .idempotencyKeyStartsWith('$userId:')
+          .findAll();
+      await isar.syncOperations.deleteAll(ops.map((o) => o.id).toList());
     });
   }
 }

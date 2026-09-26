@@ -2581,4 +2581,107 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get contextUnavailable => 'Details aren\'t available right now';
+
+  @override
+  String get stepUpRequiredMessage =>
+      'For your safety, confirm it\'s you before this payment.';
+
+  @override
+  String get kycRequiredFaydaMessage =>
+      'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda, then submit the payment again.';
+
+  @override
+  String get kycRequiredPhoneMessage =>
+      'Your phone number is not verified yet, so this payment was not sent. Verify your identity, then submit the payment again.';
+
+  @override
+  String get kycRequiredTitle => 'Verification needed';
+
+  @override
+  String authRateLimitRetryIn(int seconds) {
+    return 'Too many attempts. Try again in $seconds seconds.';
+  }
+
+  @override
+  String get otpInvalidOrExpired =>
+      'That code is wrong or has expired. Check the SMS or request a new code.';
+
+  @override
+  String get otpVerificationTitle => 'Confirm your phone';
+
+  @override
+  String otpSentTo(String phone) {
+    return 'We sent a 6-digit code by SMS to $phone.';
+  }
+
+  @override
+  String get otpCodeHint => '6-digit code';
+
+  @override
+  String otpExpiresAt(String time) {
+    return 'The code expires at $time.';
+  }
+
+  @override
+  String get stepUpTitle => 'Confirm it\'s you';
+
+  @override
+  String stepUpPhoneLabel(String phone) {
+    return 'Phone: $phone';
+  }
+
+  @override
+  String get stepUpConfirm => 'Confirm';
+
+  @override
+  String get stepUpOfflineError =>
+      'You need internet to confirm. Connect and try again.';
+
+  @override
+  String get stepUpDone => 'Confirmed. Retrying your payment.';
+
+  @override
+  String get faydaUnavailableVerifyLater =>
+      'Fayda is unavailable right now. You can continue and verify later from your profile.';
+
+  @override
+  String get faydaStateMismatch =>
+      'The Fayda session expired. Please start verification again.';
+
+  @override
+  String get faydaStillWaiting =>
+      'Still waiting for Fayda. Finish in the browser and you will be brought back here.';
+
+  @override
+  String get faydaLinkSuccess => 'Your Fayda ID is now linked to your account.';
+
+  @override
+  String get faydaMobileOnly =>
+      'Fayda verification is available in the WeredaConnect mobile app.';
+
+  @override
+  String get faydaNotVerifiedSubtitle => 'Needed for payments above 10,000 ETB';
+
+  @override
+  String get appLockTitle => 'App lock';
+
+  @override
+  String get appLockSubtitle =>
+      'Ask for your fingerprint or phone PIN when opening the app';
+
+  @override
+  String get appLockLockedTitle => 'WeredaConnect is locked';
+
+  @override
+  String get appLockUnlock => 'Unlock';
+
+  @override
+  String get appLockReason => 'Unlock WeredaConnect';
+
+  @override
+  String get qrConfirmAuthReason => 'Confirm it\'s you to accept this delivery';
+
+  @override
+  String get qrConfirmAuthFailed =>
+      'Could not confirm it\'s you. The delivery was not confirmed.';
 }

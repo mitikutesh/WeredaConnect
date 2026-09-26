@@ -2509,4 +2509,102 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get contextUnavailable => 'ዝርዝሮች አሁን አይገኙም';
+
+  @override
+  String get stepUpRequiredMessage =>
+      'ለደህንነትዎ ይህን ክፍያ ከመፈጸምዎ በፊት እርስዎ መሆንዎን ያረጋግጡ።';
+
+  @override
+  String get kycRequiredFaydaMessage =>
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የተረጋገጠ የፋይዳ መታወቂያ ያስፈልጋል። በፋይዳ ያረጋግጡ፣ ከዚያ ክፍያውን እንደገና ያስገቡ።';
+
+  @override
+  String get kycRequiredPhoneMessage =>
+      'ስልክ ቁጥርዎ ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ማንነትዎን ያረጋግጡ፣ ከዚያ ክፍያውን እንደገና ያስገቡ።';
+
+  @override
+  String get kycRequiredTitle => 'ማረጋገጫ ያስፈልጋል';
+
+  @override
+  String authRateLimitRetryIn(int seconds) {
+    return 'በጣም ብዙ ሙከራዎች። ከ$seconds ሰከንድ በኋላ እንደገና ይሞክሩ።';
+  }
+
+  @override
+  String get otpInvalidOrExpired =>
+      'ኮዱ ትክክል አይደለም ወይም ጊዜው አልፏል። መልዕክቱን ያረጋግጡ ወይም አዲስ ኮድ ይጠይቁ።';
+
+  @override
+  String get otpVerificationTitle => 'ስልክዎን ያረጋግጡ';
+
+  @override
+  String otpSentTo(String phone) {
+    return 'ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ $phone ልከናል።';
+  }
+
+  @override
+  String get otpCodeHint => 'ባለ 6 አሃዝ ኮድ';
+
+  @override
+  String otpExpiresAt(String time) {
+    return 'ኮዱ በ$time ጊዜው ያልፋል።';
+  }
+
+  @override
+  String get stepUpTitle => 'እርስዎ መሆንዎን ያረጋግጡ';
+
+  @override
+  String stepUpPhoneLabel(String phone) {
+    return 'ስልክ፦ $phone';
+  }
+
+  @override
+  String get stepUpConfirm => 'አረጋግጥ';
+
+  @override
+  String get stepUpOfflineError => 'ለማረጋገጥ ኢንተርኔት ያስፈልግዎታል። ይገናኙና እንደገና ይሞክሩ።';
+
+  @override
+  String get stepUpDone => 'ተረጋግጧል። ክፍያዎን እንደገና በመሞከር ላይ።';
+
+  @override
+  String get faydaUnavailableVerifyLater =>
+      'ፋይዳ አሁን አይገኝም። መቀጠል እና በኋላ ከመገለጫዎ ማረጋገጥ ይችላሉ።';
+
+  @override
+  String get faydaStateMismatch => 'የፋይዳ ክፍለ ጊዜ አልፏል። እባክዎ ማረጋገጫውን እንደገና ይጀምሩ።';
+
+  @override
+  String get faydaStillWaiting =>
+      'አሁንም ፋይዳን በመጠበቅ ላይ። በአሳሹ ውስጥ ይጨርሱ፣ ከዚያ ወደዚህ ይመለሳሉ።';
+
+  @override
+  String get faydaLinkSuccess => 'የፋይዳ መታወቂያዎ አሁን ከመለያዎ ጋር ተገናኝቷል።';
+
+  @override
+  String get faydaMobileOnly => 'የፋይዳ ማረጋገጫ በወረዳ ኮነክት የሞባይል መተግበሪያ ውስጥ ይገኛል።';
+
+  @override
+  String get faydaNotVerifiedSubtitle => 'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ያስፈልጋል';
+
+  @override
+  String get appLockTitle => 'የመተግበሪያ መቆለፊያ';
+
+  @override
+  String get appLockSubtitle => 'መተግበሪያውን ሲከፍቱ የጣት አሻራ ወይም የስልክ ፒን ይጠይቅ';
+
+  @override
+  String get appLockLockedTitle => 'ወረዳ ኮነክት ተቆልፏል';
+
+  @override
+  String get appLockUnlock => 'ክፈት';
+
+  @override
+  String get appLockReason => 'ወረዳ ኮነክትን ይክፈቱ';
+
+  @override
+  String get qrConfirmAuthReason => 'ይህን ርክክብ ለመቀበል እርስዎ መሆንዎን ያረጋግጡ';
+
+  @override
+  String get qrConfirmAuthFailed => 'እርስዎ መሆንዎን ማረጋገጥ አልተቻለም። ርክክቡ አልተረጋገጠም።';
 }

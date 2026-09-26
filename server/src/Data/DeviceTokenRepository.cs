@@ -54,6 +54,29 @@ public class DeviceTokenRepository : IDeviceTokenRepository
     }
 
     /// <inheritdoc />
+    public async Task<string?> FindEndpointArnByTokenAsync(string userId, string token)
+    {
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = _tableName,
+            KeyConditionExpression = "userId = :uid",
+            FilterExpression = "#token = :token",
+            ProjectionExpression = "endpointArn",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#token", "token" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":token", new AttributeValue { S = token } },
+            },
+        });
+
+        return response.Items
+            .Where(i => i.TryGetValue("endpointArn", out var v) && v.S != null)
+            .Select(i => i["endpointArn"].S)
+            .FirstOrDefault();
+    }
+
+    /// <inheritdoc />
     public async Task DeleteAsync(string userId, string endpointArn)
     {
         await _dynamoDb.DeleteItemAsync(new DeleteItemRequest

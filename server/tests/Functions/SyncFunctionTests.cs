@@ -254,6 +254,7 @@ public class SyncFunctionTests
         {
             { "cropId", "crop-001" },
             { "cropType", "wheat" },
+            { "farmerId", "farmer-001" },
             { "version", "3" }
         };
         _mockCropRepo.GetByIdAsync("crop-001").Returns(serverData);
@@ -264,6 +265,32 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("conflict", response.Body);
         Assert.Contains("wheat", response.Body);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_CreateConflict_OtherFarmersListing_IsNotEchoed()
+    {
+        // Role-visibility rule: a farmer who replays another farmer's cropId must
+        // get the conflict status but never that farmer's listing data.
+        _mockCropRepo.CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Already exists."));
+        _mockCropRepo.GetByIdAsync("crop-001").Returns(new Dictionary<string, object>
+        {
+            { "cropId", "crop-001" },
+            { "cropType", "wheat" },
+            { "farmerId", "farmer-999" },
+            { "farmerPhone", "+251999999999" },
+            { "version", "3" }
+        });
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("conflict", response.Body);
+        Assert.DoesNotContain("wheat", response.Body);
+        Assert.DoesNotContain("+251999999999", response.Body);
+        Assert.DoesNotContain("farmer-999", response.Body);
     }
 
     [Fact]
@@ -893,12 +920,16 @@ public class SyncFunctionTests
     // ===== Trip Sync Operation Tests =====
 
     private static APIGatewayProxyRequest MakeAuthenticatedRequest(
-        object body, string userId = "trucker-001", string? role = null)
+        object body, string userId = "trucker-001", string? role = null, long? authTime = null)
     {
         var authorizer = new APIGatewayCustomAuthorizerContext { { "userId", userId } };
         if (role != null)
         {
             authorizer["custom:role"] = role;
+        }
+        if (authTime != null)
+        {
+            authorizer["auth_time"] = authTime.Value.ToString();
         }
         return new APIGatewayProxyRequest
         {
@@ -4375,5 +4406,344 @@ public class SyncFunctionTests
         // The scanner triggered a conflict; the echoed server item must NOT carry the secret.
         Assert.DoesNotContain("secret-nonce-999", response.Body);
         Assert.DoesNotContain("qrNonce", response.Body);
+    }
+
+    // ===== Payment gates: KYC (ORDER_KYC_REQUIRED) and step-up (AUTH_040) =====
+
+    private static UserDto PaymentParty(string id, bool phoneVerified = true, bool faydaVerified = false) => new()
+    {
+        UserId = id,
+        PhoneNumber = "+251900000000",
+        Role = "buyer",
+        Woreda = "Adama",
+        IsPhoneVerified = phoneVerified,
+        FaydaVerified = faydaVerified,
+        CreatedAt = "2026-09-25T10:00:00Z",
+        UpdatedAt = "2026-09-25T10:00:00Z",
+        Version = 1
+    };
+
+    private SyncFunction PaymentFunction(decimal orderTotal, UserDto buyer, UserDto farmer)
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-pay" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "created" },
+            { "orderTotal", orderTotal },
+            { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-pay", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-pay" },
+                { "status", "payment_submitted" },
+                { "version", "2" }
+            }));
+
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync("buyer-001").Returns(buyer);
+        userRepo.GetUserByIdAsync("farmer-001").Returns(farmer);
+
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: userRepo, orderRepo: orderRepo);
+    }
+
+    private static SyncOperationRequest PaymentOp() => new()
+    {
+        OperationId = "op-pay-gate",
+        IdempotencyKey = "buyer-001:order:order-pay:update:12345",
+        EntityType = "order",
+        EntityId = "order-pay",
+        Action = "update",
+        Data = new Dictionary<string, object>
+        {
+            { "status", "payment_submitted" },
+            { "paymentMethod", "telebirr" },
+            { "version", 1 }
+        }
+    };
+
+    [Fact]
+    public async Task PaymentSubmitted_UnverifiedBuyerPhone_IsRejectedWithKycError()
+    {
+        var function = PaymentFunction(500m,
+            PaymentParty("buyer-001", phoneVerified: false), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("ORDER_KYC_REQUIRED", response.Body);
+        Assert.Contains("phone", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_UnverifiedFarmerPhone_IsRejectedWithKycError()
+    {
+        var function = PaymentFunction(500m,
+            PaymentParty("buyer-001"), PaymentParty("farmer-001", phoneVerified: false));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("ORDER_KYC_REQUIRED", response.Body);
+        Assert.Contains("farmer", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Above10K_WithoutFayda_IsRejectedWithKycError()
+    {
+        var function = PaymentFunction(15_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_KYC_REQUIRED", response.Body);
+        Assert.Contains("Fayda", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Above10K_StaleAuth_RequiresStepUp()
+    {
+        var function = PaymentFunction(15_000m,
+            PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_040", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Above10K_NoAuthTimeClaim_RequiresStepUp()
+    {
+        var function = PaymentFunction(15_000m,
+            PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("AUTH_040", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Above10K_FreshAuthAndFayda_Succeeds()
+    {
+        var function = PaymentFunction(15_000m,
+            PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("AUTH_040", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_SmallAmount_NeedsNoStepUp()
+    {
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_NoUserRepository_FailsClosed()
+    {
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-pay").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-pay" },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "status", "created" },
+            { "version", "1" }
+        });
+        var function = new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table", orderRepo: orderRepo);
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("ORDER_KYC_REQUIRED", response.Body);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    // ===== Create-conflict echo: trip and order only for the owner / a party =====
+
+    private void TripCreateConflicts(string existingTruckerId)
+    {
+        // The conditional put fails because the trip exists; the conflict path then
+        // reads the stored trip (a Query, see SetupExistingTrip) to echo it.
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>())
+            .Returns<PutItemResponse>(_ => throw new ConditionalCheckFailedException("exists"));
+        SetupExistingTrip("trip-001", existingTruckerId, "open", 2);
+    }
+
+    [Fact]
+    public async Task TripCreateConflict_OwnerGetsServerData()
+    {
+        TripCreateConflicts("trucker-001");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripCreateOp(truckerId: "trucker-001")), "trucker-001", "trucker"),
+            _context);
+
+        Assert.True(response.Body.Contains("conflict"), response.Body);
+        Assert.Contains("Bishoftu", response.Body);
+    }
+
+    [Fact]
+    public async Task TripCreateConflict_OtherTruckersTrip_IsNotEchoed()
+    {
+        TripCreateConflicts("trucker-999");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripCreateOp(truckerId: "trucker-001")), "trucker-001", "trucker"),
+            _context);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.DoesNotContain("Bishoftu", response.Body);
+        Assert.DoesNotContain("Tadesse Worku", response.Body);
+        Assert.DoesNotContain("trucker-999", response.Body);
+    }
+
+    // ===== Order create-conflict echo and delivery dispute step-up =====
+
+    private void OrderCreateConflicts(string existingBuyerId)
+    {
+        SetupListing();
+        _mockOrderRepo.CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Already exists."));
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" },
+            { "buyerId", existingBuyerId },
+            { "buyerPhone", "+251999999999" },
+            { "farmerId", "farmer-777" },
+            { "orderTotal", 2275m },
+            { "status", "created" },
+            { "version", "2" }
+        });
+    }
+
+    [Fact]
+    public async Task OrderCreateConflict_PartyGetsServerData()
+    {
+        OrderCreateConflicts("buyer-001");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderCreateOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.Contains("251999999999", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCreateConflict_AnotherBuyersOrder_IsNotEchoed()
+    {
+        OrderCreateConflicts("buyer-999");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderCreateOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("conflict", response.Body);
+        Assert.DoesNotContain("251999999999", response.Body);
+        Assert.DoesNotContain("farmer-777", response.Body);
+    }
+
+    private void SetupDeliveredDeliveryWithOrder(string orderId, decimal orderTotal)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            { "deliveryId", new AttributeValue { S = "del-001" } },
+            { "orderId", new AttributeValue { S = orderId } },
+            { "tripId", new AttributeValue { S = "trip-001" } },
+            { "listingId", new AttributeValue { S = "listing-001" } },
+            { "farmerId", new AttributeValue { S = "farmer-001" } },
+            { "truckerId", new AttributeValue { S = "trucker-001" } },
+            { "buyerId", new AttributeValue { S = "buyer-001" } },
+            { "status", new AttributeValue { S = "delivered" } },
+            { "confirmedAt", new AttributeValue { S = DateTime.UtcNow.AddHours(-1).ToString("o") } },
+            { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
+            { "version", new AttributeValue { N = "1" } }
+        };
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { item } });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = item });
+        _mockOrderRepo.GetByIdAsync(orderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", orderId },
+            { "buyerId", "buyer-001" },
+            { "farmerId", "farmer-001" },
+            { "orderTotal", orderTotal },
+            { "status", "funded" },
+            { "version", "1" }
+        });
+    }
+
+    private static SyncOperationRequest DisputeOp() => new()
+    {
+        OperationId = "op-dispute-stepup",
+        IdempotencyKey = "buyer-001:delivery:del-001:update:99999",
+        EntityType = "delivery",
+        EntityId = "del-001",
+        Action = "update",
+        Data = new Dictionary<string, object>
+        {
+            { "status", "disputed" },
+            { "disputeReason", "Half the sacks were damaged." },
+            { "version", 1 }
+        }
+    };
+
+    [Fact]
+    public async Task DeliveryDispute_LargeOrder_StaleAuth_RequiresStepUp()
+    {
+        SetupDeliveredDeliveryWithOrder("order-big", 15_000m);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_040", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_LargeOrder_FreshAuth_PassesStepUp()
+    {
+        SetupDeliveredDeliveryWithOrder("order-big", 15_000m);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.DoesNotContain("AUTH_040", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_SmallOrder_NeedsNoStepUp()
+    {
+        SetupDeliveredDeliveryWithOrder("order-small", 800m);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(DisputeOp()), "buyer-001", "buyer"), _context);
+
+        Assert.DoesNotContain("AUTH_040", response.Body);
     }
 }

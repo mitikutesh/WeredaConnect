@@ -7,6 +7,8 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Functions;
 using Xunit;
+using WeredaConnect.Server.Services;
+using WeredaConnect.Server.Models;
 
 namespace WeredaConnect.Server.Tests.Functions;
 
@@ -630,5 +632,164 @@ public class AdminFunctionTests
 
         response.StatusCode.Should().Be(404);
         response.Body.Should().Contain("ADMIN_006");
+    }
+
+    // ===== Account controls reach Cognito (suspend / unsuspend / change_role) =====
+
+    private static APIGatewayProxyRequest UserActionRequest(string userId, object body)
+    {
+        var authorizer = new APIGatewayCustomAuthorizerContext
+        {
+            { "sub", "admin-1" },
+            { "role", "admin" },
+        };
+
+        return new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = $"/admin/users/{userId}/action",
+            Body = JsonSerializer.Serialize(body),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+    }
+
+    private ICognitoAuthService CognitoWithPhone(string phone, bool succeed = true)
+    {
+        var cognito = Substitute.For<ICognitoAuthService>();
+        var outcome = succeed
+            ? AuthResult<bool>.Success(true)
+            : AuthResult<bool>.Failure(503, "AUTH_008", "Unavailable.");
+        cognito.AdminDisableUserAsync(Arg.Any<string>()).Returns(outcome);
+        cognito.AdminEnableUserAsync(Arg.Any<string>()).Returns(outcome);
+        cognito.AdminGlobalSignOutAsync(Arg.Any<string>()).Returns(outcome);
+        cognito.AdminSetRoleAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(outcome);
+        _dynamoDb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse
+            {
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "phoneNumber", new AttributeValue { S = phone } }
+                }
+            });
+        return cognito;
+    }
+
+    [Fact]
+    public async Task Suspend_DisablesCognitoUserAndSignsOutEverywhere()
+    {
+        var cognito = CognitoWithPhone("+251911000001");
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito);
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "suspend", reason = "fraud" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("completed successfully");
+        await cognito.Received(1).AdminDisableUserAsync("+251911000001");
+        await cognito.Received(1).AdminGlobalSignOutAsync("+251911000001");
+        await cognito.DidNotReceive().AdminEnableUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Unsuspend_ReEnablesCognitoUser()
+    {
+        var cognito = CognitoWithPhone("+251911000001");
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito);
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "unsuspend" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        await cognito.Received(1).AdminEnableUserAsync("+251911000001");
+        await cognito.DidNotReceive().AdminGlobalSignOutAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ChangeRole_WritesCognitoRoleAndSignsOutOldTokens()
+    {
+        var cognito = CognitoWithPhone("+251911000001");
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito);
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "change_role", newRole = "Buyer" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        await cognito.Received(1).AdminSetRoleAsync("+251911000001", "buyer");
+        await cognito.Received(1).AdminGlobalSignOutAsync("+251911000001");
+    }
+
+    [Fact]
+    public async Task Suspend_WhenCognitoFails_KeepsTheFlagAndTellsTheAdmin()
+    {
+        var cognito = CognitoWithPhone("+251911000001", succeed: false);
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito);
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "suspend" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("sign-in service update failed");
+        await _dynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Suspend_WithoutCognitoClient_ReportsThatSessionsWereNotEnded()
+    {
+        var response = await _function.FunctionHandler(
+            UserActionRequest("user-1", new { action = "suspend" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("sign-in service was not updated");
+    }
+
+    [Fact]
+    public async Task Verify_DoesNotTouchCognito()
+    {
+        var cognito = CognitoWithPhone("+251911000001");
+        var fn = new AdminFunction(_dynamoDb, UsersTable, cognitoAuth: cognito);
+
+        var response = await fn.FunctionHandler(
+            UserActionRequest("user-1", new { action = "verify" }), _context);
+
+        response.StatusCode.Should().Be(200);
+        await cognito.DidNotReceive().AdminGlobalSignOutAsync(Arg.Any<string>());
+        await cognito.DidNotReceive().AdminDisableUserAsync(Arg.Any<string>());
+    }
+
+    // ===== Dispute resolution records the verdict; the cron settles the money =====
+
+    [Fact]
+    public async Task ResolveDispute_FarmerWins_RecordsVerdictForTheSweep()
+    {
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
+        {
+            Items =
+            [
+                new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", new AttributeValue { S = "escrow-9" } },
+                    { "createdAt", new AttributeValue { S = "2026-09-20T10:00:00Z" } },
+                    { "status", new AttributeValue { S = "disputed" } },
+                    { "orderId", new AttributeValue { S = "order-9" } }
+                }
+            ]
+        });
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" }, { "role", "admin" } };
+        var request = new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Path = "/admin/disputes/escrow-9/resolve",
+            Body = JsonSerializer.Serialize(new { resolution = "farmer_wins", action = "release", notes = "goods fine" }),
+            RequestContext = new APIGatewayProxyRequest.ProxyRequestContext { Authorizer = authorizer },
+        };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("dispute_resolved");
+        response.Body.Should().Contain("settlement sweep releases");
+        await _dynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(u => u.ExpressionAttributeValues[":resolution"].S == "farmer_wins"),
+            Arg.Any<CancellationToken>());
     }
 }

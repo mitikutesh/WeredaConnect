@@ -18,6 +18,12 @@ String localizeAuthError(
     return l10n.authAccountLocked('$minutes min');
   }
 
+  if (code == AuthErrorCode.rateLimitExceeded &&
+      retryAfterSeconds != null &&
+      retryAfterSeconds > 0) {
+    return l10n.authRateLimitRetryIn(retryAfterSeconds);
+  }
+
   return switch (code) {
     // Registration errors
     AuthErrorCode.invalidPhoneFormat => l10n.invalidPhoneFormat,
@@ -31,7 +37,7 @@ String localizeAuthError(
 
     // Fayda errors
     AuthErrorCode.faydaVerificationFailed => l10n.faydaVerificationFailed,
-    AuthErrorCode.faydaTokenExpired => l10n.faydaVerificationFailed,
+    AuthErrorCode.faydaTokenExpired => l10n.faydaStateMismatch,
     AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
     AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
     AuthErrorCode.invalidFaydaToken => l10n.faydaVerificationFailed,
@@ -40,6 +46,13 @@ String localizeAuthError(
     AuthErrorCode.resetCodeInvalid => l10n.resetCodeInvalid,
     AuthErrorCode.resetCodeExpired => l10n.resetCodeExpired,
     AuthErrorCode.resetPasswordRequirements => l10n.passwordRequirements,
+
+    // Registration OTP errors
+    AuthErrorCode.otpInvalidFormat => l10n.invalidOtp,
+    AuthErrorCode.otpInvalidOrExpired => l10n.otpInvalidOrExpired,
+
+    // Step-up
+    AuthErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
 
     // Login errors
     AuthErrorCode.invalidCredentials => l10n.invalidCredentials,

@@ -289,4 +289,42 @@ void main() {
       expect((result as EscrowSuccess).toPayUrl, isNull);
     });
   });
+
+  group('WebEscrowRepository step-up (403 AUTH_040)', () {
+    void stubPostThrows(String path) {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          path,
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenThrow(const StepUpRequiredException('AUTH_040: step-up required'));
+    }
+
+    test('initiatePayment maps to the step-up code', () async {
+      stubPostThrows('/escrow/initiate');
+
+      final result = await repo.initiatePayment(
+        deliveryId: 'del-001',
+        buyerId: 'buyer-001',
+        farmerId: 'farmer-001',
+        amount: 15000,
+      );
+
+      expect(result, isA<EscrowError>());
+      expect((result as EscrowError).code, stepUpRequiredCode);
+    });
+
+    test('raiseDispute maps to the step-up code', () async {
+      stubPostThrows('/escrow/dispute');
+
+      final result = await repo.raiseDispute(
+        escrowId: 'esc-001',
+        disputedBy: 'buyer-001',
+        reason: 'damaged',
+      );
+
+      expect(result, isA<EscrowError>());
+      expect((result as EscrowError).code, stepUpRequiredCode);
+    });
+  });
 }

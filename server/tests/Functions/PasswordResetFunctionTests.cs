@@ -24,6 +24,10 @@ public class PasswordResetFunctionTests
         _function = new PasswordResetFunction(_mockAuth, _mockRateLimit);
         _context = new TestLambdaContext();
 
+        // Default: the source IP is under its cap
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Success(true));
+
         // Default: rate limit allows OTP attempts
         _mockRateLimit.CheckOtpAttemptAllowedAsync(Arg.Any<string>())
             .Returns(AuthResult<bool>.Success(true));
@@ -407,5 +411,33 @@ public class PasswordResetFunctionTests
         Assert.Equal(429, response.StatusCode);
         await _mockAuth.DidNotReceive()
             .ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    // ===== Per-IP caps =====
+
+    [Fact]
+    public async Task ForgotPassword_IpCapReached_Returns429WithoutSendingCode()
+    {
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), "forgot", Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests from this network.", retryAfterSeconds: 60));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest("/auth/forgot-password", new { phoneNumber = "+251912345678" }), _context);
+
+        Assert.Equal(429, response.StatusCode);
+        await _mockAuth.DidNotReceive().ForgotPasswordAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task ResetPassword_IpCapReached_Returns429WithoutResetting()
+    {
+        _mockRateLimit.CheckIpAllowedAsync(Arg.Any<string?>(), "reset", Arg.Any<int>(), Arg.Any<int>())
+            .Returns(AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests from this network.", retryAfterSeconds: 60));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest("/auth/reset-password", new { phoneNumber = "+251912345678", confirmationCode = "123456", newPassword = "NewPass1dev!" }), _context);
+
+        Assert.Equal(429, response.StatusCode);
+        await _mockAuth.DidNotReceive().ConfirmForgotPasswordAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
 }

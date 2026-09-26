@@ -18,4 +18,7 @@ public interface IDeviceTokenRepository
     /// being retried (and re-logged) on every future matching crop.
     /// </summary>
     Task DeleteAsync(string userId, string endpointArn);
+
+    /// <summary>The endpoint registered by this user for the given FCM token, or null.</summary>
+    Task<string?> FindEndpointArnByTokenAsync(string userId, string token);
 }

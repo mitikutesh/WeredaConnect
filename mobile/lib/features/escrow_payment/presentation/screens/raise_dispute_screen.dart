@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -40,6 +42,18 @@ class RaiseDisputeScreen extends StatefulWidget {
 }
 
 class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
+  /// The dispute last sent, replayed after a step-up re-authentication.
+  RaisePaymentDispute? _lastDispute;
+
+  Future<void> _retryAfterStepUp(BuildContext context) async {
+    final event = _lastDispute;
+    if (event == null) return;
+    final ok = await showStepUpDialog(context);
+    if (ok && context.mounted) {
+      context.read<EscrowBloc>().add(event);
+    }
+  }
+
   String? _selectedReason;
   final _descriptionController = TextEditingController();
   Timer? _countdownTimer;
@@ -115,6 +129,10 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
             ),
           );
           Navigator.of(context).pop();
+        } else if (state is EscrowError && state.code == stepUpRequiredCode) {
+          // High-value escrow with an old session: confirm the password,
+          // then raise the same dispute again.
+          _retryAfterStepUp(context);
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -293,16 +311,16 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                 final authState = context.read<AuthBloc>().state;
                 final userId =
                     authState is AuthAuthenticated ? authState.userId : '';
-                context.read<EscrowBloc>().add(
-                      RaisePaymentDispute(
-                        escrowId: widget.escrowId,
-                        disputedBy: userId,
-                        reason: _selectedReason!,
-                        description: _descriptionController.text.isNotEmpty
-                            ? _descriptionController.text
-                            : null,
-                      ),
-                    );
+                final event = RaisePaymentDispute(
+                  escrowId: widget.escrowId,
+                  disputedBy: userId,
+                  reason: _selectedReason!,
+                  description: _descriptionController.text.isNotEmpty
+                      ? _descriptionController.text
+                      : null,
+                );
+                _lastDispute = event;
+                context.read<EscrowBloc>().add(event);
               },
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.onStatusWarningContainer,

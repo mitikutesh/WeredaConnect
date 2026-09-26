@@ -16,6 +16,12 @@ enum AppErrorCode {
   notFound,
   conflict,
   server,
+
+  /// The server wants the user to re-enter their password (AUTH_040).
+  stepUpRequired,
+
+  /// The payment needs Fayda KYC or a verified phone (ORDER_KYC_REQUIRED).
+  kycRequired,
   unknown,
 }
 
@@ -25,6 +31,12 @@ enum AppErrorCode {
 /// checked before the generic fallback.
 AppErrorCode mapErrorToCode(Object error) {
   return switch (error) {
+    StepUpRequiredException() => AppErrorCode.stepUpRequired,
+    SyncRejectedException(:final message)
+        when isStepUpRequiredMessage(message) =>
+      AppErrorCode.stepUpRequired,
+    SyncRejectedException(:final message) when isKycRequiredMessage(message) =>
+      AppErrorCode.kycRequired,
     TimeoutException() => AppErrorCode.timeout,
     NetworkException() => AppErrorCode.network,
     AuthException() => AppErrorCode.auth,
@@ -47,6 +59,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.network || AppErrorCode.timeout => l10n.noInternetConnection,
     AppErrorCode.auth => l10n.errorSessionExpired,
     AppErrorCode.conflict => l10n.errorConflict,
+    AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
+    AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||

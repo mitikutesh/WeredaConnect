@@ -263,6 +263,34 @@ class OrderRepository extends BaseOrderRepository {
     );
   }
 
+  /// Undo an optimistic payment submission the server's KYC gate rejected
+  /// (`ORDER_KYC_REQUIRED`), so the order does not stay stuck in
+  /// `paymentSubmitted` and the buyer can pay again after verifying.
+  ///
+  /// The server never applied the update, so the order goes back to the
+  /// status it had before [submitPayment] (with the version from then):
+  /// `accepted` once the farmer responded, else `created` (payment can be
+  /// submitted straight after placing the order). No-op when the order moved
+  /// on in the meantime (e.g. a later pull).
+  Future<void> revertRejectedPaymentSubmission(String orderId) async {
+    await _isar.writeTxn(() async {
+      final order =
+          await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+      if (order == null || order.status != OrderStatus.paymentSubmitted) {
+        return;
+      }
+      order
+        ..status = order.respondedAt != null
+            ? OrderStatus.accepted
+            : OrderStatus.created
+        ..cbeTransactionId = null
+        ..paymentMethod = null
+        ..version = order.version > 1 ? order.version - 1 : order.version
+        ..updatedAt = DateTime.now().toUtc();
+      await _isar.orders.put(order);
+    });
+  }
+
   /// Cancel an order (buyer or farmer action).
   @override
   Future<void> cancelOrder(

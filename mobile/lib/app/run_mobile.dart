@@ -108,6 +108,15 @@ Future<void> runMobile({
     conflictResolver: ConflictResolver(IsarService.instance.db),
     conflictNotificationService: conflictNotificationService,
     getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
+    // KYC gate rejected a payment submission: put the local order back to
+    // `accepted` so the buyer can pay again after verifying with Fayda.
+    onKycRequired: (operation, message) async {
+      if (operation.entityType != 'order') return;
+      await OrderRepository(
+        isar: IsarService.instance.db,
+        syncQueue: syncQueue,
+      ).revertRejectedPaymentSubmission(operation.entityId);
+    },
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
@@ -135,6 +144,8 @@ Future<void> runMobile({
   // AuthBloc with Isar for offline data cleanup on logout
   final authBloc = AuthBloc(
     isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
+    // Logout asks the server to stop pushing to this device's FCM token.
+    pushTokenProvider: PushNotificationService.currentToken,
   )..add(const AuthCheckRequested());
 
   // Lifecycle observer for resource cleanup
@@ -353,6 +364,10 @@ class WeredaConnectApp extends StatelessWidget {
               // Pinned to light until the raw Colors.* sweep makes all
               // screens dark-safe; then a Settings toggle can ship.
               themeMode: ThemeMode.light,
+              // The app lock wraps the Navigator so it covers pushed routes
+              // (order detail, payment, QR), not just the home screen.
+              builder: (context, child) =>
+                  AuthAppLock(child: child ?? const SizedBox.shrink()),
               // Register for push once the user is authenticated (all roles
               // receive message alerts). Best-effort: no-ops if FCM isn't set up.
               // A foreground chat push nudges the inbox to pull immediately —

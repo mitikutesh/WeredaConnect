@@ -63,6 +63,17 @@ class PushNotificationService {
     }
   }
 
+  /// This device's current FCM token, or null when push isn't set up.
+  /// Used at logout to ask the server to stop pushing to this device.
+  static Future<String?> currentToken() async {
+    try {
+      if (Firebase.apps.isEmpty) return null;
+      return await FirebaseMessaging.instance.getToken();
+    } on Object catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _register(String token) async {
     try {
       await _api.post<Map<String, dynamic>>(

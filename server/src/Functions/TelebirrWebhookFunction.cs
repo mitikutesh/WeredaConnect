@@ -26,6 +26,9 @@ public class TelebirrWebhookFunction
     private readonly IEscrowIdempotencyRepository _idempotencyRepo;
     private readonly ITelebirrSignatureService _signer;
     private readonly HashSet<string> _allowedSourceIps;
+    private readonly string? _merchantCode;
+    private readonly IUserRepository? _userRepo;
+    private readonly bool _requirePayerMatch;
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public TelebirrWebhookFunction()
@@ -45,6 +48,12 @@ public class TelebirrWebhookFunction
         var config = TelebirrGatewayFactory.LoadConfigOrThrow();
         _signer = new TelebirrSignatureService(null, config.TelebirrPublicKeyPem, config.Padding);
         _allowedSourceIps = new HashSet<string>(config.AllowedSourceIps, StringComparer.Ordinal);
+        _merchantCode = config.MerchantCode;
+
+        var usersTable = Environment.GetEnvironmentVariable("USERS_TABLE");
+        _userRepo = string.IsNullOrEmpty(usersTable) ? null : new UserRepository(dynamoDb, usersTable);
+        _requirePayerMatch = string.Equals(
+            Environment.GetEnvironmentVariable("TELEBIRR_REQUIRE_PAYER_MATCH"), "true", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Constructor for testing.</summary>
@@ -53,13 +62,19 @@ public class TelebirrWebhookFunction
         IEscrowAuditRepository auditRepo,
         IEscrowIdempotencyRepository idempotencyRepo,
         ITelebirrSignatureService signer,
-        IEnumerable<string>? allowedSourceIps = null)
+        IEnumerable<string>? allowedSourceIps = null,
+        string? merchantCode = null,
+        IUserRepository? userRepo = null,
+        bool requirePayerMatch = false)
     {
         _escrowRepo = escrowRepo;
         _auditRepo = auditRepo;
         _idempotencyRepo = idempotencyRepo;
         _signer = signer;
         _allowedSourceIps = new HashSet<string>(allowedSourceIps ?? Array.Empty<string>(), StringComparer.Ordinal);
+        _merchantCode = merchantCode;
+        _userRepo = userRepo;
+        _requirePayerMatch = requirePayerMatch;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -120,15 +135,26 @@ public class TelebirrWebhookFunction
             return;
         }
 
-        // Layer 3: timestamp freshness.
-        if (long.TryParse(n.Timestamp, out var tsMs))
+        // Layer 3: timestamp freshness. Fail closed: a notification without a
+        // parseable timestamp is treated like a stale one (replay defence).
+        if (!long.TryParse(n.Timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tsMs))
         {
-            var skewSec = Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - tsMs) / 1000.0;
-            if (skewSec > MaxTimestampSkewSeconds)
-            {
-                context.Logger.LogWarning($"Telebirr webhook: stale timestamp (skew {skewSec:F0}s).");
-                return;
-            }
+            context.Logger.LogWarning("Telebirr webhook: missing or unparseable timestamp.");
+            return;
+        }
+        var skewSec = Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - tsMs) / 1000.0;
+        if (skewSec > MaxTimestampSkewSeconds)
+        {
+            context.Logger.LogWarning($"Telebirr webhook: stale timestamp (skew {skewSec:F0}s).");
+            return;
+        }
+
+        // Layer 3b: the notification must be for our merchant account.
+        if (!string.IsNullOrEmpty(_merchantCode)
+            && !string.Equals(n.BizContent.MerchCode, _merchantCode, StringComparison.Ordinal))
+        {
+            context.Logger.LogWarning("Telebirr webhook: merch_code does not match this merchant.");
+            return;
         }
 
         // Resolve escrow via the idempotency map (merch_order_id == initiate idempotency key).
@@ -157,6 +183,16 @@ public class TelebirrWebhookFunction
 
         var isSuccess = string.Equals(n.BizContent.TradeStatus, "Completed", StringComparison.OrdinalIgnoreCase);
         var createdAt = GetString(escrow, "createdAt");
+
+        // Payer binding: the wallet that paid should be the buyer's registered phone.
+        // A shared or borrowed account paying from someone else's wallet is the
+        // signal KYC exists to catch. Enforced only when TELEBIRR_REQUIRE_PAYER_MATCH
+        // is on (the field must be confirmed in Telebirr's live payload first);
+        // otherwise a mismatch is recorded for the fraud review queue.
+        if (isSuccess && !await PayerMatchesBuyerAsync(escrow, escrowId, n.BizContent.Msisdn, context))
+        {
+            return;
+        }
 
         // Amount integrity: a forged/replayed notification must not carry a different amount.
         if (isSuccess)
@@ -214,6 +250,21 @@ public class TelebirrWebhookFunction
     private static Dictionary<string, object?> ToSignable(TelebirrWebhookNotification n)
     {
         var biz = n.BizContent;
+        var bizContent = new Dictionary<string, object?>
+        {
+            ["merch_order_id"] = biz?.MerchOrderId,
+            ["payment_order_id"] = biz?.PaymentOrderId,
+            ["total_amount"] = biz?.TotalAmount,
+            ["trans_currency"] = biz?.TransCurrency,
+            ["trade_status"] = biz?.TradeStatus,
+            ["merch_code"] = biz?.MerchCode,
+            ["trans_id"] = biz?.TransId,
+        };
+        if (biz?.Msisdn != null)
+        {
+            bizContent["msisdn"] = biz.Msisdn;
+        }
+
         return new Dictionary<string, object?>
         {
             ["method"] = n.Method,
@@ -221,17 +272,46 @@ public class TelebirrWebhookFunction
             ["timestamp"] = n.Timestamp,
             ["notify_time"] = n.NotifyTime,
             ["sign_type"] = n.SignType,
-            ["biz_content"] = new Dictionary<string, object?>
-            {
-                ["merch_order_id"] = biz?.MerchOrderId,
-                ["payment_order_id"] = biz?.PaymentOrderId,
-                ["total_amount"] = biz?.TotalAmount,
-                ["trans_currency"] = biz?.TransCurrency,
-                ["trade_status"] = biz?.TradeStatus,
-                ["merch_code"] = biz?.MerchCode,
-                ["trans_id"] = biz?.TransId,
-            },
+            ["biz_content"] = bizContent,
         };
+    }
+
+    /// <summary>
+    /// False when the notification must be rejected. Records a mismatch (or a
+    /// missing payer while a match is required) in the escrow audit trail.
+    /// </summary>
+    private async Task<bool> PayerMatchesBuyerAsync(
+        Dictionary<string, object> escrow, string escrowId, string? payerMsisdn, ILambdaContext context)
+    {
+        if (string.IsNullOrWhiteSpace(payerMsisdn))
+        {
+            if (!_requirePayerMatch)
+            {
+                return true;
+            }
+            context.Logger.LogWarning("Telebirr webhook: payer phone required but absent.");
+            await AppendAuditAsync(escrowId, "webhook_payer_unbound", "initiated", "initiated");
+            return false;
+        }
+
+        if (_userRepo == null)
+        {
+            context.Logger.LogWarning("Telebirr webhook: payer phone present but no user repository to check it.");
+            return !_requirePayerMatch;
+        }
+
+        var buyerId = GetString(escrow, "buyerId");
+        var buyer = string.IsNullOrEmpty(buyerId) ? null : await _userRepo.GetUserByIdAsync(buyerId);
+        var payer = Validation.RequestValidator.NormalizePhoneNumber(payerMsisdn) ?? payerMsisdn.Trim();
+        if (buyer != null && string.Equals(buyer.PhoneNumber, payer, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        context.Logger.LogWarning("Telebirr webhook: payer phone does not match the buyer's registered phone.");
+        await AppendAuditAsync(escrowId, "webhook_payer_mismatch", "initiated", "initiated",
+            metadata: $"buyer={buyerId},payerSuffix={payer[^Math.Min(4, payer.Length)..]}");
+        return !_requirePayerMatch;
     }
 
     private async Task AppendAuditAsync(

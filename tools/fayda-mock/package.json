@@ -1,0 +1,15 @@
+{
+  "name": "weredaconnect-fayda-mock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mock VeriFayda eSignet OpenID Connect provider for dev (Lambda Function URL).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server-local.js",
+    "build": "node --check index.js && node --check server-local.js && for f in src/*.js; do node --check \"$f\" || exit 1; done",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

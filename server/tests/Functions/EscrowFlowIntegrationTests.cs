@@ -120,6 +120,8 @@ public class EscrowFlowIntegrationTests
         if (userId != null)
         {
             var context = new APIGatewayCustomAuthorizerContext { { "sub", userId } };
+            // A freshly issued ID token: large amounts need auth_time within the step-up window.
+            context["auth_time"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
             if (role != null)
             {
                 context["role"] = role;

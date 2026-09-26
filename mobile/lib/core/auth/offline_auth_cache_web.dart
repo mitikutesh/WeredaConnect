@@ -48,6 +48,8 @@ class OfflineAuthCache {
     String? drivingLicensePath,
     String? buyerType,
     String? companyName,
+    bool? faydaVerified,
+    DateTime? faydaVerifiedAt,
   }) async {
     // Persist tokens
     await _storage.write(
@@ -60,22 +62,19 @@ class OfflineAuthCache {
       value: DateTime.now().toUtc().toIso8601String(),
     );
     // Persist user profile
-    await _storage.write(
-      key: _userKey(phoneNumber),
-      value: jsonEncode({
-        'userId': userId,
-        'phoneNumber': phoneNumber,
-        'name': name,
-        'role': role.name,
-        'woreda': woreda,
-        if (fullName != null) 'fullName': fullName,
-        if (displayName != null) 'displayName': displayName,
-        // F-32: role-specific fields (platform pair with the Isar implementation).
-        if (drivingLicensePath != null)
-          'drivingLicensePath': drivingLicensePath,
-        if (buyerType != null) 'buyerType': buyerType,
-        if (companyName != null) 'companyName': companyName,
-      }),
+    await saveUserToIsar(
+      userId: userId,
+      phoneNumber: phoneNumber,
+      name: name,
+      role: role,
+      woreda: woreda,
+      fullName: fullName,
+      displayName: displayName,
+      drivingLicensePath: drivingLicensePath,
+      buyerType: buyerType,
+      companyName: companyName,
+      faydaVerified: faydaVerified,
+      faydaVerifiedAt: faydaVerifiedAt,
     );
   }
 
@@ -90,7 +89,16 @@ class OfflineAuthCache {
     String? drivingLicensePath,
     String? buyerType,
     String? companyName,
+    bool? faydaVerified,
+    DateTime? faydaVerifiedAt,
   }) async {
+    // Null verification fields mean "not reported": keep the cached values
+    // (platform pair with the Isar implementation).
+    final existing = await _readUserJson(phoneNumber) ?? const {};
+    final verified = faydaVerified ?? existing['faydaVerified'] as bool?;
+    final verifiedAt = faydaVerified == null
+        ? existing['faydaVerifiedAt'] as String?
+        : faydaVerifiedAt?.toUtc().toIso8601String();
     await _storage.write(
       key: _userKey(phoneNumber),
       value: jsonEncode({
@@ -106,8 +114,42 @@ class OfflineAuthCache {
           'drivingLicensePath': drivingLicensePath,
         if (buyerType != null) 'buyerType': buyerType,
         if (companyName != null) 'companyName': companyName,
+        if (verified != null) 'faydaVerified': verified,
+        if (verifiedAt != null) 'faydaVerifiedAt': verifiedAt,
       }),
     );
+  }
+
+  /// Record a successful Fayda link on the cached user (profile badge).
+  Future<void> updateVerification({
+    required String userId,
+    required String phoneNumber,
+    required bool faydaVerified,
+    DateTime? faydaVerifiedAt,
+  }) async {
+    final existing = await _readUserJson(phoneNumber);
+    if (existing == null || existing['userId'] != userId) return;
+    existing['faydaVerified'] = faydaVerified;
+    if (faydaVerifiedAt != null) {
+      existing['faydaVerifiedAt'] = faydaVerifiedAt.toUtc().toIso8601String();
+    } else {
+      existing.remove('faydaVerifiedAt');
+    }
+    await _storage.write(
+      key: _userKey(phoneNumber),
+      value: jsonEncode(existing),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _readUserJson(String phoneNumber) async {
+    final raw = await _storage.read(key: _userKey(phoneNumber));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   Future<bool> verifyPassword(String phoneNumber, String password) async =>
@@ -130,12 +172,19 @@ class OfflineAuthCache {
         }
       }
       if (role == null) return null;
+      final faydaVerified = m['faydaVerified'] as bool? ?? false;
       return User()
         ..userId = m['userId'] as String? ?? ''
         ..phoneNumber = m['phoneNumber'] as String? ?? ''
         ..name = m['name'] as String? ?? ''
+        ..fullName = m['fullName'] as String?
+        ..displayName = m['displayName'] as String?
         ..role = role
-        ..woreda = m['woreda'] as String? ?? '';
+        ..woreda = m['woreda'] as String? ?? ''
+        ..faydaVerified = faydaVerified
+        ..isVerified = faydaVerified
+        ..faydaVerifiedAt =
+            DateTime.tryParse(m['faydaVerifiedAt'] as String? ?? '');
     } on Object {
       // Corrupt or shape-mismatched cache (valid JSON that isn't the expected
       // shape) makes the `as Map`/field casts throw a TypeError (an Error, not

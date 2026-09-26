@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
+import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
@@ -51,6 +52,21 @@ class _LoginScreenState extends State<LoginScreen> {
     _phoneController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  bool _otpScreenOpen = false;
+
+  Future<void> _openOtpScreen(AuthOtpVerificationRequired state) async {
+    _otpScreenOpen = true;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OtpVerificationScreen(
+          phoneNumber: state.phoneNumber,
+          expiresAt: state.expiresAt,
+        ),
+      ),
+    );
+    _otpScreenOpen = false;
   }
 
   String _localizeAuthError(
@@ -109,10 +125,22 @@ class _LoginScreenState extends State<LoginScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
+          // Close the OTP screen this login opened, if any.
+          if (_otpScreenOpen && Navigator.of(context).canPop()) {
+            _otpScreenOpen = false;
+            Navigator.of(context).pop();
+          }
           // Pop self if pushed on top of AuthGate (e.g. from WelcomeScreen).
           // AuthGate will then show MainNavigation.
           if (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
+          }
+        } else if (state is AuthOtpVerificationRequired) {
+          // Login for an account whose phone was never confirmed: the bloc
+          // already sent a fresh code. Only the topmost screen opens the OTP
+          // screen (registration handles its own).
+          if (!_otpScreenOpen && (ModalRoute.of(context)?.isCurrent ?? true)) {
+            _openOtpScreen(state);
           }
         } else if (state is AuthError) {
           setState(() {

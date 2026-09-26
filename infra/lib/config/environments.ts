@@ -47,6 +47,14 @@ export interface EnvironmentConfig {
    * enableTelebirrLive is true. Can also be passed as `-c telebirrNatEipAllocationId=…`.
    */
   readonly telebirrNatEipAllocationId?: string;
+  /**
+   * Which Fayda (national ID) OIDC provider the server uses.
+   * 'mock': deploy the FaydaMockConstruct (tools/fayda-mock) and point the
+   * server's Fayda issuer at its Function URL. 'live': use the real VeriFayda
+   * eSignet issuer. Unset keeps the current behaviour. 'mock' must never be
+   * used when isProd is true (the stack refuses to synthesize and the construct throws).
+   */
+  readonly faydaMode?: 'mock' | 'live';
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
@@ -54,6 +62,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'dev',
     region: 'eu-north-1',
     isProd: false,
+    // Dev signs in against the mock Fayda eSignet provider (tools/fayda-mock);
+    // staging and prod use the real issuer through the seeded SSM parameters.
+    faydaMode: 'mock',
     tags: {
       Environment: 'development',
       Project: 'WeredaConnect',

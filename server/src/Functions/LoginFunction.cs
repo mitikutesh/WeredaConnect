@@ -1,5 +1,6 @@
 using Amazon.CognitoIdentityProvider;
 using Amazon.DynamoDBv2;
+using Amazon.SimpleNotificationService;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
@@ -12,13 +13,20 @@ namespace WeredaConnect.Server.Functions;
 /// <summary>
 /// POST /auth/login Lambda handler.
 /// Flow: parse → validate → rate limit check → Cognito login → track result → DynamoDB get user → 200 response.
-/// Rate limiting: 3 consecutive failures → 15-minute account lockout (AUTH_015).
+/// Rate limiting: 3 consecutive failures → 15-minute account lockout (AUTH_015);
+/// per source IP, 20 attempts per 5 minutes (AUTH_006).
+/// Device tracking: X-Device-Id is remembered per account; a sign-in from an unknown
+/// install is audited and, when NEW_DEVICE_SMS_ENABLED=true, announced by SMS.
 /// </summary>
 public class LoginFunction
 {
+    internal const int IpMaxAttempts = 20;
+    internal const int IpWindowSeconds = 300;
+
     private readonly ICognitoAuthService _authService;
     private readonly IUserRepository _userRepository;
     private readonly IRateLimitService _rateLimitService;
+    private readonly ISmsSender? _smsSender;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -27,6 +35,8 @@ public class LoginFunction
     {
         var clientId = Environment.GetEnvironmentVariable("COGNITO_CLIENT_ID")
                        ?? throw new InvalidOperationException("COGNITO_CLIENT_ID is not set.");
+        var userPoolId = Environment.GetEnvironmentVariable("COGNITO_USER_POOL_ID")
+                         ?? throw new InvalidOperationException("COGNITO_USER_POOL_ID is not set.");
         var tableName = Environment.GetEnvironmentVariable("USERS_TABLE")
                         ?? throw new InvalidOperationException("USERS_TABLE is not set.");
         var rateLimitTable = Environment.GetEnvironmentVariable("RATE_LIMITS_TABLE")
@@ -35,19 +45,23 @@ public class LoginFunction
         var cognito = new AmazonCognitoIdentityProviderClient();
         var dynamoDb = new AmazonDynamoDBClient();
 
-        _authService = new CognitoAuthService(cognito, clientId);
+        _authService = new CognitoAuthService(cognito, clientId, userPoolId);
         _userRepository = new UserRepository(dynamoDb, tableName);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
+        _smsSender = new SnsSmsSender(
+            new AmazonSimpleNotificationServiceClient(), SnsSmsSender.IsEnabledByEnvironment());
     }
 
     /// <summary>
     /// Constructor for testing.
     /// </summary>
-    public LoginFunction(ICognitoAuthService authService, IUserRepository userRepository, IRateLimitService rateLimitService)
+    public LoginFunction(ICognitoAuthService authService, IUserRepository userRepository,
+        IRateLimitService rateLimitService, ISmsSender? smsSender = null)
     {
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _rateLimitService = rateLimitService ?? throw new ArgumentNullException(nameof(rateLimitService));
+        _smsSender = smsSender;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -88,6 +102,17 @@ public class LoginFunction
 
         var correlationId = AuditLogger.GetCorrelationId(request);
         var sourceIp = AuditLogger.GetSourceIp(request);
+
+        // Per-IP cap first: credential stuffing across many phones must not get
+        // per-phone budgets for free (there is no WAF in front of the HTTP API).
+        var ipCheck = await _rateLimitService.CheckIpAllowedAsync(sourceIp, "login", IpMaxAttempts, IpWindowSeconds);
+        if (!ipCheck.IsSuccess)
+        {
+            AuditLogger.LogSecurity("LOGIN_IP_RATE_LIMITED", correlationId: correlationId,
+                outcome: "blocked", sourceIp: sourceIp);
+            return LambdaResponse.RateLimited(ipCheck.Error!.Code, ipCheck.Error.Message, ipCheck.Error.RetryAfterSeconds);
+        }
+        await _rateLimitService.RecordIpAsync(sourceIp, "login", IpWindowSeconds);
 
         // Rate limit check: is account locked?
         var rateLimitCheck = await _rateLimitService.CheckLoginAllowedAsync(loginRequest!.PhoneNumber);
@@ -176,6 +201,8 @@ public class LoginFunction
                 "This account has been suspended. Please contact support.");
         }
 
+        var (newDevice, trackedUser) = await TrackDeviceAsync(request, user, context, correlationId, sourceIp);
+
         var response = new LoginResponse
         {
             Tokens = new TokenResponse
@@ -185,7 +212,8 @@ public class LoginFunction
                 RefreshToken = tokens.RefreshToken,
                 ExpiresIn = tokens.ExpiresIn
             },
-            User = user
+            User = trackedUser,
+            NewDevice = newDevice
         };
 
         AuditLogger.LogSecurity("LOGIN",
@@ -193,5 +221,57 @@ public class LoginFunction
             outcome: "success", sourceIp: sourceIp);
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.LoginResponse);
+    }
+
+    /// <summary>
+    /// Remember the signing-in install and flag one the account has not used
+    /// before (the very first device is not "new"). Best effort: a failed profile
+    /// write never blocks the login.
+    /// </summary>
+    private async Task<(bool newDevice, UserDto user)> TrackDeviceAsync(
+        APIGatewayProxyRequest request, UserDto user, ILambdaContext context,
+        string correlationId, string? sourceIp)
+    {
+        var deviceId = DeviceIdentity.ReadId(request);
+        if (deviceId == null || user.KnownDevices.Contains(deviceId))
+        {
+            return (false, user);
+        }
+
+        var firstDevice = user.KnownDevices.Count == 0;
+        var updated = user with { KnownDevices = DeviceIdentity.Remember(user.KnownDevices, deviceId) };
+        try
+        {
+            var saved = await _userRepository.UpdateUserAsync(updated, user.Version);
+            if (saved.IsSuccess)
+            {
+                updated = saved.Value!;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Could not record device for user {user.UserId}: [{ex.GetType().Name}]");
+        }
+
+        if (firstDevice)
+        {
+            return (false, updated);
+        }
+
+        var deviceName = DeviceIdentity.ReadName(request);
+        AuditLogger.LogSecurity("LOGIN_NEW_DEVICE", userId: user.UserId, detail: deviceName,
+            correlationId: correlationId, outcome: "success", sourceIp: sourceIp);
+
+        if (_smsSender != null
+            && string.Equals(Environment.GetEnvironmentVariable("NEW_DEVICE_SMS_ENABLED"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            var sent = await _smsSender.SendAsync(user.PhoneNumber, DeviceIdentity.NewDeviceSms(deviceName, user.PreferredLanguage));
+            if (!sent)
+            {
+                context.Logger.LogWarning($"New-device SMS not sent for user {user.UserId}.");
+            }
+        }
+
+        return (true, updated);
     }
 }

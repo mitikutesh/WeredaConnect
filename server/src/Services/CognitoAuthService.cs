@@ -260,6 +260,11 @@ public sealed class CognitoAuthService : ICognitoAuthService
 
             return AuthResult<bool>.Success(true);
         }
+        catch (NotAuthorizedException ex) when (ex.Message.Contains("CONFIRMED", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already confirmed (a retried verify-otp): the outcome we wanted.
+            return AuthResult<bool>.Success(true);
+        }
         catch (UserNotFoundException)
         {
             return AuthResult<bool>.Failure(404, "AUTH_013",
@@ -289,10 +294,21 @@ public sealed class CognitoAuthService : ICognitoAuthService
 
     public async Task<AuthResult<CognitoAuthTokens>> LoginAsync(string phone, string password)
     {
-        var request = new InitiateAuthRequest
+        if (_userPoolId == null)
         {
+            return AuthResult<CognitoAuthTokens>.Failure(500, "AUTH_008",
+                "User pool ID not configured for password login.");
+        }
+
+        // ADMIN_USER_PASSWORD_AUTH: the public app client has USER_PASSWORD_AUTH
+        // disabled, so a password can only be checked through this server (IAM
+        // signed), never by calling Cognito directly and skipping the lockout,
+        // suspension and audit rules.
+        var request = new AdminInitiateAuthRequest
+        {
+            UserPoolId = _userPoolId,
             ClientId = _clientId,
-            AuthFlow = AuthFlowType.USER_PASSWORD_AUTH,
+            AuthFlow = AuthFlowType.ADMIN_USER_PASSWORD_AUTH,
             AuthParameters = new Dictionary<string, string>
             {
                 { "USERNAME", phone },
@@ -302,7 +318,7 @@ public sealed class CognitoAuthService : ICognitoAuthService
 
         try
         {
-            var response = await _cognito.InitiateAuthAsync(request);
+            var response = await _cognito.AdminInitiateAuthAsync(request);
             var result = response.AuthenticationResult;
 
             // AuthenticationResult is null when Cognito returns a challenge
@@ -587,6 +603,70 @@ public sealed class CognitoAuthService : ICognitoAuthService
         catch (UserNotFoundException)
         {
             // Already gone — nothing to roll back.
+        }
+    }
+
+    public Task<AuthResult<bool>> AdminDisableUserAsync(string phone)
+        => AdminCallAsync(() => _cognito.AdminDisableUserAsync(new AdminDisableUserRequest
+        {
+            UserPoolId = _userPoolId,
+            Username = phone
+        }));
+
+    public Task<AuthResult<bool>> AdminEnableUserAsync(string phone)
+        => AdminCallAsync(() => _cognito.AdminEnableUserAsync(new AdminEnableUserRequest
+        {
+            UserPoolId = _userPoolId,
+            Username = phone
+        }));
+
+    public Task<AuthResult<bool>> AdminGlobalSignOutAsync(string phone)
+        => AdminCallAsync(() => _cognito.AdminUserGlobalSignOutAsync(new AdminUserGlobalSignOutRequest
+        {
+            UserPoolId = _userPoolId,
+            Username = phone
+        }));
+
+    public Task<AuthResult<bool>> AdminSetRoleAsync(string phone, string role)
+        => AdminCallAsync(() => _cognito.AdminUpdateUserAttributesAsync(new AdminUpdateUserAttributesRequest
+        {
+            UserPoolId = _userPoolId,
+            Username = phone,
+            UserAttributes =
+            [
+                new AttributeType { Name = "custom:role", Value = role }
+            ]
+        }));
+
+    /// <summary>Shared error mapping for the admin account-control calls.</summary>
+    private async Task<AuthResult<bool>> AdminCallAsync(Func<Task> call)
+    {
+        if (_userPoolId == null)
+        {
+            return AuthResult<bool>.Failure(500, "AUTH_008",
+                "User pool ID not configured for admin operations.");
+        }
+
+        try
+        {
+            await call();
+            return AuthResult<bool>.Success(true);
+        }
+        catch (UserNotFoundException)
+        {
+            return AuthResult<bool>.Failure(404, "AUTH_013", "User not found.", "phoneNumber");
+        }
+        catch (TooManyRequestsException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests. Please try again later.");
+        }
+        catch (LimitExceededException)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006", "Too many requests. Please try again later.");
+        }
+        catch (AmazonServiceException)
+        {
+            return AuthResult<bool>.Failure(503, "AUTH_008", "Authentication service temporarily unavailable.");
         }
     }
 }

@@ -21,6 +21,8 @@ public sealed class RateLimitService : IRateLimitService
     internal const int RegistrationWindowSeconds = 86400; // 24 hours
     internal const int MaxOtpAttempts = 3;
     internal const int OtpWindowSeconds = 300; // 5 minutes (matches OTP expiry)
+    internal const int MaxOtpSendsPerDay = 10;
+    internal const int OtpSendWindowSeconds = 86400;
     internal const int MaxSyncPerMinute = 60;
     internal const int SyncWindowSeconds = 60; // 1 minute
 
@@ -149,6 +151,71 @@ public sealed class RateLimitService : IRateLimitService
     {
         var key = $"OTP#{phoneNumber}";
         await _repository.DeleteAsync(key);
+    }
+
+    public async Task<AuthResult<bool>> CheckOtpSendAllowedAsync(string phoneNumber)
+    {
+        var date = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var key = $"OTPSEND#{phoneNumber}#{date}";
+        var entry = await _repository.GetAsync(key);
+
+        if (entry != null && entry.Count >= MaxOtpSendsPerDay)
+        {
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many verification codes requested today. Please try again tomorrow.");
+        }
+
+        return AuthResult<bool>.Success(true);
+    }
+
+    public async Task RecordOtpSendAsync(string phoneNumber)
+    {
+        var date = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var key = $"OTPSEND#{phoneNumber}#{date}";
+        await _repository.IncrementAsync(key, OtpSendWindowSeconds);
+    }
+
+    public async Task<AuthResult<bool>> CheckIpAllowedAsync(
+        string? sourceIp, string bucket, int maxPerWindow, int windowSeconds)
+    {
+        if (string.IsNullOrEmpty(sourceIp))
+        {
+            return AuthResult<bool>.Success(true); // no address to key on (local runs)
+        }
+
+        var key = $"IP#{bucket}#{sourceIp}";
+        var entry = await _repository.GetAsync(key);
+        if (entry == null)
+        {
+            return AuthResult<bool>.Success(true);
+        }
+
+        if (IsWindowExpired(entry))
+        {
+            await _repository.DeleteAsync(key);
+            return AuthResult<bool>.Success(true);
+        }
+
+        if (entry.Count >= maxPerWindow)
+        {
+            var retryAfter = entry.Ttl > 0
+                ? (int)Math.Max(1, entry.Ttl - DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+                : windowSeconds;
+            return AuthResult<bool>.Failure(429, "AUTH_006",
+                "Too many requests from this network. Please try again later.", retryAfterSeconds: retryAfter);
+        }
+
+        return AuthResult<bool>.Success(true);
+    }
+
+    public async Task RecordIpAsync(string? sourceIp, string bucket, int windowSeconds)
+    {
+        if (string.IsNullOrEmpty(sourceIp))
+        {
+            return;
+        }
+
+        await _repository.IncrementAsync($"IP#{bucket}#{sourceIp}", windowSeconds);
     }
 
     public async Task<AuthResult<bool>> CheckSyncAllowedAsync(string userId)

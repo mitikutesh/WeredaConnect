@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.0.0
+2.1.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -14,7 +14,7 @@
 
 The authentication API enables phone-based registration and login for Ethiopian users. It uses a hybrid approach: AWS Cognito for online authentication and PBKDF2-based offline verification for cached credentials. All endpoints are accessed via API Gateway with rate limiting enforced at the gateway level.
 
-**Identity verification**: All users must verify their identity via **Fayda OIDC** (Ethiopia's national digital ID) before registration. Fayda verification replaces SMS OTP — there is no manual fallback.
+**Identity verification** (2.1.0): verification is two-tier. Phone ownership is always proven, by an SMS code (`POST /auth/verify-otp`) unless **Fayda OIDC** (Ethiopia's national digital ID) released the same phone number. Fayda identity is required for payments above 10,000 ETB and can be completed at registration or later from the profile (`POST /user/fayda-link`). The 2.0.0 statement that Fayda replaces SMS OTP with no fallback is superseded.
 
 **Base path**: `/auth`
 
@@ -87,7 +87,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 }
 ```
 
-**Note**: Registration now returns tokens directly. The server auto-confirms the user in Cognito (no SMS OTP step) because identity was already verified via Fayda OIDC.
+**Note** (superseded in 2.1.0): tokens are returned directly (`201`) only when the Fayda proof carries the registration phone; otherwise registration answers `202 otpRequired` and the SMS code step follows. See "Additions in 2.1.0".
 
 #### Error Responses
 
@@ -516,14 +516,19 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_013` | 404 | User/registration not found | Suggest re-registration |
 | `AUTH_014` | 401 | Invalid credentials | Show generic "incorrect phone or password" |
 | `AUTH_015` | 403 | Account locked (15-min lockout) | Show lockout timer |
-| `AUTH_016` | 403 | Phone not verified | Redirect to Fayda verification |
+| `AUTH_016` | 403 | Phone not verified | Resend the SMS code (`POST /auth/resend-otp`) and open the OTP screen (2.1.0) |
 | `AUTH_017` | 400 | Missing refresh token | Redirect to login |
 | `AUTH_018` | 401 | Refresh token expired | Redirect to login |
 | `AUTH_019` | 401 | Refresh token revoked | Redirect to login |
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
 | `AUTH_021` | 400 | Missing or invalid Fayda verification token | Redirect to Fayda verification |
+| `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
+| `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
+| `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
+| `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
+| `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0) | Ask for the password, log in again, retry |
 | `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
-| `FAYDA_002` | 400 | State parameter mismatch (CSRF) | Show error, restart Fayda flow |
+| `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
 | `FAYDA_004` | 409 | Fayda ID already linked to another account | Show "already registered" message |
 
@@ -596,9 +601,9 @@ Do **not** use: `Microsoft.AspNetCore.Authentication.JwtBearer` (banned per `AOT
 ### Cognito Integration
 
 - Use `AWSSDK.CognitoIdentityProvider` for Cognito API calls
-- Registration flow: `SignUp` → `AdminConfirmSignUp` → `AdminUpdateUserAttributes` (phone_number_verified=true) → `InitiateAuth` (USER_PASSWORD_AUTH) to get tokens immediately
+- Registration flow (2.1.0): `SignUp`, then either `AdminConfirmSignUp` + `AdminUpdateUserAttributes` (phone_number_verified=true) + `AdminInitiateAuth` (ADMIN_USER_PASSWORD_AUTH) when the Fayda proof carries the registration phone, or a pending user until `POST /auth/verify-otp` confirms it
 - No SMS OTP step — Cognito UserPool has `autoVerify: { phone: false }` to prevent SMS on SignUp
-- Login uses Cognito `InitiateAuth` with `USER_PASSWORD_AUTH` flow
+- Login uses Cognito `AdminInitiateAuth` with the `ADMIN_USER_PASSWORD_AUTH` flow (2.1.0); the public mobile client has `USER_PASSWORD_AUTH` disabled. The separate admin web client keeps `USER_PASSWORD_AUTH` (it drives the TOTP challenge itself)
 - Token refresh uses Cognito `InitiateAuth` with `REFRESH_TOKEN_AUTH` flow
 - Logout uses Cognito `RevokeToken` API
 
@@ -658,7 +663,7 @@ Authentication state should be managed via BLoC with the following states:
 | `AuthLocked` | Account locked due to failed attempts |
 | `AuthError` | Authentication failed with error message |
 
-**Note**: The `AuthOtpRequired` state has been removed. Registration now returns tokens directly after Fayda verification, so no separate OTP step is needed.
+**Note** (2.1.0): the OTP step is back for registrations without a phone-bound Fayda proof; the client keeps an `AuthOtpVerificationRequired(phoneNumber, expiresAt)` state and an OTP screen.
 
 ---
 
@@ -666,7 +671,7 @@ Authentication state should be managed via BLoC with the following states:
 
 These rules must always hold:
 
-1. **Registration requires internet and Fayda verification.** A user cannot register offline. Registration also requires a valid Fayda verification token obtained via `POST /auth/fayda-verify`. There is no manual fallback.
+1. **Registration requires internet and proof of phone ownership.** A user cannot register offline. A Fayda verification token (`POST /auth/fayda-verify`) is optional at registration (2.1.0); without one that carries the registration phone, the SMS code step is mandatory. Fayda is required for payments above 10,000 ETB. (Superseded 2.0.0 text: "There is no manual fallback.")
 2. **Online login is preferred.** If the device has connectivity, always authenticate via Cognito (not cached credentials).
 3. **Offline login never creates new sessions.** Offline login only works if the user has previously logged in online and credentials are cached.
 4. **Tokens are never stored in plaintext.** All tokens and password hashes must be in `flutter_secure_storage` (hardware-backed).
@@ -690,14 +695,129 @@ Given Ethiopian mobile data costs:
 
 ---
 
+## Additions in 2.1.0 (phone proof, step-up, server-driven Fayda)
+
+The 2.0.0 statement that Fayda replaces SMS OTP with no fallback is superseded: identity
+verification is two-tier. Fayda is required above 10,000 ETB (see escrow-protocol.md and
+order-lifecycle.md); phone ownership is always proven.
+
+### Registration outcome
+
+`POST /auth/register` now returns one of two shapes:
+
+| Status | When | Body |
+|--------|------|------|
+| `201` | A `faydaVerificationToken` was supplied and its `phone` claim (Fayda's `phone_number`) equals the registration phone | `{userId, phoneNumber, tokens, user, message}` as before |
+| `202` | No Fayda token, or Fayda released no phone or a different one | `{userId, phoneNumber, otpRequired: true, otpExpiresAt, message}`; `tokens` is null |
+
+The verification token is single use (its `jti` is burned at registration) and carries the
+Fayda phone when the provider released one. A phone whose earlier registration never
+confirmed its code is replaced by the next registration (new password included); a
+confirmed phone still returns `AUTH_005`.
+
+### POST /auth/verify-otp
+
+Body `{phoneNumber, otpCode, password}`. The password is checked against Cognito **before**
+the code is consumed (a correct password on an unconfirmed user answers "not confirmed",
+a wrong one is refused with `AUTH_014` and the code stays valid). The code is bound to the
+registration it was issued for; a code minted for another registration of the same phone
+is `AUTH_012`. On success the user is confirmed, `isPhoneVerified` is set and
+`{tokens, user}` (the login shape) is returned. Codes: 6 digits, valid 5 minutes, 3 attempts
+per code, HMAC-hashed at rest. `DEV_OTP_BYPASS=true` (dev only; ignored at runtime in a
+production Lambda) accepts `123456`.
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `400` | `AUTH_009` | Code missing |
+| `400` | `AUTH_011` | Code format invalid (not 6 digits) |
+| `400` | `AUTH_012` | Code invalid, expired or attempts exhausted |
+| `401` | `AUTH_014` | Password wrong (the phone is confirmed; sign in normally) |
+| `403` | `AUTH_025` | Account suspended |
+| `404` | `AUTH_013` | Profile not found for this phone (register again) |
+| `429` | `AUTH_006` | Per-IP cap (30 per 5 minutes) |
+
+### POST /auth/resend-otp
+
+Body `{phoneNumber}`. Always `200 {message, otpExpiresAt}` for a well-formed phone (no
+enumeration; `otpExpiresAt` is null when nothing was sent). Limits: 60 s cooldown, 10 sends
+per phone per day, 30 per IP per 5 minutes (`429 AUTH_006`, `Retry-After`).
+
+### Login additions
+
+- `403 AUTH_016` (phone not confirmed): the client resends the code and shows the OTP screen.
+- Per-IP cap: 20 attempts per 5 minutes (`429 AUTH_006`).
+- Request headers `X-Device-Id` (8 to 64 chars `[A-Za-z0-9-]`, one per install) and
+  `X-Device-Name` (short model description; the server keeps only letters, digits, space,
+  dot, underscore, hyphen and parentheses, at most 40 characters, since the text reaches
+  the account holder's SMS), sent on login, register and verify-otp;
+  register records the install as the account's first device. The login response carries `newDevice: true` when
+  the install has not signed in to the account before (the first device is not new). A new
+  device is audited and, with `NEW_DEVICE_SMS_ENABLED=true`, announced by SMS.
+- The public Cognito client no longer allows `USER_PASSWORD_AUTH`; the server authenticates
+  with `ADMIN_USER_PASSWORD_AUTH`, so lockout, suspension and audit cannot be bypassed. The
+  separate admin web client keeps `USER_PASSWORD_AUTH` on purpose: it runs the TOTP
+  challenge in the browser.
+
+### Refresh additions
+
+`403 AUTH_025` when the profile is suspended; the refresh token is revoked. Per-IP cap 60
+per 5 minutes. Suspension also disables the Cognito user and signs out every session;
+`change_role` rewrites `custom:role` and signs the user out.
+
+### Step-up (AUTH_040)
+
+Money actions at or above `STEP_UP_THRESHOLD_ETB` (default 10,000) require the ID token's
+`auth_time` to be within `STEP_UP_MAX_AGE_SECONDS` (default 300). Refreshed tokens keep the
+original `auth_time`; access tokens carry none and are never fresh.
+
+| Where | Response |
+|-------|----------|
+| `POST /escrow/initiate`, `POST /escrow/dispute` | `403 {error:{code:"AUTH_040"}}` |
+| `/sync` order update to `payment_submitted`, delivery `disputed` | operation `status:"error"`, `message:"AUTH_040: ..."` |
+
+Client behaviour: ask for the password, call `POST /auth/login` again, store the tokens as
+a normal login, retry. A queued sync operation stays pending until then.
+
+### Server-driven Fayda OIDC
+
+| Endpoint | Auth | Body | Response |
+|----------|------|------|----------|
+| `POST /auth/fayda-start` | none | `{redirectUri?}` (`phoneNumber` accepted, ignored) | `200 {state, authorizeUrl, expiresAt}` |
+| `POST /auth/fayda-verify` | none | `{authorizationCode, state, redirectUri}` | `200 {verified, verifiedName, verificationToken, expiresAt}` |
+| `POST /user/fayda-start` | Bearer | `{}` | `200 {state, authorizeUrl, expiresAt}` |
+| `POST /user/fayda-link` | Bearer | `{authorizationCode, state, redirectUri}` | `200 {faydaVerified, faydaVerifiedAt, verifiedName, phoneVerified}` |
+
+The server mints `state`, `nonce` and the PKCE verifier, keeps them for 10 minutes (single
+use) and builds the authorize URL from the provider's discovery document with scope
+`openid profile phone`. The exchange sends `code_verifier` and checks the ID token's
+`nonce`. `FAYDA_002` covers an unknown, expired, reused or foreign `state`, a redirect
+mismatch and a nonce mismatch. Only `weredaconnect://fayda-callback` and
+`weredaconnect://fayda-link-callback` are accepted redirects. Per-IP cap 30 per 5 minutes.
+Linking a Fayda ID held by another account is `409 FAYDA_004`; linking with a matching
+Fayda phone also sets `isPhoneVerified`.
+
+### Rate limits added (per source IP, DynamoDB counters)
+
+| Route family | Cap |
+|--------------|-----|
+| login | 20 / 5 min |
+| register | 10 / hour |
+| verify-otp, resend-otp | 30 / 5 min |
+| fayda-start, fayda-verify, fayda-link | 30 / 5 min |
+| forgot-password, reset-password | 10 / 15 min |
+| refresh | 60 / 5 min |
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.1.0 | 2026-09-26 | Phone proof and step-up: register returns `202 otpRequired` unless Fayda released the same phone; `POST /auth/verify-otp` (code + password) and `POST /auth/resend-otp`; login `AUTH_016` routes to the code; `AUTH_040` step-up on money actions; server-driven Fayda (`/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`) with state, nonce and PKCE; single-use phone-bound verification token; refresh refuses suspended accounts (`AUTH_025`); per-IP caps; `X-Device-Id` / `X-Device-Name` and `newDevice` |
 
 ---
 
-**Last Updated**: 2026-03-02
-**Version**: 2.0.0
+**Last Updated**: 2026-09-26
+**Version**: 2.1.0

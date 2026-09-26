@@ -168,6 +168,20 @@ Full details: `specs/features/sprint-plan-2026-03-19.md`
 
 Full automated security-team run against `buyer-intenet` branch. Verdict: **GA NO-GO** — 2 Critical + 8 High findings block production launch. Full report: `docs/security/security-assessment-2026-06-20.md`.
 
+### Fixed on `feat/auth-hardening` (2026-09-26, NOT deployed; decision record `specs/decisions/auth-step-up-plan.md`)
+- [x] Phone ownership at signup: SMS code (`/auth/verify-otp`, `/auth/resend-otp`) unless Fayda released the same phone; `isPhoneVerified` is honest
+- [x] Fayda OIDC: server-held state, nonce, PKCE, discovery; single-use phone-bound verification token; link-later (`/user/fayda-start`, `/user/fayda-link`); mock eSignet provider for dev (`tools/fayda-mock`, `faydaMode`)
+- [x] KYC gate on the order-funded leg (`ORDER_KYC_REQUIRED`) and `AUTH_040` step-up (fresh `auth_time`) on payment submit, escrow initiate and disputes
+- [x] **ROL-03** closed at the source: public Cognito client has `USER_PASSWORD_AUTH` off; the server logs in with `ADMIN_USER_PASSWORD_AUTH`
+- [x] **CHAIN-01** follow-ups: admin TOTP MFA required in every environment (admin web drives setup); `change_role` rewrites Cognito `custom:role` and signs out
+- [x] Suspend disables the Cognito user and signs out everywhere; refresh refuses suspended profiles
+- [x] Sync create-conflict echo scoped to the owner or a party (role-visibility IDOR)
+- [x] `/escrow/release` and `/refund` on the admin authorizer (admin group only); resolved disputes settled by the cron (money was stranded before)
+- [x] Payouts to the registered phone of a verified party (`ESCROW_029`); Telebirr webhook `merch_code`, fail-closed timestamp, payer binding
+- [x] Per-IP caps on the public auth routes; device tracking with new-device notice; `DELETE /device-tokens` at logout
+- [x] Mobile: OTP screen, step-up and KYC dialogs, Fayda verification screen, local-auth gate on QR confirm, app lock, session hygiene
+- Still open from the June assessment: **SEC-03** (sync idempotency keys not user-scoped), **INFRA-02** (`TELEBIRR_MOCK` on staging), **T-SEC-WAF** (per-IP caps are the interim), **SCA-01/02**, **CI-01**
+
 ### Fixed (from pentest 2026-03-05)
 - [x] Password policy (min 12, uppercase + symbols)
 - [x] Cognito deletion protection

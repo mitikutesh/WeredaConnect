@@ -98,6 +98,19 @@ public static class AuthHelper
     }
 
     /// <summary>
+    /// The Cognito auth_time claim (epoch seconds of the last password login),
+    /// or null when the token carries none or the value is malformed.
+    /// </summary>
+    public static long? GetAuthTime(APIGatewayProxyRequest request)
+    {
+        var raw = GetClaim(request, "auth_time");
+        return long.TryParse(raw, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value
+            : null;
+    }
+
+    /// <summary>
     /// Check if the request has a valid authorizer context (non-empty claims).
     /// </summary>
     public static bool IsAuthenticated(APIGatewayProxyRequest request)

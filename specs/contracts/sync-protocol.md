@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.3.0
+1.4.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -239,10 +239,29 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 
 ---
 
+## Create-conflict echo (1.4.0)
+
+A `create` for an entity id that already exists returns `status: "conflict"` with
+`serverVersion`, but `serverData` is filled **only for the owner or a party**: the crop's
+farmer, the trip's trucker, the order's buyer, farmer or trucker, the delivery's buyer,
+farmer or trucker. Anyone else gets the conflict status with `serverData: null`
+(role-visibility rule). The client treats a null `serverData` as "already exists, not
+yours" and drops the operation.
+
+## Operation errors added (1.4.0)
+
+| Message prefix | Meaning | Client action |
+|----------------|---------|---------------|
+| `AUTH_040:` | fresh password needed for this amount (order `payment_submitted`, delivery `disputed`) | keep the operation pending, re-authenticate, sync again |
+| `ORDER_KYC_REQUIRED:` | phone or Fayda verification missing for this payment | revert the local order status, offer Fayda verification |
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.0 | 2026-09-26 | Create-conflict echo is party-scoped (an existing crop, trip, order or delivery is returned in `serverData` only to its owner or a party); `AUTH_040` and `ORDER_KYC_REQUIRED` operation errors |
 | 1.3.0 | 2026-09-25 | Versioning (SIM-08): op-level `clientVersion` is now honoured (it was silently ignored), `data.version` remains accepted, op-level wins; order updates require a version (no fallback to the stored version); web order client sends the current version |
 | 1.2.0 | 2026-03-03 | Updated: Network errors no longer increment retryCount; added crash recovery for stale syncing operations; clarified retry vs. revert categories |
 | 1.1.0 | 2026-02-15 | Added: Composite idempotency key format, server-wins conflict resolution details, exponential backoff retry logic, SyncMetadata table schema, implementation status |
@@ -250,5 +269,5 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 
 ---
 
-**Last Updated**: 2026-09-25
-**Version**: 1.3.0
+**Last Updated**: 2026-09-26
+**Version**: 1.4.0

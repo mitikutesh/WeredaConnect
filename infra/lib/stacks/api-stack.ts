@@ -17,6 +17,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { WeredaLambda } from "../constructs/lambda-construct";
+import { FaydaMockConstruct } from "../constructs/fayda-mock-construct";
 import { EnvironmentConfig } from "../config/environments";
 
 export interface ApiStackProps extends cdk.StackProps {
@@ -169,9 +170,13 @@ export class ApiStack extends cdk.Stack {
 
     this.userPoolClient = this.userPool.addClient("MobileClient", {
       userPoolClientName: `${prefix}-mobile`,
+      // The public client cannot do a password login on its own: every password
+      // check goes through the server (ADMIN_USER_PASSWORD_AUTH with IAM), which
+      // applies the lockout, suspension and audit rules. Refresh stays client-side.
       authFlows: {
-        userSrp: true,
-        userPassword: true,
+        userSrp: false,
+        userPassword: false,
+        adminUserPassword: true,
       },
       oAuth: {
         flows: {
@@ -198,14 +203,15 @@ export class ApiStack extends cdk.Stack {
       selfSignUpEnabled: false,
       signInAliases: { phone: true },
       autoVerify: { phone: false },
-      // MFA required in prod, off in dev for easier testing
-      mfa: envConfig.isProd ? cognito.Mfa.REQUIRED : cognito.Mfa.OFF,
-      ...(envConfig.isProd ? {
-        mfaSecondFactor: {
-          sms: true,
-          otp: true,
-        },
-      } : {}),
+      // Required everywhere: dev and staging admins hold the same escrow powers as
+      // prod admins, and the admin web app drives the TOTP challenge and setup.
+      // TOTP is the second factor in every environment (SMS would lock dev and
+      // staging admins out while SNS is sandboxed); prod additionally allows SMS.
+      mfa: cognito.Mfa.REQUIRED,
+      mfaSecondFactor: {
+        sms: envConfig.isProd,
+        otp: true,
+      },
       accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
       standardAttributes: {
         phoneNumber: { required: true, mutable: false },
@@ -277,6 +283,11 @@ export class ApiStack extends cdk.Stack {
       RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
     };
 
+    // Dev has no SMS delivery (SNS sandbox): the OTP dev bypass (123456) stands in.
+    // ProductionBypassGuard refuses DEV_OTP_BYPASS in prod.
+    const devAuthEnv: Record<string, string> =
+      envConfig.name === "dev" ? { DEV_OTP_BYPASS: "true", SMS_ENABLED: "false" } : {};
+
     const cognitoOnlyEnv: Record<string, string> = {
       COGNITO_USER_POOL_ID: this.userPool.userPoolId,
       COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
@@ -298,10 +309,11 @@ export class ApiStack extends cdk.Stack {
       description:
         "POST /auth/register — user registration with Fayda eKYC verification",
       handlerName: "RegisterFunction",
-      environment: cognitoEnv,
+      environment: { ...cognitoEnv, ...devAuthEnv },
       reservedConcurrentExecutions: 20,
     });
-    props.usersTable.grantWriteData(registerFn.function);
+    // Read: the unconfirmed-phone replacement path looks the pending profile up.
+    props.usersTable.grantReadWriteData(registerFn.function);
     props.rateLimitsTable.grantReadWriteData(registerFn.function);
     this.grantCognito(registerFn.function, [
       "cognito-idp:SignUp",
@@ -310,7 +322,29 @@ export class ApiStack extends cdk.Stack {
       "cognito-idp:AdminUpdateUserAttributes",
       "cognito-idp:AdminConfirmSignUp",
       "cognito-idp:InitiateAuth",
+      "cognito-idp:AdminInitiateAuth",
     ]);
+    this.grantSmsPublish(registerFn.function);
+
+    // POST /auth/verify-otp + /auth/resend-otp: SMS proof of phone ownership for
+    // registrations that Fayda did not phone-bind.
+    const verifyOtpFn = new WeredaLambda(this, "VerifyOtpFunction", {
+      functionName: `${prefix}-auth-verify-otp`,
+      description:
+        "POST /auth/verify-otp, /auth/resend-otp: confirm phone ownership by SMS code",
+      handlerName: "VerifyOtpFunction",
+      environment: { ...cognitoEnv, ...devAuthEnv },
+      reservedConcurrentExecutions: 20,
+    });
+    props.usersTable.grantReadWriteData(verifyOtpFn.function);
+    props.rateLimitsTable.grantReadWriteData(verifyOtpFn.function);
+    this.grantCognito(verifyOtpFn.function, [
+      "cognito-idp:AdminConfirmSignUp",
+      "cognito-idp:AdminUpdateUserAttributes",
+      "cognito-idp:InitiateAuth",
+      "cognito-idp:AdminInitiateAuth",
+    ]);
+    this.grantSmsPublish(verifyOtpFn.function);
 
     const loginFn = new WeredaLambda(this, "LoginFunction", {
       functionName: `${prefix}-auth-login`,
@@ -331,13 +365,18 @@ export class ApiStack extends cdk.Stack {
       functionName: `${prefix}-auth-refresh`,
       description: "POST /auth/refresh — refresh access token",
       handlerName: "RefreshFunction",
-      environment: cognitoOnlyEnv,
+      environment: cognitoEnv,
       reservedConcurrentExecutions: 20,
     });
     this.grantCognito(refreshFn.function, [
       "cognito-idp:InitiateAuth",
+      "cognito-idp:RevokeToken",
       "cognito-idp:AdminInitiateAuth",
     ]);
+    // Refresh checks the profile's suspended flag before minting tokens and
+    // applies a per-IP cap.
+    props.usersTable.grantReadData(refreshFn.function);
+    props.rateLimitsTable.grantReadWriteData(refreshFn.function);
 
     const logoutFn = new WeredaLambda(this, "LogoutFunction", {
       functionName: `${prefix}-auth-logout`,
@@ -649,6 +688,31 @@ export class ApiStack extends cdk.Stack {
       description: "Escrow auto-refund timeout in days",
     });
 
+    // ─── Fayda identity provider: mock (dev) or live, switched by config ─
+    // The server code is identical in both modes; only the issuer, client id
+    // and client secret it reads from SSM differ. faydaMode 'mock' deploys the
+    // mock eSignet provider (tools/fayda-mock) and points these values at it.
+    // The construct refuses isProd, and ProductionBypassGuard refuses its
+    // FAYDA_MOCK marker, so the mock can never sit beside production.
+    if (envConfig.faydaMode === "mock" && envConfig.isProd) {
+      cdk.Annotations.of(this).addError(
+        "faydaMode 'mock' is not allowed in a production environment; use 'live'.",
+      );
+    }
+    const faydaMock =
+      envConfig.faydaMode === "mock" && !envConfig.isProd
+        ? new FaydaMockConstruct(this, "FaydaMock", {
+            prefix,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            isProd: envConfig.isProd,
+            // Registration and link-later callbacks (FaydaStartRequest.IsAllowedRedirect).
+            allowedRedirectUris: [
+              "weredaconnect://fayda-callback",
+              "weredaconnect://fayda-link-callback",
+            ],
+          })
+        : undefined;
+
     // ─── Fayda SSM Parameters ──────────────────────────────────────────
 
     const faydaClientIdParam = new ssm.StringParameter(
@@ -656,7 +720,7 @@ export class ApiStack extends cdk.Stack {
       "FaydaClientId",
       {
         parameterName: `/${prefix}/fayda/client-id`,
-        stringValue: "PLACEHOLDER",
+        stringValue: faydaMock?.clientId ?? "PLACEHOLDER",
         description: "Fayda OIDC client ID — update after registration",
       },
     );
@@ -666,22 +730,49 @@ export class ApiStack extends cdk.Stack {
       "FaydaIssuerUrl",
       {
         parameterName: `/${prefix}/fayda/issuer-url`,
-        stringValue: "https://fayda.et",
+        stringValue: faydaMock?.issuerUrl ?? "https://fayda.et",
         description: "Fayda OIDC issuer URL",
       },
     );
 
     // ─── Fayda Secrets (Secrets Manager prod / SSM dev+staging) ───────
 
-    const faydaClientSecret = envScopedSecret(this, "FaydaClientSecret", {
-      isProd: envConfig.isProd,
-      name: `/${prefix}/fayda/client-secret`,
-      description: "Fayda OIDC client secret — update after registration",
-      generateSecretString: {
-        excludePunctuation: true,
-        passwordLength: 64,
-      },
-    });
+    // In mock mode the client secret is a fixed dev value published by the
+    // construct; it lives in a stack-owned parameter so no seed step is needed.
+    const faydaClientSecret: SecretRef = faydaMock
+      ? (() => {
+          const mockSecretName = `/${prefix}/fayda/client-secret-mock`;
+          new ssm.StringParameter(this, "FaydaClientSecretMock", {
+            parameterName: mockSecretName,
+            stringValue: faydaMock.clientSecret,
+            description: "Client secret of the mock Fayda eSignet provider (dev only)",
+          });
+          // Literal name and ARN (not tokens): the server resolves the value by
+          // name at cold start exactly as it does for the seeded parameters.
+          const mockSecretArn = this.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName: mockSecretName.replace(/^\//, ""),
+          });
+          return {
+            reference: mockSecretName,
+            grantRead: (grantee) =>
+              iam.Grant.addToPrincipal({
+                grantee,
+                actions: ["ssm:GetParameter"],
+                resourceArns: [mockSecretArn],
+              }),
+          };
+        })()
+      : envScopedSecret(this, "FaydaClientSecret", {
+          isProd: envConfig.isProd,
+          name: `/${prefix}/fayda/client-secret`,
+          description: "Fayda OIDC client secret, update after registration",
+          generateSecretString: {
+            excludePunctuation: true,
+            passwordLength: 64,
+          },
+        });
 
     const faydaSigningSecret = envScopedSecret(this, "FaydaSigningSecret", {
       isProd: envConfig.isProd,
@@ -694,12 +785,17 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
-    // Grant RegisterFunction access to Fayda signing secret
+    // Grant RegisterFunction access to Fayda signing secret (also the OTP HMAC key)
     registerFn.function.addEnvironment(
       "FAYDA_SIGNING_SECRET_ARN",
       faydaSigningSecret.reference,
     );
     faydaSigningSecret.grantRead(registerFn.function);
+    verifyOtpFn.function.addEnvironment(
+      "FAYDA_SIGNING_SECRET_ARN",
+      faydaSigningSecret.reference,
+    );
+    faydaSigningSecret.grantRead(verifyOtpFn.function);
 
     // ─── FaydaVerify Function ────────────────────────────────────────
 
@@ -710,6 +806,8 @@ export class ApiStack extends cdk.Stack {
       handlerName: "FaydaVerifyFunction",
       environment: {
         USERS_TABLE: props.usersTable.tableName,
+        // OIDC state (state, nonce, PKCE verifier) and per-IP counters live here.
+        RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FAYDA_CLIENT_ID_PARAM: faydaClientIdParam.parameterName,
         FAYDA_ISSUER_URL_PARAM: faydaIssuerUrlParam.parameterName,
         FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.reference,
@@ -718,7 +816,9 @@ export class ApiStack extends cdk.Stack {
       },
       reservedConcurrentExecutions: 20,
     });
-    props.usersTable.grantReadData(faydaVerifyFn.function);
+    // Read for duplicate checks, write for the link-later route.
+    props.usersTable.grantReadWriteData(faydaVerifyFn.function);
+    props.rateLimitsTable.grantReadWriteData(faydaVerifyFn.function);
     faydaClientIdParam.grantRead(faydaVerifyFn.function);
     faydaIssuerUrlParam.grantRead(faydaVerifyFn.function);
     faydaClientSecret.grantRead(faydaVerifyFn.function);
@@ -945,6 +1045,9 @@ export class ApiStack extends cdk.Stack {
         // stock back (SIM-13). Without this env the cancel and refund still run,
         // stock is simply not restored.
         CROPS_TABLE: props.cropsTable.tableName,
+        // Payouts go to the party's registered phone and only to verified
+        // identities; the sweep reads profiles for that.
+        USERS_TABLE: props.usersTable.tableName,
         COMMISSION_RATE_PARAM: commissionRateParam.parameterName,
         DISPUTE_WINDOW_PARAM: disputeWindowParam.parameterName,
         ESCROW_TIMEOUT_PARAM: escrowTimeoutParam.parameterName,
@@ -958,6 +1061,8 @@ export class ApiStack extends cdk.Stack {
       ...escrowVpcProps,
     });
     props.escrowsTable.grantReadWriteData(escrowCronFn.function);
+    // Payout destinations and the release-time identity gate read profiles.
+    props.usersTable.grantReadData(escrowCronFn.function);
     props.escrowAuditTable.grantWriteData(escrowCronFn.function);
     props.escrowIdempotencyTable.grantReadWriteData(escrowCronFn.function);
     props.deliveriesTable.grantReadData(escrowCronFn.function);
@@ -1017,6 +1122,14 @@ export class ApiStack extends cdk.Stack {
           ESCROWS_TABLE: props.escrowsTable.tableName,
           ESCROW_AUDIT_TABLE: props.escrowAuditTable.tableName,
           ESCROW_IDEMPOTENCY_TABLE: props.escrowIdempotencyTable.tableName,
+          // Payer binding: the paying wallet must be the buyer's registered phone.
+          // Recorded as an audit signal by default; enforced only once Telebirr's
+          // live payload is confirmed to carry the payer field
+          // (`-c telebirrRequirePayerMatch=true`).
+          USERS_TABLE: props.usersTable.tableName,
+          ...(String(this.node.tryGetContext("telebirrRequirePayerMatch")) === "true"
+            ? { TELEBIRR_REQUIRE_PAYER_MATCH: "true" }
+            : {}),
         },
         timeout: cdk.Duration.seconds(15),
         memorySize: 512,
@@ -1026,6 +1139,7 @@ export class ApiStack extends cdk.Stack {
       props.escrowsTable.grantReadWriteData(telebirrWebhookFn.function);
       props.escrowAuditTable.grantWriteData(telebirrWebhookFn.function);
       props.escrowIdempotencyTable.grantReadWriteData(telebirrWebhookFn.function);
+      props.usersTable.grantReadData(telebirrWebhookFn.function);
     }
 
     // ─── Order Function ──────────────────────────────────────────────
@@ -1189,6 +1303,9 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "RegisterInt",
         registerFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 
@@ -1198,6 +1315,74 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "FaydaVerifyInt",
         faydaVerifyFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // The server mints state, nonce and PKCE and returns the authorize URL, so the
+    // app carries no Fayda client configuration.
+    httpApi.addRoutes({
+      path: "/auth/fayda-start",
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "FaydaStartInt",
+        faydaVerifyFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // Link-later for accounts registered without Fayda (authenticated).
+    httpApi.addRoutes({
+      path: "/user/fayda-start",
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "FaydaUserStartInt",
+        faydaVerifyFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/user/fayda-link",
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "FaydaUserLinkInt",
+        faydaVerifyFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/verify-otp",
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "VerifyOtpInt",
+        verifyOtpFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/resend-otp",
+      methods: [apigateway.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        "ResendOtpInt",
+        verifyOtpFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 
@@ -1207,6 +1392,9 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "LoginInt",
         loginFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 
@@ -1216,6 +1404,9 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "RefreshInt",
         refreshFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 
@@ -1307,7 +1498,7 @@ export class ApiStack extends cdk.Stack {
 
     httpApi.addRoutes({
       path: "/device-tokens",
-      methods: [apigateway.HttpMethod.POST],
+      methods: [apigateway.HttpMethod.POST, apigateway.HttpMethod.DELETE],
       authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "DeviceTokensInt",
@@ -1489,7 +1680,8 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/escrow/release",
       methods: [apigateway.HttpMethod.POST],
-      authorizer: jwtAuthorizer,
+      // Admin pool only: settlement is an operator action (or the cron, in-process).
+      authorizer: adminJwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "EscrowReleaseInt",
         escrowFn.function,
@@ -1515,7 +1707,8 @@ export class ApiStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/escrow/refund",
       methods: [apigateway.HttpMethod.POST],
-      authorizer: jwtAuthorizer,
+      // Admin pool only: settlement is an operator action (or the cron, in-process).
+      authorizer: adminJwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "EscrowRefundInt",
         escrowFn.function,
@@ -1620,6 +1813,8 @@ export class ApiStack extends cdk.Stack {
         TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         FRAUD_SIGNALS_TABLE: props.fraudSignalsTable.tableName,
         USERS_TABLE: props.usersTable.tableName,
+        COGNITO_USER_POOL_ID: this.userPool.userPoolId,
+        COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
         CROPS_TABLE: props.cropsTable.tableName,
         TRIPS_TABLE: props.tripsTable.tableName,
         ORDERS_TABLE: props.ordersTable.tableName,
@@ -1669,6 +1864,7 @@ export class ApiStack extends cdk.Stack {
     this.grantCognito(adminFn.function, [
       "cognito-idp:AdminGetUser",
       "cognito-idp:AdminDisableUser",
+      "cognito-idp:AdminUserGlobalSignOut",
       "cognito-idp:AdminEnableUser",
       "cognito-idp:AdminUpdateUserAttributes",
       "cognito-idp:ListUsers",
@@ -1818,6 +2014,27 @@ export class ApiStack extends cdk.Stack {
     });
   }
 
+  /**
+   * SMS publishing (OTP codes, security notices). An SMS publish carries no
+   * resource ARN, so the allow must be on "*"; the explicit deny on every SNS ARN
+   * keeps the role from publishing to topics or push endpoints.
+   */
+  private grantSmsPublish(fn: cdk.aws_lambda.Function) {
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: ["*"],
+      }),
+    );
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        actions: ["sns:Publish"],
+        resources: ["arn:aws:sns:*:*:*"],
+      }),
+    );
+  }
+
   /** Grant specific Cognito actions on the User Pool */
   private grantCognito(fn: cdk.aws_lambda.Function, actions: string[]) {
     fn.addToRolePolicy(
@@ -1839,6 +2056,9 @@ class ProductionBypassGuard implements cdk.IAspect {
     "DEV_FAYDA_BYPASS",
     "TELEBIRR_MOCK",
     "DEV_OTP_BYPASS",
+    // Set by the mock Fayda eSignet Lambda (tools/fayda-mock); a fake identity
+    // provider must never be deployable beside production.
+    "FAYDA_MOCK",
   ];
 
   visit(node: Construct): void {
