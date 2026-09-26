@@ -112,17 +112,22 @@ aws cognito-idp admin-add-user-to-group \
   --region "$REGION"
 echo "--- Added to '$ADMIN_GROUP' group."
 
-# 4. Verify login and that the token carries the admin group.
+# 4. Verify login and the admin group. The pool requires MFA, so a correct
+#    password answers with an MFA challenge (MFA_SETUP after step 2b) rather
+#    than tokens; that proves the password, and the group is read directly.
 echo "--- Verifying login..."
-ID_TOKEN=$(aws cognito-idp initiate-auth \
+AUTH_RESULT=$(aws cognito-idp initiate-auth \
   --auth-flow USER_PASSWORD_AUTH \
   --client-id "$ADMIN_CLIENT_ID" \
   --auth-parameters "USERNAME=$ADMIN_PHONE,PASSWORD=$ADMIN_PASSWORD" \
   --region "$REGION" \
-  --query 'AuthenticationResult.IdToken' \
+  --query '[ChallengeName, AuthenticationResult.IdToken]' \
   --output text 2>&1) || true
+read -r CHALLENGE ID_TOKEN <<< "$AUTH_RESULT"
 
 VERIFY_OK=false
+LOGIN_OK=false
+TOKEN_GROUPS=""
 if [ -n "$ID_TOKEN" ] && [ "$ID_TOKEN" != "None" ] && [[ "$ID_TOKEN" == *.*.* ]]; then
   # NOTE: not named GROUPS. In bash, GROUPS is a special variable (the user's
   # group ids) and assignments to it are silently ignored, which made this
@@ -132,14 +137,26 @@ import base64, json, sys
 p = '$ID_TOKEN'.split('.')[1]; p += '=' * (-len(p) % 4)
 print(','.join(json.loads(base64.urlsafe_b64decode(p)).get('cognito:groups', [])))
 " 2>/dev/null || echo "")
-  if [[ ",$TOKEN_GROUPS," == *",$ADMIN_GROUP,"* ]]; then
-    echo "    Login OK, token carries '$ADMIN_GROUP' group."
-    VERIFY_OK=true
-  else
-    echo "    WARNING: logged in but token groups = [$TOKEN_GROUPS] (missing '$ADMIN_GROUP')."
-  fi
+  echo "    Login OK (tokens issued)."
+  LOGIN_OK=true
+elif [ "$CHALLENGE" = "MFA_SETUP" ] || [ "$CHALLENGE" = "SOFTWARE_TOKEN_MFA" ]; then
+  TOKEN_GROUPS=$(aws cognito-idp admin-list-groups-for-user \
+    --user-pool-id "$ADMIN_USER_POOL_ID" \
+    --username "$ADMIN_PHONE" \
+    --region "$REGION" \
+    --query 'Groups[].GroupName' \
+    --output text 2>/dev/null | tr '\t' ',' || echo "")
+  echo "    Password OK (MFA challenge $CHALLENGE, as the pool requires)."
+  LOGIN_OK=true
 else
-  echo "    WARNING: Login verification failed: $ID_TOKEN"
+  echo "    WARNING: Login verification failed: $AUTH_RESULT"
+fi
+
+if [[ ",$TOKEN_GROUPS," == *",$ADMIN_GROUP,"* ]]; then
+  echo "    User carries the '$ADMIN_GROUP' group."
+  VERIFY_OK=true
+elif [ "$LOGIN_OK" = true ]; then
+  echo "    WARNING: groups = [$TOKEN_GROUPS] (missing '$ADMIN_GROUP')."
 fi
 
 if [ "$VERIFY_OK" != true ] && [ "$STRICT" = true ]; then

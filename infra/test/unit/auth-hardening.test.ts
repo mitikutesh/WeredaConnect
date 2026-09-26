@@ -94,10 +94,10 @@ describe('ApiStack auth hardening (dev)', () => {
     expect(policies).toContain('arn:aws:sns:*:*:*');
   });
 
-  test('mock Fayda Lambda has bounded concurrency', () => {
+  test('mock Fayda Lambda reserves no concurrency in dev (account limit is 10 total)', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-fayda-mock',
-      ReservedConcurrentExecutions: Match.anyValue(),
+      ReservedConcurrentExecutions: Match.absent(),
     });
   });
 });

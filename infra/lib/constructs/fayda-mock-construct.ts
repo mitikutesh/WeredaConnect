@@ -94,7 +94,11 @@ export class FaydaMockConstruct extends Construct {
       }),
       memorySize: 256,
       // Public Function URL without auth: cap concurrency so a scan cannot run up the bill.
-      reservedConcurrentExecutions: 5,
+      // Skipped in dev like WeredaLambda: the account limit is 10 total, so any
+      // reservation fails the deploy, and that limit already caps the mock.
+      ...(this.node.tryGetContext('environment') ?? 'dev') === 'dev'
+        ? {}
+        : { reservedConcurrentExecutions: 5 },
       timeout: cdk.Duration.seconds(10),
       logGroup,
       environment,

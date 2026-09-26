@@ -86,6 +86,26 @@ describe('FaydaMockConstruct', () => {
     expect(resolved).toContain('FunctionUrl');
   });
 
+  test('skips reserved concurrency in dev (account limit is 10 total)', () => {
+    const fns = template.findResources('AWS::Lambda::Function');
+    for (const fn of Object.values(fns)) {
+      expect((fn as { Properties: Record<string, unknown> }).Properties.ReservedConcurrentExecutions).toBeUndefined();
+    }
+  });
+
+  test('caps concurrency at 5 outside dev', () => {
+    const app = new cdk.App({ context: { environment: 'staging' } });
+    const stagingStack = new cdk.Stack(app, 'StagingStack');
+    new FaydaMockConstruct(stagingStack, 'FaydaMock', {
+      prefix: 'wereda-staging',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    Template.fromStack(stagingStack).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-staging-fayda-mock',
+      ReservedConcurrentExecutions: 5,
+    });
+  });
+
   test('throws when isProd is true', () => {
     const app = new cdk.App();
     const prodStack = new cdk.Stack(app, 'ProdStack');
