@@ -207,7 +207,7 @@ export class ApiStack extends cdk.Stack {
       // prod admins, and the admin web app drives the TOTP challenge and setup.
       // TOTP is the second factor admins enrol in every environment. SMS stays
       // enabled as a pool-level factor everywhere: the pool carries an SMS
-      // configuration (phone alias + phone recovery), and Cognito rejects turning
+      // configuration (phone sign-in alias), and Cognito rejects turning
       // SMS_MFA off on such a pool once MFA is REQUIRED, which rolled back the
       // dev deploy. Dev/staging admins are not SMS-challenged because their phone
       // is unverified and the seed disables SMS MFA per user, so login answers
@@ -217,7 +217,10 @@ export class ApiStack extends cdk.Stack {
         sms: true,
         otp: true,
       },
-      accountRecovery: cognito.AccountRecovery.PHONE_ONLY_WITHOUT_MFA,
+      // Admin-only recovery: Cognito refuses MFA ON with SMS enabled when phone is
+      // the only recovery path (the phone would be both factor and reset channel).
+      // The admin app has no forgot-password flow; an admin resets passwords.
+      accountRecovery: cognito.AccountRecovery.NONE,
       standardAttributes: {
         phoneNumber: { required: true, mutable: false },
       },
