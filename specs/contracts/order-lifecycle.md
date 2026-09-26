@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.4.3
+1.5.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -150,8 +150,28 @@ orderTotal       = cropCost + transportCost + commissionAmount
 4. Wire statuses are snake_case for orders only.
 5. `order.quantity` is kilograms; listing stock and trip capacity are quintals (see Units). Money fields are computed by the server from the listing and trip at create and never taken from the client.
 
+## Payment gates (1.5.0)
+
+The buyer's `payment_submitted` transition is the real money path (the order-funded escrow
+leg), so it carries the checks `POST /escrow/initiate` already made:
+
+| Check | Error (operation `status: "error"`) |
+|-------|--------------------------------------|
+| buyer or farmer profile missing or phone not verified | `ORDER_KYC_REQUIRED: ...` |
+| `orderTotal` above 10,000 ETB and buyer not Fayda-verified | `ORDER_KYC_REQUIRED: Verify your Fayda ID ...` |
+| `orderTotal` above 10,000 ETB and farmer not Fayda-verified | `ORDER_KYC_REQUIRED: The farmer must verify ...` |
+| `orderTotal` at or above the step-up threshold and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
+
+The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
+runs only after they pass. The client reverts the local order to its previous status on
+`ORDER_KYC_REQUIRED` and offers Fayda verification; on `AUTH_040` it re-authenticates and
+retries.
+
+---
+
 ## Changelog
 
+- **1.5.0 (2026-09-26)**: Payment gates on `payment_submitted`: both parties phone-verified and, above 10,000 ETB, Fayda-verified (`ORDER_KYC_REQUIRED`); fresh password (`AUTH_040`) at or above the step-up threshold; mock auto-fund runs only after the gates.
 - **1.4.3 (2026-09-25)**: Default list scoping (SIM-16): an unfiltered `GET /orders` is scoped by the caller's role claim instead of always the buyer.
 - **1.4.2 (2026-09-25)**: Stock restore (SIM-13): a funded order that is rejected or cancelled (by a participant or by the refund sweep) gives its listing the quintals back, idempotent per order and race-safe; a `reserved` listing returns to `available`. The funding decrement now stores `quantity` as a number.
 - **1.4.1 (2026-09-25)**: Dispute propagation (SIM-12): an escrow dispute or a delivery dispute moves a `delivered` order to `disputed`; the escrow dispute marks the delivery disputed and a delivery dispute freezes the escrow; ratings stay blocked while disputed.

@@ -1,7 +1,7 @@
 # Push Alerts API Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client) — registers device tokens, syncs buyer intents, receives push
@@ -127,13 +127,25 @@ The client uses `data.intentId` to open the buyer's match results on tap. No PII
    (DynamoDB stream filters can't match numeric ranges); the stream filter is `eventName`
    only.
 
+## 4. Unregister Device Token (1.1.0)
+
+`DELETE /device-tokens` (Bearer) with body `{"token": "<fcm token>"}` removes the caller's
+registration for that token and deletes the SNS endpoint (best effort). `204` whether or
+not the token was registered; `400 DEVICE_TOKEN_VALIDATION` without a token. Only the
+caller's own registration can be removed. The mobile client calls it during logout, before
+clearing the session, with a 3 second timeout, so the next user of a shared phone does not
+receive the previous user's alerts.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.1.0 | 2026-09-26 | `DELETE /device-tokens` unregisters the caller's push endpoint (logout on shared phones). |
 | 1.0.0 | 2026-06-19 | Initial: device-token registration, buyer_intent sync, match-on-insert push. |
 
 ---
 
-**Last Updated**: 2026-06-19
+**Last Updated**: 2026-09-26
 **Status**: Draft

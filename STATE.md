@@ -7,6 +7,20 @@
 **Status:** R4 COMPLETE. **HS-1 (encryption foundation) COMPLETE** — AAD, prefix + fail-closed, key-integrity HMAC, legacy-flag CI guardrail all live in main. HS-2 (repository wiring) is the next sprint. May security review's 7-sprint roadmap continues — see `specs/features/isar-hardening/`.
 **Latest Commit:** 016652a - Merge pull request #22 from mitikutesh/hs1/s1-04-legacy-plaintext-guardrail
 
+### Active work: Auth and authorization hardening (2026-09-26, branch `feat/auth-hardening`)
+
+Worktree `.claude/worktrees/auth-hardening`, branched from `e2ec41e` (after SIM-19). Implements
+the P0/P1/P2 list from the 2026-09-25 auth assessment plus the mock Fayda provider. Decision
+record and deploy notes: `specs/decisions/auth-step-up-plan.md`. Contracts bumped: auth-api
+2.1.0, escrow-protocol 1.3.0, order-lifecycle 1.5.0, sync-protocol 1.4.0, push-alerts 1.1.0.
+Validation before the PR (after the pre-push review fixes): server 1315 tests green; infra
+tsc clean, 46 jest tests + `cdk synth` green; mock provider 23 tests; admin 43 tests green;
+mobile analyze clean, 1298 tests green, web build green. **Opened as a PR, NOT deployed.** Deploy needs: new `auth-verify-otp`
+Lambda + routes, Cognito client auth-flow change (server-side password login), admin pool
+MFA REQUIRED in dev/staging (admins enrol an authenticator on first login), dev mock Fayda
+provider (Function URL). Keep `SMS_ENABLED=false` + `DEV_OTP_BYPASS=true` in dev while SNS
+is sandboxed.
+
 ### Active work — Buyer Intent Matching (2026-06-19, branch `buyer-intenet`)
 
 A buyer intent-matching series is in progress on `buyer-intenet` (not yet merged):

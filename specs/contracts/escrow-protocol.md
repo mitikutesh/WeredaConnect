@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.2.2
+1.3.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -1177,10 +1177,57 @@ A scheduled Lambda runs every 6 hours:
 
 ---
 
+## Additions in 1.3.0 (settlement authority, identity gates)
+
+### Who may release or refund
+`POST /escrow/release` and `POST /escrow/refund` are served on the **admin** authorizer. The
+caller must be a member of the admin pool's `admin` group (`cognito:groups`); a marketplace
+token, or a token that merely claims an admin role, gets `ESCROW_015` / `ESCROW_021`. The
+cron (system actor) releases and refunds in-process.
+
+### Dispute verdicts are settled by the sweep
+`POST /admin/disputes/{id}/resolve` records `disputeResolution`, `disputeResolvedBy` and
+`disputeResolvedAt`, moves the escrow to `dispute_resolved` and writes an
+`admin_dispute_resolved` audit entry. The hourly cron then settles: `farmer_wins` releases
+(trigger `dispute_resolved`), `buyer_wins` refunds; `partial_refund` has no automatic leg
+and needs a manual admin release or refund. `dispute_resolved` is therefore a valid source
+state for release and refund.
+
+### Step-up
+`POST /escrow/initiate` and `POST /escrow/dispute` return `403 AUTH_040` when `amount` (the
+escrow's amount for a dispute) is at or above the step-up threshold and the caller's
+`auth_time` is older than the step-up window. See auth-api.md 2.1.0.
+
+### Payout destination and identity at release
+Release and refund send money to the **registered phone** of the party, read from the
+profile at settlement time, never to a client-supplied number. Before the settlement lock:
+
+| Condition | Result |
+|-----------|--------|
+| farmer profile missing | `422 ESCROW_029` |
+| farmer phone not verified | `403 ESCROW_029` |
+| amount above 10,000 ETB and farmer not Fayda-verified | `403 ESCROW_029` |
+
+Every blocked release writes a `release_blocked_kyc` audit entry whose metadata names the reason.
+| trucker leg with an unverified trucker | farmer leg proceeds, trucker leg stays `truckerPayoutPending` |
+
+A blocked release leaves the escrow untouched for an admin.
+
+### Webhook hardening
+A notification with a missing or unparseable `timestamp` is rejected. `biz_content.merch_code`
+must equal the configured merchant code. When the notification carries the paying wallet's
+phone (`biz_content.msisdn`, field name to be confirmed on the live payload) it is compared
+with the buyer's registered phone: a mismatch is audited as `webhook_payer_mismatch` and,
+with `TELEBIRR_REQUIRE_PAYER_MATCH=true`, rejected; a missing payer while a match is
+required is audited as `webhook_payer_unbound` and rejected.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.3.0 | 2026-09-26 | Settlement authority and identity gates: `/escrow/release` and `/escrow/refund` on the admin authorizer (admin group), `dispute_resolved` settled by the hourly sweep, `AUTH_040` step-up on initiate and dispute, payouts resolved to the party's registered phone with `ESCROW_029` when unverified, webhook `merch_code`, fail-closed timestamp and payer binding (`webhook_payer_mismatch`, `webhook_payer_unbound`) |
 | 1.2.5 | 2026-09-25 | Refund-pending labelling (SIM-20): history rows and `EscrowDto` carry `refundPending` + `refundReason` (rows also `expiresAt`); a cancelled order's still-escrowed money reads "Refund pending" with the order as reference instead of "Funds held safely" with a blank delivery |
 | 1.2.4 | 2026-09-25 | Default history scoping (SIM-16): without `role=` the history is scoped by the token's role claim instead of always the buyer GSI, so a farmer (including the farmer of a self-pickup, whose escrow is order-funded with no delivery) and a trucker read their own rows unfiltered |
 | 1.2.3 | 2026-09-25 | Trucker money view (SIM-15): `EscrowDto` and history rows carry `truckerPayout` + `truckerId`, history rows carry `farmerPayout`; `role=trucker` reads the new sparse `TruckerStatusIndex` GSI; the order's trucker is a party for `GET /escrow/{id}` and `by-delivery`; delivery linkage backfills a missing `truckerId` from the order; clients show each role its own leg |
@@ -1192,6 +1239,6 @@ A scheduled Lambda runs every 6 hours:
 
 ---
 
-**Last Updated**: 2026-09-25
-**Version**: 1.2.5
+**Last Updated**: 2026-09-26
+**Version**: 1.3.0
 **Status**: Draft (Phase R4)
