@@ -99,6 +99,13 @@ class AppLocalizationsOm extends AppLocalizations {
   String get errorOccurred => 'Dogongora Uumameera';
 
   @override
+  String get errorNoPermission => 'Kana ilaaluuf hayyama hin qabdan.';
+
+  @override
+  String get errorSecureConnectionFailed =>
+      'Server waliin walqunnamtii nageenya qabu uumuun hin danda\'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.';
+
+  @override
   String get noInternetConnection => 'Walitti Dhufeenya Interneetii Hin Jiru';
 
   @override

@@ -67,6 +67,11 @@ class AuthErrorCode {
   // Mobile-specific errors (not from server)
   static const apiNotConfigured = 'API_NOT_CONFIGURED';
   static const networkError = 'NETWORK_ERROR';
+
+  /// TLS handshake or certificate pin failure while online (SIM-23). Never
+  /// triggers the offline-login fallback: the device is connected, the
+  /// server just could not be trusted.
+  static const secureConnectionFailed = 'SECURE_CONNECTION_FAILED';
   static const offlineNotAvailable = 'OFFLINE_NOT_AVAILABLE';
   static const secureStorageError = 'SECURE_STORAGE_ERROR';
   static const databaseError = 'DATABASE_ERROR';
@@ -148,6 +153,8 @@ extension AuthErrorCodeExtension on String {
         return 'Server not configured. Use mock auth or provide API credentials via --dart-define.';
       case AuthErrorCode.networkError:
         return 'No internet connection. Please try offline mode';
+      case AuthErrorCode.secureConnectionFailed:
+        return 'Could not make a secure connection to the server. Update the app or try another network';
       case AuthErrorCode.offlineNotAvailable:
         return 'Please log in online first to enable offline mode';
       case AuthErrorCode.secureStorageError:

@@ -121,6 +121,14 @@
   "@errorOccurred": {
     "description": "Generic error message"
   },
+  "errorNoPermission": "ይህን ለማየት ፈቃድ የለዎትም።",
+  "@errorNoPermission": {
+    "description": "Shown when the server refuses a read with 403 for the signed-in role"
+  },
+  "errorSecureConnectionFailed": "ከአገልጋዩ ጋር ደህንነቱ የተጠበቀ ግንኙነት መፍጠር አልተቻለም። መተግበሪያውን ያዘምኑ ወይም ሌላ አውታረ መረብ ይሞክሩ።",
+  "@errorSecureConnectionFailed": {
+    "description": "Shown when the TLS handshake or certificate pin check fails while the device is online"
+  },
   "noInternetConnection": "የበይነመረብ ግንኙነት የለም",
   "@noInternetConnection": {
     "description": "Error message when offline"

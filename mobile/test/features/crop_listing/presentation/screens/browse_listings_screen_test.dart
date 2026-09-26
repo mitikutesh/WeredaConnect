@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -212,6 +213,39 @@ void main() {
 
       verify(() => ratingRepo.getRatingSummary('farmer-1')).called(1);
       verify(() => ratingRepo.getRatingSummary('farmer-2')).called(1);
+    });
+  });
+
+  group('BrowseListingsScreen load errors (SIM-23)', () {
+    Future<AppLocalizations> pumpError(
+      WidgetTester tester,
+      AppErrorCode code,
+    ) async {
+      final state = CropListingError(message: 'x', code: code);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      return AppLocalizations.delegate.load(const Locale('en'));
+    }
+
+    testWidgets('a 403 says no permission, not waiting for network',
+        (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.forbidden);
+      expect(find.text(l10n.errorNoPermission), findsOneWidget);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsNothing);
+    });
+
+    testWidgets('a connectivity failure keeps the offline copy',
+        (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.network);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsOneWidget);
+    });
+
+    testWidgets('a TLS failure names the secure connection', (tester) async {
+      final l10n = await pumpError(tester, AppErrorCode.secureConnection);
+      expect(find.text(l10n.errorSecureConnectionFailed), findsOneWidget);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsNothing);
     });
   });
 

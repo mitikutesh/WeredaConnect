@@ -1,6 +1,8 @@
 /// Network and API exceptions for error handling
 library;
 
+import 'package:dio/dio.dart';
+
 /// Base exception for all API errors
 sealed class ApiException implements Exception {
   const ApiException(this.message, [this.statusCode]);
@@ -90,6 +92,39 @@ final class RateLimitException extends ApiException {
 /// Request timeout
 final class TimeoutException extends ApiException {
   const TimeoutException([super.message = 'Request timeout']);
+}
+
+/// The TLS handshake failed: the server's certificate chain did not lead to
+/// a bundled root (certificate pinning) or the connection was tampered with.
+/// Deliberately not a [NetworkException]: the device IS online, so the UI
+/// must not say "no internet" or offer offline mode (SIM-23).
+final class SecureConnectionException extends ApiException {
+  const SecureConnectionException([
+    super.message = 'Secure connection to the server failed',
+  ]);
+}
+
+/// Whether [error] (a Dio error, or the raw error it wrapped) is a TLS or
+/// certificate failure. Dio reports a rejected pin as `badCertificate` only
+/// when its own validator ran; a dart:io HandshakeException from the pinned
+/// HttpClient arrives as `unknown` (or `connectionError`), so the wrapped
+/// error is matched by name, which keeps this file free of dart:io for web.
+bool isSecureConnectionFailure(Object error) {
+  if (error is DioException) {
+    if (error.type == DioExceptionType.badCertificate) return true;
+    final inner = error.error;
+    return inner != null && _looksLikeTlsFailure(inner);
+  }
+  return _looksLikeTlsFailure(error);
+}
+
+bool _looksLikeTlsFailure(Object error) {
+  final text = '${error.runtimeType} $error';
+  return text.contains('HandshakeException') ||
+      text.contains('TlsException') ||
+      text.contains('CertificateException') ||
+      text.contains('CERTIFICATE_VERIFY_FAILED') ||
+      text.contains('SSL certificate');
 }
 
 /// Generic unknown error
