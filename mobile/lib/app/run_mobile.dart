@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
@@ -147,6 +148,7 @@ Future<void> runMobile({
     // Logout asks the server to stop pushing to this device's FCM token.
     pushTokenProvider: PushNotificationService.currentToken,
   )..add(const AuthCheckRequested());
+  bindDataUsageToAuth(dataUsageTracker, authBloc);
 
   // Lifecycle observer for resource cleanup
   WidgetsBinding.instance.addObserver(

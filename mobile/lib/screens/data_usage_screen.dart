@@ -54,6 +54,14 @@ class DataUsageScreen extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ],
+          const SizedBox(height: 8),
+          Text(
+            l10n.dataUsageScopeNote,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.textMuted,
+                ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 32),
           OutlinedButton.icon(
             icon: const Icon(Icons.restart_alt),

@@ -35,7 +35,8 @@ class AuthInterceptor extends QueuedInterceptor {
     required Dio dio,
     this.tokenKey = 'id_token',
     this.refreshTokenKey = 'refresh_token',
-  }) : _retryDio = _createRetryDio(dio);
+    List<Interceptor> retryInterceptors = const [],
+  }) : _retryDio = _createRetryDio(dio, retryInterceptors);
 
   /// Secure storage for reading/writing tokens
   final FlutterSecureStorage storage;
@@ -59,7 +60,9 @@ class AuthInterceptor extends QueuedInterceptor {
   /// Create a Dio clone that shares the parent's configuration and
   /// httpClientAdapter (preserving certificate pinning) but without
   /// the AuthInterceptor to avoid QueuedInterceptor deadlock.
-  static Dio _createRetryDio(Dio parent) {
+  /// [interceptors] are safe, non-auth extras (e.g. data-usage metering)
+  /// so retried requests are still observed.
+  static Dio _createRetryDio(Dio parent, List<Interceptor> interceptors) {
     final retryDio = Dio(
       BaseOptions(
         baseUrl: parent.options.baseUrl,
@@ -70,6 +73,7 @@ class AuthInterceptor extends QueuedInterceptor {
       ),
     );
     retryDio.httpClientAdapter = parent.httpClientAdapter;
+    retryDio.interceptors.addAll(interceptors);
     return retryDio;
   }
 

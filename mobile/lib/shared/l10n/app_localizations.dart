@@ -2410,6 +2410,12 @@ abstract class AppLocalizations {
   /// **'Tracking since'**
   String get dataUsageTrackingSince;
 
+  /// Explains that data usage counts only this account's API traffic on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Counts this account\'s requests to WeredaConnect servers from this device. Your phone\'s total data use (app updates, images, other apps) may be higher. Sign-in traffic is not included.'**
+  String get dataUsageScopeNote;
+
   /// Title shown on conflict resolution modal when server overwrites local data
   ///
   /// In en, this message translates to:

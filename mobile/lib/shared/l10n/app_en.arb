@@ -1650,6 +1650,10 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
+  "dataUsageScopeNote": "Counts this account's requests to WeredaConnect servers from this device. Your phone's total data use (app updates, images, other apps) may be higher. Sign-in traffic is not included.",
+  "@dataUsageScopeNote": {
+    "description": "Explains that data usage counts only this account's API traffic on this device"
+  },
 
   "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
 

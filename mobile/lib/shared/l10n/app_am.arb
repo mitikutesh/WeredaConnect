@@ -1632,6 +1632,10 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
+  "dataUsageScopeNote": "በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect አገልጋዮች የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።",
+  "@dataUsageScopeNote": {
+    "description": "Explains that data usage counts only this account's API traffic on this device"
+  },
   "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
   "conflictTitle": "ዳታ ተዘምኗል",
   "@conflictTitle": {

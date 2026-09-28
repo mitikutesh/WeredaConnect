@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/config/environment.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/auth_interceptor.dart';
+import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
 import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
@@ -67,7 +68,9 @@ Future<void> main() async {
 
   // Initialize API client (no cert pinning on web)
   ApiClient().initialize(
-    interceptors: [DataUsageInterceptor(dataUsageTracker)],
+    // Requests are metered after AuthInterceptor (sees the bearer token),
+    // responses before it (see DataUsageInterceptor.responses).
+    interceptors: [DataUsageInterceptor.requests(dataUsageTracker)],
   );
 
   // Wire AuthInterceptor for automatic token injection and 401 refresh.
@@ -83,6 +86,7 @@ Future<void> main() async {
       headers: Map<String, dynamic>.from(ApiClient().dio.options.headers),
     ),
   );
+  refreshDio.interceptors.add(DataUsageInterceptor(dataUsageTracker));
 
   // Shared refresh callback: persists the new tokens, restarts the 48h
   // offline session clock, and signs the user out (SessionSignals) when the
@@ -90,12 +94,17 @@ Future<void> main() async {
   final authInterceptor = AuthInterceptor(
     storage: secureStorage,
     dio: ApiClient().dio,
+    retryInterceptors: [DataUsageInterceptor(dataUsageTracker)],
     refreshTokenCallback: buildRefreshTokenCallback(
       refreshDio: refreshDio,
       storage: secureStorage,
     ),
   );
   ApiClient().dio.interceptors.insert(0, authInterceptor);
+  ApiClient()
+      .dio
+      .interceptors
+      .insert(0, DataUsageInterceptor.responses(dataUsageTracker));
 
   // Initialize language and settings providers
   final languageProvider = LanguageProvider();
@@ -140,6 +149,7 @@ Future<void> _runWeb({
   final authBloc = AuthBloc()..add(const AuthCheckRequested());
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);
+  bindDataUsageToAuth(dataUsageTracker, authBloc);
   final api = ApiClient();
 
   runApp(
