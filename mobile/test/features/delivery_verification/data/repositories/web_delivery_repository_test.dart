@@ -80,6 +80,29 @@ void main() {
     });
   });
 
+  test('a deferred pickup throws instead of reporting success', () async {
+    // The version read-back falls back to 1 when the GET fails.
+    when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+        .thenThrow(Exception('offline'));
+    answerSync({
+      'results': [
+        {
+          'status': 'deferred',
+          'message': 'DELIVERY_NONCE_PENDING: Waiting for the QR code.',
+        },
+      ],
+    });
+
+    await expectLater(
+      repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrNonce: 'nonce-1',
+      ),
+      throwsA(isA<SyncDeferredException>()),
+    );
+  });
+
   test('a rejected create throws instead of returning a phantom delivery',
       () async {
     answerSync({

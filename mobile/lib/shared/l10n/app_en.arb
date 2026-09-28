@@ -2202,6 +2202,10 @@
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
+  "deliveryErrorQrPending": "The farmer's QR code has not reached the server yet. Ask the farmer to open the QR code while online, then try again.",
+  "@deliveryErrorQrPending": {
+    "description": "Pickup/delivery confirmation postponed because the farmer's QR nonce has not synced"
+  },
   "deliveryQrTooLarge": "QR code too large",
   "@deliveryQrTooLarge": {
     "description": "Error when scanned QR code exceeds size limit"
@@ -3393,10 +3397,6 @@
   "faydaLinkSuccess": "Your Fayda ID is now linked to your account.",
   "@faydaLinkSuccess": {
     "description": "Success message after linking Fayda from the profile"
-  },
-  "faydaMobileOnly": "Fayda verification is available in the WeredaConnect mobile app.",
-  "@faydaMobileOnly": {
-    "description": "Shown on web where the Fayda deep-link flow is not supported"
   },
   "faydaNotVerifiedSubtitle": "Needed for payments above 10,000 ETB",
   "@faydaNotVerifiedSubtitle": {

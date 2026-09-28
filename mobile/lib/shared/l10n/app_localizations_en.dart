@@ -1643,6 +1643,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryErrorNotFound => 'Delivery not found';
 
   @override
+  String get deliveryErrorQrPending =>
+      'The farmer\'s QR code has not reached the server yet. Ask the farmer to open the QR code while online, then try again.';
+
+  @override
   String get deliveryQrTooLarge => 'QR code too large';
 
   @override
@@ -2672,10 +2676,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get faydaLinkSuccess => 'Your Fayda ID is now linked to your account.';
-
-  @override
-  String get faydaMobileOnly =>
-      'Fayda verification is available in the WeredaConnect mobile app.';
 
   @override
   String get faydaNotVerifiedSubtitle => 'Needed for payments above 10,000 ETB';

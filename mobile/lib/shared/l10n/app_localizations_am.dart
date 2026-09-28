@@ -1592,6 +1592,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get deliveryErrorNotFound => 'ማድረስ አልተገኘም';
 
   @override
+  String get deliveryErrorQrPending =>
+      'የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
+
+  @override
   String get deliveryQrTooLarge => 'QR ኮድ በጣም ትልቅ ነው';
 
   @override
@@ -2596,9 +2600,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get faydaLinkSuccess => 'የፋይዳ መታወቂያዎ አሁን ከመለያዎ ጋር ተገናኝቷል።';
-
-  @override
-  String get faydaMobileOnly => 'የፋይዳ ማረጋገጫ በወረዳ ኮነክት የሞባይል መተግበሪያ ውስጥ ይገኛል።';
 
   @override
   String get faydaNotVerifiedSubtitle => 'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ያስፈልጋል';

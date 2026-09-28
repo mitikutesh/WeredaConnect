@@ -38,5 +38,6 @@ class DeliveryErrorCode {
   static const disputeReasonRequired = 'DELIVERY_DISPUTE_REASON_REQUIRED';
   static const gpsInvalid = 'DELIVERY_GPS_INVALID';
   static const notFound = 'DELIVERY_NOT_FOUND';
+  static const qrPending = 'DELIVERY_NONCE_PENDING';
   static const generic = 'DELIVERY_GENERIC';
 }
