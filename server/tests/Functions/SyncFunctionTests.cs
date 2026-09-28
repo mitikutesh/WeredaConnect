@@ -71,6 +71,7 @@ public class SyncFunctionTests
         {
             UserId = "00000000-0000-0000-0000-000000000003",
             PhoneNumber = "+251933333333",
+            DisplayName = "Test User",
             Role = "buyer",
             Woreda = "Jimma",
             IsPhoneVerified = true,
@@ -1277,6 +1278,71 @@ public class SyncFunctionTests
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
+    private static UserDto ProfileWithNames(string userId, string? displayName, string? fullName) => new()
+    {
+        UserId = userId,
+        PhoneNumber = "+251900100002",
+        DisplayName = displayName,
+        FullName = fullName,
+        Role = "trucker",
+        Woreda = "Adama",
+        IsPhoneVerified = true,
+        CreatedAt = "2026-02-16T10:00:00Z",
+        UpdatedAt = "2026-02-16T10:00:00Z",
+        Version = 1
+    };
+
+    // SIM-40: with no display name the legal name received from Fayda is shown.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task TripCreate_NoDisplayName_UsesFaydaName(string? displayName)
+    {
+        _mockUserRepo.GetUserByIdAsync("trucker-001")
+            .Returns(ProfileWithNames("trucker-001", displayName, "Chaltu Tolosa Gemechu"));
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "truckerName", "Ethiopian Commodity Exchange" }
+        });
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        await _function.FunctionHandler(request, _context);
+
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["truckerName"].S == "Chaltu Tolosa Gemechu"));
+    }
+
+    // SIM-40: a profile with no name at all must not fall back to the client value.
+    [Fact]
+    public async Task TripCreate_ProfileWithoutAnyName_IsRejected()
+    {
+        _mockUserRepo.GetUserByIdAsync("trucker-001").Returns(ProfileWithNames("trucker-001", null, null));
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "truckerName", "Ethiopian Commodity Exchange" }
+        });
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("Add your name to your profile", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Fact]
+    public async Task CropCreate_OwnerProfileMissing_IsRejected()
+    {
+        _mockUserRepo.GetUserByIdAsync("farmer-001").Returns((UserDto?)null);
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("CROP_VALIDATION", response.Body);
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     // --- F-SEC-06: Delivered Terminal State Tests ---
 
     [Fact]
@@ -2156,7 +2222,11 @@ public class SyncFunctionTests
         var function = new SyncFunction(
             _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
             userRepo: _mockUserRepo, escrowRepo: mockEscrow, qrSecretRepo: mockSecret);
-        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "trucker-chosen-nonce");
+        // Recent row (inside the defer window) carrying a trucker-authored nonce.
+        var item = DeliveryItemForOrder();
+        item["qrNonce"] = new AttributeValue { S = "trucker-chosen-nonce" };
+        item["createdAt"] = new AttributeValue { S = DateTime.UtcNow.AddDays(-1).ToString("o") };
+        SetupDeliveryQuery(item);
 
         var op = new SyncOperationRequest
         {
@@ -2176,7 +2246,23 @@ public class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001");
         var response = await function.FunctionHandler(request, _context);
 
-        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"status\":\"deferred\"", response.Body);
+    }
+
+    // SIM-39: a create reusing an existing deliveryId conflicts, writes nothing and
+    // does not claim the order's delivery slot (it would stay stuck).
+    [Fact]
+    public async Task DeliveryCreate_ExistingDeliveryId_ConflictsWithoutClaimOrWrite()
+    {
+        SetupTruckOrder();
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("\"status\":\"conflict\"", response.Body);
+        await _mockOrderRepo.DidNotReceive().TryClaimDeliverySlotAsync(Arg.Any<string>(), Arg.Any<string>());
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
     // ===== Delivery confirmation → escrow + transition regression tests =====

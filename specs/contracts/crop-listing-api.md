@@ -397,7 +397,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - Farmers can only create/update/delete their own listings
 - Server validates `farmerId` matches JWT `sub` claim
 - `farmerId`, `farmerName` and `farmerPhone` are immutable after create. An update that changes any of them is rejected with `CROP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
-- On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. If the profile cannot be read the create is rejected with `CROP_VALIDATION`.
+- On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `CROP_VALIDATION`.
 
 ### Rate Limiting
 - **POST /sync**: 100 requests/second per user (API Gateway throttling)

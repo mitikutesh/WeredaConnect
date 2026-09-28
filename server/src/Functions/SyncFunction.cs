@@ -3660,11 +3660,19 @@ public partial class SyncFunction
                     // scanner must echo back. Until it is persisted, qrNonce is empty and
                     // the pickup/delivery nonce check is skipped (offline-first).
 
+                    // The key is (deliveryId, tripId), so a replayed create with another
+                    // tripId would pass the put's condition and add a second row (SIM-39).
+                    // Checked before the slot claim so a reused deliveryId never claims
+                    // (and strands) another order's slot.
+                    var deliveryExists = await DynamoDbHelper.PartitionExistsAsync(
+                        _dynamoDb, _deliveriesTable, "deliveryId", operation.EntityId);
+
                     // SIM-09: at most one active delivery per order. The claim is an atomic
                     // conditional write on the order row (deliveries have no order index); a
                     // retry of the same deliveryId re-claims its own slot, and a cancelled
                     // delivery releases it.
-                    if (!await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
+                    if (!deliveryExists
+                        && !await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
                     {
                         return new SyncOperationResult
                         {
@@ -3683,10 +3691,7 @@ public partial class SyncFunction
 
                     try
                     {
-                        // The key is (deliveryId, tripId), so a replayed create with another
-                        // tripId would pass the condition and add a second row (SIM-39).
-                        if (await DynamoDbHelper.PartitionExistsAsync(
-                                _dynamoDb, _deliveriesTable, "deliveryId", operation.EntityId))
+                        if (deliveryExists)
                         {
                             throw new ConditionalCheckFailedException("Delivery already exists.");
                         }
@@ -5768,7 +5773,7 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
     /// from the users table, never from the client (a spoofed phone redirected buyers).
-    /// Returns an error message when the owner's profile cannot be read.
+    /// Returns an error message when the profile cannot be read or has no name.
     /// </summary>
     private async Task<string?> StampOwnerContactAsync(
         Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
@@ -5786,11 +5791,17 @@ public partial class SyncFunction
             return "Your profile could not be read. Please try again later.";
         }
 
-        var name = owner.DisplayName ?? owner.FullName;
-        if (!string.IsNullOrWhiteSpace(name))
+        // Display name first, else the legal name received from Fayda. The client
+        // value is never kept: with no name on the profile the create is refused.
+        var name = !string.IsNullOrWhiteSpace(owner.DisplayName) ? owner.DisplayName
+            : !string.IsNullOrWhiteSpace(owner.FullName) ? owner.FullName
+            : null;
+        if (name == null)
         {
-            data[nameKey] = name;
+            return "Add your name to your profile before creating a listing.";
         }
+
+        data[nameKey] = name.Trim();
         data[phoneKey] = owner.PhoneNumber;
         return null;
     }
