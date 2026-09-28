@@ -112,10 +112,10 @@ updates:
           - "patch"
     # Critical: Ensure AOT compatibility
     # Review AOT_COMPLIANCE.md before accepting updates
-    ignore:
-      # Example: Ignore major version updates that might break AOT
-      # - dependency-name: "AWSSDK.*"
-      #   update-types: ["version-update:semver-major"]
+    # ignore:
+    #   # Example: Ignore major version updates that might break AOT
+    #   - dependency-name: "AWSSDK.*"
+    #     update-types: ["version-update:semver-major"]
 
   # ============================================================================
   # GitHub Actions Workflows
@@ -144,4 +144,3 @@ updates:
         update-types:
           - "minor"
           - "patch"
-
