@@ -62,7 +62,7 @@ jobs:
         run: flutter test --platform chrome test/core/auth/fayda_callback_links_web_test.dart --reporter expanded
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ./mobile/coverage/lcov.info
           flags: mobile-unit

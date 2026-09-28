@@ -209,7 +209,7 @@ jobs:
         run: dotnet test --collect:"XPlat Code Coverage" --results-directory ./coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ./server/coverage/**/coverage.cobertura.xml
           flags: server
