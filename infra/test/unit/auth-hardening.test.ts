@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match, Annotations } from 'aws-cdk-lib/assertions';
 import { DatabaseStack } from '../../lib/stacks/database-stack';
@@ -99,6 +101,20 @@ describe('ApiStack auth hardening (dev)', () => {
       FunctionName: 'wereda-connect-dev-fayda-mock',
       ReservedConcurrentExecutions: Match.absent(),
     });
+  });
+
+  test('every FUNCTION_HANDLER is routed by the server AOT bootstrap', () => {
+    // A handler missing from Program.cs crashes the Lambda at init ("Unknown
+    // handler"), which API Gateway reports as a bare 500. verify-otp shipped
+    // that way and blocked every OTP sign-up.
+    const program = fs.readFileSync(path.join(__dirname, '../../../server/src/Program.cs'), 'utf8');
+    const handlers = Object.values(template.findResources('AWS::Lambda::Function'))
+      .map((r) => (propsOf(r).Environment as { Variables?: Props } | undefined)?.Variables?.FUNCTION_HANDLER)
+      .filter((h): h is string => typeof h === 'string');
+    expect(handlers).toContain('VerifyOtpFunction');
+    for (const handler of handlers) {
+      expect(program).toContain(`h.Contains("${handler}")`);
+    }
   });
 });
 
