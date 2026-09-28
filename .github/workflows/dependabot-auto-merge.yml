@@ -1,25 +1,42 @@
-# Auto-merge Dependabot PRs after validation
-# Only auto-merges minor and patch updates that pass all tests
-# Major updates require manual review
+# Auto-approve and merge Dependabot minor and patch updates once CI is green.
+# Major updates require manual review.
+#
+# Why a scheduled gate instead of `gh pr merge --auto`: this is a private repo
+# on the free plan, so branch protection (required checks) is unavailable and
+# native auto-merge has nothing to wait on. The gate job checks every CI check
+# itself and only merges when all of them passed.
+#
+# Requires repo setting: Settings > Actions > General >
+# "Allow GitHub Actions to create and approve pull requests".
+#
+# Note: merges made with GITHUB_TOKEN do not trigger push workflows, so a
+# Dependabot merge does not run the deploy-* workflows. The next human merge
+# to main deploys it.
 
 name: Dependabot Auto-Merge
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  schedule:
+    # Dependabot opens PRs Mondays 09:00 Africa/Addis_Ababa (06:00 UTC), so poll
+    # hourly on Mondays plus once daily for rebases. Keeps Actions minutes low.
+    - cron: "0 * * * 1"
+    - cron: "30 6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+env:
+  AUTOMERGE_LABEL: automerge
+
 jobs:
-  # Check if this is a Dependabot PR
-  dependabot-metadata:
+  # On each Dependabot PR: classify the update and label minor/patch ones.
+  classify:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
-    outputs:
-      update-type: ${{ steps.metadata.outputs.update-type }}
-      dependency-names: ${{ steps.metadata.outputs.dependency-names }}
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -27,81 +44,85 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-  # Auto-approve minor and patch updates
-  auto-approve:
-    runs-on: ubuntu-latest
-    needs: dependabot-metadata
-    if: |
-      github.actor == 'dependabot[bot]' &&
-      (needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor' ||
-       needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch')
-    steps:
-      - name: Approve PR
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Auto-merge after tests pass
-  auto-merge:
-    runs-on: ubuntu-latest
-    needs: [dependabot-metadata, auto-approve]
-    if: |
-      github.actor == 'dependabot[bot]' &&
-      (needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor' ||
-       needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch')
-    steps:
-      - name: Enable auto-merge
-        run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Add comment
+      - name: Label minor/patch update for auto-merge
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-patch'
         run: |
-          gh pr comment "$PR_URL" --body "🤖 Auto-merging this ${{ needs.dependabot-metadata.outputs.update-type }} update after tests pass.
-          
-          **Dependency:** ${{ needs.dependabot-metadata.outputs.dependency-names }}
-          **Update Type:** ${{ needs.dependabot-metadata.outputs.update-type }}
-          
-          This PR will be automatically merged once all required checks pass."
+          gh label create "$AUTOMERGE_LABEL" --color 0e8a16 \
+            --description "Dependabot minor/patch update, merged when CI is green" \
+            --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh pr edit "$PR_URL" --add-label "$AUTOMERGE_LABEL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Notify for major updates (require manual review)
-  notify-major-update:
-    runs-on: ubuntu-latest
-    needs: dependabot-metadata
-    if: |
-      github.actor == 'dependabot[bot]' &&
-      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-major'
-    steps:
-      - name: Add comment for manual review
+      - name: Flag major update for manual review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: |
-          gh pr comment "$PR_URL" --body "⚠️ **Major version update detected**
-          
-          **Dependency:** ${{ needs.dependabot-metadata.outputs.dependency-names }}
-          **Update Type:** ${{ needs.dependabot-metadata.outputs.update-type }}
-          
-          This PR requires manual review due to potential breaking changes.
-          
-          **Review checklist:**
-          - [ ] Check CHANGELOG for breaking changes
-          - [ ] Review migration guide
-          - [ ] Test locally
-          - [ ] For .NET updates: Verify AOT compatibility (see \`server/AOT_COMPLIANCE.md\`)
-          - [ ] For Flutter updates: Test on low-end devices (2GB RAM)
-          - [ ] For AWS CDK updates: Review infrastructure changes
-          
-          Once reviewed, approve and merge manually."
+          gh pr edit "$PR_URL" --remove-label "$AUTOMERGE_LABEL" 2>/dev/null || true
+          gh pr comment "$PR_URL" --body "**Major version update: manual review required.**
+
+          **Dependency:** ${DEPS}
+
+          - [ ] Check CHANGELOG / migration guide for breaking changes
+          - [ ] For .NET updates: verify AOT compatibility (\`server/AOT_COMPLIANCE.md\`)
+          - [ ] For Flutter updates: test on a low-end device (2GB RAM)
+          - [ ] For AWS CDK updates: review the synth diff"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPS: ${{ steps.metadata.outputs.dependency-names }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Request review
-        run: gh pr edit "$PR_URL" --add-reviewer mitikutesh
+  # On schedule or manual dispatch: approve and merge labelled Dependabot PRs whose checks are all green.
+  merge-green:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    concurrency:
+      group: dependabot-merge-green
+      cancel-in-progress: false
+    steps:
+      - name: Approve and merge green PRs
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SELF_WORKFLOW: ${{ github.workflow }}
+        run: |
+          set -euo pipefail
+          prs=$(gh pr list --author app/dependabot --label "$AUTOMERGE_LABEL" \
+                  --state open --json number -q '.[].number')
+          [ -z "$prs" ] && { echo "No labelled Dependabot PRs."; exit 0; }
 
+          for pr in $prs; do
+            info=$(gh pr view "$pr" --json mergeable,reviewDecision,statusCheckRollup)
+            mergeable=$(jq -r '.mergeable' <<<"$info")
+
+            # Ignore this workflow's own jobs. Every other check must be finished
+            # and passed (skipped/neutral count as passed).
+            verdict=$(jq -r --arg self "$SELF_WORKFLOW" '
+              [.statusCheckRollup[]
+                | select((.workflowName // "") != $self)
+                | if .__typename == "StatusContext"
+                    then (if .state == "SUCCESS" then "ok"
+                          elif (.state == "PENDING" or .state == "EXPECTED") then "pending"
+                          else "fail" end)
+                    else (if .status != "COMPLETED" then "pending"
+                          elif (.conclusion | IN("SUCCESS","SKIPPED","NEUTRAL")) then "ok"
+                          else "fail" end)
+                  end] as $s
+              | if ($s | length) == 0 then "pending"
+                elif ($s | index("fail")) then "fail"
+                elif ($s | index("pending")) then "pending"
+                else "green" end' <<<"$info")
+
+            echo "PR #$pr: checks=$verdict mergeable=$mergeable"
+            if [ "$verdict" != "green" ] || [ "$mergeable" != "MERGEABLE" ]; then
+              continue
+            fi
+
+            if [ "$(jq -r '.reviewDecision' <<<"$info")" != "APPROVED" ]; then
+              gh pr review "$pr" --approve --body "CI is green: auto-approving Dependabot minor/patch update." \
+                || { echo "PR #$pr: approve failed, skipping merge"; continue; }
+            fi
+            gh pr merge "$pr" --squash --delete-branch || echo "PR #$pr: merge failed, retrying next run"
+          done
