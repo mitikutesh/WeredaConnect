@@ -940,6 +940,12 @@ abstract class AppLocalizations {
   /// **'Record Audio Note'**
   String get recordAudioNote;
 
+  /// Shown when saving a crop listing with no GPS fix and no place picked from the location list
+  ///
+  /// In en, this message translates to:
+  /// **'GPS is unavailable. Pick your location from the list or turn on GPS.'**
+  String get cropLocationCoordinatesRequired;
+
   /// Validation error for missing crop type
   ///
   /// In en, this message translates to:
@@ -3094,6 +3100,12 @@ abstract class AppLocalizations {
   /// **'Delivery not found'**
   String get deliveryErrorNotFound;
 
+  /// Pickup/delivery confirmation postponed because the farmer's QR nonce has not synced
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer\'s QR code has not reached the server yet. Ask the farmer to open the QR code while online, then try again.'**
+  String get deliveryErrorQrPending;
+
   /// Error when scanned QR code exceeds size limit
   ///
   /// In en, this message translates to:
@@ -4947,12 +4959,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your Fayda ID is now linked to your account.'**
   String get faydaLinkSuccess;
-
-  /// Shown on web where the Fayda deep-link flow is not supported
-  ///
-  /// In en, this message translates to:
-  /// **'Fayda verification is available in the WeredaConnect mobile app.'**
-  String get faydaMobileOnly;
 
   /// Profile menu subtitle under Verify with Fayda
   ///

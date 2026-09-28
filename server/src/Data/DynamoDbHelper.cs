@@ -1,4 +1,5 @@
 using System.Globalization;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 
 namespace WeredaConnect.Server.Data;
@@ -9,6 +10,36 @@ namespace WeredaConnect.Server.Data;
 /// </summary>
 internal static class DynamoDbHelper
 {
+    /// <summary>
+    /// True when any row already has this partition key. Tables keyed (id, createdAt)
+    /// need this before a create: createdAt is stamped fresh on every create, so the
+    /// put's attribute_not_exists never sees an existing row with the same id and a
+    /// replayed create would add a duplicate row (SIM-39).
+    /// Check-then-put is not atomic: two creates with the same id but different
+    /// idempotency keys landing within milliseconds can still both write. Accepted:
+    /// only the caller's own entity is duplicated, and an atomic claim needs either a
+    /// lock row (which the admin/order table scans would count) or a cross-table
+    /// transaction.
+    /// </summary>
+    internal static async Task<bool> PartitionExistsAsync(
+        IAmazonDynamoDB dynamoDb, string tableName, string keyName, string keyValue)
+    {
+        var response = await dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = tableName,
+            KeyConditionExpression = "#k = :v",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#k"] = keyName },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":v"] = new AttributeValue { S = keyValue }
+            },
+            ProjectionExpression = "#k",
+            ConsistentRead = true,
+            Limit = 1
+        });
+        return response?.Items is { Count: > 0 };
+    }
+
     /// <summary>
     /// Convert an object value to a DynamoDB AttributeValue.
     /// Handles string, number, boolean types (AOT-safe, no reflection).

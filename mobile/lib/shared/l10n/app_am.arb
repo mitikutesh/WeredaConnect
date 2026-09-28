@@ -577,6 +577,10 @@
   "@recordAudioNote": {
     "description": "Button to record voice description"
   },
+  "cropLocationCoordinatesRequired": "ጂፒኤስ አይገኝም። ቦታዎን ከዝርዝሩ ይምረጡ ወይም ጂፒኤስን ያብሩ።",
+  "@cropLocationCoordinatesRequired": {
+    "description": "Shown when saving a crop listing with no GPS fix and no place picked from the location list"
+  },
   "cropTypeRequired": "እባክዎ የሰብል ዓይነት ይምረጡ",
   "@cropTypeRequired": {
     "description": "Validation error for missing crop type"
@@ -2047,6 +2051,7 @@
     "description": "Generic delivery error message"
   },
   "deliveryErrorNotFound": "ማድረስ አልተገኘም",
+  "deliveryErrorQrPending": "የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።",
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
@@ -2491,7 +2496,6 @@
   "faydaStateMismatch": "የፋይዳ ክፍለ ጊዜ አልፏል። እባክዎ ማረጋገጫውን እንደገና ይጀምሩ።",
   "faydaStillWaiting": "አሁንም ፋይዳን በመጠበቅ ላይ። በአሳሹ ውስጥ ይጨርሱ፣ ከዚያ ወደዚህ ይመለሳሉ።",
   "faydaLinkSuccess": "የፋይዳ መታወቂያዎ አሁን ከመለያዎ ጋር ተገናኝቷል።",
-  "faydaMobileOnly": "የፋይዳ ማረጋገጫ በወረዳ ኮነክት የሞባይል መተግበሪያ ውስጥ ይገኛል።",
   "faydaNotVerifiedSubtitle": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ያስፈልጋል",
   "appLockTitle": "የመተግበሪያ መቆለፊያ",
   "appLockSubtitle": "መተግበሪያውን ሲከፍቱ የጣት አሻራ ወይም የስልክ ፒን ይጠይቅ",

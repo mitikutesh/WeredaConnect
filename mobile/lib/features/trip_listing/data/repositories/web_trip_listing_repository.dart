@@ -28,8 +28,9 @@ class WebTripListingRepository extends BaseTripListingRepository {
     String? fromPlaceId,
     String? toPlaceId,
   }) async {
-    final tripId =
-        'trp_${DateTime.now().millisecondsSinceEpoch}_${truckerId.hashCode.abs()}';
+    // UUID like the mobile repositories: the server rejects other id
+    // shapes (for example a delivery's tripId must be a UUID).
+    final tripId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
 
     final payload = <String, dynamic>{

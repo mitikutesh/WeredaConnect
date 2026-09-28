@@ -1947,6 +1947,18 @@ public partial class SyncFunction
                         };
                     }
 
+                    var cropContactError = await StampOwnerContactAsync(
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context);
+                    if (cropContactError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {cropContactError}"
+                        };
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownCreateFields = operation.Data.Keys
                         .Where(k => !AllowedCropFields.Contains(k) && k != "version")
@@ -2327,6 +2339,18 @@ public partial class SyncFunction
                         };
                     }
 
+                    var tripContactError = await StampOwnerContactAsync(
+                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
+                    if (tripContactError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {tripContactError}"
+                        };
+                    }
+
                     // C3: Field whitelist — reject unknown fields
                     var unknownFields = operation.Data.Keys
                         .Where(k => !AllowedTripFields.Contains(k) && k != "version")
@@ -2409,6 +2433,14 @@ public partial class SyncFunction
 
                     try
                     {
+                        // The key is (tripId, createdAt), so the condition alone lets a
+                        // replayed create add a second row (SIM-39).
+                        if (await DynamoDbHelper.PartitionExistsAsync(
+                                _dynamoDb, _tripsTable, "tripId", operation.EntityId))
+                        {
+                            throw new ConditionalCheckFailedException("Trip already exists.");
+                        }
+
                         await _dynamoDb.PutItemAsync(request);
 
                         var result = CropRepository.FromItem(item);
@@ -3549,10 +3581,11 @@ public partial class SyncFunction
                     { "version", new AttributeValue { N = "1" } }
                 };
 
-                    // Copy only whitelisted data fields
+                    // Copy only whitelisted data fields. qrNonce is never taken at create:
+                    // only the farmer may author it, later (SIM-41).
                     foreach (var kvp in operation.Data)
                     {
-                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt")
+                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt" or "qrNonce")
                         {
                             continue;
                         }
@@ -3627,11 +3660,19 @@ public partial class SyncFunction
                     // scanner must echo back. Until it is persisted, qrNonce is empty and
                     // the pickup/delivery nonce check is skipped (offline-first).
 
+                    // The key is (deliveryId, tripId), so a replayed create with another
+                    // tripId would pass the put's condition and add a second row (SIM-39).
+                    // Checked before the slot claim so a reused deliveryId never claims
+                    // (and strands) another order's slot.
+                    var deliveryExists = await DynamoDbHelper.PartitionExistsAsync(
+                        _dynamoDb, _deliveriesTable, "deliveryId", operation.EntityId);
+
                     // SIM-09: at most one active delivery per order. The claim is an atomic
                     // conditional write on the order row (deliveries have no order index); a
                     // retry of the same deliveryId re-claims its own slot, and a cancelled
                     // delivery releases it.
-                    if (!await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
+                    if (!deliveryExists
+                        && !await _orderRepo.TryClaimDeliverySlotAsync(createOrderId!, operation.EntityId))
                     {
                         return new SyncOperationResult
                         {
@@ -3650,6 +3691,11 @@ public partial class SyncFunction
 
                     try
                     {
+                        if (deliveryExists)
+                        {
+                            throw new ConditionalCheckFailedException("Delivery already exists.");
+                        }
+
                         await _dynamoDb.PutItemAsync(request);
 
                         var deliveryTxId = item.TryGetValue("orderId", out var dCreateOid)
@@ -3751,6 +3797,16 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
                         };
+                    }
+
+                    // SIM-41: the pickup nonce proves the farmer handed over the goods, so
+                    // only the farmer may author it. A trucker-sent nonce let the trucker
+                    // confirm pickup with a QR code he made himself.
+                    var deliveryFarmerId = existing.TryGetValue("farmerId", out var nonceFarmerAttr)
+                        ? nonceFarmerAttr.S : null;
+                    if (authenticatedUserId != deliveryFarmerId)
+                    {
+                        operation.Data.Remove("qrNonce");
                     }
 
                     // Role-based authorization for status transitions
@@ -3942,7 +3998,10 @@ public partial class SyncFunction
                             var secret = _qrSecretRepo != null
                                 ? await _qrSecretRepo.GetAsync(operation.EntityId)
                                 : null;
-                            var legacyNonce = existing.TryGetValue("qrNonce", out var qnAttr)
+                            // The on-record nonce is trusted only without a secret store: rows
+                            // written before SIM-41 may carry a trucker-authored value.
+                            var legacyNonce = _qrSecretRepo == null
+                                && existing.TryGetValue("qrNonce", out var qnAttr)
                                 ? qnAttr.S : null;
                             var effectiveNonce = secret?.Nonce ?? legacyNonce;
 
@@ -5709,6 +5768,42 @@ public partial class SyncFunction
                 $"ORDER_ESCROW_LINK_FAILED orderId={orderId} deliveryId={deliveryId} "
                 + $"reason=[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>
+    /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
+    /// from the users table, never from the client (a spoofed phone redirected buyers).
+    /// Returns an error message when the profile cannot be read or has no name.
+    /// </summary>
+    private async Task<string?> StampOwnerContactAsync(
+        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
+        ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var owner = await _userRepo.GetUserByIdAsync(ownerId);
+        if (owner == null)
+        {
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        // Display name first, else the legal name received from Fayda. The client
+        // value is never kept: with no name on the profile the create is refused.
+        var name = !string.IsNullOrWhiteSpace(owner.DisplayName) ? owner.DisplayName
+            : !string.IsNullOrWhiteSpace(owner.FullName) ? owner.FullName
+            : null;
+        if (name == null)
+        {
+            return "Add your name to your profile before creating a listing.";
+        }
+
+        data[nameKey] = name.Trim();
+        data[phoneKey] = owner.PhoneNumber;
+        return null;
     }
 
     /// <summary>

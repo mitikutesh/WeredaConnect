@@ -65,6 +65,11 @@ public sealed class OrderRepository : IOrderRepository
 
         try
         {
+            if (await DynamoDbHelper.PartitionExistsAsync(_dynamoDb, _tableName, "orderId", orderId))
+            {
+                throw new ConditionalCheckFailedException("Order already exists.");
+            }
+
             await _dynamoDb.PutItemAsync(request);
 
             var result = DynamoDbHelper.FromItem(item);

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/security/app_lock_service.dart';
 import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -57,7 +58,7 @@ void main() {
     AppLockService.resetExternalFlows();
   });
 
-  Widget app({bool webMode = false}) => MaterialApp(
+  Widget app() => MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: FaydaVerificationScreen(
@@ -68,7 +69,6 @@ void main() {
             return true;
           },
           recordVerified: (r) async => recorded.add(r),
-          webMode: webMode,
         ),
       );
 
@@ -209,17 +209,25 @@ void main() {
     expect(AppLockService.externalFlowActive, isFalse);
   });
 
-  testWidgets('web explains verification happens in the mobile app',
+  // SIM-45: web runs the real link flow instead of a mobile-only dead end.
+  testWidgets('a start refused for the web redirect says to use the app',
       (tester) async {
-    await tester.pumpWidget(app(webMode: true));
+    when(() => service.startLink()).thenAnswer(
+      (_) async => const FaydaStartResult.failure(
+        AuthErrorCode.faydaUnavailableOnWeb,
+        'Fayda verification is not available on the web',
+      ),
+    );
+    await startFlow(tester);
     await tester.pumpAndSettle();
 
+    expect(launched, isEmpty);
     expect(
       find.text(
-        'Fayda verification is available in the WeredaConnect mobile app.',
+        "Fayda verification isn't available in the browser yet. Please use "
+        'the WeredaConnect mobile app.',
       ),
       findsOneWidget,
     );
-    verifyNever(() => service.startLink());
   });
 }

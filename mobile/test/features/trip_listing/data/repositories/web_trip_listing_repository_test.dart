@@ -48,4 +48,45 @@ void main() {
       expect(await repository.getTripById('trip-x'), isNull);
     });
   });
+
+  // SIM-38: a delivery's tripId must be a UUID, so a web trip id has to be one.
+  test('createTrip uses a UUID trip id', () async {
+    final api = _MockApiClient();
+    Map<String, dynamic>? sentBody;
+    when(
+      () => api.post<Map<String, dynamic>>(
+        '/sync',
+        data: any<dynamic>(named: 'data'),
+      ),
+    ).thenAnswer((invocation) async {
+      sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+      return {
+        'results': [
+          {'status': 'success'},
+        ],
+      };
+    });
+
+    final trip = await WebTripListingRepository(api: api).createTrip(
+      truckerId: 'trucker-1',
+      truckerName: 'Trucker',
+      truckerPhone: '+251900100002',
+      fromWoreda: 'Adama',
+      toWoreda: 'Bishoftu',
+      departureDate: DateTime.utc(2026, 10),
+      capacity: 50,
+      pricePerQuintal: 200,
+    );
+
+    expect(
+      trip.tripId,
+      matches(
+        RegExp(
+          r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        ),
+      ),
+    );
+    final op = (sentBody!['operations'] as List).first as Map<String, dynamic>;
+    expect(op['entityId'], trip.tripId);
+  });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
@@ -51,6 +52,12 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   DeliveryError _errorFromException(Object e) {
     if (e is DeliveryValidationException) {
       return DeliveryError(message: e.message, code: e.code);
+    }
+    if (e is SyncDeferredException) {
+      return DeliveryError(
+        message: e.message,
+        code: DeliveryErrorCode.qrPending,
+      );
     }
     return DeliveryError(
       message: e.toString(),

@@ -66,8 +66,9 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
     String? placeId,
     DateTime? neededByDate,
   }) async {
-    final intentId =
-        'int_${DateTime.now().millisecondsSinceEpoch}_${buyerId.hashCode.abs()}';
+    // UUID like the mobile repositories: the server rejects other id
+    // shapes (for example a delivery's tripId must be a UUID).
+    final intentId = _uuid.v4();
     final now = DateTime.now().toUtc();
     final intent = BuyerIntent()
       ..intentId = intentId

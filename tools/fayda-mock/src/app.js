@@ -1,6 +1,6 @@
 'use strict';
 
-const { TEST_USERS, findUser } = require('./users');
+const { TEST_USERS, findUser, generateFin } = require('./users');
 const { randomToken, verifyPkce, subjectForFin, signJwt, verifyJwt } = require('./crypto');
 
 const CODE_TTL_SECONDS = 300;
@@ -49,9 +49,20 @@ body{font-family:system-ui,sans-serif;margin:0;padding:16px;max-width:480px;back
 h1{font-size:1.2rem}.banner{background:#fff3cd;padding:8px;border-radius:6px;font-size:.85rem}
 label.user{display:block;background:#fff;border:1px solid #ccd;border-radius:8px;padding:12px;margin:8px 0}
 small{color:#566}input[type=text]{font-size:1.1rem;padding:8px;width:10ch;letter-spacing:.2em}
+input.fin{width:100%;box-sizing:border-box;margin-top:6px;letter-spacing:.1em}
 button{margin-top:16px;width:100%;padding:12px;font-size:1rem;background:#0f766e;color:#fff;border:0;border-radius:8px}
 </style></head><body>${inner}</body></html>`,
 });
+
+/**
+ * The picker's fin choice: a seeded FIN, "custom" (typed FIN in customFin) or
+ * "new" (a random FIN, so a fresh identity that no account holds yet).
+ */
+function resolveFin(choice, customFin) {
+  if (choice === 'new') return generateFin();
+  if (choice === 'custom') return String(customFin || '').replace(/\s+/g, '');
+  return choice || '';
+}
 
 const errorPage = (statusCode, message) =>
   page(statusCode, 'Fayda mock error', `<h1>Fayda mock: request rejected</h1><p>${esc(message)}</p>`);
@@ -161,17 +172,23 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       return redirectWith(p.redirect_uri, { error: 'access_denied', error_description: 'User denied consent', state: p.state });
     }
     if (q.get('auto') === '1') {
-      const user = findUser(q.get('fin') || '');
-      if (!user) return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: 'unknown fin', state: p.state });
+      const user = findUser(resolveFin(q.get('fin'), q.get('custom_fin')));
+      if (!user) return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: 'fin must be 16 digits', state: p.state });
       return issueCode(p, user.fin);
     }
 
     const hidden = AUTH_FIELDS.map((k) => `<input type="hidden" name="${k}" value="${esc(p[k])}">`).join('');
     const users = TEST_USERS.map((u, i) => `<label class="user"><input type="radio" name="fin" value="${u.fin}"${i === 0 ? ' checked' : ''}>
  <b>${esc(u.name)}</b><br><small>FIN ${u.fin} &middot; ${esc(u.phone || 'no phone')} &middot; ${esc(u.hint)}</small></label>`).join('');
+    const fresh = `<label class="user"><input type="radio" name="fin" value="new">
+ <b>Generate new identity</b><br><small>Random FIN, synthetic name, no phone (server sends the SMS OTP)</small></label>
+<label class="user"><input type="radio" name="fin" value="custom" id="fin-custom">
+ <b>Type a FIN</b><br><small>Any 16 digits. Same FIN, same identity. No phone claim.</small><br>
+ <input type="text" class="fin" name="custom_fin" inputmode="numeric" maxlength="16" pattern="\\d{16}" placeholder="16 digits"
+ onfocus="document.getElementById('fin-custom').checked=true"></label>`;
     return page(200, 'Fayda mock sign-in', `<div class="banner">MOCK Fayda eSignet. Test identities only.</div>
 <h1>Choose a test identity</h1>
-<form method="post" action="authorize/complete">${hidden}${users}
+<form method="post" action="authorize/complete">${hidden}${users}${fresh}
 <label>OTP (use ${TEST_OTP})<br><input type="text" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
 <button type="submit">Continue</button></form>`);
   }
@@ -184,8 +201,8 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     if (v.redirectError) {
       return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: v.redirectError, state: p.state || undefined });
     }
-    const user = findUser(form.get('fin') || '');
-    if (!user) return errorPage(400, 'Pick one of the test identities.');
+    const user = findUser(resolveFin(form.get('fin'), form.get('custom_fin')));
+    if (!user) return errorPage(400, 'Pick a test identity, or type a FIN of exactly 16 digits.');
     if (form.get('otp') !== TEST_OTP) return errorPage(400, `Wrong OTP. The mock only accepts ${TEST_OTP}.`);
     return issueCode(p, user.fin);
   }

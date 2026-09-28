@@ -15,6 +15,7 @@ String localizeDeliveryError(AppLocalizations l10n, String? code) {
       l10n.deliveryErrorDisputeReasonRequired,
     DeliveryErrorCode.gpsInvalid => l10n.deliveryErrorGpsInvalid,
     DeliveryErrorCode.notFound => l10n.deliveryErrorNotFound,
+    DeliveryErrorCode.qrPending => l10n.deliveryErrorQrPending,
     _ => l10n.deliveryErrorGeneric,
   };
 }

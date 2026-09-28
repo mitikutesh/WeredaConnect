@@ -387,6 +387,7 @@ Common route patterns:
 - Truckers can only create/update/delete their own trips
 - Server validates `truckerId` matches JWT `sub` claim
 - `truckerId`, `truckerName` and `truckerPhone` are immutable after create. An update that changes any of them is rejected with `TRIP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
+- On create, `truckerName` and `truckerPhone` are set by the server from the trucker's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `TRIP_VALIDATION`.
 
 ### Rate Limiting
 - **POST /sync**: 100 requests/second per user (API Gateway throttling)
@@ -421,9 +422,10 @@ Common route patterns:
 |---------|------|--------|
 | 1.0.0 | 2026-02-16 | Initial contract: Create/browse/get endpoints, data model, validation rules, status transitions, Ethiopian context |
 | 1.1.0 | 2026-09-25 | Update: `truckerId`/`truckerName`/`truckerPhone` are immutable after create (SIM-03); a changed value is rejected with `TRIP_VALIDATION`, an echoed value is stripped |
+| 1.2.0 | 2026-09-28 | Create: `truckerName`/`truckerPhone` come from the trucker's profile, client values ignored (SIM-40) |
 
 ---
 
-**Last Updated**: 2026-09-25
-**Version**: 1.1.0
+**Last Updated**: 2026-09-28
+**Version**: 1.2.0
 **Status**: Draft (Phase R4.1)

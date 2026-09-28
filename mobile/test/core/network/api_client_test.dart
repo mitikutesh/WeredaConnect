@@ -527,6 +527,24 @@ void main() {
   });
 
   group('ensureSyncSucceeded', () {
+    // Web has no sync queue, so a deferred op (nothing written) is a failure.
+    test('throws SyncDeferredException on a deferred operation', () {
+      final response = {
+        'results': [
+          {
+            'operationId': 'op-1',
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the QR code.',
+          },
+        ],
+      };
+
+      expect(
+        () => ensureSyncSucceeded(response),
+        throwsA(isA<SyncDeferredException>()),
+      );
+    });
+
     test('throws SyncRejectedException with the server message on error', () {
       final response = {
         'syncBatchId': 'batch-1',

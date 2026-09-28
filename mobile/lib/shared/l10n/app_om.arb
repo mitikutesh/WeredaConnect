@@ -571,6 +571,10 @@
   "@recordAudioNote": {
     "description": "Button to record voice description"
   },
+  "cropLocationCoordinatesRequired": "GPS hin argamu. Bakka keessan tarree keessaa filadhaa ykn GPS banaa.",
+  "@cropLocationCoordinatesRequired": {
+    "description": "Shown when saving a crop listing with no GPS fix and no place picked from the location list"
+  },
   "cropTypeRequired": "Maaloo gosa midhaan filadhaa",
   "@cropTypeRequired": {
     "description": "Validation error for missing crop type"
@@ -2062,6 +2066,7 @@
     "description": "Generic delivery error message"
   },
   "deliveryErrorNotFound": "Geejjibsiisni hin argamne",
+  "deliveryErrorQrPending": "Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi'aa yaalaa.",
   "@deliveryErrorNotFound": {
     "description": "Error when delivery cannot be found"
   },
@@ -2484,7 +2489,6 @@
   "faydaStateMismatch": "Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi'aa jalqabaa.",
   "faydaStillWaiting": "Ammallee Faayidaa eeggachaa jira. Brawuzara keessatti xumuraa, achii as deebifamtu.",
   "faydaLinkSuccess": "ID Faayidaa keessan amma herrega keessan waliin walqabateera.",
-  "faydaMobileOnly": "Mirkaneessi Faayidaa appii moobaayilaa WeredaConnect keessatti argama.",
   "faydaNotVerifiedSubtitle": "Kaffaltii qarshii 10,000 ol ta'eef barbaachisa",
   "appLockTitle": "Cufaa appii",
   "appLockSubtitle": "Yeroo appii bantan quba ykn PIN bilbilaa gaafadhu",

@@ -2,6 +2,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Web-only delivery repository.
@@ -26,11 +27,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String buyerName,
     required String qrToken,
   }) async {
-    final deliveryId =
-        'dlv_${DateTime.now().millisecondsSinceEpoch}_${farmerId.hashCode.abs()}';
+    // UUID like the mobile repositories: the server rejects other id
+    // shapes (for example a delivery's tripId must be a UUID).
+    final deliveryId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -60,6 +62,8 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    // A rejected op must not leave a phantom local-only delivery.
+    ensureSyncSucceeded(response);
 
     return Delivery()
       ..deliveryId = deliveryId
@@ -88,11 +92,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String buyerId,
     required String buyerName,
   }) async {
-    final deliveryId =
-        'dlv_${DateTime.now().millisecondsSinceEpoch}_${buyerId.hashCode.abs()}';
+    // UUID like the mobile repositories: the server rejects other id
+    // shapes (for example a delivery's tripId must be a UUID).
+    final deliveryId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -119,6 +124,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
 
     return Delivery()
       ..deliveryId = deliveryId
@@ -184,7 +190,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     if (photoRef != null) data['pickupPhotoRef'] = photoRef;
     if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -202,6 +208,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -228,7 +235,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     if (photoRef != null) data['dropoffPhotoRef'] = photoRef;
     if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -246,6 +253,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -255,7 +263,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final version = await _currentVersion(deliveryId);
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -277,6 +285,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -287,7 +296,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final version = await _currentVersion(deliveryId);
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -309,6 +318,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   @override
@@ -318,7 +328,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final version = await _currentVersion(deliveryId);
-    await _api.post<dynamic>(
+    final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
         'syncBatchId': _uuid.v4(),
@@ -336,6 +346,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         ],
       },
     );
+    ensureSyncSucceeded(response);
   }
 
   @override

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -29,45 +28,26 @@ typedef FaydaUrlLauncher = Future<bool> Function(Uri url);
 /// profile badge shows immediately, offline too. Pops with `true` when the
 /// account ended up verified.
 ///
-/// Web has no deep-link return from the Fayda portal, so there the screen
-/// only explains that verification happens in the mobile app.
+/// Web runs the same flow: Fayda redirects to `web/fayda-callback.html`,
+/// which relays the callback to this tab (see [faydaCallbackLinks]). When
+/// the server refuses the web redirect (real provider) the start fails with
+/// [AuthErrorCode.faydaUnavailableOnWeb] and that message is shown.
 class FaydaVerificationScreen extends StatelessWidget {
   final FaydaOidcService? service;
   final Stream<Uri>? deepLinks;
   final FaydaUrlLauncher? launcher;
   final FaydaVerifiedRecorder? recordVerified;
 
-  /// Whether to run the web variant (defaults to [kIsWeb]; tests override).
-  final bool? webMode;
-
   const FaydaVerificationScreen({
     this.service,
     this.deepLinks,
     this.launcher,
     this.recordVerified,
-    this.webMode,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    if (webMode ?? kIsWeb) {
-      return Scaffold(
-        appBar: AppBar(title: Text(l10n.faydaVerifyTitle)),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              l10n.faydaMobileOnly,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, color: AppTheme.textDark),
-            ),
-          ),
-        ),
-      );
-    }
-
     return BlocProvider(
       create: (context) => FaydaVerificationBloc(
         service: service ?? FaydaOidcService(),

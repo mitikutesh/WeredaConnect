@@ -465,6 +465,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get recordAudioNote => 'Yaadannoo Sagalee Galmeessi';
 
   @override
+  String get cropLocationCoordinatesRequired =>
+      'GPS hin argamu. Bakka keessan tarree keessaa filadhaa ykn GPS banaa.';
+
+  @override
   String get cropTypeRequired => 'Maaloo gosa midhaan filadhaa';
 
   @override
@@ -1644,6 +1648,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryErrorNotFound => 'Geejjibsiisni hin argamne';
 
   @override
+  String get deliveryErrorQrPending =>
+      'Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
   String get deliveryQrTooLarge => 'QR koodiin baay\'ee guddaadha';
 
   @override
@@ -2687,10 +2695,6 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get faydaLinkSuccess =>
       'ID Faayidaa keessan amma herrega keessan waliin walqabateera.';
-
-  @override
-  String get faydaMobileOnly =>
-      'Mirkaneessi Faayidaa appii moobaayilaa WeredaConnect keessatti argama.';
 
   @override
   String get faydaNotVerifiedSubtitle =>

@@ -160,8 +160,15 @@ final class SyncRejectedException extends ApiException {
   const SyncRejectedException(super.message);
 }
 
+/// The server postponed a /sync operation (`status == "deferred"`), e.g. a
+/// pickup whose farmer QR nonce has not synced yet. Nothing was written. The
+/// native sync queue retries these; web has no queue, so it is a failure there.
+final class SyncDeferredException extends SyncRejectedException {
+  const SyncDeferredException(super.message);
+}
+
 /// Throws [SyncRejectedException] if any operation in a /sync batch response
-/// reports `status == "error"`.
+/// reports `status == "error"`, or [SyncDeferredException] for `"deferred"`.
 ///
 /// No-op when the response shape is unexpected (e.g. an empty body) so it
 /// never masks an otherwise-successful write.
@@ -169,10 +176,13 @@ void ensureSyncSucceeded(Map<String, dynamic> syncResponse) {
   final results = syncResponse['results'];
   if (results is! List) return;
   for (final result in results) {
-    if (result is Map && result['status'] == 'error') {
-      throw SyncRejectedException(
-        (result['message'] as String?) ?? 'Sync operation was rejected.',
-      );
+    if (result is! Map) continue;
+    final message = result['message'] as String?;
+    if (result['status'] == 'error') {
+      throw SyncRejectedException(message ?? 'Sync operation was rejected.');
+    }
+    if (result['status'] == 'deferred') {
+      throw SyncDeferredException(message ?? 'Sync operation was deferred.');
     }
   }
 }
