@@ -86,11 +86,17 @@ The channel code has a browser-only test:
 
 `sub` is a stable hash of the FIN, never the raw FIN.
 
+Any other 16-digit FIN is a synthetic identity: stable name derived from the FIN,
+no `phone_number` claim (so registration always goes through the SMS OTP). The
+picker offers **Generate new identity** and **Type a FIN** for this; see
+`tools/fayda-mock/README.md`. Use it to register fresh dev users, since each FIN
+binds to one account (`FAYDA_004`).
+
 ## Maestro and failure modes
 
 Append to the authorize URL:
 
-- `auto=1&fin=<FIN>` skips the picker and redirects straight back with a code.
+- `auto=1&fin=<FIN>` skips the picker and redirects straight back with a code. `fin=new` uses a random FIN.
 - `simulate=denied` redirects with `error=access_denied`.
 - `simulate=down` returns 503.
 

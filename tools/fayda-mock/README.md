@@ -35,7 +35,7 @@ curl -s localhost:8788/.well-known/openid-configuration
 |--------|------|-------|
 | GET | `/.well-known/openid-configuration` | Discovery |
 | GET | `/.well-known/jwks.json` | Public signing key |
-| GET | `/authorize` | Test-user picker + OTP page. `auto=1&fin=<FIN>` skips it, `simulate=denied` or `simulate=down` |
+| GET | `/authorize` | Test-user picker + OTP page. `auto=1&fin=<FIN>` (or `fin=new`) skips it, `simulate=denied` or `simulate=down` |
 | POST | `/authorize/complete` | Form target of the picker, redirects with `code` + `state` |
 | POST | `/token` | `authorization_code` only, PKCE required |
 | GET | `/userinfo` | `Authorization: Bearer <access_token>` |
@@ -68,3 +68,17 @@ Any exchange attempt burns the code, even a failed one.
 | 5555555555555555 | No Phone | none |
 
 `sub` is a stable hash of the FIN, not the FIN itself.
+
+### Any other FIN (fresh sign-ups)
+
+The server links each Fayda identity to one account (`FAYDA_004`), so the five
+seeded FINs run out fast. The mock accepts **any** 16-digit FIN and derives a
+synthetic identity from it: `sub` from the FIN hash as above, and a name,
+`given_name` and `family_name` picked by a hash of the FIN, so the same FIN
+always returns the same person. Synthetic identities carry **no**
+`phone_number` claim, so the server never treats the phone as Fayda-proven and
+always sends the SMS OTP.
+
+On the picker page choose **Generate new identity** (a random FIN) or **Type a
+FIN**. For automation use `auto=1&fin=new` or `auto=1&fin=<any 16 digits>`.
+Anything that is not exactly 16 digits is rejected.
