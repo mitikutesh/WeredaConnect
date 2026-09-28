@@ -1947,6 +1947,18 @@ public partial class SyncFunction
                         };
                     }
 
+                    var cropContactError = await StampOwnerContactAsync(
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context);
+                    if (cropContactError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"CROP_VALIDATION: {cropContactError}"
+                        };
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownCreateFields = operation.Data.Keys
                         .Where(k => !AllowedCropFields.Contains(k) && k != "version")
@@ -2324,6 +2336,18 @@ public partial class SyncFunction
                             OperationId = operation.OperationId,
                             Status = "error",
                             Message = "TRIP_UNAUTHORIZED: truckerId must match authenticated user."
+                        };
+                    }
+
+                    var tripContactError = await StampOwnerContactAsync(
+                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
+                    if (tripContactError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"TRIP_VALIDATION: {tripContactError}"
                         };
                     }
 
@@ -5725,6 +5749,36 @@ public partial class SyncFunction
                 $"ORDER_ESCROW_LINK_FAILED orderId={orderId} deliveryId={deliveryId} "
                 + $"reason=[{ex.GetType().Name}]");
         }
+    }
+
+    /// <summary>
+    /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
+    /// from the users table, never from the client (a spoofed phone redirected buyers).
+    /// Returns an error message when the owner's profile cannot be read.
+    /// </summary>
+    private async Task<string?> StampOwnerContactAsync(
+        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
+        ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var owner = await _userRepo.GetUserByIdAsync(ownerId);
+        if (owner == null)
+        {
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var name = owner.DisplayName ?? owner.FullName;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            data[nameKey] = name;
+        }
+        data[phoneKey] = owner.PhoneNumber;
+        return null;
     }
 
     /// <summary>

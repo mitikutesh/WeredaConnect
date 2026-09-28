@@ -397,6 +397,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - Farmers can only create/update/delete their own listings
 - Server validates `farmerId` matches JWT `sub` claim
 - `farmerId`, `farmerName` and `farmerPhone` are immutable after create. An update that changes any of them is rejected with `CROP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
+- On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. If the profile cannot be read the create is rejected with `CROP_VALIDATION`.
 
 ### Rate Limiting
 - **POST /sync**: 100 requests/second per user (API Gateway throttling)
@@ -431,9 +432,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.0.0 | 2026-02-15 | Initial contract: Create/browse/get endpoints, data model, validation rules, Ethiopian context |
 | 1.1.0 | 2026-09-25 | Update: `farmerId`/`farmerName`/`farmerPhone` are immutable after create (SIM-02); a changed value is rejected with `CROP_VALIDATION`, an echoed value is stripped |
 | 1.1.1 | 2026-09-25 | Geo/date rules on update as on create (SIM-17): `latitude`/`longitude` must be inside the Ethiopia bounding box when present (null tolerated), `createdAt` must be ISO 8601 and not in the future (24h skew); both `CROP_VALIDATION` |
+| 1.2.0 | 2026-09-28 | Create: `farmerName`/`farmerPhone` come from the farmer's profile, client values ignored (SIM-40) |
 
 ---
 
-**Last Updated**: 2026-09-25
-**Version**: 1.1.1
+**Last Updated**: 2026-09-28
+**Version**: 1.2.0
 **Status**: Implemented (Phase R3)

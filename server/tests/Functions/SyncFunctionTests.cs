@@ -537,6 +537,38 @@ public class SyncFunctionTests
         Assert.Contains("UNAUTHORIZED", response.Body);
     }
 
+    // SIM-40: buyers see the listing's farmerName/farmerPhone, so a create takes
+    // them from the farmer's profile and ignores what the client sent.
+    [Fact]
+    public async Task CropCreate_SpoofedFarmerContact_IsReplacedFromProfile()
+    {
+        _mockUserRepo.GetUserByIdAsync("farmer-001").Returns(new UserDto
+        {
+            UserId = "farmer-001",
+            PhoneNumber = "+251900100001",
+            DisplayName = "Abebe Kebede",
+            Role = "farmer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(
+                new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
+        var op = MakeCropCreateOp();
+        op.Data!["farmerName"] = "Seeded Abebe (fake)";
+        op.Data["farmerPhone"] = "+251911000001";
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
+        await _function.FunctionHandler(request, _context);
+
+        await _mockCropRepo.Received(1).CreateAsync("crop-001", Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["farmerName"] == "Abebe Kebede"
+            && (string)d["farmerPhone"] == "+251900100001"));
+    }
+
     [Fact]
     public async Task CropCreate_FarmerIdMismatch_ReturnsUnauthorized()
     {
@@ -1199,24 +1231,50 @@ public class SyncFunctionTests
 
     // --- F-SEC-02: Phone Validation Tests ---
 
+    // SIM-40: the trip's contact comes from the trucker's profile, so a spoofed
+    // or malformed client phone and name never reach buyers.
     [Theory]
     [InlineData("+251abc")]
-    [InlineData("+25191234")]
-    [InlineData("+2519123456789")]
-    [InlineData("+252912345678")]
-    public async Task TripCreate_InvalidPhoneFormat_ReturnsValidationError(string phone)
+    [InlineData("+251911000000")]
+    public async Task TripCreate_ClientPhoneAndName_AreReplacedFromProfile(string phone)
     {
+        _mockUserRepo.GetUserByIdAsync("trucker-001").Returns(new UserDto
+        {
+            UserId = "trucker-001",
+            PhoneNumber = "+251900100002",
+            DisplayName = "Chaltu Tolosa",
+            Role = "trucker",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
         var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
         {
-            { "truckerPhone", phone }
+            { "truckerPhone", phone },
+            { "truckerName", "Someone Else" }
         });
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("error", response.Body);
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["truckerPhone"].S == "+251900100002"
+            && r.Item["truckerName"].S == "Chaltu Tolosa"));
+    }
+
+    [Fact]
+    public async Task TripCreate_OwnerProfileMissing_IsRejected()
+    {
+        _mockUserRepo.GetUserByIdAsync("trucker-001").Returns((UserDto?)null);
+
+        var op = MakeTripCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
         Assert.Contains("TRIP_VALIDATION", response.Body);
-        Assert.Contains("truckerPhone", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
     // --- F-SEC-06: Delivered Terminal State Tests ---
@@ -1658,7 +1716,8 @@ public class SyncFunctionTests
 
         var rateLimitedFunction = new SyncFunction(
             _mockSyncMeta, _mockCropRepo, _mockDynamoDb,
-            "test-trips-table", "test-deliveries-table", mockRateLimiter);
+            "test-trips-table", "test-deliveries-table", mockRateLimiter,
+            userRepo: _mockUserRepo);
 
         var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await rateLimitedFunction.FunctionHandler(request, _context);
