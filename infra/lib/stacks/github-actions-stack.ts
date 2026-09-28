@@ -202,6 +202,10 @@ export class GithubActionsStack extends cdk.Stack {
             "cognito-idp:AdminCreateUser",
             "cognito-idp:AdminSetUserPassword",
             "cognito-idp:AdminAddUserToGroup",
+            // Reset the TOTP preference so the e2e enrols a fresh token, and
+            // read the groups back when login answers with an MFA challenge.
+            "cognito-idp:AdminSetUserMFAPreference",
+            "cognito-idp:AdminListGroupsForUser",
           ],
           resources: [
             `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`,

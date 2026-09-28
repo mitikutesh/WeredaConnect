@@ -639,6 +639,8 @@ describe('GithubActionsStack', () => {
               'cognito-idp:AdminCreateUser',
               'cognito-idp:AdminSetUserPassword',
               'cognito-idp:AdminAddUserToGroup',
+              'cognito-idp:AdminSetUserMFAPreference',
+              'cognito-idp:AdminListGroupsForUser',
             ],
             Resource: 'arn:aws:cognito-idp:eu-north-1:123456789012:userpool/*',
           }),
