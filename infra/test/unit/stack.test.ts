@@ -140,12 +140,13 @@ describe('ApiStack', () => {
         expect(props.ExplicitAuthFlows).not.toContain('ALLOW_USER_SRP_AUTH');
       }
     }
-    // Admin pool requires MFA in every environment (dev template here). TOTP is
-    // always offered; SMS stays enabled because Cognito refuses to turn SMS_MFA
-    // off on a pool with an SMS configuration once MFA is required.
+    // Admin pool MFA is optional outside prod (dev template here): SMS codes are
+    // undeliverable there and Cognito can never drop SMS_MFA from a pool with an
+    // SMS configuration, so REQUIRED would SMS-challenge every admin. TOTP is
+    // always offered.
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       UserPoolName: 'wereda-connect-dev-admins',
-      MfaConfiguration: 'ON',
+      MfaConfiguration: 'OPTIONAL',
       EnabledMfas: ['SMS_MFA', 'SOFTWARE_TOKEN_MFA'],
       // Phone-only recovery is rejected by Cognito alongside SMS MFA.
       AccountRecoverySetting: { RecoveryMechanisms: [{ Name: 'admin_only', Priority: 1 }] },
@@ -404,6 +405,14 @@ describe('ApiStack (prod security)', () => {
       uploadsBucket: dbStack.uploadsBucket,
     });
     template = Template.fromStack(apiStack);
+  });
+
+  test('prod admin pool requires MFA', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      UserPoolName: 'wereda-connect-prod-admins',
+      MfaConfiguration: 'ON',
+      EnabledMfas: ['SMS_MFA', 'SOFTWARE_TOKEN_MFA'],
+    });
   });
 
   test('T-SEC-06: prod CORS origins contain no localhost', () => {

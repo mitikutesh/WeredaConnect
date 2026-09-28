@@ -19,7 +19,7 @@ Keep one password login per session and put strong authentication where money an
 | Identity proof | Phone ownership is proven by SMS code at registration unless Fayda released the same number. Fayda identity is proven by OIDC with server-held state, nonce and PKCE, at registration or later from the profile. |
 | Step-up | A money action at or above 10,000 ETB needs a password entered within the last 5 minutes (Cognito `auth_time`). Below that, a device gate is enough. |
 | Payout | Money goes only to the registered phone of a verified party. Above 10,000 ETB the recipient must be Fayda-verified; otherwise the release is blocked for an admin. |
-| Admin | TOTP MFA in every environment. Only the admin pool's `admin` group may settle escrows. Admin verdicts are recorded and settled by the cron, so the admin Lambda never moves money. |
+| Admin | TOTP MFA required in prod, optional in dev and staging (SMS MFA codes are undeliverable there). Only the admin pool's `admin` group may settle escrows. Admin verdicts are recorded and settled by the cron, so the admin Lambda never moves money. |
 
 Fayda on every login was rejected: it fails on connectivity and provider uptime, and it adds friction for users who log in daily on shared phones. ASP.NET Core Identity was rejected: Cognito already owns password hashing, lockout and reset, and the server is Native AOT.
 
@@ -58,7 +58,7 @@ Fayda on every login was rejected: it fails on connectivity and provider uptime,
 OTP screen, step-up dialog, KYC dialog, Fayda verification screen, device identity headers, local auth gate on QR confirm, app lock, device-token unregister at logout, session hygiene fixes.
 
 ### Admin web
-Login drives TOTP setup and challenge; the pool requires MFA in every environment.
+Login drives TOTP setup and challenge. The admin pool requires MFA in prod and makes it optional in dev and staging: the pool has an SMS configuration, so Cognito always keeps SMS_MFA as a factor and SMS-challenges any REQUIRED-pool admin without a TOTP, and SMS codes are undeliverable outside prod.
 
 ---
 
@@ -82,11 +82,11 @@ Production guard: `DEV_FAYDA_BYPASS`, `DEV_OTP_BYPASS`, `TELEBIRR_MOCK` and `FAY
 
 - New Lambda `auth-verify-otp`; new routes `/auth/verify-otp`, `/auth/resend-otp`, `/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`, `DELETE /device-tokens`.
 - The mobile client's `USER_PASSWORD_AUTH` flow is disabled; `ADMIN_USER_PASSWORD_AUTH` is enabled. Login Lambdas need `COGNITO_USER_POOL_ID`.
-- Admin pool MFA becomes REQUIRED in dev and staging: existing admins set up an authenticator on first login.
+- Admin pool MFA is REQUIRED in prod and OPTIONAL in dev and staging (REQUIRED there SMS-challenged every admin with an undeliverable code). Prod admins get an SMS_MFA challenge until they enrol TOTP, so prod SNS must be out of the SMS sandbox before the first prod admin signs in.
 - Dev deploys the mock Fayda provider (Function URL, DynamoDB codes table, SSM signing key generated on first call).
 - SNS SMS is still sandboxed: keep `SMS_ENABLED=false` and `DEV_OTP_BYPASS=true` in dev; exit the sandbox before staging relies on codes.
 - All public auth routes are wired with API Gateway payload format 1.0 (the handlers dispatch on the path and read the caller IP for the per-IP caps).
-- Scripts: `scripts/seed-test-users.sh` verifies logins with `ADMIN_USER_PASSWORD_AUTH` (the mobile client no longer allows a password login); `scripts/seed-admin-user.sh` clears the admin's TOTP preference each run and `scripts/e2e_admin.py` enrols a fresh authenticator through the `MFA_SETUP` challenge (set `ADMIN_TOTP_SECRET` to answer `SOFTWARE_TOKEN_MFA` for an already enrolled admin).
+- Scripts: `scripts/seed-test-users.sh` verifies logins with `ADMIN_USER_PASSWORD_AUTH` (the mobile client no longer allows a password login); `scripts/seed-admin-user.sh` clears the admin's MFA preferences each run so the non-prod password login issues tokens; `scripts/e2e_admin.py` also answers `MFA_SETUP` and, with `ADMIN_TOTP_SECRET`, `SOFTWARE_TOKEN_MFA`.
 
 ---
 

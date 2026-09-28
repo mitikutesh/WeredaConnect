@@ -106,10 +106,11 @@ def cognito_call(region, target, body):
 
 
 def cognito_login(region, client_id, phone, password, token_kind):
-    """USER_PASSWORD_AUTH against the admin pool's app client (no secret), then the
-    TOTP challenges the pool requires: MFA_SETUP enrols a fresh authenticator
-    (seed-admin-user.sh clears the preference before every run); SOFTWARE_TOKEN_MFA
-    answers with ADMIN_TOTP_SECRET when a secret is provided."""
+    """USER_PASSWORD_AUTH against the admin pool's app client (no secret). MFA is
+    optional outside prod and seed-admin-user.sh clears the preference before every
+    run, so this normally issues tokens directly. It still answers TOTP challenges:
+    MFA_SETUP enrols a fresh authenticator; SOFTWARE_TOKEN_MFA answers with
+    ADMIN_TOTP_SECRET when a secret is provided."""
     status, payload = cognito_call(region, "InitiateAuth", {
         "AuthFlow": "USER_PASSWORD_AUTH",
         "ClientId": client_id,
