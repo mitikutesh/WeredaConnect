@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -26,10 +27,21 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// present identical destination sets per role. The sidebar
 /// (tablet/desktop) appends [sidebarExtrasForRole] so destinations that
 /// didn't earn a bar slot stay one click away on wide screens.
+///
+/// The role FAB shows only on a tab root: it hides on non-tab routes
+/// (profile, settings) and while [pushedRoutes] reports a screen pushed on
+/// top of the shell's navigator, so it never covers that screen's own
+/// actions (SIM-44).
 class AdaptiveShell extends StatelessWidget {
   final Widget child;
 
-  const AdaptiveShell({required this.child, super.key});
+  /// Tracks screens pushed imperatively onto the shell navigator. Null (tests,
+  /// standalone use) means none are ever reported.
+  final ShellPushedRoutesObserver? pushedRoutes;
+
+  const AdaptiveShell({required this.child, this.pushedRoutes, super.key});
+
+  static final ValueNotifier<int> _noPushedRoutes = ValueNotifier<int>(0);
 
   // ── Destination helpers ──────────────────────────────────────────────
 
@@ -103,6 +115,26 @@ class AdaptiveShell extends StatelessWidget {
     }
   }
 
+  Widget _fab(
+    BuildContext context,
+    AppLocalizations l10n,
+    UserRole role, {
+    required bool onTabRoot,
+  }) {
+    return ValueListenableBuilder<int>(
+      valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+      builder: (context, pushed, _) {
+        if (!onTabRoot || pushed > 0) return const SizedBox.shrink();
+        return FloatingActionButton.extended(
+          onPressed: () => _onFabPressed(context, role),
+          shape: const StadiumBorder(),
+          icon: const Icon(Icons.add),
+          label: Text(_fabTooltip(l10n, role)),
+        );
+      },
+    );
+  }
+
   String _fabTooltip(AppLocalizations l10n, UserRole role) {
     return switch (role) {
       UserRole.farmer => l10n.sellCrops,
@@ -140,12 +172,8 @@ class AdaptiveShell extends StatelessWidget {
 
       return Scaffold(
         body: child,
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => _onFabPressed(context, role),
-          shape: const StadiumBorder(),
-          icon: const Icon(Icons.add),
-          label: Text(_fabTooltip(l10n, role)),
-        ),
+        floatingActionButton:
+            _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: clampedIndex,
           onTap: (i) => _onDestinationSelected(context, i, dests),
@@ -188,13 +216,58 @@ class AdaptiveShell extends StatelessWidget {
           Expanded(child: child),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _onFabPressed(context, role),
-        shape: const StadiumBorder(),
-        icon: const Icon(Icons.add),
-        label: Text(_fabTooltip(l10n, role)),
-      ),
+      floatingActionButton:
+          _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
     );
+  }
+}
+
+/// Counts pageless routes (screens opened with `Navigator.push`) sitting on
+/// top of the shell navigator's go_router pages. Attach it to the
+/// `ShellRoute` via `observers` and pass it to [AdaptiveShell].
+///
+/// go_router's own pages carry a [Page] as their settings and are ignored, so
+/// tab switches never skew the count; pushed routes that go_router drops on a
+/// tab switch arrive through [didRemove].
+class ShellPushedRoutesObserver extends NavigatorObserver {
+  final ValueNotifier<int> count = ValueNotifier<int>(0);
+
+  bool _isPushedScreen(Route<dynamic>? route) =>
+      route is PageRoute && route.settings is! Page;
+
+  int _depth = 0;
+
+  void _adjust(Route<dynamic>? route, int delta) {
+    if (!_isPushedScreen(route)) return;
+    _depth = (_depth + delta).clamp(0, 1 << 20);
+    // go_router drops pages during build; notifying the shell then would
+    // mark an ancestor dirty mid-build, so publish after the frame.
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        count.value = _depth;
+      });
+    } else {
+      count.value = _depth;
+    }
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _adjust(route, 1);
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _adjust(route, -1);
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _adjust(route, -1);
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    _adjust(oldRoute, -1);
+    _adjust(newRoute, 1);
   }
 }
 

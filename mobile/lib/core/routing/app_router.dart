@@ -53,6 +53,7 @@ String? webRedirect(AuthState authState, String location) {
 /// On mobile, the existing AuthGate + MainNavigation pattern handles routing.
 /// On web, go_router provides URL-based navigation with browser back/forward.
 GoRouter createWebRouter(AuthBloc authBloc) {
+  final pushedRoutes = ShellPushedRoutesObserver();
   return GoRouter(
     refreshListenable: _AuthRefreshNotifier(authBloc),
     redirect: (context, state) =>
@@ -87,8 +88,11 @@ GoRouter createWebRouter(AuthBloc authBloc) {
       // Authenticated routes with adaptive shell. The arrival listener shows
       // an in-app banner when a chat message lands while the web app is open.
       ShellRoute(
+        observers: [pushedRoutes],
         builder: (context, state, child) => MessageArrivalListener(
-          child: SecurityPromptListener(child: AdaptiveShell(child: child)),
+          child: SecurityPromptListener(
+            child: AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+          ),
         ),
         routes: [
           GoRoute(
