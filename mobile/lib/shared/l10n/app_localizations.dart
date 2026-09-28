@@ -3202,6 +3202,12 @@ abstract class AppLocalizations {
   /// **'Overview'**
   String get overview;
 
+  /// Home dashboard section with the role's counts and shortcuts; every tile opens its screen
+  ///
+  /// In en, this message translates to:
+  /// **'At a Glance'**
+  String get atAGlance;
+
   /// Section header for activity feed
   ///
   /// In en, this message translates to:

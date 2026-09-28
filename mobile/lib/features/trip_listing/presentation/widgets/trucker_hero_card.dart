@@ -205,40 +205,9 @@ class _PostedCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _RouteDisplay(
-                  from: trip.fromWoreda,
-                  to: trip.toWoreda,
-                ),
-              ),
-              const SizedBox(width: 8),
-              // A plain "Open" status instead of a perpetual "Waiting for
-              // match…" spinner: truckers post trips for buyers to browse, so
-              // there is no automatic match to wait on — the spinner only
-              // confused users.
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppTheme.statusSuccess.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  l10n.tripStatusOpen,
-                  style: const TextStyle(
-                    color: AppTheme.statusSuccess,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          // No status pill: the whole card opens the trip, and an "Open"
+          // label here read as a second button.
+          _RouteDisplay(from: trip.fromWoreda, to: trip.toWoreda),
           const SizedBox(height: 12),
           Text(
             '${l10n.etbCurrency(trip.pricePerQuintal.toStringAsFixed(0))}/${l10n.quintals}',

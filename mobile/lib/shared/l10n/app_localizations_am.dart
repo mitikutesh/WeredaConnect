@@ -1645,6 +1645,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get overview => 'አጠቃላይ';
 
   @override
+  String get atAGlance => 'በጨረፍታ';
+
+  @override
   String get recentActivity => 'የቅርብ ጊዜ';
 
   @override
