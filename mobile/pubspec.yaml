@@ -55,7 +55,7 @@ dependencies:
   # F-12: Delivery Verification
   crypto: ^3.0.6
   qr_flutter: ^4.1.0
-  mobile_scanner: ^6.0.2
+  mobile_scanner: ^7.4.2
   geolocator: ^13.0.2
   image_picker: ^1.1.2
   flutter_image_compress: ^2.4.0
