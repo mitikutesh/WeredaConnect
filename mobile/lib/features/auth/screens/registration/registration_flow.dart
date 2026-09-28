@@ -158,7 +158,12 @@ class _RegistrationFlowState extends State<RegistrationFlow>
           // Farmer sees personal info as step 2
           return true;
         }
-        return true; // Role details are optional
+        if (_selectedRole == UserRole.trucker) {
+          // Truckers must scan their driving license to register.
+          return _drivingLicensePath != null;
+        }
+        // Company buyers must name their company (server rejects blank).
+        return _buyerType != 'company' || _companyName.trim().isNotEmpty;
       case 3:
         return true;
       default:

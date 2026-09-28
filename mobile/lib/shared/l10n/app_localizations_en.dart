@@ -1822,6 +1822,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Scan your driving license to verify your identity';
 
   @override
+  String get drivingLicenseRequired =>
+      'A driving license photo is required to register as a trucker.';
+
+  @override
   String get buyerType => 'Buyer Type';
 
   @override
@@ -1836,6 +1840,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get companyName => 'Company Name';
+
+  @override
+  String get companyNameRequired => 'Enter your company name to continue.';
 
   @override
   String get personalInfo => 'Personal Info';

@@ -1768,6 +1768,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get drivingLicenseInstructions => 'ማንነትዎን ለማረጋገጥ የመንጃ ፈቃድዎን ይቃኙ';
 
   @override
+  String get drivingLicenseRequired => 'እንደ አሽከርካሪ ለመመዝገብ የመንጃ ፈቃድ ፎቶ ያስፈልጋል።';
+
+  @override
   String get buyerType => 'የገዥ ዓይነት';
 
   @override
@@ -1781,6 +1784,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get companyName => 'የኩባንያ ስም';
+
+  @override
+  String get companyNameRequired => 'ለመቀጠል የኩባንያዎን ስም ያስገቡ።';
 
   @override
   String get personalInfo => 'የግል መረጃ';
