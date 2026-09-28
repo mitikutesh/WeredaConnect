@@ -551,5 +551,36 @@ void main() {
         expect(response.statusCode, 200);
       });
     });
+
+    group('retryInterceptors', () {
+      test('run on the retried request after a token refresh', () async {
+        final testStorage = FakeSecureStorage();
+        await testStorage.write(key: 'id_token', value: 'expired-token');
+        await testStorage.write(key: 'refresh_token', value: 'valid-refresh');
+
+        final seen = <String>[];
+        final testDio = Dio(BaseOptions(baseUrl: 'https://api.test.com'))
+          ..httpClientAdapter = TokenAwareAdapter(validBearer: 'fresh-token');
+        final interceptor = AuthInterceptor(
+          storage: testStorage,
+          dio: testDio,
+          retryInterceptors: [
+            InterceptorsWrapper(
+              onRequest: (options, handler) {
+                seen.add('${options.headers['Authorization']}');
+                handler.next(options);
+              },
+            ),
+          ],
+          refreshTokenCallback: (_) async => 'fresh-token',
+        );
+        testDio.interceptors.add(interceptor);
+
+        final response = await testDio.get<dynamic>('/r1');
+
+        expect(response.statusCode, 200);
+        expect(seen, ['Bearer fresh-token']);
+      });
+    });
   });
 }

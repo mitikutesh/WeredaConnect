@@ -1260,6 +1260,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get dataUsageTrackingSince => 'Irraa eegalee';
 
   @override
+  String get dataUsageScopeNote =>
+      'Kun gaaffii herregni kun meeshaa kana irraa gara sarvaroota WeredaConnect ergu qofa lakkaa\'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda\'a. Daataan seensaa (sign-in) hin dabalamne.';
+
+  @override
   String get conflictTitle => 'Deetaan Haaromfame';
 
   @override

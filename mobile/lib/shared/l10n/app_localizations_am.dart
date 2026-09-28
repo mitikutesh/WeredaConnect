@@ -1214,6 +1214,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get dataUsageTrackingSince => 'ከ ጀምሮ';
 
   @override
+  String get dataUsageScopeNote =>
+      'በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect አገልጋዮች የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።';
+
+  @override
   String get conflictTitle => 'ዳታ ተዘምኗል';
 
   @override

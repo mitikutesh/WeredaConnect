@@ -1634,6 +1634,10 @@
   "@dataUsageTrackingSince": {
     "description": "Label prefix shown before the tracking start date"
   },
+  "dataUsageScopeNote": "Kun gaaffii herregni kun meeshaa kana irraa gara sarvaroota WeredaConnect ergu qofa lakkaa'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda'a. Daataan seensaa (sign-in) hin dabalamne.",
+  "@dataUsageScopeNote": {
+    "description": "Explains that data usage counts only this account's API traffic on this device"
+  },
 
   "@@conflictResolutionSection": "=== Conflict Resolution Feature ===",
 

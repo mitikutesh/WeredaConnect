@@ -1254,6 +1254,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dataUsageTrackingSince => 'Tracking since';
 
   @override
+  String get dataUsageScopeNote =>
+      'Counts this account\'s requests to WeredaConnect servers from this device. Your phone\'s total data use (app updates, images, other apps) may be higher. Sign-in traffic is not included.';
+
+  @override
   String get conflictTitle => 'Data Updated';
 
   @override
