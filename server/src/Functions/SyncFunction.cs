@@ -2409,6 +2409,14 @@ public partial class SyncFunction
 
                     try
                     {
+                        // The key is (tripId, createdAt), so the condition alone lets a
+                        // replayed create add a second row (SIM-39).
+                        if (await DynamoDbHelper.PartitionExistsAsync(
+                                _dynamoDb, _tripsTable, "tripId", operation.EntityId))
+                        {
+                            throw new ConditionalCheckFailedException("Trip already exists.");
+                        }
+
                         await _dynamoDb.PutItemAsync(request);
 
                         var result = CropRepository.FromItem(item);
@@ -3650,6 +3658,14 @@ public partial class SyncFunction
 
                     try
                     {
+                        // The key is (deliveryId, tripId), so a replayed create with another
+                        // tripId would pass the condition and add a second row (SIM-39).
+                        if (await DynamoDbHelper.PartitionExistsAsync(
+                                _dynamoDb, _deliveriesTable, "deliveryId", operation.EntityId))
+                        {
+                            throw new ConditionalCheckFailedException("Delivery already exists.");
+                        }
+
                         await _dynamoDb.PutItemAsync(request);
 
                         var deliveryTxId = item.TryGetValue("orderId", out var dCreateOid)

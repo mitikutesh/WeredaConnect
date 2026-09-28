@@ -62,6 +62,11 @@ public sealed class CropRepository : ICropRepository
 
         try
         {
+            if (await DynamoDbHelper.PartitionExistsAsync(_dynamoDb, _tableName, "cropId", cropId))
+            {
+                throw new ConditionalCheckFailedException("Crop listing already exists.");
+            }
+
             await _dynamoDb.PutItemAsync(request);
 
             var result = FromItem(item);

@@ -71,6 +71,32 @@ public class CropRepositoryTests
         Assert.Contains("already exists", result.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // SIM-39: createdAt is the sort key and is stamped fresh, so the put's
+    // condition cannot see an existing row; the partition is checked first.
+    [Fact]
+    public async Task CreateAsync_ExistingCropId_Returns409WithoutWriting()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { { "cropId", new AttributeValue { S = "crop-001" } } }
+                }
+            });
+
+        var result = await _repository.CreateAsync("crop-001", CreateTestCropData());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("SYNC_CONFLICT", result.Error.Code);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(q => q.ConsistentRead == true && q.Limit == 1),
+            Arg.Any<CancellationToken>());
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(
+            Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task CreateAsync_SetsTimestamps()
     {

@@ -1045,6 +1045,36 @@ public class SyncFunctionTests
         await _mockDynamoDb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
+    // SIM-39: the key is (tripId, createdAt), so a replayed create with a new
+    // idempotency key used to add a second row for the same tripId.
+    [Fact]
+    public async Task TripCreate_ExistingTripId_ReturnsConflictWithoutWriting()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1);
+
+        var op = MakeTripCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"conflict\"", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripCreate_AnotherTruckersTripId_ConflictsAndEchoesNothing()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1);
+
+        var op = MakeTripCreateOp(truckerId: "trucker-002");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-002", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("\"status\":\"conflict\"", response.Body);
+        Assert.DoesNotContain("Tadesse Worku", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
     [Fact]
     public async Task TripCreate_DuplicateIdempotencyKey_ReturnsDuplicate()
     {

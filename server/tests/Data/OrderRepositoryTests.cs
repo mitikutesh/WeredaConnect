@@ -32,6 +32,40 @@ public class OrderRepositoryTests
             });
     }
 
+    // SIM-39: a replayed create used to add a second row with the same orderId.
+    [Fact]
+    public async Task CreateAsync_ExistingOrderId_Returns409WithoutWriting()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { { "orderId", new AttributeValue { S = "order-1" } } }
+                }
+            });
+
+        var result = await _repository.CreateAsync(
+            "order-1", new Dictionary<string, object> { { "buyerId", "buyer-1" } });
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(
+            Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_NewOrderId_Writes()
+    {
+        var result = await _repository.CreateAsync(
+            "order-2", new Dictionary<string, object> { { "buyerId", "buyer-1" } });
+
+        Assert.True(result.IsSuccess);
+        await _mockDynamoDb.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(r => r.Item["orderId"].S == "order-2"),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task QueryOrdersAsync_BuyerIdWithStatus_AppliesStatusFilterOnBuyerIndex()
     {
