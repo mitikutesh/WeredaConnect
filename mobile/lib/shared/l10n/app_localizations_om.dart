@@ -1703,6 +1703,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get overview => 'Waliigala';
 
   @override
+  String get atAGlance => 'Ilaalcha Gabaabaa';
+
+  @override
   String get recentActivity => 'Dhiyoo';
 
   @override

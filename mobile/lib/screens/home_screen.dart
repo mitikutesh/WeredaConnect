@@ -12,6 +12,7 @@ import 'package:isar/isar.dart' show QAfterFilterCondition;
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -46,16 +47,16 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/stat_tile.dart';
 import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
 /// Home screen — compact dashboard matching mockup.
 ///
-/// Layout: green header → banner → quick actions → overview → recent.
+/// Layout: green header → banner → at a glance (tappable counts and
+/// shortcuts) → role card → recent.
 /// Designed to fit in one screen view.
 ///
 /// Uses a [_refreshKey] counter to force overview/recent widgets to reload
-/// when returning from create screens (FAB or quick-action "Sell" button).
+/// when returning from create screens (FAB or the "Sell Crops" tile).
 class HomeScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigateToTab;
   final bool isOnline;
@@ -147,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Mobile layout (unchanged) ──────────────────────────────────
+  // ── Mobile layout ──────────────────────────────────────────────
   Widget _buildMobileLayout({
     required AppLocalizations l10n,
     required UserRole role,
@@ -155,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String userId,
     required String woreda,
   }) {
+    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,85 +174,90 @@ class _HomeScreenState extends State<HomeScreen> {
             onRefresh: _refreshData,
           ),
 
-          // ── Quick actions (no section title, like mockup) ────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-            child: _QuickActionsGrid(
-              role: role,
-              l10n: l10n,
-              onNavigateToTab: widget.onNavigateToTab,
-              onRefresh: _refreshData,
-            ),
-          ),
-
-          // ── Trucker Hero Card ─────────────────────────────────────
-          if (role == UserRole.trucker)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-              child: TruckerHeroCard(
-                key: ValueKey('hero_$_refreshKey'),
-                userId: userId,
-                onRefresh: _refreshData,
-              ),
-            ),
-
-          // ── Active Buying Intents (buyer only) ────────────────────
-          if (role == UserRole.buyer)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-              child: _ActiveIntentsSection(
-                key: ValueKey('intents_$_refreshKey'),
-                userId: userId,
-                l10n: l10n,
-                onRefresh: _refreshData,
-              ),
-            ),
-
-          // ── Overview ─────────────────────────────────────────────
+          // ── At a glance: counts + shortcuts, every tile tappable ──
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: Text(
-              l10n.overview,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
-              ),
-            ),
+            child: _SectionTitle(l10n.atAGlance, fontSize: 16),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            child: _OverviewStats(
-              key: ValueKey('overview_$_refreshKey'),
-              role: role,
-              userId: userId,
-              l10n: l10n,
-            ),
+            child: _buildDashboard(role: role, userId: userId, l10n: l10n),
           ),
+
+          // ── Trucker hero card / buyer active intents ──────────────
+          if (roleCard != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: roleCard,
+            ),
 
           // ── Recent ───────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: Text(
-              l10n.recentActivity,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
-              ),
-            ),
+            child: _SectionTitle(l10n.recentActivity, fontSize: 16),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: _RecentActivityList(
-              key: ValueKey('recent_$_refreshKey'),
-              userId: userId,
-              l10n: l10n,
-            ),
+            child: _buildRecent(role: role, userId: userId, l10n: l10n),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildDashboard({
+    required UserRole role,
+    required String userId,
+    required AppLocalizations l10n,
+    int columns = 2,
+  }) {
+    return _OverviewStats(
+      key: ValueKey('overview_$_refreshKey'),
+      role: role,
+      userId: userId,
+      l10n: l10n,
+      columns: columns,
+      onNavigateToTab: widget.onNavigateToTab,
+      onRefresh: _refreshData,
+    );
+  }
+
+  Widget _buildRecent({
+    required UserRole role,
+    required String userId,
+    required AppLocalizations l10n,
+  }) {
+    return _RecentActivityList(
+      key: ValueKey('recent_$_refreshKey'),
+      role: role,
+      userId: userId,
+      l10n: l10n,
+      onNavigateToTab: widget.onNavigateToTab,
+      onRefresh: _refreshData,
+    );
+  }
+
+  /// The role's companion card: the trucker's current trip or the buyer's
+  /// active intents. Farmers have none.
+  Widget? _buildRoleCard({
+    required UserRole role,
+    required String userId,
+    required AppLocalizations l10n,
+  }) {
+    return switch (role) {
+      UserRole.trucker => TruckerHeroCard(
+          key: ValueKey('hero_$_refreshKey'),
+          userId: userId,
+          onRefresh: _refreshData,
+        ),
+      UserRole.buyer => _ActiveIntentsSection(
+          key: ValueKey('intents_$_refreshKey'),
+          userId: userId,
+          l10n: l10n,
+          onRefresh: _refreshData,
+        ),
+      UserRole.farmer => null,
+    };
   }
 
   // ── Desktop / Tablet layout ────────────────────────────────────
@@ -309,99 +316,40 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Desktop: two-column grid ───────────────────────────────────
+  // ── Desktop: full-width dashboard, then recent + role card ─────
   Widget _buildDesktopTwoColumn({
     required AppLocalizations l10n,
     required UserRole role,
     required String userId,
   }) {
-    return Row(
+    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
+    final recent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Left column (60%): Overview stats + Recent activity
-        Expanded(
-          flex: 3,
-          child: Column(
+        _SectionTitle(l10n.recentActivity),
+        const SizedBox(height: 12),
+        _buildRecent(role: role, userId: userId, l10n: l10n),
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(l10n.atAGlance),
+        const SizedBox(height: 12),
+        _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
+        const SizedBox(height: 24),
+        if (roleCard == null)
+          recent
+        else
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                l10n.overview,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _OverviewStats(
-                key: ValueKey('overview_$_refreshKey'),
-                role: role,
-                userId: userId,
-                l10n: l10n,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                l10n.recentActivity,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _RecentActivityList(
-                key: ValueKey('recent_$_refreshKey'),
-                userId: userId,
-                l10n: l10n,
-              ),
+              Expanded(flex: 3, child: recent),
+              const SizedBox(width: 24),
+              Expanded(flex: 2, child: roleCard),
             ],
           ),
-        ),
-
-        const SizedBox(width: 24),
-
-        // Right column (40%): Quick actions + role-specific cards
-        Expanded(
-          flex: 2,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.quickActions,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _QuickActionsGrid(
-                role: role,
-                l10n: l10n,
-                onNavigateToTab: widget.onNavigateToTab,
-                onRefresh: _refreshData,
-                crossAxisCount: 2,
-              ),
-              if (role == UserRole.trucker) ...[
-                const SizedBox(height: 16),
-                TruckerHeroCard(
-                  key: ValueKey('hero_$_refreshKey'),
-                  userId: userId,
-                  onRefresh: _refreshData,
-                ),
-              ],
-              if (role == UserRole.buyer) ...[
-                const SizedBox(height: 16),
-                _ActiveIntentsSection(
-                  key: ValueKey('intents_$_refreshKey'),
-                  userId: userId,
-                  l10n: l10n,
-                  onRefresh: _refreshData,
-                ),
-              ],
-            ],
-          ),
-        ),
       ],
     );
   }
@@ -412,64 +360,42 @@ class _HomeScreenState extends State<HomeScreen> {
     required UserRole role,
     required String userId,
   }) {
+    final roleCard = _buildRoleCard(role: role, userId: userId, l10n: l10n);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _QuickActionsGrid(
-          role: role,
-          l10n: l10n,
-          onNavigateToTab: widget.onNavigateToTab,
-          onRefresh: _refreshData,
-        ),
-        if (role == UserRole.trucker) ...[
+        _SectionTitle(l10n.atAGlance),
+        const SizedBox(height: 12),
+        _buildDashboard(role: role, userId: userId, l10n: l10n, columns: 3),
+        if (roleCard != null) ...[
           const SizedBox(height: 16),
-          TruckerHeroCard(
-            key: ValueKey('hero_$_refreshKey'),
-            userId: userId,
-            onRefresh: _refreshData,
-          ),
-        ],
-        if (role == UserRole.buyer) ...[
-          const SizedBox(height: 16),
-          _ActiveIntentsSection(
-            key: ValueKey('intents_$_refreshKey'),
-            userId: userId,
-            l10n: l10n,
-            onRefresh: _refreshData,
-          ),
+          roleCard,
         ],
         const SizedBox(height: 20),
-        Text(
-          l10n.overview,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.textDark,
-          ),
-        ),
+        _SectionTitle(l10n.recentActivity),
         const SizedBox(height: 12),
-        _OverviewStats(
-          key: ValueKey('overview_$_refreshKey'),
-          role: role,
-          userId: userId,
-          l10n: l10n,
-        ),
-        const SizedBox(height: 20),
-        Text(
-          l10n.recentActivity,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.textDark,
-          ),
-        ),
-        const SizedBox(height: 12),
-        _RecentActivityList(
-          key: ValueKey('recent_$_refreshKey'),
-          userId: userId,
-          l10n: l10n,
-        ),
+        _buildRecent(role: role, userId: userId, l10n: l10n),
       ],
+    );
+  }
+}
+
+/// Home section heading.
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  final double fontSize;
+
+  const _SectionTitle(this.text, {this.fontSize = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w600,
+        color: AppTheme.textDark,
+      ),
     );
   }
 }
@@ -821,303 +747,220 @@ class _DesktopSyncChip extends StatelessWidget {
   }
 }
 
-/// Quick action grid — role-specific, compact tiles.
-class _QuickActionsGrid extends StatelessWidget {
-  final UserRole role;
-  final AppLocalizations l10n;
-  final ValueChanged<int>? onNavigateToTab;
-  final VoidCallback? onRefresh;
+/// Places a Home dashboard tile or recent-activity row can open.
+enum _HomeDest {
+  sellCrops,
+  myCrops,
+  myTrips,
+  findCrops,
+  findTrips,
+  orders,
+  deliveries,
+  payments,
+}
 
-  /// Number of columns. Defaults to 3 for mobile, but desktop right column
-  /// passes 2 for a more compact grid.
-  final int crossAxisCount;
+/// Opens [dest] for [role]: go_router on web; on mobile a bar tab where
+/// the destination is one of [role]'s tabs, else a pushed screen.
+Future<void> _openHomeDest(
+  BuildContext context, {
+  required UserRole role,
+  required _HomeDest dest,
+  ValueChanged<int>? onNavigateToTab,
+  VoidCallback? onRefresh,
+}) async {
+  Future<void> push(Widget screen) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => screen),
+    );
+    onRefresh?.call();
+  }
 
-  const _QuickActionsGrid({
-    required this.role,
-    required this.l10n,
-    required this.onNavigateToTab,
-    this.onRefresh,
-    this.crossAxisCount = 3,
-  });
-
-  /// Navigate to a named route. Uses GoRouter on web, tab callback on mobile.
-  void _goToRoute(BuildContext context, String route, {int? mobileTabIndex}) {
+  Future<void> webOrPush(String route, Widget screen) async {
     if (kIsWeb) {
       context.go(route);
       return;
     }
-    if (onNavigateToTab != null && mobileTabIndex != null) {
-      onNavigateToTab!(mobileTabIndex);
+    await push(screen);
+  }
+
+  Future<void> tabOrPush(RoleTab tab, Widget? screen) async {
+    if (kIsWeb) {
+      context.go(tab.route);
+      return;
+    }
+    final index = roleTabIndex(role, tab);
+    if (index != null) {
+      onNavigateToTab?.call(index);
+    } else if (screen != null) {
+      await push(screen);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final actions = _actionsForRole(role, context);
-
-    return GridView.count(
-      crossAxisCount: crossAxisCount,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 0.9,
-      children: actions,
-    );
-  }
-
-  List<Widget> _actionsForRole(UserRole role, BuildContext context) {
-    switch (role) {
-      case UserRole.farmer:
-        return [
-          _QuickActionTile(
-            icon: Icons.agriculture,
-            label: l10n.sellCrops,
-            color: AppTheme.primaryGreen,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const CreateCropListingScreen(),
-                ),
-              );
-              onRefresh?.call();
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.eco,
-            label: l10n.myCrops,
-            color: AppTheme.statusTransit,
-            onTap: () {
-              if (kIsWeb) {
-                context.go('/my-crops');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const BrowseListingsScreen(ownerMode: true),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.receipt_long_outlined,
-            label: l10n.myOrders,
-            color: AppTheme.statusInfo,
-            onTap: () => _goToRoute(
-              context,
-              '/orders',
-              mobileTabIndex: roleTabIndex(role, RoleTab.orders),
-            ),
-          ),
-          _QuickActionTile(
-            icon: Icons.local_shipping_outlined,
-            label: l10n.myDeliveries,
-            color: AppTheme.accentGold,
-            onTap: () => _goToRoute(
-              context,
-              '/deliveries',
-              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
-            ),
-          ),
-        ];
-      case UserRole.trucker:
-        return [
-          _QuickActionTile(
-            icon: Icons.route,
-            label: l10n.myTrips,
-            color: AppTheme.primaryGreen,
-            onTap: () {
-              if (kIsWeb) {
-                context.go('/trips');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const BrowseTripsScreen(),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.receipt_long_outlined,
-            label: l10n.myOrders,
-            color: AppTheme.statusInfo,
-            onTap: () {
-              // Orders isn't a trucker tab (truckers act on deliveries) —
-              // reachable here as a pushed screen instead.
-              if (kIsWeb) {
-                context.go('/orders');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const Scaffold(
-                      body: OrdersTabScreen(showBackButton: true),
-                    ),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.local_shipping_outlined,
-            label: l10n.myDeliveries,
-            color: AppTheme.statusTransit,
-            onTap: () => _goToRoute(
-              context,
-              '/deliveries',
-              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
-            ),
-          ),
-          _QuickActionTile(
-            icon: Icons.account_balance_wallet_outlined,
-            label: l10n.myPayments,
-            color: AppTheme.accentGold,
-            onTap: () => _goToRoute(
-              context,
-              '/payments',
-              mobileTabIndex: roleTabIndex(role, RoleTab.payments),
-            ),
-          ),
-        ];
-      case UserRole.buyer:
-        return [
-          _QuickActionTile(
-            icon: Icons.search,
-            label: l10n.findCrops,
-            color: AppTheme.primaryGreen,
-            onTap: () {
-              if (kIsWeb) {
-                context.go('/find-crops');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const FindCropsScreen(),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.route_outlined,
-            label: l10n.findTrips,
-            color: AppTheme.statusTransit,
-            onTap: () {
-              if (kIsWeb) {
-                context.go('/trips');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const BrowseTripsScreen(),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-          _QuickActionTile(
-            icon: Icons.receipt_long_outlined,
-            label: l10n.myOrders,
-            color: AppTheme.statusInfo,
-            onTap: () => _goToRoute(
-              context,
-              '/orders',
-              mobileTabIndex: roleTabIndex(role, RoleTab.orders),
-            ),
-          ),
-          _QuickActionTile(
-            icon: Icons.local_shipping_outlined,
-            label: l10n.myDeliveries,
-            color: AppTheme.statusTransit,
-            onTap: () => _goToRoute(
-              context,
-              '/deliveries',
-              mobileTabIndex: roleTabIndex(role, RoleTab.deliveries),
-            ),
-          ),
-          _QuickActionTile(
-            icon: Icons.account_balance_wallet_outlined,
-            label: l10n.myPayments,
-            color: AppTheme.accentGold,
-            onTap: () {
-              // Payments isn't a buyer tab (a buyer's money lives on the
-              // order timeline) — payment history pushes instead.
-              if (kIsWeb) {
-                context.go('/payments');
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const PaymentHistoryScreen(),
-                  ),
-                ).then((_) => onRefresh?.call());
-              }
-            },
-          ),
-        ];
-    }
+  switch (dest) {
+    case _HomeDest.sellCrops:
+      await push(const CreateCropListingScreen());
+    case _HomeDest.myCrops:
+      await webOrPush(
+        '/my-crops',
+        const BrowseListingsScreen(ownerMode: true),
+      );
+    case _HomeDest.myTrips:
+    case _HomeDest.findTrips:
+      await webOrPush('/trips', const BrowseTripsScreen());
+    case _HomeDest.findCrops:
+      await webOrPush('/find-crops', const FindCropsScreen());
+    case _HomeDest.orders:
+      // Orders isn't a trucker tab (truckers act on deliveries), so it
+      // pushes for them.
+      await tabOrPush(
+        RoleTab.orders,
+        const Scaffold(body: OrdersTabScreen(showBackButton: true)),
+      );
+    case _HomeDest.deliveries:
+      await tabOrPush(RoleTab.deliveries, null);
+    case _HomeDest.payments:
+      // Payments is only a trucker tab; farmers and buyers get the
+      // payment history screen.
+      await tabOrPush(RoleTab.payments, const PaymentHistoryScreen());
   }
 }
 
-/// Single quick action tile — icon + label, compact.
-class _QuickActionTile extends StatelessWidget {
+/// One Home dashboard tile. Every tile opens its section; a tile with a
+/// [count] also summarises it, one without is a plain shortcut.
+class _DashboardTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
+  final int? count;
+
+  /// Filled style for the role's primary verb (Sell Crops, Find Crops).
+  final bool emphasized;
   final VoidCallback onTap;
 
-  const _QuickActionTile({
+  const _DashboardTile({
     required this.icon,
     required this.label,
     required this.color,
     required this.onTap,
+    this.count,
+    this.emphasized = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final background = emphasized ? color : AppTheme.surfaceWhite;
+    final foreground = emphasized ? Colors.white : AppTheme.textDark;
+    final muted = emphasized ? Colors.white70 : AppTheme.textMuted;
+    final count = this.count;
+
     return Material(
-      color: Colors.transparent,
+      color: background,
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppTheme.surfaceWhite,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
+            border: emphasized ? null : Border.all(color: AppTheme.borderLight),
           ),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withAlpha(20),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 24, color: color),
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: emphasized
+                          ? Colors.white.withAlpha(40)
+                          : color.withAlpha(20),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 20,
+                      color: emphasized ? Colors.white : color,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (count != null)
+                    Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: emphasized ? Colors.white : color,
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.textDark,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: foreground,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18, color: muted),
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Lays [tiles] out in rows of [columns]. A remainder leads on its own
+/// (wider) row instead of dangling at the end, so the role's first tile,
+/// its primary action, gets the extra width.
+class _DashboardGrid extends StatelessWidget {
+  final List<Widget> tiles;
+  final int columns;
+
+  const _DashboardGrid({required this.tiles, required this.columns});
+
+  @override
+  Widget build(BuildContext context) {
+    final lead = tiles.length % columns;
+    final rows = <List<Widget>>[
+      if (lead > 0) tiles.sublist(0, lead),
+      for (var i = lead; i < tiles.length; i += columns)
+        tiles.sublist(i, i + columns),
+    ];
+
+    return Column(
+      children: [
+        for (var r = 0; r < rows.length; r++)
+          Padding(
+            padding: EdgeInsets.only(top: r == 0 ? 0 : 10),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var c = 0; c < rows[r].length; c++) ...[
+                    if (c > 0) const SizedBox(width: 10),
+                    Expanded(child: rows[r][c]),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1228,17 +1071,24 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
   }
 }
 
-/// 2x2 overview stats grid.
+/// "At a glance" dashboard: the role's counts and shortcuts in one grid,
+/// every tile opening the screen it summarises.
 class _OverviewStats extends StatefulWidget {
   final UserRole role;
   final String userId;
   final AppLocalizations l10n;
+  final int columns;
+  final ValueChanged<int>? onNavigateToTab;
+  final VoidCallback? onRefresh;
 
   const _OverviewStats({
     required this.role,
     required this.userId,
     required this.l10n,
     super.key,
+    this.columns = 2,
+    this.onNavigateToTab,
+    this.onRefresh,
   });
 
   @override
@@ -1270,16 +1120,9 @@ class _OverviewStatsState extends State<_OverviewStats> {
       future: _statsFuture,
       builder: (context, snapshot) {
         final stats = snapshot.data ?? {};
-        final tiles = _tilesForRole(widget.role, stats);
-
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 2.4,
-          children: tiles,
+        return _DashboardGrid(
+          tiles: _tilesForRole(widget.role, stats),
+          columns: widget.columns,
         );
       },
     );
@@ -1527,81 +1370,149 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
   List<Widget> _tilesForRole(UserRole role, Map<String, int> stats) {
     final l10n = widget.l10n;
+
+    Widget tile(
+      _HomeDest dest, {
+      required IconData icon,
+      required String label,
+      required Color color,
+      String? stat,
+      bool emphasized = false,
+    }) {
+      return _DashboardTile(
+        icon: icon,
+        label: label,
+        color: color,
+        count: stat == null ? null : stats[stat] ?? 0,
+        emphasized: emphasized,
+        onTap: () => _openHomeDest(
+          context,
+          role: role,
+          dest: dest,
+          onNavigateToTab: widget.onNavigateToTab,
+          onRefresh: widget.onRefresh,
+        ),
+      );
+    }
+
     switch (role) {
       case UserRole.farmer:
         return [
-          StatTile(
-            value: '${stats['listings'] ?? 0}',
-            label: l10n.listings,
-            icon: Icons.trending_up,
+          tile(
+            _HomeDest.sellCrops,
+            icon: Icons.agriculture,
+            label: l10n.sellCrops,
+            color: AppTheme.primaryGreen,
+            emphasized: true,
           ),
-          StatTile(
-            value: '${stats['pendingOrders'] ?? 0}',
-            label: l10n.pendingOrders,
+          tile(
+            _HomeDest.myCrops,
+            icon: Icons.eco,
+            label: l10n.myCrops,
+            color: AppTheme.statusTransit,
+            stat: 'listings',
+          ),
+          tile(
+            _HomeDest.orders,
             icon: Icons.receipt_long_outlined,
-            valueColor: AppTheme.accentGold,
+            label: l10n.pendingOrders,
+            color: AppTheme.accentGold,
+            stat: 'pendingOrders',
           ),
-          StatTile(
-            value: '${stats['payments'] ?? 0}',
-            label: l10n.escrow,
+          tile(
+            _HomeDest.payments,
             icon: Icons.account_balance_wallet_outlined,
-            valueColor: AppTheme.primaryGreen,
+            label: l10n.escrow,
+            color: AppTheme.primaryGreen,
+            stat: 'payments',
           ),
-          StatTile(
-            value: '${stats['deliveries'] ?? 0}',
-            label: l10n.deliveries,
+          tile(
+            _HomeDest.deliveries,
             icon: Icons.local_shipping_outlined,
-            valueColor: AppTheme.primaryGreen,
+            label: l10n.deliveries,
+            color: AppTheme.statusInfo,
+            stat: 'deliveries',
           ),
         ];
       case UserRole.trucker:
         return [
-          StatTile(
-            value: '${stats['trips'] ?? 0}',
-            label: l10n.myTrips,
-            icon: Icons.local_shipping,
-          ),
-          StatTile(
-            value: '${stats['inTransit'] ?? 0}',
-            label: l10n.inTransit,
+          tile(
+            _HomeDest.myTrips,
             icon: Icons.route,
-            valueColor: AppTheme.statusTransit,
+            label: l10n.myTrips,
+            color: AppTheme.primaryGreen,
+            stat: 'trips',
           ),
-          StatTile(
-            value: '${stats['matched'] ?? 0}',
-            label: l10n.matchedLoads,
+          tile(
+            _HomeDest.myTrips,
+            icon: Icons.local_shipping,
+            label: l10n.inTransit,
+            color: AppTheme.statusTransit,
+            stat: 'inTransit',
+          ),
+          tile(
+            _HomeDest.myTrips,
             icon: Icons.handshake_outlined,
-            valueColor: AppTheme.accentGold,
+            label: l10n.matchedLoads,
+            color: AppTheme.accentGold,
+            stat: 'matched',
           ),
-          StatTile(
-            value: '${stats['deliveries'] ?? 0}',
-            label: l10n.deliveries,
+          tile(
+            _HomeDest.deliveries,
             icon: Icons.inventory_2_outlined,
+            label: l10n.deliveries,
+            color: AppTheme.statusInfo,
+            stat: 'deliveries',
+          ),
+          tile(
+            _HomeDest.orders,
+            icon: Icons.receipt_long_outlined,
+            label: l10n.myOrders,
+            color: AppTheme.statusInfo,
+          ),
+          tile(
+            _HomeDest.payments,
+            icon: Icons.account_balance_wallet_outlined,
+            label: l10n.myPayments,
+            color: AppTheme.accentGold,
           ),
         ];
       case UserRole.buyer:
         return [
-          StatTile(
-            value: '${stats['activeOrders'] ?? 0}',
-            label: l10n.activeOrders,
+          tile(
+            _HomeDest.findCrops,
+            icon: Icons.search,
+            label: l10n.findCrops,
+            color: AppTheme.primaryGreen,
+            stat: 'listings',
+            emphasized: true,
+          ),
+          tile(
+            _HomeDest.findTrips,
+            icon: Icons.route_outlined,
+            label: l10n.findTrips,
+            color: AppTheme.statusTransit,
+          ),
+          tile(
+            _HomeDest.orders,
             icon: Icons.receipt_long_outlined,
+            label: l10n.activeOrders,
+            color: AppTheme.statusInfo,
+            stat: 'activeOrders',
           ),
-          StatTile(
-            value: '${stats['payments'] ?? 0}',
-            label: l10n.escrow,
+          tile(
+            _HomeDest.payments,
             icon: Icons.account_balance_wallet_outlined,
-            valueColor: AppTheme.accentGold,
+            label: l10n.escrow,
+            color: AppTheme.accentGold,
+            stat: 'payments',
           ),
-          StatTile(
-            value: '${stats['listings'] ?? 0}',
-            label: l10n.farmersBrowsed,
-            icon: Icons.eco_outlined,
-            valueColor: AppTheme.statusInfo,
-          ),
-          StatTile(
-            value: '${stats['deliveries'] ?? 0}',
-            label: l10n.deliveries,
+          tile(
+            _HomeDest.deliveries,
             icon: Icons.inventory_2_outlined,
+            label: l10n.deliveries,
+            color: AppTheme.primaryGreen,
+            stat: 'deliveries',
           ),
         ];
     }
@@ -1610,13 +1521,19 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
 /// Recent activity feed.
 class _RecentActivityList extends StatefulWidget {
+  final UserRole role;
   final String userId;
   final AppLocalizations l10n;
+  final ValueChanged<int>? onNavigateToTab;
+  final VoidCallback? onRefresh;
 
   const _RecentActivityList({
+    required this.role,
     required this.userId,
     required this.l10n,
     super.key,
+    this.onNavigateToTab,
+    this.onRefresh,
   });
 
   @override
@@ -1678,10 +1595,42 @@ class _RecentActivityListState extends State<_RecentActivityList> {
 
         return Column(
           children: items
-              .map((item) => _ActivityCard(item: item, l10n: widget.l10n))
+              .map(
+                (item) => _ActivityCard(
+                  item: item,
+                  l10n: widget.l10n,
+                  onTap: () => _openItem(item),
+                ),
+              )
               .toList(),
         );
       },
+    );
+  }
+
+  Future<void> _openItem(_ActivityItem item) async {
+    final intent = item.intent;
+    if (intent != null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => BlocProvider.value(
+            value: context.read<BuyerIntentBloc>(),
+            child: MatchResultsScreen(intent: intent),
+          ),
+        ),
+      );
+      widget.onRefresh?.call();
+      return;
+    }
+    final dest = item.dest;
+    if (dest == null || !mounted) return;
+    await _openHomeDest(
+      context,
+      role: widget.role,
+      dest: dest,
+      onNavigateToTab: widget.onNavigateToTab,
+      onRefresh: widget.onRefresh,
     );
   }
 
@@ -1707,6 +1656,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       for (final l in listings) {
         items.add(
           _ActivityItem(
+            dest: _HomeDest.myCrops,
             description: l10n.listingCreatedActivity(
               CropType.labelFor(l.cropType, l10n),
             ),
@@ -1735,6 +1685,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
       for (final d in userDeliveries) {
         items.add(
           _ActivityItem(
+            dest: _HomeDest.deliveries,
             description: l10n.deliveryStatusActivity(d.status.name),
             timestamp: d.createdAt,
             type: d.status == DeliveryStatus.delivered
@@ -1760,6 +1711,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           final status = o.status.name;
           items.add(
             _ActivityItem(
+              dest: _HomeDest.orders,
               description:
                   '${l10n.orders}: ${CropType.labelFor(o.cropType, l10n)} ($status)',
               timestamp: o.createdAt,
@@ -1781,6 +1733,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           final status = t.status.name;
           items.add(
             _ActivityItem(
+              dest: _HomeDest.myTrips,
               description:
                   '${l10n.myTrips}: ${t.fromWoreda} → ${t.toWoreda} ($status)',
               timestamp: t.createdAt,
@@ -1865,6 +1818,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           );
           items.add(
             _ActivityItem(
+              dest: _HomeDest.orders,
               description: '${l10n.orders}: $cropType ($status)',
               timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                   DateTime.now(),
@@ -1885,6 +1839,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
         final status = m['status'] as String? ?? '';
         items.add(
           _ActivityItem(
+            dest: _HomeDest.deliveries,
             description: l10n.deliveryStatusActivity(status),
             timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                 DateTime.now(),
@@ -1908,6 +1863,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             final to = m['toWoreda'] as String? ?? '';
             items.add(
               _ActivityItem(
+                dest: _HomeDest.myTrips,
                 description: '${l10n.myTrips}: $from → $to ($status)',
                 timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                     DateTime.now(),
@@ -1929,6 +1885,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             );
             items.add(
               _ActivityItem(
+                dest: _HomeDest.myCrops,
                 description: l10n.listingCreatedActivity(cropType),
                 timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                     DateTime.now(),
@@ -1947,6 +1904,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
                 CropType.fromKey(intent.cropType).displayName(l10n);
             items.add(
               _ActivityItem(
+                intent: intent,
                 description:
                     '${l10n.activeBuyingIntents}: $cropLabel · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals}',
                 timestamp: intent.createdAt,
@@ -1972,18 +1930,31 @@ class _ActivityItem {
   final DateTime timestamp;
   final _ActivityType type;
 
+  /// Screen a tap opens, or null when [intent] is set.
+  final _HomeDest? dest;
+
+  /// Buyer intent whose match results a tap opens.
+  final BuyerIntent? intent;
+
   _ActivityItem({
     required this.description,
     required this.timestamp,
     required this.type,
+    this.dest,
+    this.intent,
   });
 }
 
 class _ActivityCard extends StatelessWidget {
   final _ActivityItem item;
   final AppLocalizations l10n;
+  final VoidCallback onTap;
 
-  const _ActivityCard({required this.item, required this.l10n});
+  const _ActivityCard({
+    required this.item,
+    required this.l10n,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2002,44 +1973,57 @@ class _ActivityCard extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceWhite,
+      child: Material(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.borderLight),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: dotColor,
-                shape: BoxShape.circle,
-              ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.borderLight),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                item.description,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textDark,
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: dotColor,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    item.description,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppTheme.textDark,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  timeLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: AppTheme.textMuted,
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Text(
-              timeLabel,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textMuted,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

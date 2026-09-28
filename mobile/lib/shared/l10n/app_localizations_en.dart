@@ -1697,6 +1697,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overview => 'Overview';
 
   @override
+  String get atAGlance => 'At a Glance';
+
+  @override
   String get recentActivity => 'Recent';
 
   @override

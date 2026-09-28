@@ -17,6 +17,7 @@ import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_sc
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -27,6 +28,8 @@ class MockBuyerIntentBloc extends Mock implements BuyerIntentBloc {}
 class MockCropListingBloc extends Mock implements CropListingBloc {}
 
 class MockSyncExecutor extends Mock implements SyncExecutor {}
+
+class MockTripListingBloc extends Mock implements TripListingBloc {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -51,6 +54,7 @@ void main() {
   late MockBuyerIntentBloc buyerIntentBloc;
   late MockCropListingBloc cropListingBloc;
   late MockSyncExecutor syncExecutor;
+  late MockTripListingBloc tripListingBloc;
 
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
@@ -66,6 +70,7 @@ void main() {
     buyerIntentBloc = MockBuyerIntentBloc();
     cropListingBloc = MockCropListingBloc();
     syncExecutor = MockSyncExecutor();
+    tripListingBloc = MockTripListingBloc();
 
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => buyerIntentBloc.state).thenReturn(const BuyerIntentInitial());
@@ -79,12 +84,17 @@ void main() {
     when(() => syncExecutor.onSyncResult).thenAnswer(
       (_) => const Stream.empty(),
     );
+    when(() => syncExecutor.isSyncing).thenReturn(false);
   });
 
+  /// Tab indexes the dashboard asked the shell to switch to.
+  late List<int> tabRequests;
+
   Widget buildHomeScreen(UserRole role) {
+    tabRequests = [];
     when(() => authBloc.state).thenReturn(
       AuthAuthenticated(
-        userId: role == UserRole.buyer ? 'buyer-001' : 'farmer-001',
+        userId: '${role.name}-001',
         tokens: _testTokens,
         role: role,
       ),
@@ -96,25 +106,59 @@ void main() {
           BlocProvider<AuthBloc>.value(value: authBloc),
           BlocProvider<BuyerIntentBloc>.value(value: buyerIntentBloc),
           BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+          BlocProvider<TripListingBloc>.value(value: tripListingBloc),
         ],
-        child: const MaterialApp(
+        child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: HomeScreen(isOnline: false)),
+          home: Scaffold(
+            body: HomeScreen(isOnline: false, onNavigateToTab: tabRequests.add),
+          ),
         ),
       ),
     );
   }
 
-  group('HomeScreen quick actions — buyer role', () {
-    testWidgets('shows Find Crops quick action tile', (tester) async {
+  /// Tall tablet surface (3-column grid) so every tile is on screen. The
+  /// phone layout's header needs the messaging providers, so it's skipped.
+  void useTallSurface(WidgetTester tester) {
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  testWidgets('one At a Glance section replaces Overview + Quick Actions',
+      (tester) async {
+    useTallSurface(tester);
+    await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+    await tester.pumpAndSettle();
+
+    expect(find.text('At a Glance'), findsOneWidget);
+    expect(find.text('Overview'), findsNothing);
+    expect(find.text('Quick Actions'), findsNothing);
+  });
+
+  group('HomeScreen dashboard: buyer role', () {
+    testWidgets('shows the buyer tiles', (tester) async {
+      useTallSurface(tester);
       await tester.pumpWidget(buildHomeScreen(UserRole.buyer));
       await tester.pumpAndSettle();
 
-      expect(find.text('Find Crops'), findsOneWidget);
+      for (final label in [
+        'Find Crops',
+        'Find Trips',
+        'Active Orders',
+        'Escrow',
+        'Deliveries',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      expect(find.text('My Crops'), findsNothing);
+      expect(find.text('My Trips'), findsNothing);
     });
 
     testWidgets('Find Crops tile navigates to FindCropsScreen', (tester) async {
+      useTallSurface(tester);
       await tester.pumpWidget(buildHomeScreen(UserRole.buyer));
       await tester.pumpAndSettle();
 
@@ -123,16 +167,85 @@ void main() {
 
       expect(find.byType(FindCropsScreen), findsOneWidget);
     });
+
+    testWidgets('count tiles open their tabs', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.buyer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Active Orders'));
+      await tester.tap(find.text('Deliveries'));
+      await tester.pump();
+
+      // Buyer bar: Home · Market · Orders · Deliveries
+      expect(tabRequests, [2, 3]);
+    });
   });
 
-  group('HomeScreen quick actions — farmer role', () {
-    testWidgets('does not show Find Crops quick action tile', (tester) async {
+  group('HomeScreen dashboard: farmer role', () {
+    testWidgets('shows the farmer tiles, not buyer ones', (tester) async {
+      useTallSurface(tester);
       await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
       await tester.pumpAndSettle();
 
-      // Farmer sees "My Crops", not "Find Crops"
+      for (final label in [
+        'Sell Crops',
+        'My Crops',
+        'Pending Orders',
+        'Escrow',
+        'Deliveries',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
       expect(find.text('Find Crops'), findsNothing);
-      expect(find.text('My Crops'), findsOneWidget);
+      expect(find.text('Find Trips'), findsNothing);
+    });
+
+    testWidgets('count tiles open their tabs', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Pending Orders'));
+      await tester.tap(find.text('Deliveries'));
+      await tester.pump();
+
+      // Farmer bar: Home · My Crops · Orders · Deliveries
+      expect(tabRequests, [2, 3]);
+    });
+  });
+
+  group('HomeScreen dashboard: trucker role', () {
+    testWidgets('shows the trucker tiles', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
+      await tester.pumpAndSettle();
+
+      for (final label in [
+        'My Trips',
+        'In Transit',
+        'Matched',
+        'Deliveries',
+        'My Orders',
+        'My Payments',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      expect(find.text('Find Crops'), findsNothing);
+      expect(find.text('Sell Crops'), findsNothing);
+    });
+
+    testWidgets('tab tiles open their tabs', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Deliveries'));
+      await tester.tap(find.text('My Payments'));
+      await tester.pump();
+
+      // Trucker bar: Home · My Trips · Deliveries · Payments
+      expect(tabRequests, [2, 3]);
     });
   });
 }
