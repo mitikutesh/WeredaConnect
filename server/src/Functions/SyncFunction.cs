@@ -3581,10 +3581,11 @@ public partial class SyncFunction
                     { "version", new AttributeValue { N = "1" } }
                 };
 
-                    // Copy only whitelisted data fields
+                    // Copy only whitelisted data fields. qrNonce is never taken at create:
+                    // only the farmer may author it, later (SIM-41).
                     foreach (var kvp in operation.Data)
                     {
-                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt")
+                        if (kvp.Key is "deliveryId" or "version" or "createdAt" or "updatedAt" or "qrNonce")
                         {
                             continue;
                         }
@@ -3793,6 +3794,16 @@ public partial class SyncFunction
                         };
                     }
 
+                    // SIM-41: the pickup nonce proves the farmer handed over the goods, so
+                    // only the farmer may author it. A trucker-sent nonce let the trucker
+                    // confirm pickup with a QR code he made himself.
+                    var deliveryFarmerId = existing.TryGetValue("farmerId", out var nonceFarmerAttr)
+                        ? nonceFarmerAttr.S : null;
+                    if (authenticatedUserId != deliveryFarmerId)
+                    {
+                        operation.Data.Remove("qrNonce");
+                    }
+
                     // Role-based authorization for status transitions
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
                     {
@@ -3982,7 +3993,10 @@ public partial class SyncFunction
                             var secret = _qrSecretRepo != null
                                 ? await _qrSecretRepo.GetAsync(operation.EntityId)
                                 : null;
-                            var legacyNonce = existing.TryGetValue("qrNonce", out var qnAttr)
+                            // The on-record nonce is trusted only without a secret store: rows
+                            // written before SIM-41 may carry a trucker-authored value.
+                            var legacyNonce = _qrSecretRepo == null
+                                && existing.TryGetValue("qrNonce", out var qnAttr)
                                 ? qnAttr.S : null;
                             var effectiveNonce = secret?.Nonce ?? legacyNonce;
 

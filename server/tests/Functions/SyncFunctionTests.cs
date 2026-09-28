@@ -2097,6 +2097,88 @@ public class SyncFunctionTests
         Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
     }
 
+    // SIM-41: the trucker could set his own nonce and then confirm pickup with it.
+    [Fact]
+    public async Task DeliveryUpdate_TruckerSentQrNonce_IsNeverWritten()
+    {
+        SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-nonce-trucker",
+            IdempotencyKey = "trucker-001:delivery:del-001:update:nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "qrNonce", "trucker-chosen-nonce" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001");
+        await _function.FunctionHandler(request, _context);
+
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeValues.Values.Any(v => v.S == "trucker-chosen-nonce")));
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ClientQrNonce_IsNotStored()
+    {
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["qrNonce"] = "trucker-chosen-nonce";
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.TableName == "test-deliveries-table" && !r.Item.ContainsKey("qrNonce")));
+    }
+
+    [Fact]
+    public async Task PickedUp_WithSecretStore_IgnoresOnRecordNonce()
+    {
+        // A row written before SIM-41 may carry a trucker-authored nonce. With the
+        // secret store in place only the farmer's stored nonce counts, so this is
+        // treated as "no nonce yet" and a money-bearing pickup is deferred.
+        var mockSecret = Substitute.For<IDeliveryQrSecretRepository>();
+        mockSecret.GetAsync("del-001").Returns((DeliveryQrSecret?)null);
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "esc-001" },
+            { "status", "escrowed" }
+        });
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow, qrSecretRepo: mockSecret);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "trucker-chosen-nonce");
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-pickup-own-nonce",
+            IdempotencyKey = "trucker-001:delivery:del-001:update:pickup",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "pickedUp" },
+                { "scannedQrNonce", "trucker-chosen-nonce" },
+                { "version", 1 }
+            }
+        };
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001");
+        var response = await function.FunctionHandler(request, _context);
+
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
     // ===== Delivery confirmation → escrow + transition regression tests =====
 
     [Fact]

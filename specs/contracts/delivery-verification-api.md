@@ -859,8 +859,11 @@ as a delivery with `deliveryType: "self_pickup"`:
   recorded only **after** the version CAS commits, so a rejected transition never burns it.
 - For a money-bearing delivery whose nonce has not yet synced, the server returns
   **`deferred`** (see sync-protocol) rather than failing open.
-- **Migration**: in-flight deliveries created before this change keep their on-record
-  `qrNonce` and are validated against it (and it is scrubbed from any echoed `serverData`).
+- Only the delivery's farmer may set `qrNonce` (SIM-41). A `qrNonce` sent on create, or on
+  an update by anyone else, is silently dropped.
+- **Migration**: an on-record `qrNonce` is used only where the secret store is not
+  provisioned. Where it is, only the farmer's stored nonce counts (rows written before SIM-41
+  could carry a trucker-authored value). It is always scrubbed from echoed `serverData`.
 
 ## Changelog
 
@@ -876,9 +879,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.4.1 | 2026-09-25 | Dispute propagation (SIM-12): a delivery `disputed` moves the order to `disputed` and freezes the escrow; an escrow dispute marks the delivery `disputed`. |
 | 1.4.2 | 2026-09-25 | `orderId` returned on list and detail (SIM-14); mobile and web keep it locally and prefer it over the trip match when resolving the order behind a delivery. |
 | 1.5.0 | 2026-09-25 | Default list scoping (SIM-16): an unfiltered `GET /deliveries` is scoped to the caller by role (farmer/trucker/buyer index, `status` as a filter); new sparse `TruckerIdCreatedAtIndex` GSI with `truckerId=` (must be the caller); `role=` overrides the claim; `mine=true` now honours `status` server-side; a token without a role claim keeps the legacy `status` query. |
+| 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 
 ---
 
-**Last Updated**: 2026-09-25
-**Version**: 1.5.0
+**Last Updated**: 2026-09-28
+**Version**: 1.5.1
 **Status**: Draft (Phase R4.2)
