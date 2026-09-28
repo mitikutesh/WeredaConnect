@@ -98,11 +98,11 @@ public class FaydaVerifyFunctionTests
 
     private static object VerifyBody(string state = "state-xyz", string code = "valid-code",
         string redirect = "weredaconnect://fayda-callback") => new
-    {
-        authorizationCode = code,
-        state,
-        redirectUri = redirect
-    };
+        {
+            authorizationCode = code,
+            state,
+            redirectUri = redirect
+        };
 
     // ===== fayda-verify (pre-registration) =====
 
@@ -256,6 +256,31 @@ public class FaydaVerifyFunctionTests
 
         Assert.Equal(409, response.StatusCode);
         Assert.Contains("FAYDA_004", response.Body);
+    }
+
+    [Fact]
+    public async Task Verify_FaydaIdHeldByUnverifiedSignUp_MintsTokenForRegisterToDecide()
+    {
+        // A sign-up whose phone was never proven (mistyped number, OTP never entered)
+        // must not lock its own Fayda identity out: register decides whether to replace it.
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(new UserDto
+        {
+            UserId = "pending-user",
+            PhoneNumber = "+251900000000",
+            Role = "farmer",
+            Woreda = "Adama",
+            FaydaId = "FAYDA-123",
+            FaydaVerified = true,
+            IsPhoneVerified = false,
+            CreatedAt = "2026-01-01T00:00:00Z",
+            UpdatedAt = "2026-01-01T00:00:00Z",
+            Version = 1
+        });
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("verificationToken", response.Body);
     }
 
     [Fact]

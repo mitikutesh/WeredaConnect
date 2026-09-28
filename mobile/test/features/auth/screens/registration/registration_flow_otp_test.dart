@@ -40,6 +40,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
     registerFallbackValue(Uri());
+    registerFallbackValue(CancelToken());
     // RegistrationFlow builds a FaydaOidcService on the shared client.
     ApiClient().initialize(environment: Environment.development);
     // RegistrationFlow listens for the Fayda deep link through app_links.
@@ -113,32 +114,6 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('FAYDA_003 tells the user they can continue and verify later',
-      (tester) async {
-    useTallPhone(tester);
-    await tester.pumpWidget(app());
-    await settle(tester);
-
-    states.add(
-      const AuthError(
-        errorCode: AuthErrorCode.faydaServiceUnavailable,
-        errorMessage: 'Fayda down',
-      ),
-    );
-    await settle(tester);
-
-    expect(
-      find.text(
-        'Fayda is unavailable right now. You can continue and verify '
-        'later from your profile.',
-      ),
-      findsOneWidget,
-    );
-    // Still on the registration flow, not an OTP or error screen.
-    expect(find.byType(RegistrationFlow), findsOneWidget);
-    expect(find.byType(OtpVerificationScreen), findsNothing);
-  });
-
   group('Fayda callback', () {
     late MockFaydaOidcService fayda;
     late StreamController<Uri> links;
@@ -152,7 +127,11 @@ void main() {
             realService.parseCallback(inv.positionalArguments.first as Uri),
       );
       when(
-        () => fayda.startRegistration(phoneNumber: any(named: 'phoneNumber')),
+        () => fayda.startRegistration(
+          phoneNumber: any(named: 'phoneNumber'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => FaydaStartResult(
           isSuccess: true,
@@ -164,6 +143,8 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => const FaydaExchangeResult(
@@ -218,6 +199,8 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       );
 
@@ -225,8 +208,14 @@ void main() {
           .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
       await settle(tester);
 
-      verify(() => fayda.exchangeCode(authCode: 'c-1', state: 'st-1'))
-          .called(1);
+      verify(
+        () => fayda.exchangeCode(
+          authCode: 'c-1',
+          state: 'st-1',
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -241,8 +230,237 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+    Future<void> openFaydaStep(WidgetTester tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(flow());
+      await settle(tester);
+      await tester.tap(find.text('Farmer'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+    }
+
+    testWidgets('the Fayda step has no Continue until Fayda verifies',
+        (tester) async {
+      await openFaydaStep(tester);
+
+      expect(find.text('Continue'), findsNothing);
+      expect(
+        find.text(
+          'A verified Fayda ID is required to create an account. '
+          'It only takes a minute.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      expect(find.text('Continue'), findsNothing);
+
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+
+      expect(find.text('Abebe Kebede'), findsOneWidget);
+      expect(find.text('Continue'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('shows retry progress, then a clear message and Retry',
+        (tester) async {
+      final gate = Completer<FaydaStartResult>();
+      when(
+        () => fayda.startRegistration(
+          phoneNumber: any(named: 'phoneNumber'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((inv) {
+        final onRetry = inv.namedArguments[#onRetry] as FaydaRetryCallback?;
+        onRetry?.call(2, 3);
+        return gate.future;
+      });
+      await openFaydaStep(tester);
+
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      expect(find.text('Still trying to reach Fayda (2/3)...'), findsOneWidget);
+
+      gate.complete(
+        const FaydaStartResult.failure(
+          AuthErrorCode.faydaServiceUnavailable,
+          'down',
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        find.text(
+          "We couldn't reach Fayda, even after several tries. Check your "
+          'internet connection and try again in a few minutes.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('AUTH_021 on register sends the user back to the Fayda step',
+        (tester) async {
+      await openFaydaStep(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      states.add(
+        const AuthError(
+          errorCode: AuthErrorCode.invalidFaydaToken,
+          errorMessage: 'Fayda verification is required to register.',
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        find.text(
+          'Your Fayda verification is missing or has expired. Please verify '
+          'with Fayda again to finish creating your account.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+    testWidgets('Cancel during a retry stops it and ignores its late result',
+        (tester) async {
+      final gate = Completer<FaydaStartResult>();
+      CancelToken? token;
+      var launches = 0;
+      when(
+        () => fayda.startRegistration(
+          phoneNumber: any(named: 'phoneNumber'),
+          onRetry: any(named: 'onRetry'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((inv) {
+        token = inv.namedArguments[#cancelToken] as CancelToken?;
+        (inv.namedArguments[#onRetry] as FaydaRetryCallback?)?.call(2, 3);
+        return gate.future;
+      });
+      useTallPhone(tester);
+      await tester.pumpWidget(
+        BlocProvider<AuthBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: RegistrationFlow(
+              faydaService: fayda,
+              faydaLinks: links.stream,
+              launcher: (_) async {
+                launches++;
+                return true;
+              },
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      await tester.tap(find.text('Farmer'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      expect(find.text('Still trying to reach Fayda (2/3)...'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await settle(tester);
+
+      expect(token?.isCancelled, isTrue);
+      expect(find.text('Verify with Fayda'), findsOneWidget);
+
+      // The abandoned start still answers: nothing may happen.
+      gate.complete(
+        FaydaStartResult(
+          isSuccess: true,
+          state: 'st-late',
+          authorizeUrl: Uri.parse('https://esignet.test/authorize'),
+        ),
+      );
+      await settle(tester);
+
+      expect(launches, 0);
+      expect(find.text('Verify with Fayda'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('FAYDA_004 on register sends the user back to the Fayda step',
+        (tester) async {
+      await openFaydaStep(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      states.add(
+        const AuthError(
+          errorCode: AuthErrorCode.faydaAlreadyLinked,
+          errorMessage: 'This Fayda ID is already linked to another account.',
+        ),
+      );
+      await settle(tester);
+
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a buyer is also sent back to the Fayda step on AUTH_021',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(flow());
+      await settle(tester);
+      await tester.tap(find.text('Buyer'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      expect(find.text('Continue'), findsNothing);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      // Buyer details, then personal info.
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      states.add(
+        const AuthError(
+          errorCode: AuthErrorCode.invalidFaydaToken,
+          errorMessage: 'Fayda verification is required to register.',
+        ),
+      );
+      await settle(tester);
+
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

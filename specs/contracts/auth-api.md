@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.1.0
+2.2.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -14,7 +14,7 @@
 
 The authentication API enables phone-based registration and login for Ethiopian users. It uses a hybrid approach: AWS Cognito for online authentication and PBKDF2-based offline verification for cached credentials. All endpoints are accessed via API Gateway with rate limiting enforced at the gateway level.
 
-**Identity verification** (2.1.0): verification is two-tier. Phone ownership is always proven, by an SMS code (`POST /auth/verify-otp`) unless **Fayda OIDC** (Ethiopia's national digital ID) released the same phone number. Fayda identity is required for payments above 10,000 ETB and can be completed at registration or later from the profile (`POST /user/fayda-link`). The 2.0.0 statement that Fayda replaces SMS OTP with no fallback is superseded.
+**Identity verification** (2.2.0): every account is created through **Fayda OIDC**; `POST /auth/register` rejects a request without a `faydaVerificationToken` (`AUTH_021`). Phone ownership is always proven, by an SMS code (`POST /auth/verify-otp`) unless **Fayda OIDC** (Ethiopia's national digital ID) released the same phone number. `POST /user/fayda-link` remains for accounts created before 2.2.0. The 2.0.0 statement that Fayda replaces SMS OTP with no fallback is superseded.
 
 **Base path**: `/auth`
 
@@ -52,7 +52,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `woreda` | string | Yes | Non-empty, maximum 100 characters (administrative district name) |
 | `displayName` | string | No | Maximum 100 characters. Supports Amharic/Oromo Unicode. |
 | `preferredLanguage` | string | No | Enum: `en`, `am`, `om`. Default: `am` |
-| `faydaVerificationToken` | string | Yes | Short-lived JWT from `POST /auth/fayda-verify` (30-minute validity) |
+| `faydaVerificationToken` | string | Yes | Short-lived JWT from `POST /auth/fayda-verify` (30-minute validity). Missing or blank: `400 AUTH_021` (2.2.0) |
 | `buyerType` | string | No | **Buyer only.** Enum: `private`, `company`. Must be absent for non-buyer roles. |
 | `companyName` | string | No | **Buyer only.** Required when `buyerType` is `company`; rejected otherwise. Maximum 100 characters. |
 
@@ -97,7 +97,7 @@ Register a new user with Ethiopian phone number, password, role, woreda, and Fay
 | `400` | `AUTH_002` | Password does not meet requirements |
 | `400` | `AUTH_003` | Invalid role (must be farmer, trucker, or buyer) |
 | `400` | `AUTH_004` | Woreda is required |
-| `400` | `AUTH_021` | Missing or invalid Fayda verification token |
+| `400` | `AUTH_021` | Missing Fayda verification token (required since 2.2.0) |
 | `409` | `AUTH_005` | Phone number already registered |
 | `429` | `AUTH_006` | Rate limit exceeded |
 | `500` | `AUTH_007` | Internal server error |
@@ -521,7 +521,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_018` | 401 | Refresh token expired | Redirect to login |
 | `AUTH_019` | 401 | Refresh token revoked | Redirect to login |
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
-| `AUTH_021` | 400 | Missing or invalid Fayda verification token | Redirect to Fayda verification |
+| `AUTH_021` | 400 | Missing Fayda verification token on register (required since 2.2.0) | Send the user back to the Fayda step |
 | `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
@@ -530,7 +530,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
 | `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
-| `FAYDA_004` | 409 | Fayda ID already linked to another account | Show "already registered" message |
+| `FAYDA_004` | 409 | Fayda ID already linked to another account (2.2.0: an abandoned, never-confirmed sign-up does not count) | Show "already registered" message |
 
 ---
 
@@ -671,7 +671,7 @@ Authentication state should be managed via BLoC with the following states:
 
 These rules must always hold:
 
-1. **Registration requires internet and proof of phone ownership.** A user cannot register offline. A Fayda verification token (`POST /auth/fayda-verify`) is optional at registration (2.1.0); without one that carries the registration phone, the SMS code step is mandatory. Fayda is required for payments above 10,000 ETB. (Superseded 2.0.0 text: "There is no manual fallback.")
+1. **Registration requires internet and proof of phone ownership.** A user cannot register offline. A Fayda verification token (`POST /auth/fayda-verify`) is required at registration (2.2.0; it was optional in 2.1.0). When Fayda released no phone or a different one, the SMS code step is also mandatory. (Superseded 2.0.0 text: "There is no manual fallback.")
 2. **Online login is preferred.** If the device has connectivity, always authenticate via Cognito (not cached credentials).
 3. **Offline login never creates new sessions.** Offline login only works if the user has previously logged in online and credentials are cached.
 4. **Tokens are never stored in plaintext.** All tokens and password hashes must be in `flutter_secure_storage` (hardware-backed).
@@ -708,7 +708,7 @@ order-lifecycle.md); phone ownership is always proven.
 | Status | When | Body |
 |--------|------|------|
 | `201` | A `faydaVerificationToken` was supplied and its `phone` claim (Fayda's `phone_number`) equals the registration phone | `{userId, phoneNumber, tokens, user, message}` as before |
-| `202` | No Fayda token, or Fayda released no phone or a different one | `{userId, phoneNumber, otpRequired: true, otpExpiresAt, message}`; `tokens` is null |
+| `202` | Fayda released no phone or a different one (2.2.0: a missing token is `400 AUTH_021`) | `{userId, phoneNumber, otpRequired: true, otpExpiresAt, message}`; `tokens` is null |
 
 The verification token is single use (its `jti` is burned at registration) and carries the
 Fayda phone when the provider released one. A phone whose earlier registration never
@@ -822,9 +822,10 @@ Fayda phone also sets `isPhoneVerified`.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.2.0 | 2026-09-28 | Registration requires Fayda: `POST /auth/register` without a `faydaVerificationToken` returns `400 AUTH_021`; the app has no skip on the Fayda step and retries transient Fayda failures before showing an error; the server retries Fayda's token endpoint while the code cannot have been used (connection refused, 502/503/504) and reports any Fayda 5xx as `FAYDA_003` instead of `FAYDA_001`; a Fayda ID held only by an abandoned sign-up (profile phone unverified and Cognito user unconfirmed or gone) no longer blocks `fayda-verify` or `register` with `FAYDA_004`: register replaces it |
 | 2.1.0 | 2026-09-26 | Phone proof and step-up: register returns `202 otpRequired` unless Fayda released the same phone; `POST /auth/verify-otp` (code + password) and `POST /auth/resend-otp`; login `AUTH_016` routes to the code; `AUTH_040` step-up on money actions; server-driven Fayda (`/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`) with state, nonce and PKCE; single-use phone-bound verification token; refresh refuses suspended accounts (`AUTH_025`); per-IP caps; `X-Device-Id` / `X-Device-Name` and `newDevice` |
 
 ---
 
-**Last Updated**: 2026-09-26
-**Version**: 2.1.0
+**Last Updated**: 2026-09-28
+**Version**: 2.2.0

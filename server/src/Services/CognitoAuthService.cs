@@ -606,6 +606,32 @@ public sealed class CognitoAuthService : ICognitoAuthService
         }
     }
 
+    public async Task<bool> IsUnconfirmedOrMissingAsync(string phone)
+    {
+        if (_userPoolId == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var user = await _cognito.AdminGetUserAsync(new AdminGetUserRequest
+            {
+                UserPoolId = _userPoolId,
+                Username = phone
+            });
+            return user.UserStatus == UserStatusType.UNCONFIRMED;
+        }
+        catch (UserNotFoundException)
+        {
+            return true;
+        }
+        catch (AmazonServiceException)
+        {
+            return false;
+        }
+    }
+
     public Task<AuthResult<bool>> AdminDisableUserAsync(string phone)
         => AdminCallAsync(() => _cognito.AdminDisableUserAsync(new AdminDisableUserRequest
         {

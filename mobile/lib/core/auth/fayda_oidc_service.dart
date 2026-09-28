@@ -106,7 +106,18 @@ class FaydaLinkResult {
 ///
 /// The app no longer builds the authorize URL itself, so it needs no Fayda
 /// client id or authorize endpoint at build time.
+/// Called before each automatic retry of a Fayda call: [attempt] is the
+/// attempt about to run (2 or more) out of [total].
+typedef FaydaRetryCallback = void Function(int attempt, int total);
+
 class FaydaOidcService {
+  /// Pauses between automatic attempts. Three attempts in all: a flaky 3G link
+  /// or a cold Lambda usually recovers within a few seconds.
+  static const defaultRetryDelays = [
+    Duration(seconds: 1),
+    Duration(seconds: 3),
+  ];
+
   /// Deep link Fayda redirects back to on mobile.
   static const deepLinkRedirectUri = 'weredaconnect://fayda-callback';
 
@@ -120,9 +131,16 @@ class FaydaOidcService {
   /// VM can exercise the web path.
   final String? Function() _webRedirect;
 
-  FaydaOidcService({Dio? dio, String? Function()? webRedirect})
-      : _dio = dio ?? ApiClient().dio,
-        _webRedirect = webRedirect ?? webFaydaRedirectUri;
+  /// Pauses between attempts; its length + 1 is the number of attempts.
+  final List<Duration> _retryDelays;
+
+  FaydaOidcService({
+    Dio? dio,
+    String? Function()? webRedirect,
+    List<Duration> retryDelays = defaultRetryDelays,
+  })  : _dio = dio ?? ApiClient().dio,
+        _webRedirect = webRedirect ?? webFaydaRedirectUri,
+        _retryDelays = retryDelays;
 
   String get _redirectUri => _webRedirect() ?? deepLinkRedirectUri;
 
@@ -161,19 +179,59 @@ class FaydaOidcService {
   /// Start Fayda verification before an account exists
   /// (POST /auth/fayda-start). [phoneNumber] is optional: the registration
   /// flow runs Fayda before the phone step.
-  Future<FaydaStartResult> startRegistration({String? phoneNumber}) {
-    return _start(
+  ///
+  /// Cancelling [cancelToken] aborts the request in flight and stops any
+  /// further retry.
+  Future<FaydaStartResult> startRegistration({
+    String? phoneNumber,
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
+  }) {
+    return _startWithRetry(
       ApiConfig.faydaStartEndpoint,
       {
         if (phoneNumber != null && phoneNumber.isNotEmpty)
           'phoneNumber': phoneNumber,
       },
+      onRetry,
+      cancelToken,
     );
   }
 
   /// Start Fayda verification for the signed-in user (POST /user/fayda-start).
-  Future<FaydaStartResult> startLink() {
-    return _start(ApiConfig.userFaydaStartEndpoint, const {});
+  Future<FaydaStartResult> startLink({
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
+  }) {
+    return _startWithRetry(
+      ApiConfig.userFaydaStartEndpoint,
+      const {},
+      onRetry,
+      cancelToken,
+    );
+  }
+
+  /// A start mints fresh state on every call, so any transient failure
+  /// (no connection, 5xx, FAYDA_003) is safe to repeat before giving up.
+  Future<FaydaStartResult> _startWithRetry(
+    String endpoint,
+    Map<String, dynamic> body,
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
+  ) async {
+    final total = _retryDelays.length + 1;
+    for (var attempt = 1;; attempt++) {
+      final result = await _start(endpoint, body, cancelToken);
+      if (result.isSuccess ||
+          result.errorCode != AuthErrorCode.faydaServiceUnavailable ||
+          attempt == total ||
+          (cancelToken?.isCancelled ?? false)) {
+        return result;
+      }
+      onRetry?.call(attempt + 1, total);
+      await Future<void>.delayed(_retryDelays[attempt - 1]);
+      if (cancelToken?.isCancelled ?? false) return result;
+    }
   }
 
   /// The redirect is sent with every start so the server stores the one the
@@ -182,11 +240,13 @@ class FaydaOidcService {
   Future<FaydaStartResult> _start(
     String endpoint,
     Map<String, dynamic> body,
+    CancelToken? cancelToken,
   ) async {
     try {
       final response = await _dio.post<dynamic>(
         endpoint,
         data: {...body, 'redirectUri': _redirectUri},
+        cancelToken: cancelToken,
       );
       final data = decodeJsonMap(response.data);
       final state = data?['state'];
@@ -211,11 +271,10 @@ class FaydaOidcService {
       final error = _errorOf(e);
       // The web callback is refused (AUTH_007, field redirectUri) when the
       // real provider is in use, since it registers the deep link only.
-      // Treat Fayda as unavailable here so
-      // registration continues and the user can verify from the mobile app.
+      // Retrying cannot help: the user has to use the mobile app.
       if (_webRedirect() != null && _isRedirectRefused(e)) {
         return const FaydaStartResult.failure(
-          AuthErrorCode.faydaServiceUnavailable,
+          AuthErrorCode.faydaUnavailableOnWeb,
           'Fayda verification is not available on the web',
         );
       }
@@ -235,18 +294,26 @@ class FaydaOidcService {
 
   /// Exchange the authorization code for a registration verification token
   /// (POST /auth/fayda-verify). The server does the token exchange with Fayda.
+  ///
+  /// The authorization code and state are single use, so only a request that
+  /// never reached the server (no connection) is retried, and never on web.
+  /// The server itself retries its call to Fayda.
   Future<FaydaExchangeResult> exchangeCode({
     required String authCode,
     required String state,
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
   }) async {
     try {
-      final response = await _dio.post<dynamic>(
+      final response = await _postUnsentWithRetry(
         ApiConfig.faydaVerifyEndpoint,
-        data: {
+        {
           'authorizationCode': authCode,
           'state': state,
           'redirectUri': _redirectUri,
         },
+        onRetry,
+        cancelToken,
       );
 
       final data = decodeJsonMap(response.data);
@@ -324,6 +391,40 @@ class FaydaOidcService {
     }
   }
 
+  /// POST, repeating only failures where the request was never sent. On web
+  /// nothing is repeated: the browser reports a lost response (after the
+  /// server used the code) as the same connection error as a refused one.
+  Future<Response<dynamic>> _postUnsentWithRetry(
+    String endpoint,
+    Map<String, dynamic> data,
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
+  ) async {
+    final total = _retryDelays.length + 1;
+    final onWeb = _webRedirect() != null;
+    for (var attempt = 1;; attempt++) {
+      try {
+        return await _dio.post<dynamic>(
+          endpoint,
+          data: data,
+          cancelToken: cancelToken,
+        );
+      } on DioException catch (e) {
+        final neverSent = e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.connectionTimeout;
+        if (onWeb ||
+            !neverSent ||
+            attempt == total ||
+            (cancelToken?.isCancelled ?? false)) {
+          rethrow;
+        }
+        onRetry?.call(attempt + 1, total);
+        await Future<void>.delayed(_retryDelays[attempt - 1]);
+        if (cancelToken?.isCancelled ?? false) rethrow;
+      }
+    }
+  }
+
   static DateTime? _parseTime(Object? raw) =>
       raw is String ? DateTime.tryParse(raw)?.toUtc() : null;
 
@@ -336,8 +437,8 @@ class FaydaOidcService {
   }
 
   /// Map a Dio failure to a Fayda / auth error code. Network trouble and 5xx
-  /// without a code count as "service unavailable" (FAYDA_003), which lets
-  /// registration continue without Fayda.
+  /// without a code count as "service unavailable" (FAYDA_003), which the
+  /// start call retries before giving up.
   static ({String code, String message, int? retryAfterSeconds}) _errorOf(
     DioException e,
   ) {

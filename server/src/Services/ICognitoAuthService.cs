@@ -78,6 +78,13 @@ public interface ICognitoAuthService
     /// </summary>
     Task DeleteUserAsync(string phone);
 
+    /// <summary>
+    /// Whether the Cognito user for <paramref name="phone"/> never confirmed its SMS
+    /// code, or no longer exists. False for a confirmed user and whenever the lookup
+    /// fails, so a caller never removes an account on doubt.
+    /// </summary>
+    Task<bool> IsUnconfirmedOrMissingAsync(string phone);
+
     /// <summary>Disable the Cognito user: refresh and password logins stop immediately.</summary>
     Task<AuthResult<bool>> AdminDisableUserAsync(string phone);
 

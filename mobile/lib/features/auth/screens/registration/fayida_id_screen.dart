@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Step 2: Fayda eKYC Verification via OIDC.
+/// Step 2: Fayda eKYC Verification via OIDC (required to register).
 ///
 /// States:
 /// - Pending: "Verify with Fayda" button
 /// - Verifying: spinner while browser/callback in progress
 /// - Verified: green checkmark with verified name
-/// - Error: red panel with retry button
+/// - Error: red panel above the card, whose button becomes "Retry"
 class FayidaIdScreen extends StatelessWidget {
   final VoidCallback onFaydaVerifyRequested;
   final VoidCallback? onCancelVerification;
@@ -214,8 +214,16 @@ class FayidaIdScreen extends StatelessWidget {
                         height: 48,
                         child: FilledButton.icon(
                           onPressed: onFaydaVerifyRequested,
-                          icon: const Icon(Icons.open_in_browser),
-                          label: Text(l10n.verifyWithFayda),
+                          icon: Icon(
+                            errorMessage != null
+                                ? Icons.refresh
+                                : Icons.open_in_browser,
+                          ),
+                          label: Text(
+                            errorMessage != null
+                                ? l10n.retry
+                                : l10n.verifyWithFayda,
+                          ),
                         ),
                       ),
                     ],
