@@ -45,7 +45,7 @@ jobs:
         run: npm test -- --coverage --testPathPattern=unit
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ./infra/coverage/lcov.info
           flags: infra-unit
