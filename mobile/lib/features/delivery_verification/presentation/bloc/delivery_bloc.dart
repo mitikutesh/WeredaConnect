@@ -55,7 +55,9 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
     }
     if (e is SyncDeferredException) {
       return DeliveryError(
-          message: e.message, code: DeliveryErrorCode.qrPending,);
+        message: e.message,
+        code: DeliveryErrorCode.qrPending,
+      );
     }
     return DeliveryError(
       message: e.toString(),
