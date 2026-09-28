@@ -432,6 +432,18 @@ public static partial class RequestValidator
             }
         }
 
+        // Registration goes through Fayda only (auth-api 2.2.0). Checked last so a
+        // malformed form still reports its own field first.
+        if (string.IsNullOrWhiteSpace(request.FaydaVerificationToken))
+        {
+            errors.Add(new ValidationError
+            {
+                Field = "faydaVerificationToken",
+                Code = "AUTH_021",
+                Message = "Fayda verification is required to register."
+            });
+        }
+
         return errors.Count > 0
             ? ValidationResult.Failure(errors)
             : ValidationResult.Success();

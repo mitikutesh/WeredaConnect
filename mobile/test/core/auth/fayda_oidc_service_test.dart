@@ -5,6 +5,31 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 
+const noDelay = [Duration.zero, Duration.zero];
+
+/// A Dio whose [n]th request (1-based) is answered by [answer].
+({Dio dio, List<int> calls}) scripted(
+  void Function(int n, RequestOptions o, RequestInterceptorHandler h) answer,
+) {
+  final dio = Dio(BaseOptions(baseUrl: 'https://api.test'));
+  final calls = <int>[];
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (o, h) {
+        calls.add(calls.length + 1);
+        answer(calls.length, o, h);
+      },
+    ),
+  );
+  return (dio: dio, calls: calls);
+}
+
+DioException offline(RequestOptions o) =>
+    DioException(requestOptions: o, type: DioExceptionType.connectionError);
+
+Response<dynamic> ok(RequestOptions o, Map<String, dynamic> body) =>
+    Response<dynamic>(requestOptions: o, statusCode: 200, data: body);
+
 void main() {
   late Dio dio;
   late DioAdapter adapter;
@@ -13,7 +38,8 @@ void main() {
   setUp(() {
     dio = Dio(BaseOptions(baseUrl: 'https://api.test'));
     adapter = DioAdapter(dio: dio);
-    service = FaydaOidcService(dio: dio);
+    // No pauses between automatic retries in tests.
+    service = FaydaOidcService(dio: dio, retryDelays: noDelay);
   });
 
   group('startRegistration', () {
@@ -110,9 +136,10 @@ void main() {
       expect(result.errorCode, AuthErrorCode.internalServerError);
     });
 
-    test('on web a refused redirect means Fayda is unavailable here', () async {
+    test('on web a refused redirect says to use the mobile app', () async {
       final web = FaydaOidcService(
         dio: dio,
+        retryDelays: noDelay,
         webRedirect: () =>
             'https://dev-app.weredaconnect.com/fayda-callback.html',
       );
@@ -133,12 +160,13 @@ void main() {
 
       final result = await web.startRegistration();
 
-      expect(result.errorCode, AuthErrorCode.faydaServiceUnavailable);
+      expect(result.errorCode, AuthErrorCode.faydaUnavailableOnWeb);
     });
 
     test('on web other AUTH_007 errors keep their code', () async {
       final web = FaydaOidcService(
         dio: dio,
+        retryDelays: noDelay,
         webRedirect: () =>
             'https://dev-app.weredaconnect.com/fayda-callback.html',
       );
@@ -153,6 +181,62 @@ void main() {
       final result = await web.startRegistration();
 
       expect(result.errorCode, AuthErrorCode.internalServerError);
+    });
+
+    test('retries a dropped connection, then succeeds', () async {
+      final s = scripted(
+        (n, o, h) => n < 3
+            ? h.reject(offline(o))
+            : h.resolve(
+                ok(o, {
+                  'state': 'st-9',
+                  'authorizeUrl': 'https://esignet.test/authorize',
+                }),
+              ),
+      );
+      final retries = <(int, int)>[];
+
+      final result = await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .startRegistration(onRetry: (a, t) => retries.add((a, t)));
+
+      expect(result.isSuccess, isTrue);
+      expect(result.state, 'st-9');
+      expect(s.calls, hasLength(3));
+      expect(retries, [(2, 3), (3, 3)]);
+    });
+
+    test('gives up after three attempts when Fayda stays down', () async {
+      final s = scripted((n, o, h) => h.reject(offline(o)));
+
+      final result = await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .startRegistration();
+
+      expect(result.errorCode, AuthErrorCode.faydaServiceUnavailable);
+      expect(s.calls, hasLength(3));
+    });
+
+    test('does not retry a rate limit or a refusal', () async {
+      final s = scripted(
+        (n, o, h) => h.reject(
+          DioException(
+            requestOptions: o,
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: o,
+              statusCode: 429,
+              data: {
+                'error': {'code': 'AUTH_006', 'message': 'slow down'},
+              },
+            ),
+          ),
+        ),
+      );
+
+      final result = await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .startRegistration();
+
+      expect(result.errorCode, AuthErrorCode.rateLimitExceeded);
+      expect(s.calls, hasLength(1));
     });
 
     test('a malformed response is treated as unavailable', () async {
@@ -222,6 +306,37 @@ void main() {
           await service.exchangeCode(authCode: 'code-1', state: 'old');
 
       expect(result.errorCode, AuthErrorCode.faydaTokenExpired);
+    });
+
+    test('retries only when the request never left the device', () async {
+      final s = scripted(
+        (n, o, h) => n == 1
+            ? h.reject(offline(o))
+            : h.resolve(ok(o, {'verified': true, 'verificationToken': 'vt'})),
+      );
+
+      final result = await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .exchangeCode(authCode: 'c', state: 'st');
+
+      expect(result.isSuccess, isTrue);
+      expect(s.calls, hasLength(2));
+    });
+
+    test('never repeats a code the server may have used', () async {
+      final s = scripted(
+        (n, o, h) => h.reject(
+          DioException(
+            requestOptions: o,
+            type: DioExceptionType.receiveTimeout,
+          ),
+        ),
+      );
+
+      final result = await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .exchangeCode(authCode: 'c', state: 'st');
+
+      expect(result.errorCode, AuthErrorCode.faydaServiceUnavailable);
+      expect(s.calls, hasLength(1));
     });
   });
 

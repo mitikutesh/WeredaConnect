@@ -2242,7 +2242,7 @@
   "faydaVerifying": "በፋይዳ በማረጋገጥ ላይ...",
   "faydaVerifiedSuccess": "ማንነት ተረጋግጧል",
   "faydaVerificationFailed": "የፋይዳ ማረጋገጫ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
-  "faydaRequired": "ከ10,000 ብር በላይ ለመገበያየት የፋይዳ መታወቂያዎን ያረጋግጡ። ይህንን ዘለው ቆይተው ማረጋገጥ ይችላሉ።",
+  "faydaRequired": "መለያ ለመፍጠር የተረጋገጠ የፋይዳ መታወቂያ ያስፈልጋል። አንድ ደቂቃ ብቻ ይወስዳል።",
   "faydaUnavailable": "የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።",
   "faydaAlreadyLinked": "ይህ የፋይዳ መታወቂያ ከሌላ መለያ ጋር ተገናኝቷል።",
   "pendingOrders": "በመጠባበቅ ላይ ያሉ ትዕዛዞች",
@@ -2486,7 +2486,6 @@
   "stepUpConfirm": "አረጋግጥ",
   "stepUpOfflineError": "ለማረጋገጥ ኢንተርኔት ያስፈልግዎታል። ይገናኙና እንደገና ይሞክሩ።",
   "stepUpDone": "ተረጋግጧል። ክፍያዎን እንደገና በመሞከር ላይ።",
-  "faydaUnavailableVerifyLater": "ፋይዳ አሁን አይገኝም። መቀጠል እና በኋላ ከመገለጫዎ ማረጋገጥ ይችላሉ።",
   "faydaStateMismatch": "የፋይዳ ክፍለ ጊዜ አልፏል። እባክዎ ማረጋገጫውን እንደገና ይጀምሩ።",
   "faydaStillWaiting": "አሁንም ፋይዳን በመጠበቅ ላይ። በአሳሹ ውስጥ ይጨርሱ፣ ከዚያ ወደዚህ ይመለሳሉ።",
   "faydaLinkSuccess": "የፋይዳ መታወቂያዎ አሁን ከመለያዎ ጋር ተገናኝቷል።",
@@ -2498,5 +2497,10 @@
   "appLockUnlock": "ክፈት",
   "appLockReason": "ወረዳ ኮነክትን ይክፈቱ",
   "qrConfirmAuthReason": "ይህን ርክክብ ለመቀበል እርስዎ መሆንዎን ያረጋግጡ",
-  "qrConfirmAuthFailed": "እርስዎ መሆንዎን ማረጋገጥ አልተቻለም። ርክክቡ አልተረጋገጠም።"
+  "qrConfirmAuthFailed": "እርስዎ መሆንዎን ማረጋገጥ አልተቻለም። ርክክቡ አልተረጋገጠም።",
+  "faydaRegistrationUnavailable": "ብዙ ጊዜ ሞክረንም ከፋይዳ ጋር መገናኘት አልቻልንም። የኢንተርኔት ግንኙነትዎን ያረጋግጡ እና ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
+  "faydaUnavailableOnWeb": "የፋይዳ ማረጋገጫ በአሳሽ ላይ ገና አይገኝም። እባክዎ የWeredaConnect የሞባይል መተግበሪያን ይጠቀሙ።",
+  "faydaCouldNotOpen": "የፋይዳ ገጹን መክፈት አልቻልንም። እባክዎ እንደገና ይሞክሩ።",
+  "faydaRequiredToRegister": "የፋይዳ ማረጋገጫዎ የለም ወይም ጊዜው አልፏል። መለያዎን ለመፍጠር እባክዎ በፋይዳ እንደገና ያረጋግጡ።",
+  "faydaRetrying": "አሁንም ከፋይዳ ጋር ለመገናኘት እየሞከርን ነው ({attempt}/{total})..."
 }

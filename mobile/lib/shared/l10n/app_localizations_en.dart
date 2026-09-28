@@ -2007,7 +2007,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get faydaRequired =>
-      'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.';
+      'A verified Fayda ID is required to create an account. It only takes a minute.';
 
   @override
   String get faydaUnavailable =>
@@ -2652,10 +2652,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stepUpDone => 'Confirmed. Retrying your payment.';
 
   @override
-  String get faydaUnavailableVerifyLater =>
-      'Fayda is unavailable right now. You can continue and verify later from your profile.';
-
-  @override
   String get faydaStateMismatch =>
       'The Fayda session expired. Please start verification again.';
 
@@ -2695,4 +2691,25 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get qrConfirmAuthFailed =>
       'Could not confirm it\'s you. The delivery was not confirmed.';
+
+  @override
+  String get faydaRegistrationUnavailable =>
+      'We couldn\'t reach Fayda, even after several tries. Check your internet connection and try again in a few minutes.';
+
+  @override
+  String get faydaUnavailableOnWeb =>
+      'Fayda verification isn\'t available in the browser yet. Please use the WeredaConnect mobile app.';
+
+  @override
+  String get faydaCouldNotOpen =>
+      'We couldn\'t open the Fayda page. Please try again.';
+
+  @override
+  String get faydaRequiredToRegister =>
+      'Your Fayda verification is missing or has expired. Please verify with Fayda again to finish creating your account.';
+
+  @override
+  String faydaRetrying(int attempt, int total) {
+    return 'Still trying to reach Fayda ($attempt/$total)...';
+  }
 }

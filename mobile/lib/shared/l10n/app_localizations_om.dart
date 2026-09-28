@@ -2016,7 +2016,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaRequired =>
-      'Daldala birrii 10,000 ol ta\'e banachuuf eenyummaa Faayidaa keessan mirkaneessaa. Irra darbuu fi booda mirkaneessuu dandeessu.';
+      'Herrega uumuuf eenyummaan Faayidaa mirkanaa\'e barbaachisaadha. Daqiiqaa tokko qofa fudhata.';
 
   @override
   String get faydaUnavailable =>
@@ -2669,10 +2669,6 @@ class AppLocalizationsOm extends AppLocalizations {
       'Mirkanaa\'eera. Kaffaltii keessan irra deebi\'amaa jira.';
 
   @override
-  String get faydaUnavailableVerifyLater =>
-      'Faayidaan amma hin argamu. Itti fufuu fi booda profaayilii keessan irraa mirkaneessuu dandeessu.';
-
-  @override
   String get faydaStateMismatch =>
       'Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi\'aa jalqabaa.';
 
@@ -2715,4 +2711,25 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get qrConfirmAuthFailed =>
       'Isin ta\'uu keessan mirkaneessuun hin danda\'amne. Geejjibni hin mirkanoofne.';
+
+  @override
+  String get faydaRegistrationUnavailable =>
+      'Yeroo hedduu yaallus Faayidaa argachuu hin dandeenye. Walqunnamtii interneetii keessanii ilaalaatii daqiiqaa muraasa booda irra deebi\'aa yaalaa.';
+
+  @override
+  String get faydaUnavailableOnWeb =>
+      'Mirkaneessi Faayidaa ammaaf baraabsaa (browser) irratti hin argamu. Maaloo appii moobaayilaa WeredaConnect fayyadamaa.';
+
+  @override
+  String get faydaCouldNotOpen =>
+      'Fuula Faayidaa banuu hin dandeenye. Maaloo irra deebi\'aa yaalaa.';
+
+  @override
+  String get faydaRequiredToRegister =>
+      'Mirkaneessi Faayidaa keessan hin jiru ykn yeroon isaa darbeera. Herrega keessan xumuruuf maaloo Faayidaan irra deebi\'aa mirkaneessaa.';
+
+  @override
+  String faydaRetrying(int attempt, int total) {
+    return 'Ammas Faayidaa argachuuf yaalaa jirra ($attempt/$total)...';
+  }
 }

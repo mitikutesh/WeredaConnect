@@ -2707,9 +2707,9 @@
   "@faydaVerificationFailed": {
     "description": "Error message when Fayda verification fails"
   },
-  "faydaRequired": "Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.",
+  "faydaRequired": "A verified Fayda ID is required to create an account. It only takes a minute.",
   "@faydaRequired": {
-    "description": "Message explaining Fayda verification is optional during registration"
+    "description": "Registration Fayda step: explains that Fayda verification is required to create an account"
   },
   "faydaUnavailable": "Fayda service is currently unavailable. Please try again later.",
   "@faydaUnavailable": {
@@ -3370,10 +3370,6 @@
   "@stepUpDone": {
     "description": "Snackbar after a successful step-up re-authentication"
   },
-  "faydaUnavailableVerifyLater": "Fayda is unavailable right now. You can continue and verify later from your profile.",
-  "@faydaUnavailableVerifyLater": {
-    "description": "Fayda FAYDA_003 message that lets registration continue"
-  },
   "faydaStateMismatch": "The Fayda session expired. Please start verification again.",
   "@faydaStateMismatch": {
     "description": "Fayda callback state mismatch or FAYDA_002"
@@ -3421,5 +3417,33 @@
   "qrConfirmAuthFailed": "Could not confirm it's you. The delivery was not confirmed.",
   "@qrConfirmAuthFailed": {
     "description": "Shown when device authentication fails before QR delivery confirm"
+  },
+  "faydaRegistrationUnavailable": "We couldn't reach Fayda, even after several tries. Check your internet connection and try again in a few minutes.",
+  "@faydaRegistrationUnavailable": {
+    "description": "Registration Fayda step: shown after the automatic retries to reach Fayda all failed (FAYDA_003 or no connection)"
+  },
+  "faydaUnavailableOnWeb": "Fayda verification isn't available in the browser yet. Please use the WeredaConnect mobile app.",
+  "@faydaUnavailableOnWeb": {
+    "description": "Shown on web when the live Fayda provider does not accept the web callback, so verification must happen in the mobile app"
+  },
+  "faydaCouldNotOpen": "We couldn't open the Fayda page. Please try again.",
+  "@faydaCouldNotOpen": {
+    "description": "Registration Fayda step: the Fayda login page could not be opened in the browser"
+  },
+  "faydaRequiredToRegister": "Your Fayda verification is missing or has expired. Please verify with Fayda again to finish creating your account.",
+  "@faydaRequiredToRegister": {
+    "description": "AUTH_021: registration was sent without a valid Fayda verification token; the user is sent back to the Fayda step"
+  },
+  "faydaRetrying": "Still trying to reach Fayda ({attempt}/{total})...",
+  "@faydaRetrying": {
+    "description": "Registration Fayda step: shown under the spinner while an automatic retry runs",
+    "placeholders": {
+      "attempt": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

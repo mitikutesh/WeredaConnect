@@ -113,32 +113,6 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('FAYDA_003 tells the user they can continue and verify later',
-      (tester) async {
-    useTallPhone(tester);
-    await tester.pumpWidget(app());
-    await settle(tester);
-
-    states.add(
-      const AuthError(
-        errorCode: AuthErrorCode.faydaServiceUnavailable,
-        errorMessage: 'Fayda down',
-      ),
-    );
-    await settle(tester);
-
-    expect(
-      find.text(
-        'Fayda is unavailable right now. You can continue and verify '
-        'later from your profile.',
-      ),
-      findsOneWidget,
-    );
-    // Still on the registration flow, not an OTP or error screen.
-    expect(find.byType(RegistrationFlow), findsOneWidget);
-    expect(find.byType(OtpVerificationScreen), findsNothing);
-  });
-
   group('Fayda callback', () {
     late MockFaydaOidcService fayda;
     late StreamController<Uri> links;
@@ -152,7 +126,10 @@ void main() {
             realService.parseCallback(inv.positionalArguments.first as Uri),
       );
       when(
-        () => fayda.startRegistration(phoneNumber: any(named: 'phoneNumber')),
+        () => fayda.startRegistration(
+          phoneNumber: any(named: 'phoneNumber'),
+          onRetry: any(named: 'onRetry'),
+        ),
       ).thenAnswer(
         (_) async => FaydaStartResult(
           isSuccess: true,
@@ -164,6 +141,7 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
         ),
       ).thenAnswer(
         (_) async => const FaydaExchangeResult(
@@ -218,6 +196,7 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
         ),
       );
 
@@ -225,8 +204,13 @@ void main() {
           .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
       await settle(tester);
 
-      verify(() => fayda.exchangeCode(authCode: 'c-1', state: 'st-1'))
-          .called(1);
+      verify(
+        () => fayda.exchangeCode(
+          authCode: 'c-1',
+          state: 'st-1',
+          onRetry: any(named: 'onRetry'),
+        ),
+      ).called(1);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -241,8 +225,114 @@ void main() {
         () => fayda.exchangeCode(
           authCode: any(named: 'authCode'),
           state: any(named: 'state'),
+          onRetry: any(named: 'onRetry'),
         ),
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+    Future<void> openFaydaStep(WidgetTester tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(flow());
+      await settle(tester);
+      await tester.tap(find.text('Farmer'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+    }
+
+    testWidgets('the Fayda step has no Continue until Fayda verifies',
+        (tester) async {
+      await openFaydaStep(tester);
+
+      expect(find.text('Continue'), findsNothing);
+      expect(
+        find.text(
+          'A verified Fayda ID is required to create an account. '
+          'It only takes a minute.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      expect(find.text('Continue'), findsNothing);
+
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+
+      expect(find.text('Abebe Kebede'), findsOneWidget);
+      expect(find.text('Continue'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('shows retry progress, then a clear message and Retry',
+        (tester) async {
+      final gate = Completer<FaydaStartResult>();
+      when(
+        () => fayda.startRegistration(
+          phoneNumber: any(named: 'phoneNumber'),
+          onRetry: any(named: 'onRetry'),
+        ),
+      ).thenAnswer((inv) {
+        final onRetry = inv.namedArguments[#onRetry] as FaydaRetryCallback?;
+        onRetry?.call(2, 3);
+        return gate.future;
+      });
+      await openFaydaStep(tester);
+
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      expect(find.text('Still trying to reach Fayda (2/3)...'), findsOneWidget);
+
+      gate.complete(
+        const FaydaStartResult.failure(
+          AuthErrorCode.faydaServiceUnavailable,
+          'down',
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        find.text(
+          "We couldn't reach Fayda, even after several tries. Check your "
+          'internet connection and try again in a few minutes.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('AUTH_021 on register sends the user back to the Fayda step',
+        (tester) async {
+      await openFaydaStep(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      states.add(
+        const AuthError(
+          errorCode: AuthErrorCode.invalidFaydaToken,
+          errorMessage: 'Fayda verification is required to register.',
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        find.text(
+          'Your Fayda verification is missing or has expired. Please verify '
+          'with Fayda again to finish creating your account.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

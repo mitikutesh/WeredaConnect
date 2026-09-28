@@ -27,11 +27,12 @@ import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 ///
 /// Steps:
 /// 1. Role selection
-/// 2. Fayda eKYC verification (OIDC browser flow)
+/// 2. Fayda eKYC verification (OIDC browser flow). Required: there is no
+///    Continue on this step until Fayda has verified the user.
 /// 3. Role-specific details (trucker/buyer only, farmer skips)
 /// 4. Personal info (phone, name, woreda, password)
 /// → Dispatches AuthRegisterRequested with Fayda verification token
-/// → Without a matching Fayda token the server asks for an SMS OTP
+/// → When Fayda's phone differs from the entered one the server asks for an SMS OTP
 ///   (AuthOtpVerificationRequired) and the OTP screen is pushed on top.
 class RegistrationFlow extends StatefulWidget {
   const RegistrationFlow({
@@ -74,6 +75,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   bool _faydaVerifying = false;
   String? _faydaState;
   String? _faydaError;
+  // Text under the spinner while an automatic retry runs; null otherwise.
+  String? _faydaProgressMessage;
   StreamSubscription<Uri>? _deepLinkSub;
 
   // Whether the browser was launched and we're waiting for a callback
@@ -143,7 +146,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       case 0:
         return _selectedRole != null;
       case 1:
-        return true; // Fayda verification is optional (post-registration)
+        return _faydaVerified; // Registration goes through Fayda only
       case 2:
         if (_selectedRole == UserRole.farmer) {
           // Farmer sees personal info as step 2
@@ -193,10 +196,9 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
   String _localizeAuthError(String errorCode, {int? retryAfterSeconds}) {
     final l10n = AppLocalizations.of(context)!;
-    // FAYDA_003: Fayda is down. Registration continues without it and the
-    // user can verify later from the profile.
+    // FAYDA_003 here means the automatic retries were used up as well.
     if (errorCode == AuthErrorCode.faydaServiceUnavailable) {
-      return l10n.faydaUnavailableVerifyLater;
+      return l10n.faydaRegistrationUnavailable;
     }
     return localizeAuthError(
       l10n,
@@ -205,18 +207,42 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     );
   }
 
+  /// Shows "still trying (n/total)" under the spinner during a retry.
+  void _showFaydaRetry(int attempt, int total) {
+    if (!mounted) return;
+    setState(() {
+      _faydaProgressMessage =
+          AppLocalizations.of(context)!.faydaRetrying(attempt, total);
+    });
+  }
+
+  /// A register refusal that means the Fayda proof is gone (missing, reused
+  /// or expired): drop it and send the user back to the Fayda step.
+  void _returnToFaydaStep(String message) {
+    _faydaVerificationToken = null;
+    _faydaVerifiedName = null;
+    _faydaVerified = false;
+    _faydaError = message;
+    _currentStep = 1;
+    _pageController.jumpToPage(_adjustedPageIndex(1));
+  }
+
   Future<void> _handleFaydaVerify() async {
     setState(() {
       _faydaVerifying = true;
       _faydaError = null;
+      _faydaProgressMessage = null;
     });
 
     // The server builds the authorize URL (client id, nonce, PKCE) and hands
-    // back the state we must see again on the callback.
+    // back the state we must see again on the callback. Transient failures
+    // are retried inside the service before an error reaches the user.
     final start = await _faydaService.startRegistration(
       phoneNumber: _phone.isEmpty ? null : _phone,
+      onRetry: _showFaydaRetry,
     );
     if (!mounted) return;
+    setState(() => _faydaProgressMessage = null);
     if (!start.isSuccess) {
       setState(() {
         _faydaVerifying = false;
@@ -241,8 +267,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       } else {
         setState(() {
           _faydaVerifying = false;
-          _faydaError =
-              AppLocalizations.of(context)!.faydaUnavailableVerifyLater;
+          _faydaError = AppLocalizations.of(context)!.faydaCouldNotOpen;
         });
       }
     } on Exception catch (e) {
@@ -250,7 +275,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       if (!mounted) return;
       setState(() {
         _faydaVerifying = false;
-        _faydaError = AppLocalizations.of(context)!.faydaUnavailableVerifyLater;
+        _faydaError = AppLocalizations.of(context)!.faydaCouldNotOpen;
       });
     }
   }
@@ -288,9 +313,11 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     final result = await _faydaService.exchangeCode(
       authCode: callback.code!,
       state: _faydaState!,
+      onRetry: _showFaydaRetry,
     );
 
     if (!mounted) return;
+    setState(() => _faydaProgressMessage = null);
 
     if (result.isSuccess) {
       setState(() {
@@ -304,7 +331,10 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     } else {
       setState(() {
         _faydaVerifying = false;
-        _faydaError = _localizeAuthError(
+        // Not _localizeAuthError: a FAYDA_003 here was not retried (the code
+        // is single use), so the "after several tries" wording does not fit.
+        _faydaError = localizeAuthError(
+          AppLocalizations.of(context)!,
           result.errorCode ?? AuthErrorCode.faydaVerificationFailed,
         );
       });
@@ -372,6 +402,14 @@ class _RegistrationFlowState extends State<RegistrationFlow>
             state.errorCode,
             retryAfterSeconds: state.retryAfterSeconds,
           );
+          if (state.errorCode == AuthErrorCode.invalidFaydaToken ||
+              state.errorCode == AuthErrorCode.faydaVerificationFailed ||
+              state.errorCode == AuthErrorCode.faydaTokenExpired) {
+            final message =
+                AppLocalizations.of(context)!.faydaRequiredToRegister;
+            setState(() => _returnToFaydaStep(message));
+            return;
+          }
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -462,6 +500,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                               }
                             : null,
                         isVerifying: _faydaVerifying,
+                        verifyingMessage: _faydaProgressMessage,
                         isVerified: _faydaVerified,
                         verifiedName: _faydaVerifiedName,
                         errorMessage: _faydaError,
@@ -503,44 +542,46 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                   ),
                 ),
 
-                // Bottom action bar
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                  child: Builder(
-                    builder: (context) {
-                      final isLoading =
-                          context.watch<AuthBloc>().state is AuthLoading;
-                      final isLastStep = _currentStep == _totalSteps - 1;
+                // Bottom action bar. Hidden on the Fayda step until Fayda has
+                // verified the user: the card's own button is the only way on.
+                if (_currentStep != 1 || _faydaVerified)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    child: Builder(
+                      builder: (context) {
+                        final isLoading =
+                            context.watch<AuthBloc>().state is AuthLoading;
+                        final isLastStep = _currentStep == _totalSteps - 1;
 
-                      return SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed:
-                              (_canContinue && !isLoading) ? _nextStep : null,
-                          child: isLoading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        return SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: FilledButton(
+                            onPressed:
+                                (_canContinue && !isLoading) ? _nextStep : null,
+                            child: isLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    isLastStep
+                                        ? l10n.signUp
+                                        : l10n.continueButton,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                )
-                              : Text(
-                                  isLastStep
-                                      ? l10n.signUp
-                                      : l10n.continueButton,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                        ),
-                      );
-                    },
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
               ],
             ),
           ),

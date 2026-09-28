@@ -145,7 +145,8 @@ public class RegisterFunction
         }
         await _rateLimitService.RecordIpAsync(sourceIp, "register", 3600);
 
-        // Validate Fayda verification token (optional — two-tier model)
+        // Validate the Fayda verification token (required: the validator already
+        // rejected a missing one with AUTH_021)
         FaydaVerificationResult? faydaVerification = null;
         string? jtiKey = null;
         if (!string.IsNullOrWhiteSpace(registerRequest.FaydaVerificationToken))

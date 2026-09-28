@@ -1950,7 +1950,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get faydaRequired =>
-      'ከ10,000 ብር በላይ ለመገበያየት የፋይዳ መታወቂያዎን ያረጋግጡ። ይህንን ዘለው ቆይተው ማረጋገጥ ይችላሉ።';
+      'መለያ ለመፍጠር የተረጋገጠ የፋይዳ መታወቂያ ያስፈልጋል። አንድ ደቂቃ ብቻ ይወስዳል።';
 
   @override
   String get faydaUnavailable => 'የፋይዳ አገልግሎት በአሁኑ ጊዜ አይገኝም። እባክዎ ቆይተው ይሞክሩ።';
@@ -2578,10 +2578,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get stepUpDone => 'ተረጋግጧል። ክፍያዎን እንደገና በመሞከር ላይ።';
 
   @override
-  String get faydaUnavailableVerifyLater =>
-      'ፋይዳ አሁን አይገኝም። መቀጠል እና በኋላ ከመገለጫዎ ማረጋገጥ ይችላሉ።';
-
-  @override
   String get faydaStateMismatch => 'የፋይዳ ክፍለ ጊዜ አልፏል። እባክዎ ማረጋገጫውን እንደገና ይጀምሩ።';
 
   @override
@@ -2617,4 +2613,24 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get qrConfirmAuthFailed => 'እርስዎ መሆንዎን ማረጋገጥ አልተቻለም። ርክክቡ አልተረጋገጠም።';
+
+  @override
+  String get faydaRegistrationUnavailable =>
+      'ብዙ ጊዜ ሞክረንም ከፋይዳ ጋር መገናኘት አልቻልንም። የኢንተርኔት ግንኙነትዎን ያረጋግጡ እና ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።';
+
+  @override
+  String get faydaUnavailableOnWeb =>
+      'የፋይዳ ማረጋገጫ በአሳሽ ላይ ገና አይገኝም። እባክዎ የWeredaConnect የሞባይል መተግበሪያን ይጠቀሙ።';
+
+  @override
+  String get faydaCouldNotOpen => 'የፋይዳ ገጹን መክፈት አልቻልንም። እባክዎ እንደገና ይሞክሩ።';
+
+  @override
+  String get faydaRequiredToRegister =>
+      'የፋይዳ ማረጋገጫዎ የለም ወይም ጊዜው አልፏል። መለያዎን ለመፍጠር እባክዎ በፋይዳ እንደገና ያረጋግጡ።';
+
+  @override
+  String faydaRetrying(int attempt, int total) {
+    return 'አሁንም ከፋይዳ ጋር ለመገናኘት እየሞከርን ነው ($attempt/$total)...';
+  }
 }

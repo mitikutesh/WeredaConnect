@@ -260,6 +260,44 @@ public class RequestValidatorTests
         Assert.True(result.Errors.Count >= 4); // phone, password, role, woreda
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ValidateRegisterRequest_MissingFaydaToken_ReturnsAuth021(string? token)
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "+251912345678",
+            Password = "securePass1",
+            Role = "farmer",
+            Woreda = "Adama",
+            FaydaVerificationToken = token
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("AUTH_021", error.Code);
+        Assert.Equal("faydaVerificationToken", error.Field);
+    }
+
+    [Fact]
+    public void ValidateRegisterRequest_BadFieldAndMissingFaydaToken_ReportsTheFieldFirst()
+    {
+        var request = new RegisterRequest
+        {
+            PhoneNumber = "invalid",
+            Password = "securePass1",
+            Role = "farmer",
+            Woreda = "Adama"
+        };
+
+        var result = RequestValidator.ValidateRegisterRequest(request);
+        Assert.Equal("phoneNumber", result.Errors[0].Field);
+        Assert.Equal("AUTH_021", result.Errors[^1].Code);
+    }
+
     // --- F-32: buyer-only identity fields ---
 
     [Fact]
@@ -271,6 +309,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "buyer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "company",
             CompanyName = "Abebe Trading PLC"
         };
@@ -288,6 +327,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "buyer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "private"
         };
 
@@ -304,6 +344,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "buyer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "company"
         };
 
@@ -321,6 +362,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "buyer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "private",
             CompanyName = "Should Not Be Here"
         };
@@ -339,6 +381,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "farmer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "company",
             CompanyName = "Nope PLC"
         };
@@ -357,6 +400,7 @@ public class RequestValidatorTests
             Password = "securePass1",
             Role = "buyer",
             Woreda = "Adama",
+            FaydaVerificationToken = "some-valid-token",
             BuyerType = "enterprise"
         };
 

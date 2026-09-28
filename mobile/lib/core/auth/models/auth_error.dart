@@ -27,6 +27,10 @@ class AuthErrorCode {
   static const faydaServiceUnavailable = 'FAYDA_003';
   static const faydaAlreadyLinked = 'FAYDA_004';
 
+  /// Client-only: the server refused the web callback because the real Fayda
+  /// provider only knows the app's deep link. Never sent by the server.
+  static const faydaUnavailableOnWeb = 'FAYDA_WEB_UNSUPPORTED';
+
   // Registration OTP errors (POST /auth/verify-otp)
   static const otpInvalidFormat = 'AUTH_011';
   static const otpInvalidOrExpired = 'AUTH_012';
@@ -109,6 +113,8 @@ extension AuthErrorCodeExtension on String {
         return 'This Fayda ID is already linked to another account';
       case AuthErrorCode.faydaServiceUnavailable:
         return 'Fayda service is currently unavailable. Please try later';
+      case AuthErrorCode.faydaUnavailableOnWeb:
+        return 'Fayda verification is only available in the mobile app';
       case AuthErrorCode.invalidFaydaToken:
         return 'Invalid or expired Fayda verification. Please verify again';
       case AuthErrorCode.userNotFound:

@@ -40,7 +40,8 @@ String localizeAuthError(
     AuthErrorCode.faydaTokenExpired => l10n.faydaStateMismatch,
     AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
     AuthErrorCode.faydaAlreadyLinked => l10n.faydaAlreadyLinked,
-    AuthErrorCode.invalidFaydaToken => l10n.faydaVerificationFailed,
+    AuthErrorCode.faydaUnavailableOnWeb => l10n.faydaUnavailableOnWeb,
+    AuthErrorCode.invalidFaydaToken => l10n.faydaRequiredToRegister,
 
     // Password reset errors (AUTH_022–024)
     AuthErrorCode.resetCodeInvalid => l10n.resetCodeInvalid,

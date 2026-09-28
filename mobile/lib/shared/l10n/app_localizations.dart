@@ -3784,10 +3784,10 @@ abstract class AppLocalizations {
   /// **'Fayda verification failed. Please try again.'**
   String get faydaVerificationFailed;
 
-  /// Message explaining Fayda verification is optional during registration
+  /// Registration Fayda step: explains that Fayda verification is required to create an account
   ///
   /// In en, this message translates to:
-  /// **'Verify your Fayda ID to unlock trades above 10,000 ETB. You can skip this and verify later.'**
+  /// **'A verified Fayda ID is required to create an account. It only takes a minute.'**
   String get faydaRequired;
 
   /// Error when Fayda service cannot be reached
@@ -4918,12 +4918,6 @@ abstract class AppLocalizations {
   /// **'Confirmed. Retrying your payment.'**
   String get stepUpDone;
 
-  /// Fayda FAYDA_003 message that lets registration continue
-  ///
-  /// In en, this message translates to:
-  /// **'Fayda is unavailable right now. You can continue and verify later from your profile.'**
-  String get faydaUnavailableVerifyLater;
-
   /// Fayda callback state mismatch or FAYDA_002
   ///
   /// In en, this message translates to:
@@ -4995,6 +4989,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not confirm it\'s you. The delivery was not confirmed.'**
   String get qrConfirmAuthFailed;
+
+  /// Registration Fayda step: shown after the automatic retries to reach Fayda all failed (FAYDA_003 or no connection)
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t reach Fayda, even after several tries. Check your internet connection and try again in a few minutes.'**
+  String get faydaRegistrationUnavailable;
+
+  /// Shown on web when the live Fayda provider does not accept the web callback, so verification must happen in the mobile app
+  ///
+  /// In en, this message translates to:
+  /// **'Fayda verification isn\'t available in the browser yet. Please use the WeredaConnect mobile app.'**
+  String get faydaUnavailableOnWeb;
+
+  /// Registration Fayda step: the Fayda login page could not be opened in the browser
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t open the Fayda page. Please try again.'**
+  String get faydaCouldNotOpen;
+
+  /// AUTH_021: registration was sent without a valid Fayda verification token; the user is sent back to the Fayda step
+  ///
+  /// In en, this message translates to:
+  /// **'Your Fayda verification is missing or has expired. Please verify with Fayda again to finish creating your account.'**
+  String get faydaRequiredToRegister;
+
+  /// Registration Fayda step: shown under the spinner while an automatic retry runs
+  ///
+  /// In en, this message translates to:
+  /// **'Still trying to reach Fayda ({attempt}/{total})...'**
+  String faydaRetrying(int attempt, int total);
 }
 
 class _AppLocalizationsDelegate

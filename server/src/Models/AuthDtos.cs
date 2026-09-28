@@ -2,9 +2,10 @@ namespace WeredaConnect.Server.Models;
 
 /// <summary>
 /// POST /auth/register request body.
-/// FaydaVerificationToken is optional — two-tier model:
-/// - Without Fayda: user is phone-verified, can trade up to 10,000 ETB
-/// - With Fayda: user is identity-verified, can trade unlimited
+/// FaydaVerificationToken is required (auth-api 2.2.0): accounts are created only
+/// through Fayda. Nullable so a missing token is reported as AUTH_021 by the
+/// validator rather than as a JSON error. The SMS code is still asked for when
+/// Fayda's phone differs from the registration phone.
 /// </summary>
 public sealed record RegisterRequest
 {
