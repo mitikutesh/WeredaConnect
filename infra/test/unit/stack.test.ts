@@ -429,6 +429,14 @@ describe('ApiStack (prod security)', () => {
     }
   });
 
+  test('CORS allows the device identity headers sent on login/register', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: Match.objectLike({
+        AllowHeaders: Match.arrayWith(['X-Device-Id', 'X-Device-Name']),
+      }),
+    });
+  });
+
   test('T-SEC-01/02: no Lambda has DEV_FAYDA_BYPASS, TELEBIRR_MOCK, or DEV_OTP_BYPASS', () => {
     const lambdas = template.findResources('AWS::Lambda::Function');
     for (const resource of Object.values(lambdas)) {

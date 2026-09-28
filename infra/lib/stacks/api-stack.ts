@@ -1280,7 +1280,16 @@ export class ApiStack extends cdk.Stack {
       description: "WeredaConnect HTTP API — optimized for Ethiopian context",
       corsPreflight: {
         allowOrigins: corsOrigins,
-        allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+        // X-Device-Id / X-Device-Name ride on login, register and verify-otp
+        // (server DeviceIdentity). Without them the browser preflight fails and
+        // the web app cannot sign up or sign in.
+        allowHeaders: [
+          "Content-Type",
+          "Authorization",
+          "X-Request-Id",
+          "X-Device-Id",
+          "X-Device-Name",
+        ],
         allowMethods: [
           CorsHttpMethod.GET,
           CorsHttpMethod.POST,
