@@ -106,6 +106,17 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       return;
     }
 
+    // Prefer the device GPS fix; fall back to the picked place's centroid.
+    // Never send 0,0: the server rejects it as CROP_VALIDATION.
+    final latitude = _gpsResult?.latitude ?? _selectedLocationPlace?.lat;
+    final longitude = _gpsResult?.longitude ?? _selectedLocationPlace?.lng;
+    if (latitude == null || longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.cropLocationCoordinatesRequired)),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     context.read<CropListingBloc>().add(
@@ -116,8 +127,8 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             cropType: _selectedCropType!.name,
             quantity: double.parse(_quantityController.text),
             pricePerKg: double.parse(_priceController.text),
-            latitude: _gpsResult?.latitude ?? 0.0,
-            longitude: _gpsResult?.longitude ?? 0.0,
+            latitude: latitude,
+            longitude: longitude,
             locationName: _locationController.text.trim(),
             description: _descriptionController.text.trim(),
             audioNoteRef: _audioNoteRef,

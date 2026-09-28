@@ -462,6 +462,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recordAudioNote => 'Record Audio Note';
 
   @override
+  String get cropLocationCoordinatesRequired =>
+      'GPS is unavailable. Pick your location from the list or turn on GPS.';
+
+  @override
   String get cropTypeRequired => 'Please select a crop type';
 
   @override

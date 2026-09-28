@@ -577,6 +577,10 @@
   "@recordAudioNote": {
     "description": "Button to record voice description"
   },
+  "cropLocationCoordinatesRequired": "ጂፒኤስ አይገኝም። ቦታዎን ከዝርዝሩ ይምረጡ ወይም ጂፒኤስን ያብሩ።",
+  "@cropLocationCoordinatesRequired": {
+    "description": "Shown when saving a crop listing with no GPS fix and no place picked from the location list"
+  },
   "cropTypeRequired": "እባክዎ የሰብል ዓይነት ይምረጡ",
   "@cropTypeRequired": {
     "description": "Validation error for missing crop type"

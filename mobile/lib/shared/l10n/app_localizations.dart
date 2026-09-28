@@ -940,6 +940,12 @@ abstract class AppLocalizations {
   /// **'Record Audio Note'**
   String get recordAudioNote;
 
+  /// Shown when saving a crop listing with no GPS fix and no place picked from the location list
+  ///
+  /// In en, this message translates to:
+  /// **'GPS is unavailable. Pick your location from the list or turn on GPS.'**
+  String get cropLocationCoordinatesRequired;
+
   /// Validation error for missing crop type
   ///
   /// In en, this message translates to:

@@ -465,6 +465,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get recordAudioNote => 'Yaadannoo Sagalee Galmeessi';
 
   @override
+  String get cropLocationCoordinatesRequired =>
+      'GPS hin argamu. Bakka keessan tarree keessaa filadhaa ykn GPS banaa.';
+
+  @override
   String get cropTypeRequired => 'Maaloo gosa midhaan filadhaa';
 
   @override

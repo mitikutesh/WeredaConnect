@@ -7,15 +7,18 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
+import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -288,6 +291,76 @@ void main() {
       final save = find.widgetWithText(ElevatedButton, 'Save');
       expect(save, findsOneWidget);
       expect(tester.widget<ElevatedButton>(save).onPressed, isNotNull);
+    });
+  });
+
+  group('Coordinates when GPS is unavailable (SIM-43)', () {
+    setUp(() {
+      when(() => mockGpsService.captureCurrentPosition()).thenAnswer(
+        (_) async =>
+            const GpsCaptureResult.unavailable('Location services disabled'),
+      );
+    });
+
+    Future<void> fillForm(WidgetTester tester) async {
+      await tester.tap(find.byIcon(CropType.teff.icon));
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Quantity (quintals)'),
+        '10',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Price (ETB/kg)'),
+        '50',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Location'),
+        'Bishoftu',
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+    }
+
+    testWidgets('uses the picked place centroid instead of 0,0',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fillForm(tester);
+
+      tester.widget<PlaceSelector>(find.byType(PlaceSelector)).onPlaceSelected!(
+        const Place(id: 'gn-1', en: 'Bishoftu', lat: 8.75, lng: 38.98),
+      );
+      await tester.pump();
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.latitude, 8.75);
+      expect(event.longitude, 38.98);
+      expect(event.placeId, 'gn-1');
+    });
+
+    testWidgets('blocks save with a clear message when no coordinates',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fillForm(tester);
+      await tapSave(tester);
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(
+        find.text(
+          'GPS is unavailable. Pick your location from the list or turn on '
+          'GPS.',
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

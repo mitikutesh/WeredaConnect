@@ -446,6 +446,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get recordAudioNote => 'የድምጽ ማስታወሻ ቅዳ';
 
   @override
+  String get cropLocationCoordinatesRequired =>
+      'ጂፒኤስ አይገኝም። ቦታዎን ከዝርዝሩ ይምረጡ ወይም ጂፒኤስን ያብሩ።';
+
+  @override
   String get cropTypeRequired => 'እባክዎ የሰብል ዓይነት ይምረጡ';
 
   @override

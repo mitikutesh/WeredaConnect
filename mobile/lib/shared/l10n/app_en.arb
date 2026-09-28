@@ -574,6 +574,10 @@
   "@recordAudioNote": {
     "description": "Button to record voice description"
   },
+  "cropLocationCoordinatesRequired": "GPS is unavailable. Pick your location from the list or turn on GPS.",
+  "@cropLocationCoordinatesRequired": {
+    "description": "Shown when saving a crop listing with no GPS fix and no place picked from the location list"
+  },
   "cropTypeRequired": "Please select a crop type",
   "@cropTypeRequired": {
     "description": "Validation error for missing crop type"
