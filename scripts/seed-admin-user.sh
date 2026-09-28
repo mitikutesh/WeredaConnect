@@ -91,10 +91,10 @@ aws cognito-idp admin-set-user-password \
   --region "$REGION"
 echo "--- Password set."
 
-# 2b. The admin pool requires TOTP MFA in every environment. Clearing the
-#     software-token preference makes the next login answer MFA_SETUP, so the
-#     dashboard e2e (scripts/e2e_admin.py) can enrol a fresh authenticator each
-#     run without a persisted secret. A human admin enrols once in the web app.
+# 2b. MFA is optional on the non-prod admin pool (SMS codes are undeliverable
+#     there). Clearing the MFA preferences makes the next password login issue
+#     tokens, so the dashboard e2e (scripts/e2e_admin.py) signs in without a
+#     persisted TOTP secret. A prod pool requires MFA; this script is non-prod.
 aws cognito-idp admin-set-user-mfa-preference \
   --user-pool-id "$ADMIN_USER_POOL_ID" \
   --username "$ADMIN_PHONE" \
@@ -112,9 +112,10 @@ aws cognito-idp admin-add-user-to-group \
   --region "$REGION"
 echo "--- Added to '$ADMIN_GROUP' group."
 
-# 4. Verify login and the admin group. The pool requires MFA, so a correct
-#    password answers with an MFA challenge (MFA_SETUP after step 2b) rather
-#    than tokens; that proves the password, and the group is read directly.
+# 4. Verify login and the admin group. After step 2b a correct password issues
+#    tokens. A TOTP challenge (an authenticator still registered, or a pool that
+#    requires MFA) also proves the password; the group is then read directly.
+#    SMS_MFA is a failure: the code cannot be delivered outside prod.
 echo "--- Verifying login..."
 AUTH_RESULT=$(aws cognito-idp initiate-auth \
   --auth-flow USER_PASSWORD_AUTH \
