@@ -36,6 +36,10 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new RegisterFunction().FunctionHandler, serializer),
 
+            var h when h.Contains("VerifyOtpFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new VerifyOtpFunction().FunctionHandler, serializer),
+
             var h when h.Contains("FaydaVerifyFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new FaydaVerifyFunction().FunctionHandler, serializer),
