@@ -130,8 +130,9 @@ class WebOrderRepository extends BaseOrderRepository {
     double? transportCost,
     double? commissionRate,
   }) async {
-    final orderId =
-        'ord_${DateTime.now().millisecondsSinceEpoch}_${buyerId.hashCode.abs()}';
+    // UUID like the mobile repositories: the server rejects other id
+    // shapes (for example a delivery's tripId must be a UUID).
+    final orderId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
 
     final payload = <String, dynamic>{
