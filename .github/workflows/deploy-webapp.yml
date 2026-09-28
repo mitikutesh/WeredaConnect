@@ -86,7 +86,9 @@ jobs:
             --cache-control "public, max-age=31536000, immutable" \
             --exclude "index.html" \
             --exclude "flutter_service_worker.js" \
-            --exclude "version.json"
+            --exclude "version.json" \
+            --exclude "fayda-callback.html" \
+            --exclude "fayda-callback.js"
 
           aws s3 cp mobile/build/web/index.html \
             s3://${{ secrets.WEBAPP_S3_BUCKET }}/index.html \
@@ -99,6 +101,13 @@ jobs:
           aws s3 cp mobile/build/web/version.json \
             s3://${{ secrets.WEBAPP_S3_BUCKET }}/version.json \
             --cache-control "public, max-age=0, must-revalidate"
+
+          # Unhashed Fayda callback relay: never cache, so fixes reach browsers.
+          for f in fayda-callback.html fayda-callback.js; do
+            aws s3 cp "mobile/build/web/$f" \
+              "s3://${{ secrets.WEBAPP_S3_BUCKET }}/$f" \
+              --cache-control "public, max-age=0, must-revalidate"
+          done
 
       - name: Invalidate CloudFront cache
         run: |

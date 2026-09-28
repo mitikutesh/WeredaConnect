@@ -175,6 +175,32 @@ void main() {
     expect(AppLockService.externalFlowActive, isFalse);
   });
 
+  testWidgets('a stateless callback does not stop the expiry timer',
+      (tester) async {
+    when(() => service.startLink()).thenAnswer(
+      (_) async => FaydaStartResult(
+        isSuccess: true,
+        state: 'st-1',
+        authorizeUrl: Uri.parse('https://esignet.test/authorize?x=1'),
+        expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 1)),
+      ),
+    );
+    await startFlow(tester);
+
+    links.add(Uri.parse('weredaconnect://fayda-callback'));
+    await tester.pump();
+    // Still inside the external flow: the stray link ended nothing.
+    expect(AppLockService.externalFlowActive, isTrue);
+
+    await tester.pump(const Duration(seconds: 61));
+    await tester.pump();
+    expect(
+      find.text('The Fayda session expired. Please start verification again.'),
+      findsOneWidget,
+    );
+    expect(AppLockService.externalFlowActive, isFalse);
+  });
+
   testWidgets('leaving the screen ends the external flow', (tester) async {
     await startFlow(tester);
     expect(AppLockService.externalFlowActive, isTrue);

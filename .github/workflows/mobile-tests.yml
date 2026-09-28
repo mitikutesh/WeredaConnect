@@ -56,6 +56,11 @@ jobs:
         working-directory: mobile
         run: flutter test --coverage --reporter expanded
 
+      # @TestOn('browser') files are skipped by the VM run above.
+      - name: Run browser-only unit tests (Chrome)
+        working-directory: mobile
+        run: flutter test --platform chrome test/core/auth/fayda_callback_links_web_test.dart --reporter expanded
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:

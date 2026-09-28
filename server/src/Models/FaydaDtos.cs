@@ -1,3 +1,5 @@
+using WeredaConnect.Server.Helpers;
+
 namespace WeredaConnect.Server.Models;
 
 /// <summary>
@@ -21,12 +23,58 @@ public sealed record FaydaStartRequest
     /// <summary>Accepted for forward compatibility; the proof is bound to the phone Fayda releases, not to this value.</summary>
     public string? PhoneNumber { get; init; }
 
-    /// <summary>The app's callback; only the registered deep links are accepted.</summary>
+    /// <summary>The app's callback; only the registered deep links (and, against the mock, the web app's callback page) are accepted.</summary>
     public string? RedirectUri { get; init; }
 
-    public static bool IsAllowedRedirect(string redirectUri) =>
-        string.Equals(redirectUri, DefaultRedirectUri, StringComparison.Ordinal)
-        || string.Equals(redirectUri, "weredaconnect://fayda-link-callback", StringComparison.Ordinal);
+    /// <summary>
+    /// Comma-separated web callback pages accepted only while the mock provider is in use
+    /// (FAYDA_MOCK=true, which the infra guard refuses in production and DevBypass refuses
+    /// on a prod function name). The real eSignet client registers the deep links only.
+    /// </summary>
+    public const string MockWebRedirectUrisEnv = "FAYDA_MOCK_WEB_REDIRECT_URIS";
+
+    public static bool IsAllowedRedirect(string redirectUri, Func<string, string?>? env = null)
+    {
+        if (string.Equals(redirectUri, DefaultRedirectUri, StringComparison.Ordinal)
+            || string.Equals(redirectUri, "weredaconnect://fayda-link-callback", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!DevBypass.IsEnabled("FAYDA_MOCK", env))
+        {
+            return false;
+        }
+
+        var read = env ?? Environment.GetEnvironmentVariable;
+        var configured = read(MockWebRedirectUrisEnv);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return false;
+        }
+
+        foreach (var entry in configured.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (IsSafeWebRedirect(entry) && string.Equals(redirectUri, entry, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>https, or plain http on the loopback host for local web runs; never a query or fragment.</summary>
+    private static bool IsSafeWebRedirect(string uri)
+    {
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+            || !string.IsNullOrEmpty(parsed.Query)
+            || !string.IsNullOrEmpty(parsed.Fragment))
+        {
+            return false;
+        }
+        return parsed.Scheme == Uri.UriSchemeHttps
+            || (parsed.Scheme == Uri.UriSchemeHttp && (parsed.Host == "localhost" || parsed.Host == "127.0.0.1"));
+    }
 }
 
 /// <summary>

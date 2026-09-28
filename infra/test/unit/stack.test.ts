@@ -192,6 +192,22 @@ describe('ApiStack', () => {
     template.hasResourceProperties('AWS::SSM::Parameter', {
       Name: '/wereda-connect-dev/fayda/client-secret-mock',
     });
+    // Web app callback pages are registered with the mock and accepted by the
+    // server only in mock mode (FAYDA_MOCK marker on the verify Lambda).
+    const webCallback = 'https://dev-app.weredaconnect.com/fayda-callback.html';
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-fayda-mock',
+      Environment: { Variables: Match.objectLike({ ALLOWED_REDIRECT_URIS: Match.stringLikeRegexp(webCallback) }) },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-auth-fayda-verify',
+      Environment: {
+        Variables: Match.objectLike({
+          FAYDA_MOCK: 'true',
+          FAYDA_MOCK_WEB_REDIRECT_URIS: Match.stringLikeRegexp(webCallback),
+        }),
+      },
+    });
     // Dev auth Lambdas: OTP bypass on, SMS off (SNS sandbox); never in prod (see T-SEC tests).
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-auth-verify-otp',
@@ -419,6 +435,7 @@ describe('ApiStack (prod security)', () => {
       expect(env).not.toHaveProperty('DEV_OTP_BYPASS');
       // The mock Fayda provider (faydaMode 'mock') must never be deployed beside prod.
       expect(env).not.toHaveProperty('FAYDA_MOCK');
+      expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
     }
   });
 
@@ -443,6 +460,53 @@ describe('ApiStack (prod security)', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
       Name: '/wereda-connect-prod/fayda/signing-secret',
     });
+  });
+});
+
+describe('ApiStack (staging uses the live Fayda provider)', () => {
+  test('no mock provider and no mock-only web redirects', () => {
+    const stagingConfig = environments['staging'];
+    const app = new cdk.App();
+    const dbStack = new DatabaseStack(app, 'StagingDbStack', {
+      env: { account: '123456789012', region: stagingConfig.region },
+      envConfig: stagingConfig,
+    });
+    const apiStack = new ApiStack(app, 'StagingApiStack', {
+      env: { account: '123456789012', region: stagingConfig.region },
+      envConfig: stagingConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    const template = Template.fromStack(apiStack);
+
+    const lambdas = template.findResources('AWS::Lambda::Function');
+    const names = Object.values(lambdas).map((r) => JSON.stringify(r.Properties?.FunctionName ?? ''));
+    expect(names.some((n) => n.includes('auth-fayda-verify'))).toBe(true);
+    expect(names.some((n) => n.includes('fayda-mock'))).toBe(false);
+    for (const resource of Object.values(lambdas)) {
+      const env = (resource as Record<string, Record<string, Record<string, Record<string, unknown>>>>)
+        .Properties?.Environment?.Variables ?? {};
+      expect(env).not.toHaveProperty('FAYDA_MOCK');
+      expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+    }
   });
 });
 

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_config.dart';
@@ -98,23 +99,54 @@ class FaydaLinkResult {
 /// 1. [startRegistration] (public) or [startLink] (signed in) asks the server
 ///    for an authorize URL and a `state`.
 /// 2. The caller opens the URL in the system browser; Fayda redirects back to
-///    [redirectUri] (deep link).
+///    [redirectUri] (deep link on mobile, `fayda-callback.html` on web, see
+///    [faydaCallbackLinks]).
 /// 3. [parseCallback] reads the code; the caller checks the state matches.
 /// 4. [exchangeCode] (registration) or [link] (existing account) completes it.
 ///
 /// The app no longer builds the authorize URL itself, so it needs no Fayda
 /// client id or authorize endpoint at build time.
 class FaydaOidcService {
-  /// Deep link Fayda redirects back to.
-  static const redirectUri = 'weredaconnect://fayda-callback';
+  /// Deep link Fayda redirects back to on mobile.
+  static const deepLinkRedirectUri = 'weredaconnect://fayda-callback';
+
+  /// Where Fayda redirects back to: the deep link, or on web the callback page
+  /// (accepted by the server only against the mock provider).
+  static String get redirectUri => webFaydaRedirectUri() ?? deepLinkRedirectUri;
 
   final Dio _dio;
 
-  FaydaOidcService({Dio? dio}) : _dio = dio ?? ApiClient().dio;
+  /// The web callback page, or null off the web. Injectable so tests on the
+  /// VM can exercise the web path.
+  final String? Function() _webRedirect;
 
-  /// Whether [uri] is our Fayda callback deep link.
-  static bool isCallbackUri(Uri uri) =>
-      uri.scheme == 'weredaconnect' && uri.host == 'fayda-callback';
+  FaydaOidcService({Dio? dio, String? Function()? webRedirect})
+      : _dio = dio ?? ApiClient().dio,
+        _webRedirect = webRedirect ?? webFaydaRedirectUri;
+
+  String get _redirectUri => _webRedirect() ?? deepLinkRedirectUri;
+
+  /// Whether [uri] is our Fayda callback ([webRedirect] is the web callback
+  /// page, null off the web).
+  static bool isCallbackUri(Uri uri, {String? webRedirect}) {
+    if (uri.scheme == 'weredaconnect' && uri.host == 'fayda-callback') {
+      return true;
+    }
+    final web = Uri.tryParse(webRedirect ?? webFaydaRedirectUri() ?? '');
+    if (web == null || !web.isScheme('https') && !web.isScheme('http')) {
+      return false;
+    }
+    return uri.scheme == web.scheme &&
+        uri.authority == web.authority &&
+        uri.path == web.path;
+  }
+
+  /// Whether [uri] is a Fayda callback that answers an attempt: it carries a
+  /// `state`. A stateless one (e.g. the web callback tab reloaded after it
+  /// stripped its query) is not a response and must not end or fail a wait.
+  static bool isCallbackResponse(Uri uri, {String? webRedirect}) =>
+      isCallbackUri(uri, webRedirect: webRedirect) &&
+      (uri.queryParameters['state']?.isNotEmpty ?? false);
 
   /// Parse the deep link callback URI from Fayda.
   FaydaCallbackResult parseCallback(Uri uri) {
@@ -144,12 +176,18 @@ class FaydaOidcService {
     return _start(ApiConfig.userFaydaStartEndpoint, const {});
   }
 
+  /// The redirect is sent with every start so the server stores the one the
+  /// verify / link call must repeat.
+
   Future<FaydaStartResult> _start(
     String endpoint,
     Map<String, dynamic> body,
   ) async {
     try {
-      final response = await _dio.post<dynamic>(endpoint, data: body);
+      final response = await _dio.post<dynamic>(
+        endpoint,
+        data: {...body, 'redirectUri': _redirectUri},
+      );
       final data = decodeJsonMap(response.data);
       final state = data?['state'];
       final url = data?['authorizeUrl'];
@@ -171,6 +209,16 @@ class FaydaOidcService {
       );
     } on DioException catch (e) {
       final error = _errorOf(e);
+      // The web callback is refused (AUTH_007, field redirectUri) when the
+      // real provider is in use, since it registers the deep link only.
+      // Treat Fayda as unavailable here so
+      // registration continues and the user can verify from the mobile app.
+      if (_webRedirect() != null && _isRedirectRefused(e)) {
+        return const FaydaStartResult.failure(
+          AuthErrorCode.faydaServiceUnavailable,
+          'Fayda verification is not available on the web',
+        );
+      }
       return FaydaStartResult.failure(
         error.code,
         error.message,
@@ -197,7 +245,7 @@ class FaydaOidcService {
         data: {
           'authorizationCode': authCode,
           'state': state,
-          'redirectUri': redirectUri,
+          'redirectUri': _redirectUri,
         },
       );
 
@@ -243,7 +291,7 @@ class FaydaOidcService {
         data: {
           'authorizationCode': authCode,
           'state': state,
-          'redirectUri': redirectUri,
+          'redirectUri': _redirectUri,
         },
       );
       final data = decodeJsonMap(response.data);
@@ -278,6 +326,14 @@ class FaydaOidcService {
 
   static DateTime? _parseTime(Object? raw) =>
       raw is String ? DateTime.tryParse(raw)?.toUtc() : null;
+
+  /// Whether the server refused our redirectUri (400 AUTH_007, field redirectUri).
+  static bool _isRedirectRefused(DioException e) {
+    final error = decodeJsonMap(e.response?.data)?['error'];
+    return error is Map &&
+        error['code'] == AuthErrorCode.internalServerError &&
+        error['field'] == 'redirectUri';
+  }
 
   /// Map a Dio failure to a Fayda / auth error code. Network trouble and 5xx
   /// without a code count as "service unavailable" (FAYDA_003), which lets

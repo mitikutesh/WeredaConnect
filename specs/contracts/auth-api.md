@@ -562,7 +562,7 @@ After a successful online login or registration, the mobile client stores the fo
 | Protocol | OIDC Authorization Code Flow via Fayda eSignet |
 | Verification token validity | 30 minutes |
 | Verification token signing | HMAC-SHA256 with server-managed secret |
-| Redirect URI | `weredaconnect://fayda-callback` |
+| Redirect URI | `weredaconnect://fayda-callback` (web app, mock only: `https://<webapp>/fayda-callback.html`) |
 | Required scopes | `openid`, `profile` |
 | Dev bypass code | `test-code-123` (when `DEV_FAYDA_BYPASS=true`) |
 
@@ -791,8 +791,15 @@ The server mints `state`, `nonce` and the PKCE verifier, keeps them for 10 minut
 use) and builds the authorize URL from the provider's discovery document with scope
 `openid profile phone`. The exchange sends `code_verifier` and checks the ID token's
 `nonce`. `FAYDA_002` covers an unknown, expired, reused or foreign `state`, a redirect
-mismatch and a nonce mismatch. Only `weredaconnect://fayda-callback` and
-`weredaconnect://fayda-link-callback` are accepted redirects. Per-IP cap 30 per 5 minutes.
+mismatch, a nonce mismatch, and a state row missing its nonce, PKCE verifier or redirect
+(fail closed). The ID token must be signed with RS256, PS256 or ES256 (no `none`, no HMAC)
+and carry `exp`; a discovery document whose `issuer` differs from the configured issuer is
+ignored. Accepted redirects are `weredaconnect://fayda-callback` and
+`weredaconnect://fayda-link-callback`. Against the mock provider only (`FAYDA_MOCK=true` on
+the verify Lambda, refused in prod by the infra guard and at runtime by `DevBypass`), the
+web app's callback pages in `FAYDA_MOCK_WEB_REDIRECT_URIS` are also accepted (exact match,
+https or loopback http, no query). The app sends its `redirectUri` on start. Per-IP cap 30
+per 5 minutes.
 Linking a Fayda ID held by another account is `409 FAYDA_004`; linking with a matching
 Fayda phone also sets `isPhoneVerified`.
 

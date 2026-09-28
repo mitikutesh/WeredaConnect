@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
@@ -133,8 +133,11 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final links = widget.deepLinks ?? AppLinks().uriLinkStream;
+    final links = widget.deepLinks ?? faydaCallbackLinks();
     _deepLinkSub = links.listen((uri) {
+      // Anything that is not an answer to an attempt leaves the wait (and its
+      // expiry timer) untouched.
+      if (!FaydaOidcService.isCallbackResponse(uri)) return;
       _browserReturnTimer?.cancel();
       _expiryTimer?.cancel();
       _awaitingBrowserReturn = false;

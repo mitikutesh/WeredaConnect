@@ -27,14 +27,20 @@ public sealed class FaydaOidcService : IFaydaOidcService
     private const int VerificationTokenValidityMinutes = 30;
     private const int JwksCacheMinutes = 60;
     private const int DiscoveryCacheMinutes = 60;
+    private const int RejectedDiscoveryCacheMinutes = 5;
     private const string DefaultScope = "openid profile phone";
     private const string DefaultAcrValues = "mosip:idp:acr:generated-code mosip:idp:acr:biometrics";
+    private static readonly string[] AllowedIdTokenAlgorithms =
+        [SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSsaPssSha256, SecurityAlgorithms.EcdsaSha256];
 
     // Cached provider metadata (thread-safe via volatile + timestamp check)
     private static volatile IList<SecurityKey>? _cachedJwksKeys;
     private static DateTime _jwksCacheExpiry = DateTime.MinValue;
     private static volatile FaydaDiscoveryDocument? _cachedDiscovery;
     private static DateTime _discoveryCacheExpiry = DateTime.MinValue;
+    // Negative cache for a discovery document of another issuer, so a misconfigured
+    // issuer does not refetch it on every start / exchange / JWKS lookup.
+    private static DateTime _discoveryRejectedUntil = DateTime.MinValue;
 
     public FaydaOidcService(
         HttpClient httpClient,
@@ -57,6 +63,7 @@ public sealed class FaydaOidcService : IFaydaOidcService
         _jwksCacheExpiry = DateTime.MinValue;
         _cachedDiscovery = null;
         _discoveryCacheExpiry = DateTime.MinValue;
+        _discoveryRejectedUntil = DateTime.MinValue;
     }
 
     public async Task<AuthResult<string>> BuildAuthorizationUrlAsync(
@@ -159,6 +166,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             IssuerSigningKeys = jwksKeys,
+            // Asymmetric algorithms only: blocks alg=none and HS256-with-public-key confusion.
+            ValidAlgorithms = AllowedIdTokenAlgorithms,
+            RequireSignedTokens = true,
+            RequireExpirationTime = true,
             ClockSkew = TimeSpan.FromMinutes(2)
         };
 
@@ -236,6 +247,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
         {
             return _cachedDiscovery;
         }
+        if (DateTime.UtcNow < _discoveryRejectedUntil)
+        {
+            return null;
+        }
 
         try
         {
@@ -247,8 +262,18 @@ public sealed class FaydaOidcService : IFaydaOidcService
 
             var json = await response.Content.ReadAsStringAsync();
             var document = JsonSerializer.Deserialize(json, FaydaJsonContext.Default.FaydaDiscoveryDocument);
+            // OIDC Discovery 4.3: the document must describe the configured issuer,
+            // otherwise its endpoints (token, JWKS) are not trusted.
             if (document == null)
             {
+                return null;
+            }
+            if (!string.Equals(document.Issuer?.TrimEnd('/'), _issuerUrl.TrimEnd('/'), StringComparison.Ordinal))
+            {
+                // Falls back to issuer-derived endpoints; usually means the SSM issuer
+                // does not match what the provider publishes.
+                Console.WriteLine($"[FaydaOidc] WARN discovery issuer '{document.Issuer}' does not match configured issuer '{_issuerUrl}'; ignoring discovery");
+                _discoveryRejectedUntil = DateTime.UtcNow.AddMinutes(RejectedDiscoveryCacheMinutes);
                 return null;
             }
 
