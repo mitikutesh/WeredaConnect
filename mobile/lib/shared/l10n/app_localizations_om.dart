@@ -1831,6 +1831,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Eenyummaa kee mirkaneessuuf hayyama konkolaachisaa iskaani';
 
   @override
+  String get drivingLicenseRequired =>
+      'Akka konkolaachisaatti galmaa\'uuf suuraan hayyama konkolaachisaa barbaachisaadha.';
+
+  @override
   String get buyerType => 'Gosa Bitaa';
 
   @override
@@ -1845,6 +1849,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get companyName => 'Maqaa Dhaabbataa';
+
+  @override
+  String get companyNameRequired =>
+      'Itti fufuuf maqaa dhaabbata keessanii galchaa.';
 
   @override
   String get personalInfo => 'Odeeffannoo Dhuunfaa';

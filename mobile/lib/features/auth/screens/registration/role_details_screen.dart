@@ -10,7 +10,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Step 3: Role-specific fields.
 ///
-/// - Trucker: Driving license scan
+/// - Trucker: Driving license scan (required)
 /// - Buyer: Private/Company selection + company name
 /// - Farmer: Skipped
 class RoleDetailsScreen extends StatefulWidget {
@@ -190,6 +190,16 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                   ),
                 ),
               ),
+              if (!hasImage) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.drivingLicenseRequired,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -246,6 +256,9 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                   decoration: InputDecoration(
                     labelText: l10n.companyName,
                     prefixIcon: const Icon(Icons.business_outlined),
+                    helperText: _companyController.text.trim().isEmpty
+                        ? l10n.companyNameRequired
+                        : null,
                   ),
                   onChanged: widget.onCompanyNameChanged,
                 ),

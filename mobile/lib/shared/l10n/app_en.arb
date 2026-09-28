@@ -2444,6 +2444,10 @@
   "@drivingLicenseInstructions": {
     "description": "Instructions for driving license step"
   },
+  "drivingLicenseRequired": "A driving license photo is required to register as a trucker.",
+  "@drivingLicenseRequired": {
+    "description": "Hint on the trucker driving license step; Continue stays disabled until a photo is taken"
+  },
   "buyerType": "Buyer Type",
   "@buyerType": {
     "description": "Title for buyer type selection"
@@ -2463,6 +2467,10 @@
   "companyName": "Company Name",
   "@companyName": {
     "description": "Label for company name field"
+  },
+  "companyNameRequired": "Enter your company name to continue.",
+  "@companyNameRequired": {
+    "description": "Helper under the company name field; Continue stays disabled until it is filled"
   },
   "personalInfo": "Personal Info",
   "@personalInfo": {

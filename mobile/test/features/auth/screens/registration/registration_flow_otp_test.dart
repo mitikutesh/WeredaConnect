@@ -430,6 +430,85 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('a trucker cannot continue without a driving license',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(flow());
+      await settle(tester);
+      await tester.tap(find.text('Trucker'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      expect(find.text('Driving License'), findsOneWidget);
+      expect(
+        find.text(
+          'A driving license photo is required to register as a trucker.',
+        ),
+        findsOneWidget,
+      );
+      final button = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('Continue'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a company buyer cannot continue without a company name',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(flow());
+      await settle(tester);
+      await tester.tap(find.text('Buyer'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+      await tester.tap(find.text('Verify with Fayda'));
+      await settle(tester);
+      links
+          .add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+      await settle(tester);
+      await tester.tap(find.text('Continue'));
+      await settle(tester);
+
+      VoidCallback? continuePressed() => tester
+          .widget<FilledButton>(
+            find.ancestor(
+              of: find.text('Continue'),
+              matching: find.byType(FilledButton),
+            ),
+          )
+          .onPressed;
+
+      // Private buyer (the default) needs nothing more.
+      expect(continuePressed(), isNotNull);
+
+      await tester.tap(find.text('Company'));
+      await settle(tester);
+      expect(find.text('Enter your company name to continue.'), findsOneWidget);
+      expect(continuePressed(), isNull);
+
+      await tester.enterText(find.byType(TextField), '   ');
+      await settle(tester);
+      expect(continuePressed(), isNull);
+
+      await tester.enterText(find.byType(TextField), 'Abebe Trading');
+      await settle(tester);
+      expect(find.text('Enter your company name to continue.'), findsNothing);
+      expect(continuePressed(), isNotNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('a buyer is also sent back to the Fayda step on AUTH_021',
         (tester) async {
       useTallPhone(tester);

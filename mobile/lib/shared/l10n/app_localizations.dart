@@ -3454,6 +3454,12 @@ abstract class AppLocalizations {
   /// **'Scan your driving license to verify your identity'**
   String get drivingLicenseInstructions;
 
+  /// Hint on the trucker driving license step; Continue stays disabled until a photo is taken
+  ///
+  /// In en, this message translates to:
+  /// **'A driving license photo is required to register as a trucker.'**
+  String get drivingLicenseRequired;
+
   /// Title for buyer type selection
   ///
   /// In en, this message translates to:
@@ -3483,6 +3489,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Company Name'**
   String get companyName;
+
+  /// Helper under the company name field; Continue stays disabled until it is filled
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your company name to continue.'**
+  String get companyNameRequired;
 
   /// Title for personal info step
   ///
