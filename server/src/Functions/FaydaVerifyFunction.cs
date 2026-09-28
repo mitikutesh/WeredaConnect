@@ -372,16 +372,25 @@ public class FaydaVerifyFunction
         }
 
         var storedRedirect = stateRow.Get("redirectUri");
-        if (!string.IsNullOrEmpty(storedRedirect)
-            && !string.Equals(storedRedirect, faydaRequest.RedirectUri, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(storedRedirect)
+            || !string.Equals(storedRedirect, faydaRequest.RedirectUri, StringComparison.Ordinal))
         {
             return AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_002",
                 "redirectUri does not match the started verification.", "redirectUri");
         }
 
+        // Fail closed: without the PKCE verifier and nonce the exchange would skip
+        // the code-injection and replay checks.
+        var codeVerifier = stateRow.Get("codeVerifier");
+        var nonce = stateRow.Get("nonce");
+        if (string.IsNullOrEmpty(codeVerifier) || string.IsNullOrEmpty(nonce))
+        {
+            return AuthResult<FaydaVerificationResult>.Failure(400, "FAYDA_002",
+                "This verification attempt is incomplete. Please start again.", "state");
+        }
+
         return await _faydaService.ExchangeCodeAsync(
-            faydaRequest.AuthorizationCode, faydaRequest.RedirectUri,
-            stateRow.Get("codeVerifier"), stateRow.Get("nonce"));
+            faydaRequest.AuthorizationCode, faydaRequest.RedirectUri, codeVerifier, nonce);
     }
 
     private async Task<APIGatewayProxyResponse?> CheckIpAsync(APIGatewayProxyRequest request)

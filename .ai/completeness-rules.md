@@ -50,6 +50,7 @@ Mobile and web share the same Dart codebase (`mobile/`) but have **separate impl
 | `core/sync/sync_executor.dart` | `core/sync/sync_executor_web.dart` | — |
 | `core/sync/sync_queue.dart` | `core/sync/sync_queue_web.dart` | — |
 | `core/network/cert_pinning_io.dart` | `core/network/cert_pinning_stub.dart` | — |
+| `core/auth/fayda_callback_links_stub.dart` | `core/auth/fayda_callback_links_web.dart` | `fayda_callback_links.dart` |
 | `core/database/schemas/*.dart` | `core/models/web/*.dart` | `core/models/*.dart` (barrel) |
 
 **When this applies:**

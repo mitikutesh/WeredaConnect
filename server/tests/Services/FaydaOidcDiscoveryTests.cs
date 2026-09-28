@@ -214,4 +214,43 @@ public class FaydaOidcDiscoveryTests
         Assert.False(result.IsSuccess);
         Assert.Equal("FAYDA_001", result.Error!.Code);
     }
+
+    [Fact]
+    public async Task Discovery_ForAnotherIssuer_IsNotTrusted()
+    {
+        var handler = new ScriptedHandler();
+        handler.Routes["/.well-known/openid-configuration"] = _ => Task.FromResult(Json(
+            "{\"issuer\":\"https://evil.example\",\"authorization_endpoint\":\"https://evil.example/authorize\","
+            + "\"token_endpoint\":\"https://evil.example/token\",\"jwks_uri\":\"https://evil.example/jwks\"}"));
+        var service = Service(handler);
+
+        var result = await service.BuildAuthorizationUrlAsync("weredaconnect://fayda-callback", "s", "n", "c");
+        await service.BuildAuthorizationUrlAsync("weredaconnect://fayda-callback", "s2", "n2", "c2");
+
+        Assert.True(result.IsSuccess);
+        Assert.StartsWith("https://fayda.test/authorize?", result.Value);
+        // The rejected document is not refetched on the next call.
+        Assert.Single(handler.Requests, r => r.RequestUri!.AbsolutePath == "/.well-known/openid-configuration");
+    }
+
+    [Fact]
+    public async Task ExchangeCode_IdTokenWithAlgorithmOutsideAllowList_IsRejected()
+    {
+        // Signed by the provider's own key, but with RS512: only the alg allow-list rejects it.
+        var (rsa, jwks) = SigningKey();
+        var key = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsa) { KeyId = "k1" };
+        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(
+            new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+                issuer: Issuer, audience: "client-1",
+                claims: [new("sub", "FIN-1111"), new("nonce", "nonce-1")],
+                expires: DateTime.UtcNow.AddMinutes(5),
+                signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                    key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha512)));
+        var service = Service(ProviderIssuing(token, jwks.Replace("\"alg\":\"RS256\",", "")));
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("FAYDA_001", result.Error!.Code);
+    }
 }

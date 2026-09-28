@@ -161,6 +161,80 @@ public class FaydaVerifyFunctionTests
         Assert.Contains("FAYDA_002", response.Body);
     }
 
+    [Theory]
+    [InlineData("codeVerifier")]
+    [InlineData("nonce")]
+    [InlineData("redirectUri")]
+    public async Task Verify_StateRowMissingBinding_FailsClosedWithoutExchange(string missing)
+    {
+        var row = StateRow("registration");
+        _mockAuthState.ConsumeAsync(StateKey).Returns(new AuthStateEntry
+        {
+            Key = row.Key,
+            Attributes = row.Attributes.Where(kv => kv.Key != missing).ToDictionary(kv => kv.Key, kv => kv.Value),
+            ExpiresAt = row.ExpiresAt
+        });
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_002", response.Body);
+        await _mockFayda.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+    }
+
+    // ===== redirect allow-list =====
+
+    private static Func<string, string?> Env(params (string Key, string Value)[] vars)
+    {
+        var map = vars.ToDictionary(v => v.Key, v => v.Value);
+        return key => map.GetValueOrDefault(key);
+    }
+
+    private const string WebCallback = "https://dev-app.weredaconnect.com/fayda-callback.html";
+
+    [Theory]
+    [InlineData("weredaconnect://fayda-callback")]
+    [InlineData("weredaconnect://fayda-link-callback")]
+    public void IsAllowedRedirect_DeepLinks_AlwaysAllowed(string uri)
+    {
+        Assert.True(FaydaStartRequest.IsAllowedRedirect(uri, Env()));
+    }
+
+    [Fact]
+    public void IsAllowedRedirect_WebCallback_AllowedOnlyWithMock()
+    {
+        var mock = Env(("FAYDA_MOCK", "true"), (FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback + ",http://localhost:8080/fayda-callback.html"),
+            ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify"));
+        var live = Env((FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback));
+
+        Assert.True(FaydaStartRequest.IsAllowedRedirect(WebCallback, mock));
+        Assert.True(FaydaStartRequest.IsAllowedRedirect("http://localhost:8080/fayda-callback.html", mock));
+        Assert.False(FaydaStartRequest.IsAllowedRedirect(WebCallback, live));
+    }
+
+    [Fact]
+    public void IsAllowedRedirect_WebCallback_RefusedOnProdFunctionEvenWithMockFlag()
+    {
+        var env = Env(("FAYDA_MOCK", "true"), (FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback),
+            ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-prod-auth-fayda-verify"));
+
+        Assert.False(FaydaStartRequest.IsAllowedRedirect(WebCallback, env));
+    }
+
+    [Theory]
+    [InlineData("https://dev-app.weredaconnect.com/fayda-callback.html?x=1")]
+    [InlineData("https://dev-app.weredaconnect.com/other.html")]
+    [InlineData("https://dev-app.weredaconnect.com.evil.example/fayda-callback.html")]
+    [InlineData("http://dev-app.weredaconnect.com/fayda-callback.html")]
+    public void IsAllowedRedirect_WebCallback_ExactMatchOnly(string uri)
+    {
+        var env = Env(("FAYDA_MOCK", "true"),
+            (FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback + ",http://dev-app.weredaconnect.com/fayda-callback.html"));
+
+        Assert.False(FaydaStartRequest.IsAllowedRedirect(uri, env));
+    }
+
     [Fact]
     public async Task Verify_DuplicateFaydaId_Returns409()
     {

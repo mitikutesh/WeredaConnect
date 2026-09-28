@@ -707,19 +707,31 @@ export class ApiStack extends cdk.Stack {
         "faydaMode 'mock' is not allowed in a production environment; use 'live'.",
       );
     }
-    const faydaMock =
-      envConfig.faydaMode === "mock" && !envConfig.isProd
-        ? new FaydaMockConstruct(this, "FaydaMock", {
-            prefix,
-            removalPolicy: cdk.RemovalPolicy.DESTROY,
-            isProd: envConfig.isProd,
-            // Registration and link-later callbacks (FaydaStartRequest.IsAllowedRedirect).
-            allowedRedirectUris: [
-              "weredaconnect://fayda-callback",
-              "weredaconnect://fayda-link-callback",
-            ],
-          })
-        : undefined;
+    const useFaydaMock = envConfig.faydaMode === "mock" && !envConfig.isProd;
+    // Web app callback pages (mobile/web/fayda-callback.html). Browsers cannot open
+    // the weredaconnect:// deep link, so the web app gets an https callback, but only
+    // against the mock: the real eSignet client registers the deep links alone.
+    const faydaMockWebRedirectUris = useFaydaMock
+      ? [
+          `https://${envConfig.domain.webappSubdomain}.${envConfig.domain.zoneName}`,
+          ...(envConfig.extraCorsOrigins ?? []),
+          // Local `flutter run -d chrome --web-port 8080`.
+          "http://localhost:8080",
+        ].map((origin) => `${origin}/fayda-callback.html`)
+      : [];
+    const faydaMock = useFaydaMock
+      ? new FaydaMockConstruct(this, "FaydaMock", {
+          prefix,
+          removalPolicy: cdk.RemovalPolicy.DESTROY,
+          isProd: envConfig.isProd,
+          // Registration and link-later callbacks (FaydaStartRequest.IsAllowedRedirect).
+          allowedRedirectUris: [
+            "weredaconnect://fayda-callback",
+            "weredaconnect://fayda-link-callback",
+            ...faydaMockWebRedirectUris,
+          ],
+        })
+      : undefined;
 
     // ─── Fayda SSM Parameters ──────────────────────────────────────────
 
@@ -821,6 +833,14 @@ export class ApiStack extends cdk.Stack {
         FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.reference,
         FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.reference,
         ...(envConfig.name === 'dev' ? { DEV_FAYDA_BYPASS: "true" } : {}),
+        // Mock-only web callbacks. FAYDA_MOCK is refused in prod by
+        // ProductionBypassGuard, and the server ignores the list without it.
+        ...(faydaMock
+          ? {
+              FAYDA_MOCK: "true",
+              FAYDA_MOCK_WEB_REDIRECT_URIS: faydaMockWebRedirectUris.join(","),
+            }
+          : {}),
       },
       reservedConcurrentExecutions: 20,
     });

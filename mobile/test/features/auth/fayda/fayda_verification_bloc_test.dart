@@ -110,6 +110,25 @@ void main() {
     expect(recorded, isEmpty);
   });
 
+  test('a callback without state is ignored and the wait goes on', () async {
+    stubStart();
+    bloc.add(const FaydaVerificationStarted());
+    await settle((s) => s is FaydaAwaitingCallback);
+
+    bloc.add(
+      FaydaCallbackReceived(
+        Uri.parse('https://dev-app.weredaconnect.com/fayda-callback.html'),
+      ),
+    );
+    bloc.add(
+      FaydaCallbackReceived(Uri.parse('weredaconnect://fayda-callback')),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(bloc.state, isA<FaydaAwaitingCallback>());
+    expect(recorded, isEmpty);
+  });
+
   test('a callback nobody started is ignored', () async {
     bloc.add(
       FaydaCallbackReceived(

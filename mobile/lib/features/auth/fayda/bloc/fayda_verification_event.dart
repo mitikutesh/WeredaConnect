@@ -18,7 +18,7 @@ class FaydaBrowserLaunchFailed extends FaydaVerificationEvent {
   const FaydaBrowserLaunchFailed();
 }
 
-/// A deep link arrived (only `weredaconnect://fayda-callback` is handled).
+/// A callback arrived (only the Fayda callback, see `FaydaOidcService.isCallbackUri`, is handled).
 class FaydaCallbackReceived extends FaydaVerificationEvent {
   final Uri uri;
 

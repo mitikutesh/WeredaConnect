@@ -74,7 +74,7 @@ class FaydaVerificationBloc
     FaydaCallbackReceived event,
     Emitter<FaydaVerificationState> emit,
   ) async {
-    if (!FaydaOidcService.isCallbackUri(event.uri)) return;
+    if (!FaydaOidcService.isCallbackResponse(event.uri)) return;
     final current = state;
     // A callback we did not start (or a replay after completion) is ignored.
     if (current is! FaydaAwaitingCallback) return;

@@ -47,9 +47,32 @@ Optional: `CLIENT_JWKS_JSON` to enable `private_key_jwt`. Full table in
    the server reads (`/{prefix}/fayda/issuer-url`, `/{prefix}/fayda/client-id`) and
    publishes the fixed client secret as `/{prefix}/fayda/client-secret-mock`. Both app
    redirects (`weredaconnect://fayda-callback`, `weredaconnect://fayda-link-callback`)
-   are allowed.
+   are allowed, plus the web app callback page `/fayda-callback.html` on
+   `dev-app.weredaconnect.com`, the temporary CloudFront origin and
+   `http://localhost:8080` (browsers cannot open the deep link). The same list goes to
+   the verify Lambda as `FAYDA_MOCK_WEB_REDIRECT_URIS` with `FAYDA_MOCK=true`; the
+   server accepts web redirects only with that marker, so `faydaMode: 'live'` never
+   does.
 3. `faydaMode: 'live'` uses the real VeriFayda issuer and credentials. No server
    code change either way.
+
+### Web app callback
+
+`mobile/web/fayda-callback.html` loads in the tab the app opened for eSignet. Its
+script (`fayda-callback.js`) posts the full callback URL on the same-origin
+BroadcastChannel `wereda-fayda-callback`, strips the code from the address bar and
+tries to close the tab. A reload (no query left) posts nothing, and the app ignores
+any callback without a `state`, so a stray message cannot end or fail a wait. The app
+tab (`core/auth/fayda_callback_links_web.dart`) feeds the URL into the same handler
+the mobile deep link uses, which still checks `state`. On a live provider the start
+call is refused and the web app treats Fayda as unavailable (verify later from the
+mobile app).
+
+Both relay files are unhashed, so `deploy-webapp.yml` and `scripts/deploy.sh` upload
+them with `max-age=0, must-revalidate` instead of the one-year immutable cache.
+
+The channel code has a browser-only test:
+`cd mobile && flutter test --platform chrome test/core/auth/fayda_callback_links_web_test.dart`.
 
 ## Test users
 

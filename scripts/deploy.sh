@@ -162,6 +162,8 @@ aws s3 sync "$MOBILE_DIR/build/web/" "s3://$WEBAPP_BUCKET/" \
   --exclude "index.html" \
   --exclude "flutter_service_worker.js" \
   --exclude "version.json" \
+  --exclude "fayda-callback.html" \
+  --exclude "fayda-callback.js" \
   --region eu-north-1
 
 # Upload mutable files with no-cache
@@ -179,6 +181,14 @@ aws s3 cp "$MOBILE_DIR/build/web/version.json" \
   "s3://$WEBAPP_BUCKET/version.json" \
   --cache-control "public, max-age=0, must-revalidate" \
   --region eu-north-1
+
+# Unhashed Fayda callback relay: never cache, so fixes reach browsers.
+for f in fayda-callback.html fayda-callback.js; do
+  aws s3 cp "$MOBILE_DIR/build/web/$f" \
+    "s3://$WEBAPP_BUCKET/$f" \
+    --cache-control "public, max-age=0, must-revalidate" \
+    --region eu-north-1
+done
 
 echo "S3 sync complete."
 

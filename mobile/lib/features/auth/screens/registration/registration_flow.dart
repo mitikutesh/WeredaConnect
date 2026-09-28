@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
 import 'package:wereda_connect/core/auth/fayda_oidc_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
@@ -12,6 +12,8 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart'
+    show FaydaUrlLauncher;
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/fayida_id_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/personal_info_screen.dart';
@@ -32,7 +34,17 @@ import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 /// → Without a matching Fayda token the server asks for an SMS OTP
 ///   (AuthOtpVerificationRequired) and the OTP screen is pushed on top.
 class RegistrationFlow extends StatefulWidget {
-  const RegistrationFlow({super.key});
+  const RegistrationFlow({
+    super.key,
+    this.faydaService,
+    this.faydaLinks,
+    this.launcher,
+  });
+
+  /// Test seams: the Fayda client, the callback stream and the URL launcher.
+  final FaydaOidcService? faydaService;
+  final Stream<Uri>? faydaLinks;
+  final FaydaUrlLauncher? launcher;
 
   @override
   State<RegistrationFlow> createState() => _RegistrationFlowState();
@@ -42,7 +54,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     with WidgetsBindingObserver {
   final _pageController = PageController();
   final _personalInfoFormKey = GlobalKey<FormState>();
-  final _faydaService = FaydaOidcService();
+  late final _faydaService = widget.faydaService ?? FaydaOidcService();
   int _currentStep = 0;
 
   // Collected data across steps
@@ -109,8 +121,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   }
 
   void _listenForDeepLinks() {
-    final appLinks = AppLinks();
-    _deepLinkSub = appLinks.uriLinkStream.listen(_handleFaydaCallback);
+    _deepLinkSub = (widget.faydaLinks ?? faydaCallbackLinks())
+        .listen(_handleFaydaCallback);
   }
 
   int get _totalSteps {
@@ -220,8 +232,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     final url = start.authorizeUrl!;
 
     try {
-      final launched =
-          await launchUrl(url, mode: LaunchMode.externalApplication);
+      final launched = await (widget.launcher ??
+          (u) => launchUrl(u, mode: LaunchMode.externalApplication))(url);
 
       if (!mounted) return;
       if (launched) {
@@ -245,7 +257,9 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
   Future<void> _handleFaydaCallback(Uri uri) async {
     // Only handle our callback scheme
-    if (!FaydaOidcService.isCallbackUri(uri)) return;
+    // Only a callback that answers an attempt (it carries a state); a
+    // stateless one (the web callback tab reloaded) must not end the wait.
+    if (!FaydaOidcService.isCallbackResponse(uri)) return;
 
     // Callback arrived — cancel the browser-return timer
     _browserReturnTimer?.cancel();
