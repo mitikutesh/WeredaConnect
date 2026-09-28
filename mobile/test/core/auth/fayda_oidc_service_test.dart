@@ -239,6 +239,19 @@ void main() {
       expect(s.calls, hasLength(1));
     });
 
+    test('cancelling stops further retries', () async {
+      final s = scripted((n, o, h) => h.reject(offline(o)));
+      final cancel = CancelToken();
+
+      await FaydaOidcService(dio: s.dio, retryDelays: noDelay)
+          .startRegistration(
+        cancelToken: cancel,
+        onRetry: (_, __) => cancel.cancel(),
+      );
+
+      expect(s.calls, hasLength(1));
+    });
+
     test('a malformed response is treated as unavailable', () async {
       adapter.onPost(
         '/auth/fayda-start',
@@ -320,6 +333,22 @@ void main() {
 
       expect(result.isSuccess, isTrue);
       expect(s.calls, hasLength(2));
+    });
+
+    test('on web a lost connection is not retried', () async {
+      // The browser reports a response lost after the server used the code
+      // exactly like a refused connection.
+      final s = scripted((n, o, h) => h.reject(offline(o)));
+
+      final result = await FaydaOidcService(
+        dio: s.dio,
+        retryDelays: noDelay,
+        webRedirect: () =>
+            'https://dev-app.weredaconnect.com/fayda-callback.html',
+      ).exchangeCode(authCode: 'c', state: 'st');
+
+      expect(result.errorCode, AuthErrorCode.faydaServiceUnavailable);
+      expect(s.calls, hasLength(1));
     });
 
     test('never repeats a code the server may have used', () async {

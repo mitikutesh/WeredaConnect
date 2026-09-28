@@ -179,9 +179,13 @@ class FaydaOidcService {
   /// Start Fayda verification before an account exists
   /// (POST /auth/fayda-start). [phoneNumber] is optional: the registration
   /// flow runs Fayda before the phone step.
+  ///
+  /// Cancelling [cancelToken] aborts the request in flight and stops any
+  /// further retry.
   Future<FaydaStartResult> startRegistration({
     String? phoneNumber,
     FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
   }) {
     return _startWithRetry(
       ApiConfig.faydaStartEndpoint,
@@ -190,12 +194,21 @@ class FaydaOidcService {
           'phoneNumber': phoneNumber,
       },
       onRetry,
+      cancelToken,
     );
   }
 
   /// Start Fayda verification for the signed-in user (POST /user/fayda-start).
-  Future<FaydaStartResult> startLink({FaydaRetryCallback? onRetry}) {
-    return _startWithRetry(ApiConfig.userFaydaStartEndpoint, const {}, onRetry);
+  Future<FaydaStartResult> startLink({
+    FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
+  }) {
+    return _startWithRetry(
+      ApiConfig.userFaydaStartEndpoint,
+      const {},
+      onRetry,
+      cancelToken,
+    );
   }
 
   /// A start mints fresh state on every call, so any transient failure
@@ -204,17 +217,20 @@ class FaydaOidcService {
     String endpoint,
     Map<String, dynamic> body,
     FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
   ) async {
     final total = _retryDelays.length + 1;
     for (var attempt = 1;; attempt++) {
-      final result = await _start(endpoint, body);
+      final result = await _start(endpoint, body, cancelToken);
       if (result.isSuccess ||
           result.errorCode != AuthErrorCode.faydaServiceUnavailable ||
-          attempt == total) {
+          attempt == total ||
+          (cancelToken?.isCancelled ?? false)) {
         return result;
       }
       onRetry?.call(attempt + 1, total);
       await Future<void>.delayed(_retryDelays[attempt - 1]);
+      if (cancelToken?.isCancelled ?? false) return result;
     }
   }
 
@@ -224,11 +240,13 @@ class FaydaOidcService {
   Future<FaydaStartResult> _start(
     String endpoint,
     Map<String, dynamic> body,
+    CancelToken? cancelToken,
   ) async {
     try {
       final response = await _dio.post<dynamic>(
         endpoint,
         data: {...body, 'redirectUri': _redirectUri},
+        cancelToken: cancelToken,
       );
       final data = decodeJsonMap(response.data);
       final state = data?['state'];
@@ -278,11 +296,13 @@ class FaydaOidcService {
   /// (POST /auth/fayda-verify). The server does the token exchange with Fayda.
   ///
   /// The authorization code and state are single use, so only a request that
-  /// never reached the server (no connection) is retried.
+  /// never reached the server (no connection) is retried, and never on web.
+  /// The server itself retries its call to Fayda.
   Future<FaydaExchangeResult> exchangeCode({
     required String authCode,
     required String state,
     FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
   }) async {
     try {
       final response = await _postUnsentWithRetry(
@@ -293,6 +313,7 @@ class FaydaOidcService {
           'redirectUri': _redirectUri,
         },
         onRetry,
+        cancelToken,
       );
 
       final data = decodeJsonMap(response.data);
@@ -370,22 +391,36 @@ class FaydaOidcService {
     }
   }
 
-  /// POST, repeating only failures where the request was never sent.
+  /// POST, repeating only failures where the request was never sent. On web
+  /// nothing is repeated: the browser reports a lost response (after the
+  /// server used the code) as the same connection error as a refused one.
   Future<Response<dynamic>> _postUnsentWithRetry(
     String endpoint,
     Map<String, dynamic> data,
     FaydaRetryCallback? onRetry,
+    CancelToken? cancelToken,
   ) async {
     final total = _retryDelays.length + 1;
+    final onWeb = _webRedirect() != null;
     for (var attempt = 1;; attempt++) {
       try {
-        return await _dio.post<dynamic>(endpoint, data: data);
+        return await _dio.post<dynamic>(
+          endpoint,
+          data: data,
+          cancelToken: cancelToken,
+        );
       } on DioException catch (e) {
         final neverSent = e.type == DioExceptionType.connectionError ||
             e.type == DioExceptionType.connectionTimeout;
-        if (!neverSent || attempt == total) rethrow;
+        if (onWeb ||
+            !neverSent ||
+            attempt == total ||
+            (cancelToken?.isCancelled ?? false)) {
+          rethrow;
+        }
         onRetry?.call(attempt + 1, total);
         await Future<void>.delayed(_retryDelays[attempt - 1]);
+        if (cancelToken?.isCancelled ?? false) rethrow;
       }
     }
   }

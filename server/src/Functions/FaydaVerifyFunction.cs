@@ -209,9 +209,12 @@ public class FaydaVerifyFunction
 
         var verification = exchange.Value!;
 
-        // Check if Fayda ID is already linked to another user
+        // Check if Fayda ID is already linked to another user. A holder whose phone was
+        // never proven may be this person's own abandoned sign-up: let the token through
+        // and let register decide (it replaces the holder only if Cognito never
+        // confirmed it either).
         var existingUser = await _userRepository.GetUserByFaydaIdAsync(verification.FaydaId);
-        if (existingUser != null)
+        if (existingUser != null && existingUser.IsPhoneVerified)
         {
             return LambdaResponse.Error(409, "FAYDA_004",
                 "This Fayda ID is already linked to another account.", "authorizationCode");

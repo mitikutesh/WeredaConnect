@@ -148,6 +148,7 @@ public class RegisterFunction
         // Validate the Fayda verification token (required: the validator already
         // rejected a missing one with AUTH_021)
         FaydaVerificationResult? faydaVerification = null;
+        UserDto? abandonedHolder = null;
         string? jtiKey = null;
         if (!string.IsNullOrWhiteSpace(registerRequest.FaydaVerificationToken))
         {
@@ -159,9 +160,13 @@ public class RegisterFunction
             }
             faydaVerification = faydaResult.Value!;
 
-            // Re-check Fayda ID uniqueness to close TOCTOU race between fayda-verify and register
-            var existingUser = await _userRepository.GetUserByFaydaIdAsync(faydaVerification.FaydaId);
-            if (existingUser != null)
+            // Re-check Fayda ID uniqueness to close TOCTOU race between fayda-verify and register.
+            // A holder that never proved its phone (profile unverified and Cognito user
+            // unconfirmed or gone) is this person's own abandoned sign-up, e.g. a mistyped
+            // phone or an OTP never entered. Fayda is required to register, so refusing it
+            // would lock the identity out for good: it is replaced instead.
+            abandonedHolder = await _userRepository.GetUserByFaydaIdAsync(faydaVerification.FaydaId);
+            if (abandonedHolder != null && !await IsAbandonedSignUpAsync(abandonedHolder))
             {
                 return LambdaResponse.Error(409, "FAYDA_004",
                     "This Fayda ID is already linked to another account.", "faydaVerificationToken");
@@ -187,6 +192,12 @@ public class RegisterFunction
             }
         }
 
+        // Same phone: the Cognito replace and the leftover-row cleanup below handle it.
+        if (abandonedHolder != null && abandonedHolder.PhoneNumber != phone)
+        {
+            await RemoveAbandonedSignUpAsync(abandonedHolder, correlationId, sourceIp, context);
+        }
+
         // Rate limit check: registration flood protection
         var rateLimitCheck = await _rateLimitService.CheckRegistrationAllowedAsync(phone);
         if (!rateLimitCheck.IsSuccess)
@@ -208,6 +219,26 @@ public class RegisterFunction
             // An unexpected failure must not leave the Fayda proof burned for 45 minutes.
             await ReleaseJtiAsync(jtiKey);
             throw;
+        }
+    }
+
+    private async Task<bool> IsAbandonedSignUpAsync(UserDto holder)
+        => !holder.IsPhoneVerified && await _authService.IsUnconfirmedOrMissingAsync(holder.PhoneNumber);
+
+    private async Task RemoveAbandonedSignUpAsync(
+        UserDto holder, string correlationId, string? sourceIp, ILambdaContext context)
+    {
+        try
+        {
+            await _authService.DeleteUserAsync(holder.PhoneNumber);
+            await _userRepository.DeleteUserAsync(holder.UserId);
+            AuditLogger.LogSecurity("REGISTER_REPLACED_ABANDONED_SIGNUP", userId: holder.UserId,
+                correlationId: correlationId, outcome: "success", sourceIp: sourceIp);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Could not remove the abandoned sign-up {holder.UserId}: [{ex.GetType().Name}]");
         }
     }
 

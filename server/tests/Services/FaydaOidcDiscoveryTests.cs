@@ -50,7 +50,8 @@ public class FaydaOidcDiscoveryTests
     private static FaydaOidcService Service(ScriptedHandler handler)
     {
         FaydaOidcService.ResetCaches();
-        return new FaydaOidcService(new HttpClient(handler), "client-1", "secret-1", Issuer, SigningSecret);
+        return new FaydaOidcService(new HttpClient(handler), "client-1", "secret-1", Issuer, SigningSecret,
+            tokenRetryDelays: [TimeSpan.Zero, TimeSpan.Zero]);
     }
 
     [Fact]
@@ -120,6 +121,79 @@ public class FaydaOidcDiscoveryTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal("FAYDA_003", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_ConnectionRefused_RetriesThenReportsUnavailable()
+    {
+        var handler = ProviderWithDiscovery();
+        var calls = 0;
+        handler.Routes["/v1/esignet/oauth/v2/token"] = _ =>
+        {
+            calls++;
+            throw new HttpRequestException(HttpRequestError.ConnectionError, "refused");
+        };
+        var service = Service(handler);
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "v", "n");
+
+        Assert.Equal("FAYDA_003", result.Error!.Code);
+        Assert.Equal(503, result.Error.HttpStatus);
+        Assert.Equal(3, calls);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_GatewayUnavailableOnce_RetriesAndUsesTheNextAnswer()
+    {
+        var handler = ProviderWithDiscovery();
+        var calls = 0;
+        handler.Routes["/v1/esignet/oauth/v2/token"] = _ => Task.FromResult(++calls == 1
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var service = Service(handler);
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "v", "n");
+
+        // The second answer (a real 400 from the token service) is what the user sees.
+        Assert.Equal("FAYDA_001", result.Error!.Code);
+        Assert.Equal(2, calls);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task ExchangeCode_Fayda5xx_IsUnavailableNotInvalidCode(HttpStatusCode status)
+    {
+        var handler = ProviderWithDiscovery();
+        handler.Routes["/v1/esignet/oauth/v2/token"] = _ => Task.FromResult(new HttpResponseMessage(status));
+        var service = Service(handler);
+
+        var result = await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "v", "n");
+
+        Assert.Equal("FAYDA_003", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task ExchangeCode_500OrUnknownFailure_IsNotRepeated()
+    {
+        // The code may already be redeemed: never send it twice.
+        var handler = ProviderWithDiscovery();
+        var calls = 0;
+        handler.Routes["/v1/esignet/oauth/v2/token"] = _ =>
+        {
+            calls++;
+            return calls == 1
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError))
+                : throw new HttpRequestException("reset mid-response");
+        };
+        var service = Service(handler);
+
+        await service.ExchangeCodeAsync("code-1", "weredaconnect://fayda-callback", "v", "n");
+        Assert.Equal(1, calls);
+
+        FaydaOidcService.ResetCaches();
+        await service.ExchangeCodeAsync("code-2", "weredaconnect://fayda-callback", "v", "n");
+        Assert.Equal(2, calls);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -77,6 +78,10 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   String? _faydaError;
   // Text under the spinner while an automatic retry runs; null otherwise.
   String? _faydaProgressMessage;
+  // Bumped by every new Fayda attempt and by Cancel: a result that arrives for
+  // an older number belongs to an abandoned attempt and is dropped.
+  int _faydaAttempt = 0;
+  CancelToken? _faydaCancel;
   StreamSubscription<Uri>? _deepLinkSub;
 
   // Whether the browser was launched and we're waiting for a callback
@@ -97,6 +102,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _browserReturnTimer?.cancel();
+    _faydaCancel?.cancel();
     _pageController.dispose();
     _deepLinkSub?.cancel();
     super.dispose();
@@ -207,12 +213,34 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     );
   }
 
-  /// Shows "still trying (n/total)" under the spinner during a retry.
-  void _showFaydaRetry(int attempt, int total) {
-    if (!mounted) return;
+  /// Shows "still trying (n/total)" under the spinner during a retry of the
+  /// current attempt [owner].
+  FaydaRetryCallback _showFaydaRetry(int owner) => (attempt, total) {
+        if (!mounted || owner != _faydaAttempt) return;
+        setState(() {
+          _faydaProgressMessage =
+              AppLocalizations.of(context)!.faydaRetrying(attempt, total);
+        });
+      };
+
+  /// Starts a new Fayda attempt, abandoning any one still running.
+  (int, CancelToken) _beginFaydaAttempt() {
+    _faydaCancel?.cancel();
+    final cancel = _faydaCancel = CancelToken();
+    return (++_faydaAttempt, cancel);
+  }
+
+  /// Cancel: abandon the running attempt so its retries stop and its result,
+  /// if one still arrives, is ignored.
+  void _cancelFaydaVerification() {
+    _browserReturnTimer?.cancel();
+    _faydaCancel?.cancel();
+    _faydaAttempt++;
     setState(() {
-      _faydaProgressMessage =
-          AppLocalizations.of(context)!.faydaRetrying(attempt, total);
+      _faydaVerifying = false;
+      _awaitingBrowserReturn = false;
+      _faydaError = null;
+      _faydaProgressMessage = null;
     });
   }
 
@@ -228,6 +256,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
   }
 
   Future<void> _handleFaydaVerify() async {
+    final (attempt, cancel) = _beginFaydaAttempt();
     setState(() {
       _faydaVerifying = true;
       _faydaError = null;
@@ -239,9 +268,10 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     // are retried inside the service before an error reaches the user.
     final start = await _faydaService.startRegistration(
       phoneNumber: _phone.isEmpty ? null : _phone,
-      onRetry: _showFaydaRetry,
+      onRetry: _showFaydaRetry(attempt),
+      cancelToken: cancel,
     );
-    if (!mounted) return;
+    if (!mounted || attempt != _faydaAttempt) return;
     setState(() => _faydaProgressMessage = null);
     if (!start.isSuccess) {
       setState(() {
@@ -261,7 +291,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
       final launched = await (widget.launcher ??
           (u) => launchUrl(u, mode: LaunchMode.externalApplication))(url);
 
-      if (!mounted) return;
+      if (!mounted || attempt != _faydaAttempt) return;
       if (launched) {
         _awaitingBrowserReturn = true;
       } else {
@@ -310,13 +340,15 @@ class _RegistrationFlowState extends State<RegistrationFlow>
     }
 
     // Exchange code for verification token via our server
+    final (attempt, cancel) = _beginFaydaAttempt();
     final result = await _faydaService.exchangeCode(
       authCode: callback.code!,
       state: _faydaState!,
-      onRetry: _showFaydaRetry,
+      onRetry: _showFaydaRetry(attempt),
+      cancelToken: cancel,
     );
 
-    if (!mounted) return;
+    if (!mounted || attempt != _faydaAttempt) return;
     setState(() => _faydaProgressMessage = null);
 
     if (result.isSuccess) {
@@ -410,6 +442,12 @@ class _RegistrationFlowState extends State<RegistrationFlow>
             setState(() => _returnToFaydaStep(message));
             return;
           }
+          // The Fayda ID belongs to a live account: the token is useless, so
+          // the user goes back to the Fayda step with that explanation.
+          if (state.errorCode == AuthErrorCode.faydaAlreadyLinked) {
+            setState(() => _returnToFaydaStep(msg));
+            return;
+          }
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -489,16 +527,8 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                       // Step 1: Fayda OIDC verification
                       FayidaIdScreen(
                         onFaydaVerifyRequested: _handleFaydaVerify,
-                        onCancelVerification: _faydaVerifying
-                            ? () {
-                                _browserReturnTimer?.cancel();
-                                setState(() {
-                                  _faydaVerifying = false;
-                                  _awaitingBrowserReturn = false;
-                                  _faydaError = null;
-                                });
-                              }
-                            : null,
+                        onCancelVerification:
+                            _faydaVerifying ? _cancelFaydaVerification : null,
                         isVerifying: _faydaVerifying,
                         verifyingMessage: _faydaProgressMessage,
                         isVerified: _faydaVerified,

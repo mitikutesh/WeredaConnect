@@ -506,6 +506,85 @@ public class RegisterFunctionTests
         Assert.DoesNotContain("2026-09-25T12:05:00Z", response.Body);
     }
 
+    private static UserDto FaydaHolder(string phone, bool phoneVerified) => new()
+    {
+        UserId = "user-held",
+        PhoneNumber = phone,
+        Role = "farmer",
+        Woreda = "Adama",
+        FaydaId = "FAYDA-123",
+        FaydaVerified = true,
+        IsPhoneVerified = phoneVerified,
+        CreatedAt = "2026-09-25T10:00:00Z",
+        UpdatedAt = "2026-09-25T10:00:00Z",
+        Version = 1
+    };
+
+    [Fact]
+    public async Task FunctionHandler_FaydaIdHeldByAbandonedSignUpOnAnotherPhone_ReplacesIt()
+    {
+        // Mistyped phone last time: the pending sign-up holds the Fayda ID. It never
+        // proved its phone and Cognito never confirmed it, so it is removed and the
+        // new registration goes ahead.
+        SetupCognitoSuccess();
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(FaydaHolder("+251911111111", false));
+        _mockAuth.IsUnconfirmedOrMissingAsync("+251911111111").Returns(true);
+
+        var response = await _function.FunctionHandler(MakeRequest(RegisterBody("valid-token")), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        await _mockAuth.Received(1).DeleteUserAsync("+251911111111");
+        await _mockRepo.Received(1).DeleteUserAsync("user-held");
+        await _mockRepo.Received(1).CreateUserAsync(Arg.Is<UserDto>(u => u.FaydaId == "FAYDA-123"));
+    }
+
+    [Fact]
+    public async Task FunctionHandler_FaydaIdHeldByUnverifiedProfileButConfirmedCognitoUser_Returns409()
+    {
+        // The profile flag alone is not trusted: a confirmed Cognito user is a live account.
+        SetupCognitoSuccess();
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(FaydaHolder("+251911111111", false));
+        _mockAuth.IsUnconfirmedOrMissingAsync("+251911111111").Returns(false);
+
+        var response = await _function.FunctionHandler(MakeRequest(RegisterBody("valid-token")), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("FAYDA_004", response.Body);
+        await _mockAuth.DidNotReceive().DeleteUserAsync(Arg.Any<string>());
+        await _mockRepo.DidNotReceive().DeleteUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_FaydaIdHeldByVerifiedAccount_Returns409WithoutAskingCognito()
+    {
+        SetupCognitoSuccess();
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(FaydaHolder("+251911111111", true));
+
+        var response = await _function.FunctionHandler(MakeRequest(RegisterBody("valid-token")), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("FAYDA_004", response.Body);
+        await _mockAuth.DidNotReceive().IsUnconfirmedOrMissingAsync(Arg.Any<string>());
+        await _mockAuth.DidNotReceive().DeleteUserAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_FaydaIdHeldByAbandonedSignUpOnSamePhone_LeavesItToTheLeftoverCleanup()
+    {
+        SetupCognitoSuccess("user-new");
+        var holder = FaydaHolder("+251912345678", false);
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(holder);
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(holder);
+        _mockAuth.IsUnconfirmedOrMissingAsync("+251912345678").Returns(true);
+
+        var response = await _function.FunctionHandler(MakeRequest(RegisterBody("valid-token")), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        // No explicit Cognito delete: RegisterAsync replaces the unconfirmed user itself.
+        await _mockAuth.DidNotReceive().DeleteUserAsync(Arg.Any<string>());
+        await _mockRepo.Received(1).DeleteUserAsync("user-held");
+    }
+
     [Theory]
     [InlineData("+251912345678", "+251912345678", true)]
     [InlineData("0912345678", "+251912345678", true)]

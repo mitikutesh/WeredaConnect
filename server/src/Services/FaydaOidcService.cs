@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
@@ -23,6 +24,12 @@ public sealed class FaydaOidcService : IFaydaOidcService
     private readonly string _clientSecret;
     private readonly string _issuerUrl;
     private readonly byte[] _signingSecret;
+    private readonly IReadOnlyList<TimeSpan> _tokenRetryDelays;
+
+    // Pauses between token-endpoint attempts. Short, so three attempts fit well
+    // inside the Lambda's 10 second budget.
+    private static readonly TimeSpan[] DefaultTokenRetryDelays =
+        [TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(800)];
 
     private const int VerificationTokenValidityMinutes = 30;
     private const int JwksCacheMinutes = 60;
@@ -47,13 +54,15 @@ public sealed class FaydaOidcService : IFaydaOidcService
         string clientId,
         string clientSecret,
         string issuerUrl,
-        string signingSecret)
+        string signingSecret,
+        IReadOnlyList<TimeSpan>? tokenRetryDelays = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _clientId = clientId ?? throw new ArgumentNullException(nameof(clientId));
         _clientSecret = clientSecret ?? throw new ArgumentNullException(nameof(clientSecret));
         _issuerUrl = issuerUrl ?? throw new ArgumentNullException(nameof(issuerUrl));
         _signingSecret = Encoding.UTF8.GetBytes(signingSecret ?? throw new ArgumentNullException(nameof(signingSecret)));
+        _tokenRetryDelays = tokenRetryDelays ?? DefaultTokenRetryDelays;
     }
 
     /// <summary>Test seam: forget cached provider metadata.</summary>
@@ -90,6 +99,47 @@ public sealed class FaydaOidcService : IFaydaOidcService
         return AuthResult<string>.Success($"{authorizeEndpoint}{separator}{queryString}");
     }
 
+    /// <summary>
+    /// POST the token request, repeating it only while the code cannot have been used
+    /// yet: the connection never opened, or Fayda's gateway answered 502/503/504
+    /// before reaching the token service. A timeout or any other failure is not
+    /// repeated, since Fayda may already have redeemed the single-use code.
+    /// Returns null when every attempt failed without a response.
+    /// </summary>
+    private async Task<HttpResponseMessage?> PostTokenRequestWithRetryAsync(
+        string tokenEndpoint, Dictionary<string, string> form)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            HttpResponseMessage? response;
+            bool retryable;
+            try
+            {
+                response = await _httpClient.PostAsync(tokenEndpoint, new FormUrlEncodedContent(form));
+                retryable = response.StatusCode is HttpStatusCode.BadGateway
+                    or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+            }
+            catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.ConnectionError
+                                                      or HttpRequestError.NameResolutionError)
+            {
+                response = null;
+                retryable = true;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            if (!retryable || attempt >= _tokenRetryDelays.Count)
+            {
+                return response;
+            }
+
+            response?.Dispose();
+            await Task.Delay(_tokenRetryDelays[attempt]);
+        }
+    }
+
     public async Task<AuthResult<FaydaVerificationResult>> ExchangeCodeAsync(
         string authorizationCode,
         string redirectUri,
@@ -112,13 +162,10 @@ public sealed class FaydaOidcService : IFaydaOidcService
             form["code_verifier"] = codeVerifier;
         }
 
-        HttpResponseMessage httpResponse;
-        try
+        var httpResponse = await PostTokenRequestWithRetryAsync(tokenEndpoint, form);
+        if (httpResponse == null || (int)httpResponse.StatusCode >= 500)
         {
-            httpResponse = await _httpClient.PostAsync(tokenEndpoint, new FormUrlEncodedContent(form));
-        }
-        catch (Exception)
-        {
+            // Fayda is down or failing: "try again later", not "your code is invalid".
             return AuthResult<FaydaVerificationResult>.Failure(503, "FAYDA_003",
                 "Fayda identity service is temporarily unavailable.");
         }
