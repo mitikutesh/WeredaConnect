@@ -2394,6 +2394,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String orderQuantityExceedsStock(String available) {
+    return 'Only $available kg available. Enter a smaller quantity.';
+  }
+
+  @override
   String get neededByDate => 'Needed by (optional)';
 
   @override

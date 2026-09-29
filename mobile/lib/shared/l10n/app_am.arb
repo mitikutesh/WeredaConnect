@@ -2391,6 +2391,7 @@
   "markFulfilled": "እንደተሟላ ምልክት አድርግ",
   "requestFulfilled": "ጥያቄው እንደተሟላ ምልክት ተደርጓል",
   "quintalEquivalent": "= {count} ኩንታል",
+  "orderQuantityExceedsStock": "የሚገኘው {available} ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።",
   "neededByDate": "የሚያስፈልግበት ቀን (አማራጭ)",
   "neededByDateHint": "በጊዜው ማድረስ የሚችል መጓጓዣን እናስቀድማለን",
   "selectDate": "ቀን ይምረጡ",

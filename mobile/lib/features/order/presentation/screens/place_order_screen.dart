@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
@@ -46,6 +47,7 @@ class PlaceOrderScreen extends StatefulWidget {
 class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   late final TextEditingController _quantityController;
   static const _commissionRate = 0.05;
+  static final _kgFormat = NumberFormat('#,##0.##', 'en_US');
 
   @override
   void initState() {
@@ -68,6 +70,15 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   }
 
   double get _quantity => double.tryParse(_quantityController.text) ?? 0;
+
+  /// The listing's stock in kg (listings are quoted in quintals). The server
+  /// rejects an order above it; checking here catches it offline, before a
+  /// mobile order is saved and the rejection only surfaces later in sync.
+  double get _stockKg => widget.listing.quantity * 100;
+
+  /// Same 0.001 kg slack as the server's stock check, so float noise from the
+  /// quintal-to-kg conversion never blocks ordering the whole listing.
+  bool get _exceedsStock => _quantity > _stockKg + 0.001;
 
   double get _cropCost => _quantity * widget.listing.pricePerKg;
 
@@ -119,7 +130,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     if (authState is! AuthAuthenticated) return;
 
     final quantity = _quantity;
-    if (quantity <= 0) return;
+    if (quantity <= 0 || _exceedsStock) return;
 
     context.read<OrderBloc>().add(
           CreateOrder(
@@ -241,6 +252,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                     helperText: l10n.quintalEquivalent(
                       (_quantity / 100).toStringAsFixed(1),
                     ),
+                    errorText: _exceedsStock
+                        ? l10n.orderQuantityExceedsStock(
+                            _kgFormat.format(_stockKg),
+                          )
+                        : null,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -298,8 +314,9 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                     return SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed:
-                            isLoading || _quantity <= 0 ? null : _placeOrder,
+                        onPressed: isLoading || _quantity <= 0 || _exceedsStock
+                            ? null
+                            : _placeOrder,
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                         ),

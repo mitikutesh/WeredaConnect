@@ -4456,6 +4456,12 @@ abstract class AppLocalizations {
   /// **'= {count} quintals'**
   String quintalEquivalent(String count);
 
+  /// Error under the order quantity field when the buyer asks for more kg than the listing has
+  ///
+  /// In en, this message translates to:
+  /// **'Only {available} kg available. Enter a smaller quantity.'**
+  String orderQuantityExceedsStock(String available);
+
   /// Label for the optional delivery-deadline field on the create-intent screen
   ///
   /// In en, this message translates to:
