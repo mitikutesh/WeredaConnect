@@ -574,6 +574,20 @@ public class FaydaVerifyFunctionTests
         Assert.Equal(200, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("251912345678")]
+    [InlineData("912345678")]
+    public async Task Link_FirstBind_FaydaPhoneWithoutPlusOrPrefix_Matches(string faydaPhone)
+    {
+        LinkStarted(LinkingUser());
+        FaydaReturns("FAYDA-123", faydaPhone);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
     [Fact]
     public async Task Link_FirstBind_NoPhoneClaim_FailsClosed()
     {

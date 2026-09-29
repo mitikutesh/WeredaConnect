@@ -3482,7 +3482,7 @@
   "@kycPaymentNotSent": {
     "description": "Snackbar after the Fayda check for a payment was cancelled or failed"
   },
-  "kycPaymentResubmitted": "Identity verified. Your payment was sent again.",
+  "kycPaymentResubmitted": "Identity verified. Your payment will be sent again.",
   "@kycPaymentResubmitted": {
     "description": "Snackbar after a KYC-rejected queued payment was sent again following Fayda verification"
   },
@@ -3513,5 +3513,9 @@
   "faydaIdentityUnconfirmed": "We could not confirm this Fayda ID belongs to your account. Verify with the Fayda ID registered to your phone number.",
   "@faydaIdentityUnconfirmed": {
     "description": "FAYDA_007: nothing ties the Fayda ID to this account (no phone number released)"
+  },
+  "kycPhoneNotProven": "Your Fayda ID is confirmed, but Fayda does not list this account's phone number, so your phone is still not verified. The payment was not sent.",
+  "@kycPhoneNotProven": {
+    "description": "Fayda screen (payment blocked for an unverified phone): the Fayda ID matched but Fayda did not prove the account's phone"
   }
 }

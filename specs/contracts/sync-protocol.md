@@ -259,7 +259,7 @@ Since 1.5.0 the KYC message is `ORDER_KYC_REQUIRED: <reason>: <text>`:
 
 | Reason | Who must verify | Client action |
 |--------|-----------------|---------------|
-| `buyer_phone` | the buyer (phone) | offer Fayda; on success send the same payment again |
+| `buyer_phone` | the buyer (phone) | offer Fayda; send the same payment again only when the link response has `phoneVerified: true` |
 | `buyer_fayda` | the buyer (Fayda, above 10,000 ETB) | offer Fayda; on success send the same payment again |
 | `farmer_phone` | the farmer (phone) | explain only; do not send the buyer to Fayda |
 | `farmer_fayda` | the farmer (Fayda, above 10,000 ETB) | explain only; do not send the buyer to Fayda |

@@ -75,7 +75,10 @@ Future<bool> showKycRequiredDialog(
   final verified = await Navigator.of(context).push<bool>(
     MaterialPageRoute<bool>(
       builder: verificationScreen ??
-          (_) => const FaydaVerificationScreen(forPayment: true),
+          (_) => FaydaVerificationScreen(
+                forPayment: true,
+                requirePhoneProof: reason == KycReason.buyerPhone,
+              ),
     ),
   );
   return verified ?? false;

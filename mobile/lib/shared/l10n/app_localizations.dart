@@ -5077,7 +5077,7 @@ abstract class AppLocalizations {
   /// Snackbar after a KYC-rejected queued payment was sent again following Fayda verification
   ///
   /// In en, this message translates to:
-  /// **'Identity verified. Your payment was sent again.'**
+  /// **'Identity verified. Your payment will be sent again.'**
   String get kycPaymentResubmitted;
 
   /// Snackbar after verification when the rejected payment could not be sent again automatically
@@ -5121,6 +5121,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'We could not confirm this Fayda ID belongs to your account. Verify with the Fayda ID registered to your phone number.'**
   String get faydaIdentityUnconfirmed;
+
+  /// Fayda screen (payment blocked for an unverified phone): the Fayda ID matched but Fayda did not prove the account's phone
+  ///
+  /// In en, this message translates to:
+  /// **'Your Fayda ID is confirmed, but Fayda does not list this account\'s phone number, so your phone is still not verified. The payment was not sent.'**
+  String get kycPhoneNotProven;
 }
 
 class _AppLocalizationsDelegate

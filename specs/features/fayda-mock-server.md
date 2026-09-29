@@ -86,6 +86,14 @@ The channel code has a browser-only test:
 
 `sub` is a stable hash of the FIN, never the raw FIN.
 
+**Identity for my phone number** (picker option, or `auto=1&phone=<number>`): the Fayda
+record of that phone. A seeded phone returns its seeded user; any other Ethiopian mobile
+number gets a synthetic person with a FIN derived from the phone and the `phone_number`
+claim set, so the same phone is always the same person. This is the identity to use for
+accounts that pay above 10,000 ETB: `POST /user/fayda-link` accepts only the account
+owner (same Fayda ID, else matching phone), so a generated or typed identity (no phone,
+FIN never shown) fails with `FAYDA_007` on an unlinked account and `FAYDA_005` on a linked one.
+
 Any other 16-digit FIN is a synthetic identity: stable name derived from the FIN,
 no `phone_number` claim (so registration always goes through the SMS OTP). The
 picker offers **Generate new identity** and **Type a FIN** for this; see
@@ -97,6 +105,7 @@ binds to one account (`FAYDA_004`).
 Append to the authorize URL:
 
 - `auto=1&fin=<FIN>` skips the picker and redirects straight back with a code. `fin=new` uses a random FIN.
+- `auto=1&phone=<number>` does the same as that phone's owner (with the `phone_number` claim).
 - `simulate=denied` redirects with `error=access_denied`.
 - `simulate=down` returns 503.
 

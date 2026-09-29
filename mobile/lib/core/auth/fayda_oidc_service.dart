@@ -81,6 +81,10 @@ class FaydaLinkResult {
   final bool faydaVerified;
   final DateTime? faydaVerifiedAt;
   final String? verifiedName;
+
+  /// The account's phone is proven after the link (Fayda released the same
+  /// number now, or it was proven before).
+  final bool phoneVerified;
   final String? errorCode;
   final String? errorMessage;
 
@@ -89,6 +93,7 @@ class FaydaLinkResult {
     this.faydaVerified = false,
     this.faydaVerifiedAt,
     this.verifiedName,
+    this.phoneVerified = false,
     this.errorCode,
     this.errorMessage,
   });
@@ -374,6 +379,7 @@ class FaydaOidcService {
         faydaVerified: true,
         faydaVerifiedAt: _parseTime(data?['faydaVerifiedAt']),
         verifiedName: data?['verifiedName'] as String?,
+        phoneVerified: data?['phoneVerified'] == true,
       );
     } on DioException catch (e) {
       final error = _errorOf(e);

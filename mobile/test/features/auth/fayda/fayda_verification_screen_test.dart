@@ -235,7 +235,10 @@ void main() {
 
   /// Pushes the screen in payment mode from a host page and records what it
   /// popped with.
-  Future<List<bool?>> startPaymentFlow(WidgetTester tester) async {
+  Future<List<bool?>> startPaymentFlow(
+    WidgetTester tester, {
+    bool requirePhoneProof = false,
+  }) async {
     final popped = <bool?>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -254,6 +257,7 @@ void main() {
                         launcher: (url) async => true,
                         recordVerified: (r) async => recorded.add(r),
                         forPayment: true,
+                        requirePhoneProof: requirePhoneProof,
                       ),
                     ),
                   ),
@@ -323,4 +327,60 @@ void main() {
       expect(popped, [false]);
     });
   }
+
+  void linkReturns({required bool phoneVerified}) => when(
+        () => service.link(
+          authCode: any(named: 'authCode'),
+          state: any(named: 'state'),
+        ),
+      ).thenAnswer(
+        (_) async => FaydaLinkResult(
+          isSuccess: true,
+          faydaVerified: true,
+          phoneVerified: phoneVerified,
+        ),
+      );
+
+  testWidgets(
+      'phone reason: linked but phone still unproven stays open, pops false',
+      (tester) async {
+    linkReturns(phoneVerified: false);
+    final popped = await startPaymentFlow(tester, requirePhoneProof: true);
+
+    links.add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+    await tester.pumpAndSettle();
+
+    expect(popped, isEmpty);
+    expect(
+      find.textContaining("does not list this account's phone number"),
+      findsOneWidget,
+    );
+    expect(find.text('Identity Verified'), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(popped, [false]);
+  });
+
+  testWidgets('phone reason: link that proves the phone closes with true',
+      (tester) async {
+    linkReturns(phoneVerified: true);
+    final popped = await startPaymentFlow(tester, requirePhoneProof: true);
+
+    links.add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+    await tester.pumpAndSettle();
+
+    expect(popped, [true]);
+  });
+
+  testWidgets('Fayda reason: an unproven phone does not matter',
+      (tester) async {
+    linkReturns(phoneVerified: false);
+    final popped = await startPaymentFlow(tester);
+
+    links.add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+    await tester.pumpAndSettle();
+
+    expect(popped, [true]);
+  });
 }
