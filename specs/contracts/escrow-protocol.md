@@ -273,6 +273,7 @@ If the same `idempotencyKey` is received again, return the cached result with `2
 | `422` | `ESCROW_010` | Delivery is not in a valid state for payment (must be pending or pickedUp) |
 | `429` | `ESCROW_011` | Rate limit exceeded |
 | `500` | `ESCROW_012` | Internal server error |
+| `503` | `ESCROW_012` | Buyer profile could not be read for the Fayda step-up check (amount above 10,000 ETB); nothing held, safe to retry (1.4.0) |
 | `502` | `ESCROW_013` | Telebirr gateway error (upstream failure) |
 | `503` | `ESCROW_014` | Telebirr service unavailable |
 
@@ -1198,9 +1199,13 @@ and needs a manual admin release or refund. `dispute_resolved` is therefore a va
 state for release and refund.
 
 ### Step-up
-`POST /escrow/initiate` and `POST /escrow/dispute` return `403 AUTH_040` when `amount` (the
-escrow's amount for a dispute) is at or above the step-up threshold and the caller's
-`auth_time` is older than the step-up window. See auth-api.md 2.1.0.
+`POST /escrow/initiate` is tiered at 10,000 ETB (1.4.0): up to and including it, `403 AUTH_040`
+when the caller's `auth_time` is older than the step-up window; above it, `403 AUTH_041` unless
+the buyer's last Fayda login (`POST /user/fayda-link`) is within the window. A fresh password
+does not satisfy the Fayda tier. When the buyer's profile cannot be read for that check the
+response is `503 ESCROW_012` (nothing held; safe to retry). `POST /escrow/dispute` returns `403 AUTH_040` when the
+escrow's amount is at or above the step-up threshold and `auth_time` is older than the window.
+See auth-api.md 2.4.0.
 
 ### Payout destination and identity at release
 Release and refund send money to the **registered phone** of the party, read from the
@@ -1231,6 +1236,7 @@ required is audited as `webhook_payer_unbound` and rejected.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.4.0 | 2026-09-29 | Tiered step-up on initiate: a fresh password up to 10,000 ETB (`AUTH_040`, now for every amount), a fresh Fayda login above it (`AUTH_041`), `503 ESCROW_012` when the buyer profile cannot be read for the Fayda check; clients keep the server's step-up code; dispute step-up unchanged |
 | 1.3.1 | 2026-09-26 | Double-charge precedence (SIM-24): an initiate on a delivery whose order-funded escrow is already linked to it returns `ESCROW_024` (field `orderId`), not `ESCROW_009`; clients read the `ESCROW_*` code from the error envelope and show `ESCROW_024` its own message |
 | 1.3.0 | 2026-09-26 | Settlement authority and identity gates: `/escrow/release` and `/escrow/refund` on the admin authorizer (admin group), `dispute_resolved` settled by the hourly sweep, `AUTH_040` step-up on initiate and dispute, payouts resolved to the party's registered phone with `ESCROW_029` when unverified, webhook `merch_code`, fail-closed timestamp and payer binding (`webhook_payer_mismatch`, `webhook_payer_unbound`) |
 | 1.2.5 | 2026-09-25 | Refund-pending labelling (SIM-20): history rows and `EscrowDto` carry `refundPending` + `refundReason` (rows also `expiresAt`); a cancelled order's still-escrowed money reads "Refund pending" with the order as reference instead of "Funds held safely" with a blank delivery |
@@ -1244,6 +1250,6 @@ required is audited as `webhook_payer_unbound` and rejected.
 
 ---
 
-**Last Updated**: 2026-09-26
-**Version**: 1.3.1
+**Last Updated**: 2026-09-29
+**Version**: 1.4.0
 **Status**: Draft (Phase R4)

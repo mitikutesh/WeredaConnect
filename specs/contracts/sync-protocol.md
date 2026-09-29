@@ -252,7 +252,8 @@ yours" and drops the operation.
 
 | Message prefix | Meaning | Client action |
 |----------------|---------|---------------|
-| `AUTH_040:` | fresh password needed for this amount (order `payment_submitted`, delivery `disputed`) | keep the operation pending, re-authenticate, sync again |
+| `AUTH_040:` | fresh password needed (order `payment_submitted` up to 10,000 ETB, delivery `disputed` on large orders) | keep the operation pending, re-authenticate, sync again |
+| `AUTH_041:` | fresh Fayda login needed (order `payment_submitted` above 10,000 ETB; 1.6.0) | keep the operation pending, run the Fayda link flow, sync again |
 | `ORDER_KYC_REQUIRED:` | phone or Fayda verification missing for this payment | revert the local order status; see the reason below |
 
 Since 1.5.0 the KYC message is `ORDER_KYC_REQUIRED: <reason>: <text>`:
@@ -274,6 +275,7 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.6.0 | 2026-09-29 | Payment step-up tiers: `AUTH_040` on every `payment_submitted` up to 10,000 ETB without a fresh password; `AUTH_041` above 10,000 ETB without a fresh Fayda login (the password does not count) |
 | 1.5.0 | 2026-09-29 | `ORDER_KYC_REQUIRED` carries a reason token (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`, `unavailable`); the prefix is unchanged |
 | 1.4.0 | 2026-09-26 | Create-conflict echo is party-scoped (an existing crop, trip, order or delivery is returned in `serverData` only to its owner or a party); `AUTH_040` and `ORDER_KYC_REQUIRED` operation errors |
 | 1.3.0 | 2026-09-25 | Versioning (SIM-08): op-level `clientVersion` is now honoured (it was silently ignored), `data.version` remains accepted, op-level wins; order updates require a version (no fallback to the stored version); web order client sends the current version |
@@ -283,5 +285,5 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 ---
 
-**Last Updated**: 2026-09-26
-**Version**: 1.4.0
+**Last Updated**: 2026-09-29
+**Version**: 1.6.0

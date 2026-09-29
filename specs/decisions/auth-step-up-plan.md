@@ -1,7 +1,7 @@
 # Authentication Step-Up and Authorization Hardening
 
 ## Version
-1.0.0 | 2026-09-26
+1.1.0 | 2026-09-29 (payment step-up tiers, see §6)
 
 ## Status
 Implemented on branch `feat/auth-hardening` (server, infra, mobile, admin). Not deployed.
@@ -17,7 +17,7 @@ Keep one password login per session and put strong authentication where money an
 | Login | Phone + password through the server only. The public Cognito client cannot run a password login itself, so the server's lockout, suspension and audit rules always apply. |
 | Session | Silent auto-login stays (rural, shared-device, offline reality). An app lock (device PIN or biometric) guards cold start and returns from background. |
 | Identity proof | Phone ownership is proven by SMS code at registration unless Fayda released the same number. Fayda identity is proven by OIDC with server-held state, nonce and PKCE, at registration or later from the profile. |
-| Step-up | A money action at or above 10,000 ETB needs a password entered within the last 5 minutes (Cognito `auth_time`). Below that, a device gate is enough. |
+| Step-up | A payment up to 10,000 ETB needs a password entered within the last 5 minutes (Cognito `auth_time`, `AUTH_040`). A payment above 10,000 ETB needs a Fayda login within the last 5 minutes instead (`AUTH_041`). A dispute at or above 10,000 ETB needs the fresh password. (1.1.0; before, only actions at or above 10,000 ETB asked, and always for the password.) |
 | Payout | Money goes only to the registered phone of a verified party. Above 10,000 ETB the recipient must be Fayda-verified; otherwise the release is blocked for an admin. |
 | Admin | TOTP MFA required in prod, optional in dev and staging (SMS MFA codes are undeliverable there). Only the admin pool's `admin` group may settle escrows. Admin verdicts are recorded and settled by the cron, so the admin Lambda never moves money. |
 
@@ -39,8 +39,8 @@ Fayda on every login was rejected: it fails on connectivity and provider uptime,
 - Dev runs against the mock eSignet provider (`tools/fayda-mock`), selected by `faydaMode: 'mock'` in `infra/lib/config/environments.ts`; the server code is identical in both modes.
 
 ### Money gates
-- Order `payment_submitted`: both parties phone-verified, both Fayda-verified above 10,000 ETB (`ORDER_KYC_REQUIRED`), fresh `auth_time` at or above the step-up threshold (`AUTH_040`).
-- `POST /escrow/initiate` and `POST /escrow/dispute`: `AUTH_040` at or above the threshold. Delivery disputes through `/sync` use the linked order's total.
+- Order `payment_submitted`: both parties phone-verified, both Fayda-verified above 10,000 ETB (`ORDER_KYC_REQUIRED`), then the payment step-up: fresh `auth_time` up to 10,000 ETB (`AUTH_040`), fresh Fayda login above it (`AUTH_041`). See §6.
+- `POST /escrow/initiate`: the same payment step-up tiers. `POST /escrow/dispute`: `AUTH_040` at or above the threshold. Delivery disputes through `/sync` use the linked order's total.
 - Release resolves the farmer's and trucker's registered phone and blocks unverified recipients (`ESCROW_029`). Refunds go to the buyer's registered phone.
 - Telebirr webhook: unparseable timestamp rejected, `merch_code` must match, payer phone (`msisdn`) compared with the buyer's phone; mismatches are audited and rejected when `TELEBIRR_REQUIRE_PAYER_MATCH=true`.
 
@@ -97,3 +97,22 @@ Production guard: `DEV_FAYDA_BYPASS`, `DEV_OTP_BYPASS`, `TELEBIRR_MOCK` and `FAY
 - Fayda re-verification after 12 months (verifayda-ekyc-integration-guide.md).
 - Sync idempotency keys scoped to the caller (SEC-03) and `TELEBIRR_MOCK` on staging (INFRA-02) remain open.
 - Native-speaker review of the new Amharic and Afan Oromo strings (mobile and admin).
+
+---
+
+## 6. Payment step-up tiers (1.1.0, 2026-09-29)
+
+**Decision.** The password proves who holds the session; Fayda proves who the person is. Above the NBE threshold the payment is confirmed with Fayda, and below it with the password, on every payment.
+
+| Payment | Proof | Error |
+|---------|-------|-------|
+| up to and including 10,000 ETB | password within 5 minutes (`auth_time`) | `AUTH_040` |
+| above 10,000 ETB | Fayda login within 5 minutes; a password does not count | `AUTH_041` |
+
+**Where the Fayda proof lives.** Every successful `POST /user/fayda-link` writes `faydaAuthenticatedAt` on the user row (server-side, `[JsonIgnore]`, never in an API response). The link only succeeds for the account owner's identity (`FAYDA_005/006/007`), so the proof is bound to the person on file, not just to any valid Fayda holder. `/sync` reads it from the buyer row the KYC gate already loads; `/escrow/initiate` reads the buyer row too (fail closed without the user table).
+
+**Client.** `AUTH_041` keeps a queued payment pending like `AUTH_040`; the prompt opens the Fayda screen in payment mode, and success fires the same step-up-completed signal that retries the queue. On web the payment screen resubmits directly. A buyer not yet Fayda-verified gets `buyer_fayda` first; that link is also the fresh login, so one Fayda round trip covers both.
+
+**Rejected.** A single-use grant per payment (extra table and IAM grant; the 5-minute window matches the password rule). Fayda on top of the password above 10,000 ETB (user asked for Fayda instead of the password).
+
+**Trade-offs.** One Fayda login covers any payments made in the next 5 minutes, the same as the password window. Small payments now ask for the password unless the user signed in within 5 minutes.
