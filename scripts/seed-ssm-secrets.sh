@@ -173,6 +173,7 @@ seed_parameter() {
 echo "=== Seeding SSM SecureString secrets: $ENV (${AWS_REGION:-${AWS_DEFAULT_REGION}}) ==="
 seed_parameter "$PREFIX/pagination-secret" "$(openssl rand -hex 32)"
 seed_parameter "$PREFIX/fayda/signing-secret" "$(openssl rand -hex 32)"
-seed_parameter "$PREFIX/fayda/client-secret" "PLACEHOLDER"
+# Fayda RP private key (private_key_jwt); replace with the key registered at partner.fayda.et.
+seed_parameter "$PREFIX/fayda/client-private-key" "PLACEHOLDER"
 seed_parameter "$PREFIX/telebirr/credentials" "$TELEBIRR_PLACEHOLDER_JSON"
 echo "=== Seed complete: $ENV ==="

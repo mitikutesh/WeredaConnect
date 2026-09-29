@@ -55,6 +55,15 @@ export interface EnvironmentConfig {
    * used when isProd is true (the stack refuses to synthesize and the construct throws).
    */
   readonly faydaMode?: 'mock' | 'live';
+  /**
+   * Live Fayda only: the client_id the Fayda partner portal issued. Not a secret,
+   * so it lives here and survives deploys (the stack writes it to
+   * /{prefix}/fayda/client-id). The matching private key is the seeded secret
+   * /{prefix}/fayda/client-private-key. Runbook: specs/features/fayda-mock-server.md.
+   */
+  readonly faydaClientId?: string;
+  /** Live Fayda only: issuer override. Defaults to https://esignet.ida.fayda.et. */
+  readonly faydaIssuerUrl?: string;
 }
 
 export const environments: Record<string, EnvironmentConfig> = {
@@ -62,8 +71,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     name: 'dev',
     region: 'eu-north-1',
     isProd: false,
-    // Dev signs in against the mock Fayda eSignet provider (tools/fayda-mock);
-    // staging and prod use the real issuer through the seeded SSM parameters.
+    // Dev signs in against the mock Fayda eSignet provider (tools/fayda-mock).
+    // To use real Fayda: faydaMode 'live' + faydaClientId, then seed the client
+    // private key (specs/features/fayda-mock-server.md, "Switching to live Fayda").
     faydaMode: 'mock',
     tags: {
       Environment: 'development',

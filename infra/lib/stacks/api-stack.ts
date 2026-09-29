@@ -699,8 +699,9 @@ export class ApiStack extends cdk.Stack {
 
     // ─── Fayda identity provider: mock (dev) or live, switched by config ─
     // The server code is identical in both modes; only the issuer, client id
-    // and client secret it reads from SSM differ. faydaMode 'mock' deploys the
-    // mock eSignet provider (tools/fayda-mock) and points these values at it.
+    // and client private key it reads from SSM differ. faydaMode 'mock' deploys
+    // the mock eSignet provider (tools/fayda-mock) and points these values at it.
+    // Switching to live Fayda: specs/features/fayda-mock-server.md.
     // The construct refuses isProd, and ProductionBypassGuard refuses its
     // FAYDA_MOCK marker, so the mock can never sit beside production.
     if (envConfig.faydaMode === "mock" && envConfig.isProd) {
@@ -741,7 +742,7 @@ export class ApiStack extends cdk.Stack {
       "FaydaClientId",
       {
         parameterName: `/${prefix}/fayda/client-id`,
-        stringValue: faydaMock?.clientId ?? "PLACEHOLDER",
+        stringValue: faydaMock?.clientId ?? envConfig.faydaClientId ?? "PLACEHOLDER",
         description: "Fayda OIDC client ID — update after registration",
       },
     );
@@ -751,49 +752,30 @@ export class ApiStack extends cdk.Stack {
       "FaydaIssuerUrl",
       {
         parameterName: `/${prefix}/fayda/issuer-url`,
-        stringValue: faydaMock?.issuerUrl ?? "https://fayda.et",
+        // Live VeriFayda eSignet (discovery under /v1/esignet/oidc/.well-known/...).
+        stringValue: faydaMock?.issuerUrl ?? envConfig.faydaIssuerUrl ?? "https://esignet.ida.fayda.et",
         description: "Fayda OIDC issuer URL",
       },
     );
 
     // ─── Fayda Secrets (Secrets Manager prod / SSM dev+staging) ───────
 
-    // In mock mode the client secret is a fixed dev value published by the
-    // construct; it lives in a stack-owned parameter so no seed step is needed.
-    const faydaClientSecret: SecretRef = faydaMock
-      ? (() => {
-          const mockSecretName = `/${prefix}/fayda/client-secret-mock`;
-          new ssm.StringParameter(this, "FaydaClientSecretMock", {
-            parameterName: mockSecretName,
-            stringValue: faydaMock.clientSecret,
-            description: "Client secret of the mock Fayda eSignet provider (dev only)",
-          });
-          // Literal name and ARN (not tokens): the server resolves the value by
-          // name at cold start exactly as it does for the seeded parameters.
-          const mockSecretArn = this.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: mockSecretName.replace(/^\//, ""),
-          });
-          return {
-            reference: mockSecretName,
-            grantRead: (grantee) =>
-              iam.Grant.addToPrincipal({
-                grantee,
-                actions: ["ssm:GetParameter"],
-                resourceArns: [mockSecretArn],
-              }),
-          };
-        })()
-      : envScopedSecret(this, "FaydaClientSecret", {
-          isProd: envConfig.isProd,
-          name: `/${prefix}/fayda/client-secret`,
-          description: "Fayda OIDC client secret, update after registration",
-          generateSecretString: {
-            excludePunctuation: true,
-            passwordLength: 64,
-          },
-        });
+    // The relying party private key for private_key_jwt, the only client
+    // authentication Fayda accepts (the sample app's PRIVATE_KEY_BASE64: a base64
+    // private JWK). Same parameter, format and env var in mock and live mode:
+    // seeded as PLACEHOLDER, then filled by the mock on first use (dev) or with
+    // the key registered at the Fayda partner portal (live). Prod keeps it in
+    // Secrets Manager, non-prod in an SSM SecureString (envScopedSecret).
+    const faydaClientPrivateKey = envScopedSecret(this, "FaydaClientPrivateKey", {
+      isProd: envConfig.isProd,
+      name: `/${prefix}/fayda/client-private-key`,
+      description:
+        "Fayda OIDC client private key (base64 JWK, JWK or PEM) for private_key_jwt; replace after partner registration",
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 64,
+      },
+    });
 
     const faydaSigningSecret = envScopedSecret(this, "FaydaSigningSecret", {
       isProd: envConfig.isProd,
@@ -831,7 +813,7 @@ export class ApiStack extends cdk.Stack {
         RATE_LIMITS_TABLE: props.rateLimitsTable.tableName,
         FAYDA_CLIENT_ID_PARAM: faydaClientIdParam.parameterName,
         FAYDA_ISSUER_URL_PARAM: faydaIssuerUrlParam.parameterName,
-        FAYDA_CLIENT_SECRET_ARN: faydaClientSecret.reference,
+        FAYDA_CLIENT_PRIVATE_KEY_ARN: faydaClientPrivateKey.reference,
         FAYDA_SIGNING_SECRET_ARN: faydaSigningSecret.reference,
         ...(envConfig.name === 'dev' ? { DEV_FAYDA_BYPASS: "true" } : {}),
         // Mock-only web callbacks. FAYDA_MOCK is refused in prod by
@@ -850,7 +832,7 @@ export class ApiStack extends cdk.Stack {
     props.rateLimitsTable.grantReadWriteData(faydaVerifyFn.function);
     faydaClientIdParam.grantRead(faydaVerifyFn.function);
     faydaIssuerUrlParam.grantRead(faydaVerifyFn.function);
-    faydaClientSecret.grantRead(faydaVerifyFn.function);
+    faydaClientPrivateKey.grantRead(faydaVerifyFn.function);
     faydaSigningSecret.grantRead(faydaVerifyFn.function);
 
     // ─── R4.2 Delivery Function ───────────────────────────────────────

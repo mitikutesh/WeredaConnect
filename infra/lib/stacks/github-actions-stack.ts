@@ -159,7 +159,7 @@ export class GithubActionsStack extends cdk.Stack {
     if (!envConfig.isProd) {
       const seededSecretPaths = [
         "pagination-secret",
-        "fayda/client-secret",
+        "fayda/client-private-key",
         "fayda/signing-secret",
         "telebirr/credentials",
       ];
