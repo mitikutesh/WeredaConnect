@@ -2990,6 +2990,37 @@ public class SyncFunctionTests
         await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
+    [Fact]
+    public async Task OrderCreate_WholeListingAtMaxStock_Succeeds()
+    {
+        // A listing at its 10,000-quintal maximum is 1,000,000 kg; the buyer can order all of it.
+        SetupListing(quantityQuintals: 10000, pricePerKg: 1000);
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 1000000 }, { "pricePerUnit", 1000 }
+        }));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal(1_000_000_000.0, (double)_createdOrder!["cropCost"], 2);
+    }
+
+    [Fact]
+    public async Task OrderCreate_QuantityAboveMaxOrderKg_ReturnsValidationError()
+    {
+        SetupListing(quantityQuintals: 10000);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 1000001 }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: quantity must be between 0.01 and 1000000 kg.", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Theory]
     [InlineData("tripId", "trip-001")]
     [InlineData("truckerId", "trucker-001")]
