@@ -21,6 +21,9 @@ class FayidaIdScreen extends StatelessWidget {
   final String? verifiedName;
   final String? errorMessage;
 
+  /// Replaces the "required to register" line (link-later and payment use).
+  final String? promptMessage;
+
   const FayidaIdScreen({
     required this.onFaydaVerifyRequested,
     this.onCancelVerification,
@@ -29,6 +32,7 @@ class FayidaIdScreen extends StatelessWidget {
     this.isVerified = false,
     this.verifiedName,
     this.errorMessage,
+    this.promptMessage,
     super.key,
   });
 
@@ -201,7 +205,7 @@ class FayidaIdScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        l10n.faydaRequired,
+                        promptMessage ?? l10n.faydaRequired,
                         style: const TextStyle(
                           fontSize: 14,
                           color: AppTheme.textMuted,

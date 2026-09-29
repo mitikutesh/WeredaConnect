@@ -205,6 +205,106 @@ void main() {
       expect(find.byKey(const Key('kyc_verify_button')), findsOneWidget);
     });
 
+    group('KYC verified in the background prompt', () {
+      const rejected = KycRequired(
+        orderId: 'o-1',
+        message: 'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID',
+        paymentMethod: 'cbe_transfer',
+        paymentReference: 'MOCK-CBE-1',
+      );
+
+      Widget fayda(bool result) => Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).pop(result),
+                child: const Text('fayda screen'),
+              ),
+            ),
+          );
+
+      Future<List<KycRequired>> run(
+        WidgetTester tester,
+        KycRequired event, {
+        required bool verifies,
+      }) async {
+        final resubmitted = <KycRequired>[];
+        await tester.pumpWidget(
+          host(
+            SecurityPromptListener(
+              events: events,
+              verificationScreen: (_) => fayda(verifies),
+              resubmitPayment: (_, e) async => resubmitted.add(e),
+              child: const Text('app'),
+            ),
+          ),
+        );
+        events.emit(event);
+        await settle(tester);
+        if (event.reason.buyerCanFix) {
+          await tester.tap(find.byKey(const Key('kyc_verify_button')));
+          await settle(tester);
+          await tester.tap(find.text('fayda screen'));
+        } else {
+          await tester.tap(find.byKey(const Key('kyc_ok_button')));
+        }
+        await settle(tester);
+        return resubmitted;
+      }
+
+      testWidgets('verified as the owner: the same payment is sent again',
+          (tester) async {
+        final resubmitted = await run(tester, rejected, verifies: true);
+
+        expect(resubmitted.single.orderId, 'o-1');
+        expect(resubmitted.single.paymentMethod, 'cbe_transfer');
+        expect(resubmitted.single.paymentReference, 'MOCK-CBE-1');
+        expect(
+          find.text('Identity verified. Your payment was sent again.'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('verification failed: nothing is sent', (tester) async {
+        final resubmitted = await run(tester, rejected, verifies: false);
+
+        expect(resubmitted, isEmpty);
+      });
+
+      testWidgets('farmer not verified: no Fayda offered, nothing is sent',
+          (tester) async {
+        final resubmitted = await run(
+          tester,
+          const KycRequired(
+            orderId: 'o-1',
+            message: 'ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify',
+            paymentMethod: 'cbe_transfer',
+            paymentReference: 'MOCK-CBE-1',
+          ),
+          verifies: true,
+        );
+
+        expect(resubmitted, isEmpty);
+      });
+
+      testWidgets('verified but no payload: asks to pay again by hand',
+          (tester) async {
+        final resubmitted = await run(
+          tester,
+          const KycRequired(
+            orderId: 'o-1',
+            message: 'ORDER_KYC_REQUIRED: buyer_fayda: Verify',
+          ),
+          verifies: true,
+        );
+
+        expect(resubmitted, isEmpty);
+        expect(
+          find.textContaining('submit the payment again'),
+          findsOneWidget,
+        );
+      });
+    });
+
     testWidgets('prompts nothing when signed out', (tester) async {
       when(() => bloc.state).thenReturn(const AuthUnauthenticated());
       await tester.pumpWidget(

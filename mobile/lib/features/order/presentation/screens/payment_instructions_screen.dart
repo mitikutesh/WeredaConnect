@@ -21,8 +21,12 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 class PaymentInstructionsScreen extends StatefulWidget {
   final Order order;
 
+  /// Replaces the Fayda screen the KYC prompt opens (tests).
+  final WidgetBuilder? kycVerificationScreen;
+
   const PaymentInstructionsScreen({
     required this.order,
+    this.kycVerificationScreen,
     super.key,
   });
 
@@ -79,6 +83,27 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     if (ok && mounted) _submitPayment();
   }
 
+  /// KYC gate: verified as this account's owner → send the same payment
+  /// again; anything else → the payment stays unsent.
+  Future<void> _retryAfterKyc(String message) async {
+    final reason = KycReason.fromMessage(message);
+    final verified = await showKycRequiredDialog(
+      context,
+      reason: reason,
+      verificationScreen: widget.kycVerificationScreen,
+    );
+    if (!mounted) return;
+    if (verified) {
+      _submitPayment();
+    } else if (reason.buyerCanFix) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.kycPaymentNotSent),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -104,10 +129,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             _retryAfterStepUp();
           } else if (state is OrderError &&
               state.code == AppErrorCode.kycRequired) {
-            showKycRequiredDialog(
-              context,
-              phoneNotVerified: KycRequired.isPhoneProblem(state.message),
-            );
+            _retryAfterKyc(state.message);
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(localizeErrorCode(state.code, l10n))),

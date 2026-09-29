@@ -19,13 +19,22 @@ class AuthErrorCode {
   static const internalServerError = 'AUTH_007';
   static const cognitoUnavailable = 'AUTH_008';
 
-  // Fayda verification errors (FAYDA_001 - FAYDA_004)
+  // Fayda verification errors (FAYDA_001 - FAYDA_007)
   // Server is source of truth — see server/src/Services/FaydaOidcService.cs
   // and server/src/Functions/FaydaVerifyFunction.cs
   static const faydaVerificationFailed = 'FAYDA_001';
   static const faydaTokenExpired = 'FAYDA_002';
   static const faydaServiceUnavailable = 'FAYDA_003';
   static const faydaAlreadyLinked = 'FAYDA_004';
+
+  /// fayda-link: the account already holds a different Fayda ID.
+  static const faydaIdMismatch = 'FAYDA_005';
+
+  /// fayda-link: the phone on the Fayda ID is not the account's phone.
+  static const faydaPhoneMismatch = 'FAYDA_006';
+
+  /// fayda-link: nothing ties the Fayda ID to this account (no phone claim).
+  static const faydaIdentityUnconfirmed = 'FAYDA_007';
 
   /// Client-only: the server refused the web callback because the real Fayda
   /// provider only knows the app's deep link. Never sent by the server.
@@ -111,6 +120,12 @@ extension AuthErrorCodeExtension on String {
         return 'Fayda verification expired. Please verify again';
       case AuthErrorCode.faydaAlreadyLinked:
         return 'This Fayda ID is already linked to another account';
+      case AuthErrorCode.faydaIdMismatch:
+        return 'This Fayda ID does not match the one on your account';
+      case AuthErrorCode.faydaPhoneMismatch:
+        return 'The phone number on this Fayda ID does not match your account';
+      case AuthErrorCode.faydaIdentityUnconfirmed:
+        return 'We could not confirm this Fayda ID belongs to your account';
       case AuthErrorCode.faydaServiceUnavailable:
         return 'Fayda service is currently unavailable. Please try later';
       case AuthErrorCode.faydaUnavailableOnWeb:

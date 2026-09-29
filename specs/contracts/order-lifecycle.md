@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.5.0
+1.5.1
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -157,20 +157,24 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 
 | Check | Error (operation `status: "error"`) |
 |-------|--------------------------------------|
-| buyer or farmer profile missing or phone not verified | `ORDER_KYC_REQUIRED: ...` |
-| `orderTotal` above 10,000 ETB and buyer not Fayda-verified | `ORDER_KYC_REQUIRED: Verify your Fayda ID ...` |
-| `orderTotal` above 10,000 ETB and farmer not Fayda-verified | `ORDER_KYC_REQUIRED: The farmer must verify ...` |
+| buyer profile missing or phone not verified | `ORDER_KYC_REQUIRED: buyer_phone: ...` |
+| farmer profile missing or phone not verified | `ORDER_KYC_REQUIRED: farmer_phone: ...` |
+| `orderTotal` above 10,000 ETB and buyer not Fayda-verified | `ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID ...` |
+| `orderTotal` above 10,000 ETB and farmer not Fayda-verified | `ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify ...` |
 | `orderTotal` at or above the step-up threshold and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
 runs only after they pass. The client reverts the local order to its previous status on
-`ORDER_KYC_REQUIRED` and offers Fayda verification; on `AUTH_040` it re-authenticates and
-retries.
+`ORDER_KYC_REQUIRED`. For a buyer-side reason it offers Fayda verification, which must
+return the account owner's identity (`POST /user/fayda-link`, `auth-api.md` 2.3.0); on
+success it sends the same payment again, on failure the payment stays unsent. For a
+farmer-side reason it only explains. On `AUTH_040` it re-authenticates and retries.
 
 ---
 
 ## Changelog
 
+- **1.5.1 (2026-09-29)**: KYC errors name whose verification is missing (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`); the buyer's payment is resubmitted after a successful Fayda link and not otherwise.
 - **1.5.0 (2026-09-26)**: Payment gates on `payment_submitted`: both parties phone-verified and, above 10,000 ETB, Fayda-verified (`ORDER_KYC_REQUIRED`); fresh password (`AUTH_040`) at or above the step-up threshold; mock auto-fund runs only after the gates.
 - **1.4.3 (2026-09-25)**: Default list scoping (SIM-16): an unfiltered `GET /orders` is scoped by the caller's role claim instead of always the buyer.
 - **1.4.2 (2026-09-25)**: Stock restore (SIM-13): a funded order that is rejected or cancelled (by a participant or by the refund sweep) gives its listing the quintals back, idempotent per order and race-safe; a `reserved` listing returns to `available`. The funding decrement now stores `quantity` as a number.

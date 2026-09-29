@@ -124,4 +124,15 @@ public class KycPolicyTests
         Assert.Contains("farmer", KycPolicy.CheckPayment(User(true, true), User(true, false), amount)!);
         Assert.Null(KycPolicy.CheckPayment(User(true, true), User(true, true), amount));
     }
+
+    [Fact]
+    public void Rejection_NamesWhoseVerificationIsMissing()
+    {
+        var amount = KycPolicy.FaydaThresholdEtb + 1m;
+
+        Assert.StartsWith("ORDER_KYC_REQUIRED: buyer_phone:", KycPolicy.CheckPayment(User(false, true), User(true, true), amount));
+        Assert.StartsWith("ORDER_KYC_REQUIRED: farmer_phone:", KycPolicy.CheckPayment(User(true, true), User(false, true), amount));
+        Assert.StartsWith("ORDER_KYC_REQUIRED: buyer_fayda:", KycPolicy.CheckPayment(User(true, false), User(true, true), amount));
+        Assert.StartsWith("ORDER_KYC_REQUIRED: farmer_fayda:", KycPolicy.CheckPayment(User(true, true), User(true, false), amount));
+    }
 }

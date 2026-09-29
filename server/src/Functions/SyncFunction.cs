@@ -5816,7 +5816,7 @@ public partial class SyncFunction
         if (_userRepo == null)
         {
             context.Logger.LogError("Payment KYC gate unavailable: user repository not configured.");
-            return $"{KycPolicy.ErrorCode}: Identity verification is unavailable right now. Please try again later.";
+            return KycPolicy.Message(KycPolicy.ReasonUnavailable, "Identity verification is unavailable right now. Please try again later.");
         }
 
         var buyer = await _userRepo.GetUserByIdAsync(buyerId);

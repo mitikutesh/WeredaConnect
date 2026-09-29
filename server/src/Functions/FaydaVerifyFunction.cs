@@ -15,10 +15,12 @@ namespace WeredaConnect.Server.Functions;
 ///   POST /auth/fayda-start   (public)        → state, nonce, PKCE stored server-side; returns the authorize URL
 ///   POST /auth/fayda-verify  (public)        → code + state → verification token for POST /auth/register
 ///   POST /user/fayda-start   (authenticated) → same, bound to the caller's user id
-///   POST /user/fayda-link    (authenticated) → code + state → the caller's profile becomes Fayda-verified
+///   POST /user/fayda-link    (authenticated) → code + state → the caller's profile becomes Fayda-verified,
+///                                               only when the identity is the account's own (FAYDA_005/006/007 otherwise)
 /// State rows live 10 minutes and are consumed exactly once. The nonce is checked
 /// inside the ID token, the PKCE verifier never leaves the server.
-/// Dev bypass: DEV_FAYDA_BYPASS=true accepts test-code-123 on fayda-verify and fayda-link.
+/// Dev bypass: DEV_FAYDA_BYPASS=true accepts test-code-123 on fayda-verify and fayda-link. Its identity
+/// (FAYDA-DEV-001) has no phone, so fayda-link only accepts it for an account that already holds it.
 /// </summary>
 public class FaydaVerifyFunction
 {
@@ -279,6 +281,14 @@ public class FaydaVerifyFunction
             return LambdaResponse.Error(404, "AUTH_013", "User profile not found.");
         }
 
+        // The account is known: the Fayda identity must be this account's owner,
+        // not just any valid Fayda holder.
+        var mismatch = CheckIdentityMatch(user, verification);
+        if (mismatch != null)
+        {
+            return IdentityMismatch(mismatch, userId, correlationId, sourceIp);
+        }
+
         var now = DateTime.UtcNow.ToString("o");
         UserDto Linked(UserDto current) => current with
         {
@@ -298,6 +308,11 @@ public class FaydaVerifyFunction
             {
                 return LambdaResponse.Error(404, "AUTH_013", "User profile not found.");
             }
+            var freshMismatch = CheckIdentityMatch(fresh, verification);
+            if (freshMismatch != null)
+            {
+                return IdentityMismatch(freshMismatch, userId, correlationId, sourceIp);
+            }
             saved = await _userRepository.UpdateUserAsync(Linked(fresh), fresh.Version);
             if (!saved.IsSuccess)
             {
@@ -316,6 +331,50 @@ public class FaydaVerifyFunction
             VerifiedName = verification.FullName,
             PhoneVerified = saved.Value.IsPhoneVerified
         }, AppJsonContext.Default.FaydaLinkResponse);
+    }
+
+    /// <summary>Why a Fayda identity was refused for the signed-in account.</summary>
+    internal sealed record IdentityMismatchResult(string Code, string Reason, string Message);
+
+    internal const string FaydaIdMismatchCode = "FAYDA_005";
+    internal const string FaydaPhoneMismatchCode = "FAYDA_006";
+    internal const string FaydaUnconfirmedCode = "FAYDA_007";
+
+    /// <summary>
+    /// Null when the Fayda identity belongs to <paramref name="user"/>; otherwise why not.
+    /// An account that already holds a Fayda ID only accepts that same ID (re-verification).
+    /// An account without one binds it only when Fayda released a phone number equal to
+    /// the account's phone: with no phone claim nothing ties the identity to this account,
+    /// so it fails closed rather than binding a stranger's ID.
+    /// </summary>
+    internal static IdentityMismatchResult? CheckIdentityMatch(UserDto user, FaydaVerificationResult verification)
+    {
+        if (!string.IsNullOrEmpty(user.FaydaId))
+        {
+            return string.Equals(user.FaydaId, verification.FaydaId, StringComparison.Ordinal)
+                ? null
+                : new IdentityMismatchResult(FaydaIdMismatchCode, "fayda_id",
+                    "This Fayda ID does not match the one on your account.");
+        }
+
+        if (string.IsNullOrWhiteSpace(verification.PhoneNumber))
+        {
+            return new IdentityMismatchResult(FaydaUnconfirmedCode, "no_phone_claim",
+                "We could not confirm this Fayda ID belongs to your account.");
+        }
+
+        return RegisterFunction.IsPhoneProven(verification, user.PhoneNumber)
+            ? null
+            : new IdentityMismatchResult(FaydaPhoneMismatchCode, "phone",
+                "The phone number on this Fayda ID does not match your account.");
+    }
+
+    private static APIGatewayProxyResponse IdentityMismatch(
+        IdentityMismatchResult mismatch, string userId, string? correlationId, string? sourceIp)
+    {
+        AuditLogger.LogSecurity("FAYDA_LINK_MISMATCH", userId: userId, detail: mismatch.Reason,
+            correlationId: correlationId, outcome: "blocked", sourceIp: sourceIp);
+        return LambdaResponse.Error(403, mismatch.Code, mismatch.Message, "authorizationCode");
     }
 
     // ──────────────────────────────────────────────

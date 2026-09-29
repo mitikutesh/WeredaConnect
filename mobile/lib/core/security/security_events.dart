@@ -10,23 +10,78 @@ class StepUpRequired extends SecurityEvent {
   const StepUpRequired();
 }
 
+/// Whose verification a KYC rejection says is missing.
+///
+/// The server writes `ORDER_KYC_REQUIRED: <reason>: <text>`
+/// (specs/contracts/sync-protocol.md). Only the buyer-side reasons can be
+/// fixed by the buyer verifying; for the others, sending the buyer to Fayda
+/// would verify them and still leave the payment blocked.
+enum KycReason {
+  buyerPhone,
+  buyerFayda,
+  farmerPhone,
+  farmerFayda,
+  unavailable;
+
+  /// True when verifying the signed-in buyer can unblock the payment.
+  bool get buyerCanFix => this == buyerPhone || this == buyerFayda;
+
+  static const _prefix = 'ORDER_KYC_REQUIRED:';
+
+  /// Reads the reason token; falls back to the wording of servers that
+  /// predate it.
+  static KycReason fromMessage(String message) {
+    final at = message.indexOf(_prefix);
+    final rest = at < 0 ? message : message.substring(at + _prefix.length);
+    final token = rest.trimLeft().split(':').first.trim();
+    switch (token) {
+      case 'buyer_phone':
+        return KycReason.buyerPhone;
+      case 'buyer_fayda':
+        return KycReason.buyerFayda;
+      case 'farmer_phone':
+        return KycReason.farmerPhone;
+      case 'farmer_fayda':
+        return KycReason.farmerFayda;
+      case 'unavailable':
+        return KycReason.unavailable;
+    }
+    final text = rest.toLowerCase();
+    if (text.contains('unavailable')) return KycReason.unavailable;
+    final phone = text.contains('phone');
+    if (text.contains('farmer')) {
+      return phone ? KycReason.farmerPhone : KycReason.farmerFayda;
+    }
+    return phone ? KycReason.buyerPhone : KycReason.buyerFayda;
+  }
+}
+
 /// A payment was blocked by the KYC gate (ORDER_KYC_REQUIRED).
 class KycRequired extends SecurityEvent {
   /// The order whose payment was rejected.
   final String orderId;
 
-  /// The server message, used to tell a phone problem from a Fayda one.
+  /// The server message, carrying the [KycReason].
   final String message;
 
-  const KycRequired({required this.orderId, required this.message});
+  /// The rejected submission, so it can be sent again once the buyer is
+  /// verified. Null when the operation did not carry them.
+  final String? paymentMethod;
+  final String? paymentReference;
 
-  /// True when the server says the phone (not Fayda) is the problem.
-  bool get isPhoneNotVerified => isPhoneProblem(message);
+  const KycRequired({
+    required this.orderId,
+    required this.message,
+    this.paymentMethod,
+    this.paymentReference,
+  });
 
-  /// Whether a KYC rejection [message] blames the phone rather than Fayda.
-  /// Shared by the background prompt and the payment screen.
-  static bool isPhoneProblem(String message) =>
-      message.toLowerCase().contains('phone');
+  KycReason get reason => KycReason.fromMessage(message);
+
+  /// True when the rejected payment can be submitted again as it was.
+  bool get canResubmit =>
+      (paymentMethod?.isNotEmpty ?? false) &&
+      (paymentReference?.isNotEmpty ?? false);
 }
 
 /// App-wide bus between background workers (sync executor, escrow intent

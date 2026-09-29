@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/widgets/kyc_required_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -43,7 +44,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(
       host(
-        onTap: (c) => showKycRequiredDialog(c, phoneNotVerified: true),
+        onTap: (c) => showKycRequiredDialog(c, reason: KycReason.buyerPhone),
       ),
     );
     await tester.tap(find.text('pay'));
@@ -84,4 +85,64 @@ void main() {
     await tester.pumpAndSettle();
     expect(outcome, isTrue);
   });
+
+  testWidgets('a failed or abandoned verification resolves false',
+      (tester) async {
+    bool? outcome;
+    await tester.pumpWidget(
+      host(
+        onTap: (c) async => outcome = await showKycRequiredDialog(
+          c,
+          verificationScreen: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('fayda screen'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('pay'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('kyc_verify_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('fayda screen'));
+    await tester.pumpAndSettle();
+
+    expect(outcome, isFalse);
+  });
+
+  for (final (reason, text) in [
+    (KycReason.farmerFayda, 'need the farmer to have a verified Fayda ID'),
+    (KycReason.farmerPhone, "The farmer's phone number is not verified"),
+    (KycReason.unavailable, 'could not check identity verification'),
+  ]) {
+    testWidgets('$reason: explains, offers no Fayda, resolves false',
+        (tester) async {
+      bool? outcome;
+      var opened = false;
+      await tester.pumpWidget(
+        host(
+          onTap: (c) async => outcome = await showKycRequiredDialog(
+            c,
+            reason: reason,
+            verificationScreen: (_) {
+              opened = true;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.text('pay'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(text), findsOneWidget);
+      expect(find.byKey(const Key('kyc_verify_button')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('kyc_ok_button')));
+      await tester.pumpAndSettle();
+      expect(outcome, isFalse);
+      expect(opened, isFalse);
+    });
+  }
 }
