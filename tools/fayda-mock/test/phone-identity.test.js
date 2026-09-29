@@ -4,19 +4,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { verifyJwt, subjectForFin } = require('../src/crypto');
 const { normalizePhone, userForPhone, TEST_USERS } = require('../src/users');
-const { makeApp, authorizeQuery, tokenBody } = require('./helpers');
+const { makeApp, authorizeQuery, tokenBody, PATHS } = require('./helpers');
 
+/** Identity from the id_token, user data (name, phone) from the signed userinfo, as on eSignet. */
 async function exchange(app, code, verifier) {
-  const tok = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const tok = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(tok.statusCode, 200);
   const body = JSON.parse(tok.body);
-  const jwks = JSON.parse((await app.call('GET', '/.well-known/jwks.json')).body);
-  return { claims: verifyJwt(body.id_token, jwks), accessToken: body.access_token };
+  const jwks = JSON.parse((await app.call('GET', PATHS.jwks)).body);
+  const info = await app.call('GET', PATHS.userinfo, { headers: { authorization: `Bearer ${body.access_token}` } });
+  assert.equal(info.statusCode, 200);
+  return {
+    claims: { ...verifyJwt(info.body, jwks), ...verifyJwt(body.id_token, jwks) },
+    userinfo: verifyJwt(info.body, jwks),
+  };
 }
 
 async function claimsForPhone(app, phone) {
   const { qs, verifier } = authorizeQuery();
-  const res = await app.call('GET', `/authorize?${qs}&auto=1&phone=${encodeURIComponent(phone)}`);
+  const res = await app.call('GET', `${PATHS.authorize}?${qs}&auto=1&phone=${encodeURIComponent(phone)}`);
   assert.equal(res.statusCode, 302);
   const code = new URL(res.headers.location).searchParams.get('code');
   assert.ok(code, res.headers.location);
@@ -68,7 +74,7 @@ test('phone FINs are 16 digits and never a seeded FIN', () => {
 test('auto mode with a bad phone redirects with invalid_request', async () => {
   const app = makeApp();
   const { qs } = authorizeQuery();
-  const res = await app.call('GET', `/authorize?${qs}&auto=1&phone=12345`);
+  const res = await app.call('GET', `${PATHS.authorize}?${qs}&auto=1&phone=12345`);
   const loc = new URL(res.headers.location);
   assert.equal(loc.searchParams.get('error'), 'invalid_request');
   assert.equal(loc.searchParams.get('code'), null);
@@ -77,7 +83,7 @@ test('auto mode with a bad phone redirects with invalid_request', async () => {
 test('picker offers the phone identity and completes with it', async () => {
   const app = makeApp();
   const { qs, params, verifier } = authorizeQuery();
-  const pageRes = await app.call('GET', `/authorize?${qs}`);
+  const pageRes = await app.call('GET', `${PATHS.authorize}?${qs}`);
   assert.match(pageRes.body, /value="phone"/);
   assert.match(pageRes.body, /name="phone"/);
 
@@ -88,11 +94,10 @@ test('picker offers the phone identity and completes with it', async () => {
   const ok = await post({ fin: 'phone', phone: '0911223344' });
   assert.equal(ok.statusCode, 302);
   const code = new URL(ok.headers.location).searchParams.get('code');
-  const { claims, accessToken } = await exchange(app, code, verifier);
+  const { claims, userinfo } = await exchange(app, code, verifier);
   assert.equal(claims.phone_number, '+251911223344');
-
-  const info = await app.call('GET', '/userinfo', { headers: { authorization: `Bearer ${accessToken}` } });
-  assert.equal(JSON.parse(info.body).phone_number, '+251911223344');
+  // The phone travels in the signed userinfo, not the id_token.
+  assert.equal(userinfo.phone_number, '+251911223344');
 
   assert.equal((await post({ fin: 'phone', phone: '123' })).statusCode, 400);
   assert.equal((await post({ fin: 'phone' })).statusCode, 400);

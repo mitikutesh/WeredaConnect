@@ -21,7 +21,7 @@
   secret per container, which is the "caching enabled" requirement for prod.
 
 Secret paths are identical across backends: `/wereda-connect-{env}/pagination-secret`,
-`/wereda-connect-{env}/fayda/client-secret`, `/wereda-connect-{env}/fayda/signing-secret`,
+`/wereda-connect-{env}/fayda/client-private-key` (Fayda private_key_jwt; replaced `fayda/client-secret` 2026-09-29), `/wereda-connect-{env}/fayda/signing-secret`,
 `/wereda-connect-{env}/telebirr/credentials` (Telebirr only when `enableTelebirrLive`).
 
 ## Why
@@ -113,7 +113,7 @@ land before the role policy update in the same CFN update) — self-heals.
 aws ssm get-parameter --name /wereda-connect-dev/pagination-secret \
   --with-decryption --query Parameter.Value --output text --region eu-north-1
 
-aws ssm put-parameter --name /wereda-connect-dev/fayda/client-secret \
+aws ssm put-parameter --name /wereda-connect-dev/fayda/client-private-key \
   --type SecureString --overwrite --value '<real-value>' --region eu-north-1
 ```
 

@@ -4,15 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { verifyJwt, subjectForFin } = require('../src/crypto');
 const { findUser, generateFin, TEST_USERS } = require('../src/users');
-const { makeApp, authorizeQuery, getCode, tokenBody } = require('./helpers');
+const { makeApp, authorizeQuery, getCode, tokenBody, PATHS } = require('./helpers');
 
 async function claimsFor(app, fin) {
   const { code, verifier, res } = await getCode(app, { fin });
   assert.equal(res.statusCode, 302);
-  const tok = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const tok = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(tok.statusCode, 200);
-  const jwks = JSON.parse((await app.call('GET', '/.well-known/jwks.json')).body);
-  return verifyJwt(JSON.parse(tok.body).id_token, jwks);
+  const jwks = JSON.parse((await app.call('GET', PATHS.jwks)).body);
+  const { id_token: idToken, access_token: accessToken } = JSON.parse(tok.body);
+  const info = await app.call('GET', PATHS.userinfo, { headers: { authorization: `Bearer ${accessToken}` } });
+  // Identity from the id_token, user data from the signed userinfo.
+  return { ...verifyJwt(info.body, jwks), ...verifyJwt(idToken, jwks) };
 }
 
 test('any 16-digit FIN gets a stable synthetic identity with no phone_number', async () => {
@@ -22,8 +25,7 @@ test('any 16-digit FIN gets a stable synthetic identity with no phone_number', a
   assert.equal(a1.sub, subjectForFin('9876543210123456'));
   assert.equal(a1.sub, a2.sub);
   assert.equal(a1.name, a2.name);
-  assert.equal(a1.name, `${a1.given_name} ${a1.family_name}`);
-  assert.ok(a1.given_name && a1.family_name);
+  assert.match(a1.name, /^\S+ \S+$/);
   assert.equal('phone_number' in a1, false);
 
   const b = await claimsFor(app, '9876543210123457');
@@ -81,8 +83,8 @@ test('picker offers typed FIN and new identity, and completes with either', asyn
   const typed = await post({ fin: 'custom', custom_fin: '7777 7777 7777 0001' });
   assert.equal(typed.statusCode, 302);
   const code = new URL(typed.headers.location).searchParams.get('code');
-  const tok = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
-  const jwks = JSON.parse((await app.call('GET', '/.well-known/jwks.json')).body);
+  const tok = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
+  const jwks = JSON.parse((await app.call('GET', PATHS.jwks)).body);
   assert.equal(verifyJwt(JSON.parse(tok.body).id_token, jwks).sub, subjectForFin('7777777777770001'));
 
   assert.equal((await post({ fin: 'new' })).statusCode, 302);
@@ -93,10 +95,10 @@ test('picker offers typed FIN and new identity, and completes with either', asyn
 test('userinfo works for a synthetic identity', async () => {
   const app = makeApp();
   const { code, verifier } = await getCode(app, { fin: '8888888888880000' });
-  const tok = JSON.parse((await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) })).body);
-  const res = await app.call('GET', '/userinfo', { headers: { authorization: `Bearer ${tok.access_token}` } });
+  const tok = JSON.parse((await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) })).body);
+  const res = await app.call('GET', PATHS.userinfo, { headers: { authorization: `Bearer ${tok.access_token}` } });
   assert.equal(res.statusCode, 200);
-  const c = JSON.parse(res.body);
+  const c = verifyJwt(res.body, JSON.parse((await app.call('GET', PATHS.jwks)).body));
   assert.equal(c.name, findUser('8888888888880000').name);
   assert.equal('phone_number' in c, false);
 });

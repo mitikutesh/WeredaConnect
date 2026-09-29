@@ -24,18 +24,24 @@ export interface FaydaMockConstructProps {
 
 /**
  * Mock VeriFayda eSignet OIDC provider for dev (tools/fayda-mock), served by a
- * public Lambda Function URL. The Function URL root is the OIDC issuer.
+ * public Lambda Function URL. The Function URL root is the OIDC issuer, and the
+ * endpoints use the live Fayda paths (/v1/esignet/...).
  *
- * The signing key lives in the SSM SecureString `/${prefix}/fayda-mock/signing-key`.
- * CDK does not create it: the Lambda generates it on first cold start, so the
- * private key never appears in a CloudFormation template.
+ * Two keys live in SSM SecureStrings that CDK never creates, so no private key
+ * appears in a CloudFormation template; the Lambda generates each on first use:
+ * - `/${prefix}/fayda-mock/signing-key`: the mock's own ID token / userinfo key.
+ * - `/${prefix}/fayda/client-private-key`: the WeredaConnect relying party key,
+ *   the same parameter and base64 JWK format live Fayda uses. The seed script
+ *   writes PLACEHOLDER there; the mock replaces it with a generated key, verifies
+ *   private_key_jwt assertions with its public half, and the server signs with it.
+ *   A usable key already there (such as a real Fayda key) is kept.
  */
 export class FaydaMockConstruct extends Construct {
   /** OIDC issuer: the Function URL without a trailing slash. */
   public readonly issuerUrl: string;
   public readonly clientId: string;
-  /** Fixed dev value. This is a mock, not a secret. */
-  public readonly clientSecret: string;
+  /** SSM SecureString with the relying party private key (base64 JWK); the mock fills a PLACEHOLDER. */
+  public readonly clientPrivateKeyParameterName: string;
   public readonly function: lambda.Function;
   public readonly functionUrl: lambda.FunctionUrl;
   public readonly codesTable: dynamodb.Table;
@@ -50,7 +56,7 @@ export class FaydaMockConstruct extends Construct {
 
     const { prefix } = props;
     this.clientId = `weredaconnect-${prefix}`;
-    this.clientSecret = 'dev-fayda-mock-secret';
+    this.clientPrivateKeyParameterName = `/${prefix}/fayda/client-private-key`;
     this.signingKeyParameterName = `/${prefix}/fayda-mock/signing-key`;
     const functionName = `${prefix}-fayda-mock`;
 
@@ -70,7 +76,7 @@ export class FaydaMockConstruct extends Construct {
 
     const environment: Record<string, string> = {
       CLIENT_ID: this.clientId,
-      CLIENT_SECRET: this.clientSecret,
+      CLIENT_KEY_PARAM: this.clientPrivateKeyParameterName,
       CODES_TABLE: this.codesTable.tableName,
       SIGNING_KEY_PARAM: this.signingKeyParameterName,
       ALLOWED_REDIRECT_URIS: (props.allowedRedirectUris ?? ['weredaconnect://fayda-callback']).join(','),
@@ -109,7 +115,9 @@ export class FaydaMockConstruct extends Construct {
     this.function.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:GetParameter', 'ssm:PutParameter'],
       // The name's leading slash doubles as the ARN separator after "parameter".
-      resources: [`arn:${stack.partition}:ssm:${stack.region}:${stack.account}:parameter${this.signingKeyParameterName}`],
+      resources: [this.signingKeyParameterName, this.clientPrivateKeyParameterName].map(
+        (name) => `arn:${stack.partition}:ssm:${stack.region}:${stack.account}:parameter${name}`,
+      ),
     }));
 
     this.functionUrl = this.function.addFunctionUrl({

@@ -4,7 +4,7 @@ import { DatabaseStack } from '../../lib/stacks/database-stack';
 import { ApiStack } from '../../lib/stacks/api-stack';
 import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { GithubActionsStack } from '../../lib/stacks/github-actions-stack';
-import { environments } from '../../lib/config/environments';
+import { environments, EnvironmentConfig } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
 const prodConfig = environments['prod'];
@@ -190,9 +190,8 @@ describe('ApiStack', () => {
       Name: '/wereda-connect-dev/fayda/client-id',
       Value: 'weredaconnect-wereda-connect-dev',
     });
-    template.hasResourceProperties('AWS::SSM::Parameter', {
-      Name: '/wereda-connect-dev/fayda/client-secret-mock',
-    });
+    // The RP key is created by the mock at runtime, never by the stack.
+    expect(JSON.stringify(template.toJSON())).not.toContain('client-secret');
     // Web app callback pages are registered with the mock and accepted by the
     // server only in mock mode (FAYDA_MOCK marker on the verify Lambda).
     const webCallback = 'https://dev-app.weredaconnect.com/fayda-callback.html';
@@ -237,13 +236,13 @@ describe('ApiStack', () => {
         }),
       },
     });
-    // Dev runs faydaMode 'mock': the client secret is a stack-owned parameter
-    // (no seed step); the signing secret is still the seeded SecureString.
+    // Dev runs faydaMode 'mock', yet reads the client private key from the same
+    // seeded parameter live mode uses (the mock fills its PLACEHOLDER).
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-auth-fayda-verify',
       Environment: {
         Variables: Match.objectLike({
-          FAYDA_CLIENT_SECRET_ARN: '/wereda-connect-dev/fayda/client-secret-mock',
+          FAYDA_CLIENT_PRIVATE_KEY_ARN: '/wereda-connect-dev/fayda/client-private-key',
           FAYDA_SIGNING_SECRET_ARN: '/wereda-connect-dev/fayda/signing-secret',
         }),
       },
@@ -254,7 +253,7 @@ describe('ApiStack', () => {
     const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
     expect(policies).toContain('ssm:GetParameter');
     expect(policies).toContain('parameter/wereda-connect-dev/pagination-secret');
-    expect(policies).toContain('parameter/wereda-connect-dev/fayda/client-secret');
+    expect(policies).toContain('parameter/wereda-connect-dev/fayda/client-private-key');
     expect(policies).toContain('parameter/wereda-connect-dev/fayda/signing-secret');
   });
 });
@@ -472,7 +471,7 @@ describe('ApiStack (prod security)', () => {
       Name: '/wereda-connect-prod/pagination-secret',
     });
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: '/wereda-connect-prod/fayda/client-secret',
+      Name: '/wereda-connect-prod/fayda/client-private-key',
     });
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
       Name: '/wereda-connect-prod/fayda/signing-secret',
@@ -481,8 +480,7 @@ describe('ApiStack (prod security)', () => {
 });
 
 describe('ApiStack (staging uses the live Fayda provider)', () => {
-  test('no mock provider and no mock-only web redirects', () => {
-    const stagingConfig = environments['staging'];
+  const liveTemplate = (stagingConfig: EnvironmentConfig): Template => {
     const app = new cdk.App();
     const dbStack = new DatabaseStack(app, 'StagingDbStack', {
       env: { account: '123456789012', region: stagingConfig.region },
@@ -512,7 +510,11 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
-    const template = Template.fromStack(apiStack);
+    return Template.fromStack(apiStack);
+  };
+
+  test('no mock provider and no mock-only web redirects', () => {
+    const template = liveTemplate(environments['staging']);
 
     const lambdas = template.findResources('AWS::Lambda::Function');
     const names = Object.values(lambdas).map((r) => JSON.stringify(r.Properties?.FunctionName ?? ''));
@@ -524,6 +526,38 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
     }
+  });
+
+  test('live wiring: real eSignet issuer and the seeded client private key', () => {
+    const template = liveTemplate(environments['staging']);
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-staging/fayda/issuer-url',
+      Value: 'https://esignet.ida.fayda.et',
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-staging-auth-fayda-verify',
+      Environment: {
+        Variables: Match.objectLike({
+          FAYDA_CLIENT_PRIVATE_KEY_ARN: '/wereda-connect-staging/fayda/client-private-key',
+        }),
+      },
+    });
+  });
+
+  test('live wiring: faydaClientId and faydaIssuerUrl come from config', () => {
+    const template = liveTemplate({
+      ...environments['staging'],
+      faydaClientId: 'wc-fayda-client-123',
+      faydaIssuerUrl: 'https://esignet.example.et',
+    });
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-staging/fayda/client-id',
+      Value: 'wc-fayda-client-123',
+    });
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/wereda-connect-staging/fayda/issuer-url',
+      Value: 'https://esignet.example.et',
+    });
   });
 });
 
@@ -689,7 +723,7 @@ describe('GithubActionsStack', () => {
             Action: ['ssm:GetParameter', 'ssm:PutParameter'],
             Resource: [
               'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/pagination-secret',
-              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/fayda/client-secret',
+              'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/fayda/client-private-key',
               'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/fayda/signing-secret',
               'arn:aws:ssm:*:123456789012:parameter/wereda-connect-dev/telebirr/credentials',
             ],
@@ -699,7 +733,7 @@ describe('GithubActionsStack', () => {
             Action: 'secretsmanager:GetSecretValue',
             Resource: [
               'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/pagination-secret-??????',
-              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/fayda/client-secret-??????',
+              'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/fayda/client-private-key-??????',
               'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/fayda/signing-secret-??????',
               'arn:aws:secretsmanager:*:123456789012:secret:/wereda-connect-dev/telebirr/credentials-??????',
             ],

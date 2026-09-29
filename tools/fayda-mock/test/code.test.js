@@ -2,15 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { makeApp, authorizeQuery, getCode, tokenBody, REDIRECT } = require('./helpers');
+const { makeApp, authorizeQuery, getCode, tokenBody, REDIRECT, PATHS } = require('./helpers');
 
 test('a code works once and is rejected on reuse', async () => {
   const app = makeApp();
   const { code, verifier, state } = await getCode(app);
   assert.equal(state, 'st-1');
-  const first = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const first = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(first.statusCode, 200);
-  const second = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const second = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(second.statusCode, 400);
   assert.equal(JSON.parse(second.body).error, 'invalid_grant');
 });
@@ -18,8 +18,8 @@ test('a code works once and is rejected on reuse', async () => {
 test('a failed exchange still burns the code', async () => {
   const app = makeApp();
   const { code, verifier } = await getCode(app);
-  await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: 'z'.repeat(60) }) });
-  const retry = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: 'z'.repeat(60) }) });
+  const retry = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(retry.statusCode, 400);
 });
 
@@ -27,24 +27,24 @@ test('an expired code is rejected', async () => {
   const app = makeApp();
   const { code, verifier } = await getCode(app);
   app.clock.t += 301;
-  const res = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const res = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(res.statusCode, 400);
 });
 
 test('redirect_uri must match the one used at authorize', async () => {
   const app = makeApp({ ALLOWED_REDIRECT_URIS: `${REDIRECT},https://app.example/cb` });
   const { code, verifier } = await getCode(app);
-  const res = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier, redirect_uri: 'https://app.example/cb' }) });
+  const res = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier, redirect_uri: 'https://app.example/cb' }) });
   assert.equal(res.statusCode, 400);
 });
 
-test('wrong client_secret is 401 invalid_client and does not burn the code', async () => {
+test('a bad client assertion is 401 invalid_client and does not burn the code', async () => {
   const app = makeApp();
   const { code, verifier } = await getCode(app);
-  const bad = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier, client_secret: 'nope' }) });
+  const bad = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }, { aud: 'https://elsewhere.example' }) });
   assert.equal(bad.statusCode, 401);
   assert.equal(JSON.parse(bad.body).error, 'invalid_client');
-  const good = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: verifier }) });
+  const good = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: verifier }) });
   assert.equal(good.statusCode, 200);
 });
 
@@ -74,7 +74,7 @@ test('interactive page lists users and completes with OTP 123456 only', async ()
   assert.equal(ok.statusCode, 302);
   const loc = new URL(ok.headers.location);
   assert.equal(`${loc.protocol}//${loc.host}${loc.pathname}`, REDIRECT);
-  const tok = await app.call('POST', '/token', { body: tokenBody({ code: loc.searchParams.get('code'), code_verifier: verifier }) });
+  const tok = await app.call('POST', PATHS.token, { body: tokenBody({ code: loc.searchParams.get('code'), code_verifier: verifier }) });
   assert.equal(tok.statusCode, 200);
 });
 

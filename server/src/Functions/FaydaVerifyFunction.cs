@@ -46,8 +46,9 @@ public class FaydaVerifyFunction
                             ?? throw new InvalidOperationException("FAYDA_CLIENT_ID_PARAM is not set.");
         var issuerUrlParam = Environment.GetEnvironmentVariable("FAYDA_ISSUER_URL_PARAM")
                              ?? throw new InvalidOperationException("FAYDA_ISSUER_URL_PARAM is not set.");
-        var clientSecretArn = Environment.GetEnvironmentVariable("FAYDA_CLIENT_SECRET_ARN")
-                              ?? throw new InvalidOperationException("FAYDA_CLIENT_SECRET_ARN is not set.");
+        // The relying party's private key for private_key_jwt (SSM name or Secrets Manager ARN).
+        var clientPrivateKeyRef = Environment.GetEnvironmentVariable("FAYDA_CLIENT_PRIVATE_KEY_ARN")
+                                  ?? throw new InvalidOperationException("FAYDA_CLIENT_PRIVATE_KEY_ARN is not set.");
         var signingSecretArn = Environment.GetEnvironmentVariable("FAYDA_SIGNING_SECRET_ARN")
                                ?? throw new InvalidOperationException("FAYDA_SIGNING_SECRET_ARN is not set.");
         var tableName = Environment.GetEnvironmentVariable("USERS_TABLE")
@@ -58,13 +59,17 @@ public class FaydaVerifyFunction
         // Resolve SSM params and secrets to actual values
         var clientId = AwsParameterResolver.GetSsmParameterValue(clientIdParam);
         var issuerUrl = AwsParameterResolver.GetSsmParameterValue(issuerUrlParam);
-        var clientSecret = AwsParameterResolver.GetSecretOrParameterValue(clientSecretArn);
         var signingSecret = AwsParameterResolver.GetSecretOrParameterValue(signingSecretArn);
 
         var dynamoDb = new AmazonDynamoDBClient();
 
+        // Read on first code exchange, not here, and uncached until it parses: the
+        // parameter starts as the seeded PLACEHOLDER and gets its key later (the dev
+        // mock writes one on its first call; for live Fayda an operator pastes it).
         _faydaService = new FaydaOidcService(
-            new HttpClient(), clientId, clientSecret, issuerUrl, signingSecret);
+            new HttpClient(), clientId,
+            () => AwsParameterResolver.FetchSecretOrParameterValue(clientPrivateKeyRef),
+            issuerUrl, signingSecret);
         _userRepository = new UserRepository(dynamoDb, tableName);
         _authState = new AuthStateRepository(dynamoDb, rateLimitTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));

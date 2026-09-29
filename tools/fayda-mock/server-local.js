@@ -1,7 +1,9 @@
 'use strict';
 
 // Local dev server wrapping the same app as the Lambda. In-memory codes and a
-// throwaway signing key (regenerated on every start).
+// throwaway signing key (regenerated on every start). private_key_jwt needs the
+// RP key: CLIENT_KEY_FILE (a file standing in for the SSM parameter, created on
+// first use in the same base64 JWK form) or CLIENT_JWKS_JSON (a public JWKS).
 //   node server-local.js            -> http://localhost:8788
 //   PORT=9000 node server-local.js
 const http = require('node:http');
@@ -11,6 +13,7 @@ const port = Number(process.env.PORT || 8788);
 const env = { ...process.env };
 delete env.CODES_TABLE;
 delete env.SIGNING_KEY_PARAM;
+delete env.CLIENT_KEY_PARAM;
 env.ISSUER_URL_OVERRIDE = env.ISSUER_URL_OVERRIDE || `http://localhost:${port}`;
 const handle = buildHandler(env);
 

@@ -39,7 +39,7 @@ describe('FaydaMockConstruct', () => {
       Environment: {
         Variables: Match.objectLike({
           CLIENT_ID: 'weredaconnect-wereda-dev',
-          CLIENT_SECRET: 'dev-fayda-mock-secret',
+          CLIENT_KEY_PARAM: '/wereda-dev/fayda/client-private-key',
           SIGNING_KEY_PARAM: '/wereda-dev/fayda-mock/signing-key',
           ALLOWED_REDIRECT_URIS: 'weredaconnect://fayda-callback',
           REQUIRE_PKCE: 'true',
@@ -59,28 +59,25 @@ describe('FaydaMockConstruct', () => {
     });
   });
 
-  test('grants SSM get/put on the signing key parameter only', () => {
-    template.hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Action: ['ssm:GetParameter', 'ssm:PutParameter'],
-            Resource: Match.objectLike({
-              'Fn::Join': Match.arrayWith([
-                Match.arrayWith([':ssm:eu-north-1:123456789012:parameter/wereda-dev/fayda-mock/signing-key']),
-              ]),
-            }),
-          }),
-        ]),
-      },
-    });
+  test('grants SSM get/put on the signing key and client key parameters only', () => {
+    const statements = Object.values(template.findResources('AWS::IAM::Policy'))
+      .flatMap((p) => (p as { Properties: { PolicyDocument: { Statement: Array<Record<string, unknown>> } } })
+        .Properties.PolicyDocument.Statement);
+    const ssm = statements.filter((st) => JSON.stringify(st.Action).includes('ssm:'));
+    expect(ssm).toHaveLength(1);
+    expect(ssm[0].Action).toEqual(['ssm:GetParameter', 'ssm:PutParameter']);
+    const resources = JSON.stringify(ssm[0].Resource);
+    expect(resources).toContain('parameter/wereda-dev/fayda-mock/signing-key');
+    expect(resources).toContain('parameter/wereda-dev/fayda/client-private-key');
+    expect((ssm[0].Resource as unknown[]).length).toBe(2);
     // The construct must not create the parameter itself (key stays out of CFN).
     template.resourceCountIs('AWS::SSM::Parameter', 0);
   });
 
-  test('exposes issuerUrl, clientId and clientSecret', () => {
+  test('exposes issuerUrl, clientId and the client key parameter', () => {
     expect(mock.clientId).toBe('weredaconnect-wereda-dev');
-    expect(mock.clientSecret).toBe('dev-fayda-mock-secret');
+    expect(mock.clientPrivateKeyParameterName).toBe('/wereda-dev/fayda/client-private-key');
+    expect(JSON.stringify(template.toJSON())).not.toContain('CLIENT_SECRET');
     const resolved = JSON.stringify(stack.resolve(mock.issuerUrl));
     expect(resolved).toContain('https://');
     expect(resolved).toContain('FunctionUrl');
