@@ -2405,6 +2405,7 @@
   "markFulfilled": "Akka guutametti mallatteessi",
   "requestFulfilled": "Gaaffiin akka guutametti mallatteeffameera",
   "quintalEquivalent": "= kuntaala {count}",
+  "orderQuantityExceedsStock": "Kan jiru kg {available} qofa. Baay'ina xiqqaa galchi.",
   "neededByDate": "Guyyaa barbaachisu (filannoo)",
   "neededByDateHint": "Geejjiba yeroodhaan geessuu danda'u ni filanna",
   "selectDate": "Guyyaa filadhu",

@@ -2407,6 +2407,11 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String orderQuantityExceedsStock(String available) {
+    return 'Kan jiru kg $available qofa. Baay\'ina xiqqaa galchi.';
+  }
+
+  @override
   String get neededByDate => 'Guyyaa barbaachisu (filannoo)';
 
   @override

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.5.1
+1.5.2
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -104,6 +104,7 @@ risk). A quantity guard at funding time is a candidate follow-up; do not
 
 | Rule | Rejection message |
 |---|---|
+| `quantity` (kg) between 0.01 and 1,000,000 (a whole listing at its 10,000-quintal maximum) | `quantity must be between 0.01 and 1000000 kg.` |
 | Listing must exist and be `available` | `Listing not found.` / `Listing is not available for orders (status: x).` |
 | `farmerId` == listing `farmerId`; buyer != farmer | `farmerId must be the farmer on the listing.` / `Self-trading not allowed. ...` |
 | `cropType` == listing `cropType` | `cropType must match the listing.` |
@@ -175,6 +176,7 @@ farmer-side reason it only explains. On `AUTH_040` it re-authenticates and retri
 
 ## Changelog
 
+- **1.5.2 (2026-09-29)**: The order quantity cap is 1,000,000 kg, the kg size of a full 10,000-quintal listing. It was 100,000, which rejected full orders on any listing above 1,000 quintals. The place-order screen now blocks a quantity above the listing stock before sending.
 - **1.5.1 (2026-09-29)**: KYC errors name whose verification is missing (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`); the buyer's payment is resubmitted after a successful Fayda link and not otherwise.
 - **1.5.0 (2026-09-26)**: Payment gates on `payment_submitted`: both parties phone-verified and, above 10,000 ETB, Fayda-verified (`ORDER_KYC_REQUIRED`); fresh password (`AUTH_040`) at or above the step-up threshold; mock auto-fund runs only after the gates.
 - **1.4.3 (2026-09-25)**: Default list scoping (SIM-16): an unfiltered `GET /orders` is scoped by the caller's role claim instead of always the buyer.

@@ -3085,6 +3085,8 @@
   "@requestFulfilled": { "description": "Snackbar after a buying request is marked fulfilled" },
   "quintalEquivalent": "= {count} quintals",
   "@quintalEquivalent": { "description": "Helper showing the quintal equivalent of a kg quantity", "placeholders": { "count": { "type": "String" } } },
+  "orderQuantityExceedsStock": "Only {available} kg available. Enter a smaller quantity.",
+  "@orderQuantityExceedsStock": { "description": "Error under the order quantity field when the buyer asks for more kg than the listing has", "placeholders": { "available": { "type": "String" } } },
   "neededByDate": "Needed by (optional)",
   "@neededByDate": { "description": "Label for the optional delivery-deadline field on the create-intent screen" },
   "neededByDateHint": "We'll prefer transport that can deliver in time",

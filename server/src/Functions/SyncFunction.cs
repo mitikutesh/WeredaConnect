@@ -98,6 +98,15 @@ public partial class SyncFunction
     /// <summary>Slack for floating-point kg comparisons against quintal stock.</summary>
     private const double QuantityTolerance = 0.001;
 
+    /// <summary>Largest crop listing stock, in quintals (crop-listing-api.md).</summary>
+    private const decimal MaxListingQuintals = 10000m;
+
+    /// <summary>
+    /// Largest order, in kilograms: a whole listing at its maximum stock (MaxListingQuintals x
+    /// KgPerQuintal). The real bound is the listing's stock, checked in BindOrderToListing.
+    /// </summary>
+    private const decimal MaxOrderKg = MaxListingQuintals * 100m;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
@@ -757,7 +766,7 @@ public partial class SyncFunction
         if (data.TryGetValue("quantity", out var qObj))
         {
             if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
-                || qty < 0.01m || qty > 10000)
+                || qty < 0.01m || qty > MaxListingQuintals)
             {
                 errors.Add("quantity must be between 0.01 and 10000.");
             }
@@ -6148,9 +6157,9 @@ public partial class SyncFunction
         if (data.TryGetValue("quantity", out var qObj))
         {
             if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
-                || qty <= 0 || qty > 100000)
+                || qty <= 0 || qty > MaxOrderKg)
             {
-                errors.Add("quantity must be between 0.01 and 100000.");
+                errors.Add("quantity must be between 0.01 and 1000000 kg.");
             }
         }
         else if (isCreate)

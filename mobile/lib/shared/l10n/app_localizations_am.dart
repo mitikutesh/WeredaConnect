@@ -2327,6 +2327,11 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String orderQuantityExceedsStock(String available) {
+    return 'የሚገኘው $available ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።';
+  }
+
+  @override
   String get neededByDate => 'የሚያስፈልግበት ቀን (አማራጭ)';
 
   @override
