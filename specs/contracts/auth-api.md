@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.2.0
+2.3.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -531,6 +531,9 @@ After a successful online login or registration, the mobile client stores the fo
 | `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
 | `FAYDA_004` | 409 | Fayda ID already linked to another account (2.2.0: an abandoned, never-confirmed sign-up does not count) | Show "already registered" message |
+| `FAYDA_005` | 403 | fayda-link: the account already holds a different Fayda ID (2.3.0) | Show "does not match your account"; nothing changed |
+| `FAYDA_006` | 403 | fayda-link: the Fayda ID's phone number is not the account's phone (2.3.0) | Show "phone does not match"; nothing changed |
+| `FAYDA_007` | 403 | fayda-link: Fayda released no phone number and the account has no Fayda ID, so nothing ties the identity to it (2.3.0) | Show "could not confirm"; nothing changed |
 
 ---
 
@@ -803,6 +806,22 @@ per 5 minutes.
 Linking a Fayda ID held by another account is `409 FAYDA_004`; linking with a matching
 Fayda phone also sets `isPhoneVerified`.
 
+**Identity binding (2.3.0).** The caller's account is known, so the link only accepts the
+Fayda identity of that account's owner:
+
+| Account state | Fayda identity returned | Result |
+|---------------|-------------------------|--------|
+| holds a Fayda ID | same `sub` | `200` (re-verification, `faydaVerifiedAt` kept) |
+| holds a Fayda ID | different `sub` | `403 FAYDA_005`, account unchanged |
+| no Fayda ID | `phone_number` equal to the account phone (after normalising) | `200`, Fayda ID bound |
+| no Fayda ID | `phone_number` different | `403 FAYDA_006`, account unchanged |
+| no Fayda ID | no `phone_number` claim | `403 FAYDA_007`, account unchanged (fails closed) |
+
+The check runs again on the re-read row after a version conflict. Refusals are audited as
+`FAYDA_LINK_MISMATCH` (detail `fayda_id`, `phone` or `no_phone_claim`). The payment KYC
+gate (`ORDER_KYC_REQUIRED`, see `order-lifecycle.md`) passes only after a successful link,
+so a failed or refused verification leaves the payment blocked.
+
 ### Rate limits added (per source IP, DynamoDB counters)
 
 | Route family | Cap |
@@ -822,6 +841,7 @@ Fayda phone also sets `isPhoneVerified`.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.3.0 | 2026-09-29 | `POST /user/fayda-link` binds only the account owner's identity: same Fayda ID as on file, else a Fayda phone equal to the account phone; `FAYDA_005` (different Fayda ID), `FAYDA_006` (phone mismatch), `FAYDA_007` (no phone claim, nothing to compare), all `403` with no write |
 | 2.2.0 | 2026-09-28 | Registration requires Fayda: `POST /auth/register` without a `faydaVerificationToken` returns `400 AUTH_021`; the app has no skip on the Fayda step and retries transient Fayda failures before showing an error; the server retries Fayda's token endpoint while the code cannot have been used (connection refused, 502/503/504) and reports any Fayda 5xx as `FAYDA_003` instead of `FAYDA_001`; a Fayda ID held only by an abandoned sign-up (profile phone unverified and Cognito user unconfirmed or gone) no longer blocks `fayda-verify` or `register` with `FAYDA_004`: register replaces it |
 | 2.1.0 | 2026-09-26 | Phone proof and step-up: register returns `202 otpRequired` unless Fayda released the same phone; `POST /auth/verify-otp` (code + password) and `POST /auth/resend-otp`; login `AUTH_016` routes to the code; `AUTH_040` step-up on money actions; server-driven Fayda (`/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`) with state, nonce and PKCE; single-use phone-bound verification token; refresh refuses suspended accounts (`AUTH_025`); per-IP caps; `X-Device-Id` / `X-Device-Name` and `newDevice` |
 

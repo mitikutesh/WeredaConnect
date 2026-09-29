@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.4.0
+1.5.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -253,7 +253,20 @@ yours" and drops the operation.
 | Message prefix | Meaning | Client action |
 |----------------|---------|---------------|
 | `AUTH_040:` | fresh password needed for this amount (order `payment_submitted`, delivery `disputed`) | keep the operation pending, re-authenticate, sync again |
-| `ORDER_KYC_REQUIRED:` | phone or Fayda verification missing for this payment | revert the local order status, offer Fayda verification |
+| `ORDER_KYC_REQUIRED:` | phone or Fayda verification missing for this payment | revert the local order status; see the reason below |
+
+Since 1.5.0 the KYC message is `ORDER_KYC_REQUIRED: <reason>: <text>`:
+
+| Reason | Who must verify | Client action |
+|--------|-----------------|---------------|
+| `buyer_phone` | the buyer (phone) | offer Fayda; on success send the same payment again |
+| `buyer_fayda` | the buyer (Fayda, above 10,000 ETB) | offer Fayda; on success send the same payment again |
+| `farmer_phone` | the farmer (phone) | explain only; do not send the buyer to Fayda |
+| `farmer_fayda` | the farmer (Fayda, above 10,000 ETB) | explain only; do not send the buyer to Fayda |
+| `unavailable` | nobody (profiles could not be read) | explain, try later |
+
+A failed, cancelled or refused verification (`FAYDA_005`/`006`/`007`) leaves the payment
+unsent. Clients fall back to the wording ("farmer", "phone") for servers older than 1.5.0.
 
 ---
 
@@ -261,6 +274,7 @@ yours" and drops the operation.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 2026-09-29 | `ORDER_KYC_REQUIRED` carries a reason token (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`, `unavailable`); the prefix is unchanged |
 | 1.4.0 | 2026-09-26 | Create-conflict echo is party-scoped (an existing crop, trip, order or delivery is returned in `serverData` only to its owner or a party); `AUTH_040` and `ORDER_KYC_REQUIRED` operation errors |
 | 1.3.0 | 2026-09-25 | Versioning (SIM-08): op-level `clientVersion` is now honoured (it was silently ignored), `data.version` remains accepted, op-level wins; order updates require a version (no fallback to the stored version); web order client sends the current version |
 | 1.2.0 | 2026-03-03 | Updated: Network errors no longer increment retryCount; added crash recovery for stale syncing operations; clarified retry vs. revert categories |

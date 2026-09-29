@@ -2621,11 +2621,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get kycRequiredFaydaMessage =>
-      'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda, then submit the payment again.';
+      'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda and your payment is sent right after.';
 
   @override
   String get kycRequiredPhoneMessage =>
-      'Your phone number is not verified yet, so this payment was not sent. Verify your identity, then submit the payment again.';
+      'Your phone number is not verified yet, so this payment was not sent. Verify with Fayda and your payment is sent right after.';
 
   @override
   String get kycRequiredTitle => 'Verification needed';
@@ -2730,4 +2730,52 @@ class AppLocalizationsEn extends AppLocalizations {
   String faydaRetrying(int attempt, int total) {
     return 'Still trying to reach Fayda ($attempt/$total)...';
   }
+
+  @override
+  String get kycFarmerPhoneMessage =>
+      'The farmer\'s phone number is not verified yet, so this payment was not sent. You can pay once the farmer verifies it.';
+
+  @override
+  String get kycFarmerFaydaMessage =>
+      'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
+  String get kycUnavailableMessage =>
+      'We could not check identity verification right now, so this payment was not sent. Please try again later.';
+
+  @override
+  String get kycPaymentNotSent =>
+      'Payment not sent. Your identity was not verified.';
+
+  @override
+  String get kycPaymentResubmitted =>
+      'Identity verified. Your payment was sent again.';
+
+  @override
+  String get kycVerifiedPayAgain =>
+      'Identity verified. Open the order and submit the payment again.';
+
+  @override
+  String get faydaPaymentPrompt =>
+      'Confirm it\'s you with Fayda. Use the Fayda ID that belongs to this account, and your payment continues right after.';
+
+  @override
+  String get faydaLinkPrompt =>
+      'Link your Fayda ID to this account. Use your own Fayda ID: it must match this account\'s phone number.';
+
+  @override
+  String get faydaPaymentContinues =>
+      'Identity verified. Continuing your payment...';
+
+  @override
+  String get faydaIdMismatch =>
+      'This Fayda ID does not match the one on your account. Verify with your own Fayda ID.';
+
+  @override
+  String get faydaPhoneMismatch =>
+      'The phone number on this Fayda ID does not match your account. Verify with your own Fayda ID.';
+
+  @override
+  String get faydaIdentityUnconfirmed =>
+      'We could not confirm this Fayda ID belongs to your account. Verify with the Fayda ID registered to your phone number.';
 }

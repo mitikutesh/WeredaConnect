@@ -9,6 +9,8 @@ namespace WeredaConnect.Server.Tests.Services;
 /// round-trip and edge cases. ExchangeCodeAsync tests require an HTTP mock and are covered
 /// indirectly via FaydaVerifyFunctionTests with the interface mocked.
 /// </summary>
+// Shares FaydaOidcService's static discovery/JWKS caches with the other provider tests.
+[Collection("FaydaOidcProvider")]
 public class FaydaOidcServiceTests
 {
     private const string SigningSecret = "test-signing-secret-must-be-at-least-32-chars-long!";

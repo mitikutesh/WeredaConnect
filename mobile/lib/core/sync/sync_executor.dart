@@ -675,9 +675,7 @@ class SyncExecutor {
             } on Object catch (e) {
               debugPrint('[SYNC] KYC rejection handler failed: $e');
             }
-            _securityEvents.emit(
-              KycRequired(orderId: operation.entityId, message: message),
-            );
+            _securityEvents.emit(_kycEvent(operation, message));
             failed++;
             continue;
           }
@@ -808,6 +806,28 @@ class SyncExecutor {
           errorMessage: error.message,
         );
     }
+  }
+
+  /// The KYC prompt event, with the rejected payment so the UI can send it
+  /// again once the buyer is verified.
+  static KycRequired _kycEvent(SyncOperation operation, String message) {
+    String? method;
+    String? reference;
+    try {
+      final data = jsonDecode(operation.data);
+      if (data is Map) {
+        method = data['paymentMethod']?.toString();
+        reference = data['cbeTransactionId']?.toString();
+      }
+    } on FormatException {
+      // No payload to resubmit; the buyer pays again by hand.
+    }
+    return KycRequired(
+      orderId: operation.entityId,
+      message: message,
+      paymentMethod: method,
+      paymentReference: reference,
+    );
   }
 
   /// Whether a server error message indicates a permanent rejection.

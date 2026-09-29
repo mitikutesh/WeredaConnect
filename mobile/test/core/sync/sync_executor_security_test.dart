@@ -86,7 +86,8 @@ void main() {
       entityType: 'order',
       entityId: orderId,
       action: 'update',
-      data: '{"status":"payment_submitted","version":2}',
+      data: '{"status":"payment_submitted","version":2,'
+          '"paymentMethod":"cbe_transfer","cbeTransactionId":"MOCK-CBE-1"}',
       operationId: operationId,
     );
   }
@@ -205,7 +206,7 @@ void main() {
       {
         'operationId': 'op-1',
         'status': 'error',
-        'message': 'ORDER_KYC_REQUIRED: Fayda verification needed',
+        'message': 'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID',
       },
     ]);
 
@@ -221,14 +222,65 @@ void main() {
     expect(kycCalls.single.$1.entityId, 'order-7');
     final kyc = emitted.whereType<KycRequired>().single;
     expect(kyc.orderId, 'order-7');
-    expect(kyc.isPhoneNotVerified, isFalse);
+    expect(kyc.reason, KycReason.buyerFayda);
+    // Carries the rejected payment so it can be sent again after verifying.
+    expect(kyc.paymentMethod, 'cbe_transfer');
+    expect(kyc.paymentReference, 'MOCK-CBE-1');
+    expect(kyc.canResubmit, isTrue);
   });
 
-  test('KycRequired tells a phone problem apart', () {
-    const event = KycRequired(
-      orderId: 'o',
-      message: 'ORDER_KYC_REQUIRED: phone not verified',
-    );
-    expect(event.isPhoneNotVerified, isTrue);
+  group('KycReason.fromMessage', () {
+    test('reads the reason token', () {
+      const cases = {
+        'ORDER_KYC_REQUIRED: buyer_phone: Verify your phone':
+            KycReason.buyerPhone,
+        'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID':
+            KycReason.buyerFayda,
+        "ORDER_KYC_REQUIRED: farmer_phone: The farmer's phone":
+            KycReason.farmerPhone,
+        'ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify':
+            KycReason.farmerFayda,
+        'ORDER_KYC_REQUIRED: unavailable: try later': KycReason.unavailable,
+        // Wrapped by an exception's toString (web path).
+        'SyncRejectedException: ORDER_KYC_REQUIRED: farmer_fayda: x':
+            KycReason.farmerFayda,
+      };
+      cases.forEach((message, reason) {
+        expect(KycReason.fromMessage(message), reason, reason: message);
+      });
+    });
+
+    test('falls back to the wording of older servers', () {
+      expect(
+        KycReason.fromMessage(
+          'ORDER_KYC_REQUIRED: Verify your phone number before paying.',
+        ),
+        KycReason.buyerPhone,
+      );
+      expect(
+        KycReason.fromMessage(
+          "ORDER_KYC_REQUIRED: The farmer's phone number is not verified yet.",
+        ),
+        KycReason.farmerPhone,
+      );
+      expect(
+        KycReason.fromMessage(
+          'ORDER_KYC_REQUIRED: The farmer must verify their Fayda ID.',
+        ),
+        KycReason.farmerFayda,
+      );
+      expect(
+        KycReason.fromMessage('ORDER_KYC_REQUIRED: Verify your Fayda ID.'),
+        KycReason.buyerFayda,
+      );
+    });
+
+    test('only buyer-side reasons are fixable by the buyer', () {
+      expect(KycReason.buyerPhone.buyerCanFix, isTrue);
+      expect(KycReason.buyerFayda.buyerCanFix, isTrue);
+      expect(KycReason.farmerPhone.buyerCanFix, isFalse);
+      expect(KycReason.farmerFayda.buyerCanFix, isFalse);
+      expect(KycReason.unavailable.buyerCanFix, isFalse);
+    });
   });
 }

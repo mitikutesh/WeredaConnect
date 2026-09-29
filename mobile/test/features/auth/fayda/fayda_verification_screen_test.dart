@@ -230,4 +230,97 @@ void main() {
       findsOneWidget,
     );
   });
+
+  // ===== payment mode (opened by the KYC payment prompt) =====
+
+  /// Pushes the screen in payment mode from a host page and records what it
+  /// popped with.
+  Future<List<bool?>> startPaymentFlow(WidgetTester tester) async {
+    final popped = <bool?>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                popped.add(
+                  await Navigator.of(context).push<bool>(
+                    MaterialPageRoute<bool>(
+                      builder: (_) => FaydaVerificationScreen(
+                        service: service,
+                        deepLinks: links.stream,
+                        launcher: (url) async => true,
+                        recordVerified: (r) async => recorded.add(r),
+                        forPayment: true,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: const Text('host'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('host'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Use the Fayda ID that belongs to this account'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Verify with Fayda'));
+    await tester.pump();
+    await tester.pump();
+    return popped;
+  }
+
+  testWidgets('payment mode: verified as the owner closes itself with true',
+      (tester) async {
+    final popped = await startPaymentFlow(tester);
+
+    links.add(Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'));
+    await tester.pumpAndSettle();
+
+    expect(popped, [true]);
+    expect(find.byType(FaydaVerificationScreen), findsNothing);
+    expect(
+      find.text('Identity verified. Continuing your payment...'),
+      findsOneWidget,
+    );
+  });
+
+  for (final (code, text) in [
+    (AuthErrorCode.faydaIdMismatch, 'does not match the one on your account'),
+    (AuthErrorCode.faydaPhoneMismatch, 'phone number on this Fayda ID'),
+    (AuthErrorCode.faydaIdentityUnconfirmed, 'could not confirm this Fayda ID'),
+  ]) {
+    testWidgets('payment mode: $code keeps the screen open, pops false on back',
+        (tester) async {
+      when(
+        () => service.link(
+          authCode: any(named: 'authCode'),
+          state: any(named: 'state'),
+        ),
+      ).thenAnswer(
+        (_) async => FaydaLinkResult(isSuccess: false, errorCode: code),
+      );
+      final popped = await startPaymentFlow(tester);
+
+      links.add(
+        Uri.parse('weredaconnect://fayda-callback?code=c-1&state=st-1'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(popped, isEmpty);
+      expect(find.textContaining(text), findsOneWidget);
+      expect(recorded, isEmpty);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(popped, [false]);
+    });
+  }
 }

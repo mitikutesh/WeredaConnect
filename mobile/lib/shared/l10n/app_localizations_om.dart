@@ -2638,11 +2638,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycRequiredFaydaMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, achiis kaffaltii irra deebi\'aa galchaa.';
+      'Kaffaltiin qarshii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
 
   @override
   String get kycRequiredPhoneMessage =>
-      'Lakkoofsi bilbila keessanii ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Eenyummaa keessan mirkaneessaa, achiis kaffaltii irra deebi\'aa galchaa.';
+      'Lakkoofsi bilbila keessanii ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
 
   @override
   String get kycRequiredTitle => 'Mirkaneessuun barbaachisa';
@@ -2751,4 +2751,52 @@ class AppLocalizationsOm extends AppLocalizations {
   String faydaRetrying(int attempt, int total) {
     return 'Ammas Faayidaa argachuuf yaalaa jirra ($attempt/$total)...';
   }
+
+  @override
+  String get kycFarmerPhoneMessage =>
+      'Lakkoofsi bilbila qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
+  String get kycFarmerFaydaMessage =>
+      'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
+  String get kycUnavailableMessage =>
+      'Amma mirkaneessa eenyummaa ilaaluu hin dandeenye, kanaaf kaffaltiin kun hin ergamne. Maaloo booda irra deebi\'aa yaalaa.';
+
+  @override
+  String get kycPaymentNotSent =>
+      'Kaffaltiin hin ergamne. Eenyummaan keessan hin mirkanoofne.';
+
+  @override
+  String get kycPaymentResubmitted =>
+      'Eenyummaan keessan mirkanaa\'eera. Kaffaltiin keessan irra deebi\'ee ergameera.';
+
+  @override
+  String get kycVerifiedPayAgain =>
+      'Eenyummaan keessan mirkanaa\'eera. Ajaja banaa kaffaltii irra deebi\'aa galchaa.';
+
+  @override
+  String get faydaPaymentPrompt =>
+      'Isin ta\'uu keessan Faayidaan mirkaneessaa. ID Faayidaa herrega kanaa fayyadamaa, kaffaltiin keessan battaluma sanatti itti fufa.';
+
+  @override
+  String get faydaLinkPrompt =>
+      'ID Faayidaa keessan herrega kana waliin walqabsiisaa. ID Faayidaa keessan fayyadamaa: lakkoofsa bilbila herrega kanaa waliin wal simuu qaba.';
+
+  @override
+  String get faydaPaymentContinues =>
+      'Eenyummaan keessan mirkanaa\'eera. Kaffaltii keessan itti fufaa jirra...';
+
+  @override
+  String get faydaIdMismatch =>
+      'ID Faayidaa kun kan herrega keessan irra jiru waliin wal hin simu. ID Faayidaa keessaniin mirkaneessaa.';
+
+  @override
+  String get faydaPhoneMismatch =>
+      'Lakkoofsi bilbila ID Faayidaa kana irra jiru herrega keessan waliin wal hin simu. ID Faayidaa keessaniin mirkaneessaa.';
+
+  @override
+  String get faydaIdentityUnconfirmed =>
+      'ID Faayidaa kun kan herrega keessanii ta\'uu isaa mirkaneessuu hin dandeenye. ID Faayidaa lakkoofsa bilbila keessaniin galmaa\'een mirkaneessaa.';
 }

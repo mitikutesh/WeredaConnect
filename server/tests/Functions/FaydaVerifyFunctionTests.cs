@@ -501,6 +501,111 @@ public class FaydaVerifyFunctionTests
         Assert.Contains("FAYDA_004", response.Body);
     }
 
+    // ===== fayda-link: the identity must be the account's own =====
+
+    private void LinkStarted(UserDto user)
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(user);
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>())
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = ci.ArgAt<int>(1) + 1 }));
+    }
+
+    private void FaydaReturns(string faydaId, string? phone) =>
+        _mockFayda.ExchangeCodeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>())
+            .Returns(AuthResult<FaydaVerificationResult>.Success(new FaydaVerificationResult
+            {
+                FaydaId = faydaId,
+                FullName = "Someone",
+                PhoneNumber = phone
+            }));
+
+    [Fact]
+    public async Task Link_SameFaydaIdAsAccount_Reverifies()
+    {
+        LinkStarted(LinkingUser() with { FaydaId = "FAYDA-123", FaydaVerified = true, FaydaVerifiedAt = "2026-09-01T00:00:00Z" });
+        _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(LinkingUser() with { FaydaId = "FAYDA-123" });
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockRepo.Received(1).UpdateUserAsync(
+            Arg.Is<UserDto>(u => u.FaydaId == "FAYDA-123" && u.FaydaVerifiedAt == "2026-09-01T00:00:00Z"), 2);
+    }
+
+    [Fact]
+    public async Task Link_DifferentFaydaIdThanAccount_Returns403AndKeepsTheAccount()
+    {
+        LinkStarted(LinkingUser() with { FaydaId = "FAYDA-OWNER", FaydaVerified = true });
+        FaydaReturns("FAYDA-STRANGER", "+251912345678");
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FAYDA_005", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Link_FirstBind_FaydaPhoneDiffersFromAccount_Returns403()
+    {
+        LinkStarted(LinkingUser());
+        FaydaReturns("FAYDA-123", "+251911111111");
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FAYDA_006", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Link_FirstBind_LocalFormatFaydaPhone_Matches()
+    {
+        LinkStarted(LinkingUser());
+        FaydaReturns("FAYDA-123", "0912345678");
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Link_FirstBind_NoPhoneClaim_FailsClosed()
+    {
+        LinkStarted(LinkingUser());
+        FaydaReturns("FAYDA-123", null);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FAYDA_007", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Link_VersionRace_RowGainedAnotherFaydaId_Returns403()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(
+            LinkingUser(),
+            LinkingUser() with { FaydaId = "FAYDA-OTHER", FaydaVerified = true, Version = 3 });
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 2)
+            .Returns(AuthResult<UserDto>.Failure(409, "CONFLICT", "version"));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("FAYDA_005", response.Body);
+        await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), 3);
+    }
+
     [Fact]
     public async Task Link_Unauthenticated_Returns401()
     {

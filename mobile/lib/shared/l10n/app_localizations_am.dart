@@ -2547,11 +2547,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get kycRequiredFaydaMessage =>
-      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የተረጋገጠ የፋይዳ መታወቂያ ያስፈልጋል። በፋይዳ ያረጋግጡ፣ ከዚያ ክፍያውን እንደገና ያስገቡ።';
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የተረጋገጠ የፋይዳ መታወቂያ ያስፈልጋል። በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይላካል።';
 
   @override
   String get kycRequiredPhoneMessage =>
-      'ስልክ ቁጥርዎ ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ማንነትዎን ያረጋግጡ፣ ከዚያ ክፍያውን እንደገና ያስገቡ።';
+      'ስልክ ቁጥርዎ ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይላካል።';
 
   @override
   String get kycRequiredTitle => 'ማረጋገጫ ያስፈልጋል';
@@ -2651,4 +2651,49 @@ class AppLocalizationsAm extends AppLocalizations {
   String faydaRetrying(int attempt, int total) {
     return 'አሁንም ከፋይዳ ጋር ለመገናኘት እየሞከርን ነው ($attempt/$total)...';
   }
+
+  @override
+  String get kycFarmerPhoneMessage =>
+      'የገበሬው ስልክ ቁጥር ገና ስላልተረጋገጠ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
+
+  @override
+  String get kycFarmerFaydaMessage =>
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ገበሬውም የተረጋገጠ የፋይዳ መታወቂያ ሊኖረው ይገባል፣ ስለዚህ ይህ ክፍያ አልተላከም። ገበሬው ካረጋገጠ በኋላ መክፈል ይችላሉ።';
+
+  @override
+  String get kycUnavailableMessage =>
+      'አሁን የማንነት ማረጋገጫን ማየት አልቻልንም፣ ስለዚህ ይህ ክፍያ አልተላከም። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+
+  @override
+  String get kycPaymentNotSent => 'ክፍያው አልተላከም። ማንነትዎ አልተረጋገጠም።';
+
+  @override
+  String get kycPaymentResubmitted => 'ማንነትዎ ተረጋግጧል። ክፍያዎ እንደገና ተልኳል።';
+
+  @override
+  String get kycVerifiedPayAgain =>
+      'ማንነትዎ ተረጋግጧል። ትዕዛዙን ከፍተው ክፍያውን እንደገና ያስገቡ።';
+
+  @override
+  String get faydaPaymentPrompt =>
+      'እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የዚህን መለያ የፋይዳ መታወቂያ ይጠቀሙ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።';
+
+  @override
+  String get faydaLinkPrompt =>
+      'የፋይዳ መታወቂያዎን ከዚህ መለያ ጋር ያገናኙ። የራስዎን የፋይዳ መታወቂያ ይጠቀሙ፤ ከዚህ መለያ ስልክ ቁጥር ጋር መመሳሰል አለበት።';
+
+  @override
+  String get faydaPaymentContinues => 'ማንነትዎ ተረጋግጧል። ክፍያዎን በመቀጠል ላይ...';
+
+  @override
+  String get faydaIdMismatch =>
+      'ይህ የፋይዳ መታወቂያ በመለያዎ ላይ ካለው ጋር አይዛመድም። በራስዎ የፋይዳ መታወቂያ ያረጋግጡ።';
+
+  @override
+  String get faydaPhoneMismatch =>
+      'በዚህ የፋይዳ መታወቂያ ላይ ያለው ስልክ ቁጥር ከመለያዎ ጋር አይዛመድም። በራስዎ የፋይዳ መታወቂያ ያረጋግጡ።';
+
+  @override
+  String get faydaIdentityUnconfirmed =>
+      'ይህ የፋይዳ መታወቂያ የመለያዎ መሆኑን ማረጋገጥ አልቻልንም። በስልክ ቁጥርዎ በተመዘገበው የፋይዳ መታወቂያ ያረጋግጡ።';
 }

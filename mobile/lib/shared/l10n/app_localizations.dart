@@ -4873,13 +4873,13 @@ abstract class AppLocalizations {
   /// Explanation when a payment is blocked until the buyer verifies their Fayda ID (ORDER_KYC_REQUIRED)
   ///
   /// In en, this message translates to:
-  /// **'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda, then submit the payment again.'**
+  /// **'Payments above 10,000 ETB need a verified Fayda ID. Verify with Fayda and your payment is sent right after.'**
   String get kycRequiredFaydaMessage;
 
   /// Explanation when a payment is blocked because the buyer's phone is not verified (ORDER_KYC_REQUIRED)
   ///
   /// In en, this message translates to:
-  /// **'Your phone number is not verified yet, so this payment was not sent. Verify your identity, then submit the payment again.'**
+  /// **'Your phone number is not verified yet, so this payment was not sent. Verify with Fayda and your payment is sent right after.'**
   String get kycRequiredPhoneMessage;
 
   /// Title of the dialog shown when a payment needs identity verification
@@ -5049,6 +5049,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Still trying to reach Fayda ({attempt}/{total})...'**
   String faydaRetrying(int attempt, int total);
+
+  /// KYC dialog when the farmer's phone is not verified (buyer cannot fix it)
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer\'s phone number is not verified yet, so this payment was not sent. You can pay once the farmer verifies it.'**
+  String get kycFarmerPhoneMessage;
+
+  /// KYC dialog when the farmer has no verified Fayda ID (buyer cannot fix it)
+  ///
+  /// In en, this message translates to:
+  /// **'Payments above 10,000 ETB need the farmer to have a verified Fayda ID too, so this payment was not sent. You can pay once the farmer verifies.'**
+  String get kycFarmerFaydaMessage;
+
+  /// KYC dialog when the server could not run the identity check
+  ///
+  /// In en, this message translates to:
+  /// **'We could not check identity verification right now, so this payment was not sent. Please try again later.'**
+  String get kycUnavailableMessage;
+
+  /// Snackbar after the Fayda check for a payment was cancelled or failed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment not sent. Your identity was not verified.'**
+  String get kycPaymentNotSent;
+
+  /// Snackbar after a KYC-rejected queued payment was sent again following Fayda verification
+  ///
+  /// In en, this message translates to:
+  /// **'Identity verified. Your payment was sent again.'**
+  String get kycPaymentResubmitted;
+
+  /// Snackbar after verification when the rejected payment could not be sent again automatically
+  ///
+  /// In en, this message translates to:
+  /// **'Identity verified. Open the order and submit the payment again.'**
+  String get kycVerifiedPayAgain;
+
+  /// Fayda verification screen opened from a blocked payment
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda. Use the Fayda ID that belongs to this account, and your payment continues right after.'**
+  String get faydaPaymentPrompt;
+
+  /// Fayda verification screen opened from the profile (link an existing account)
+  ///
+  /// In en, this message translates to:
+  /// **'Link your Fayda ID to this account. Use your own Fayda ID: it must match this account\'s phone number.'**
+  String get faydaLinkPrompt;
+
+  /// Snackbar when Fayda verification for a payment succeeded
+  ///
+  /// In en, this message translates to:
+  /// **'Identity verified. Continuing your payment...'**
+  String get faydaPaymentContinues;
+
+  /// FAYDA_005: the account already holds a different Fayda ID
+  ///
+  /// In en, this message translates to:
+  /// **'This Fayda ID does not match the one on your account. Verify with your own Fayda ID.'**
+  String get faydaIdMismatch;
+
+  /// FAYDA_006: the Fayda ID's phone number is not the account's phone
+  ///
+  /// In en, this message translates to:
+  /// **'The phone number on this Fayda ID does not match your account. Verify with your own Fayda ID.'**
+  String get faydaPhoneMismatch;
+
+  /// FAYDA_007: nothing ties the Fayda ID to this account (no phone number released)
+  ///
+  /// In en, this message translates to:
+  /// **'We could not confirm this Fayda ID belongs to your account. Verify with the Fayda ID registered to your phone number.'**
+  String get faydaIdentityUnconfirmed;
 }
 
 class _AppLocalizationsDelegate

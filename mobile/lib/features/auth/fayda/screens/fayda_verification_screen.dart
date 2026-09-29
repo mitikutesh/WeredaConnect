@@ -28,6 +28,14 @@ typedef FaydaUrlLauncher = Future<bool> Function(Uri url);
 /// profile badge shows immediately, offline too. Pops with `true` when the
 /// account ended up verified.
 ///
+/// The server only accepts the Fayda identity that belongs to this account
+/// (the Fayda ID already on file, else one whose phone matches the account);
+/// any other identity fails with FAYDA_005/006/007 and nothing changes.
+///
+/// [forPayment]: opened by the KYC payment prompt. Says the payment continues
+/// after verifying and closes itself with `true` on success, so the payment
+/// is sent again without the user having to press back.
+///
 /// Web runs the same flow: Fayda redirects to `web/fayda-callback.html`,
 /// which relays the callback to this tab (see [faydaCallbackLinks]). When
 /// the server refuses the web redirect (real provider) the start fails with
@@ -37,12 +45,14 @@ class FaydaVerificationScreen extends StatelessWidget {
   final Stream<Uri>? deepLinks;
   final FaydaUrlLauncher? launcher;
   final FaydaVerifiedRecorder? recordVerified;
+  final bool forPayment;
 
   const FaydaVerificationScreen({
     this.service,
     this.deepLinks,
     this.launcher,
     this.recordVerified,
+    this.forPayment = false,
     super.key,
   });
 
@@ -56,6 +66,7 @@ class FaydaVerificationScreen extends StatelessWidget {
       child: _FaydaVerificationView(
         deepLinks: deepLinks,
         launcher: launcher,
+        forPayment: forPayment,
       ),
     );
   }
@@ -80,8 +91,13 @@ class FaydaVerificationScreen extends StatelessWidget {
 class _FaydaVerificationView extends StatefulWidget {
   final Stream<Uri>? deepLinks;
   final FaydaUrlLauncher? launcher;
+  final bool forPayment;
 
-  const _FaydaVerificationView({this.deepLinks, this.launcher});
+  const _FaydaVerificationView({
+    required this.forPayment,
+    this.deepLinks,
+    this.launcher,
+  });
 
   @override
   State<_FaydaVerificationView> createState() => _FaydaVerificationViewState();
@@ -214,8 +230,16 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
           }
         } else if (state is FaydaVerificationSucceeded) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l10n.faydaLinkSuccess)),
+            SnackBar(
+              content: Text(
+                widget.forPayment
+                    ? l10n.faydaPaymentContinues
+                    : l10n.faydaLinkSuccess,
+              ),
+            ),
           );
+          // Payment mode: hand straight back so the payment is sent again.
+          if (widget.forPayment) Navigator.of(context).pop(true);
         }
       },
       builder: (context, state) {
@@ -232,6 +256,9 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
             backgroundColor: AppTheme.backgroundCream,
             appBar: AppBar(title: Text(l10n.faydaVerifyTitle)),
             body: FayidaIdScreen(
+              promptMessage: widget.forPayment
+                  ? l10n.faydaPaymentPrompt
+                  : l10n.faydaLinkPrompt,
               onFaydaVerifyRequested: () => context
                   .read<FaydaVerificationBloc>()
                   .add(const FaydaVerificationStarted()),
