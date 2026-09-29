@@ -1,6 +1,6 @@
 'use strict';
 
-const { TEST_USERS, findUser, generateFin } = require('./users');
+const { TEST_USERS, findUser, generateFin, userForPhone } = require('./users');
 const { randomToken, verifyPkce, subjectForFin, signJwt, verifyJwt } = require('./crypto');
 
 const CODE_TTL_SECONDS = 300;
@@ -63,6 +63,18 @@ function resolveFin(choice, customFin) {
   if (choice === 'custom') return String(customFin || '').replace(/\s+/g, '');
   return choice || '';
 }
+
+/** The identity the picker (or auto mode) chose; "phone" picks the phone's owner. */
+function resolveUser(choice, customFin, phone) {
+  if (choice === 'phone') return userForPhone(phone);
+  return findUser(resolveFin(choice, customFin));
+}
+
+/** The user a code or access token was issued for (a phone identity keeps its phone). */
+const issuedUser = (item) => {
+  const user = findUser(item.fin);
+  return item.phone ? { ...user, phone: item.phone } : user;
+};
 
 const errorPage = (statusCode, message) =>
   page(statusCode, 'Fayda mock error', `<h1>Fayda mock: request rejected</h1><p>${esc(message)}</p>`);
@@ -137,7 +149,7 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
   const pickAcr = (acrValues) =>
     String(acrValues || '').split(' ').find((a) => ACR_VALUES.includes(a)) || ACR_VALUES[0];
 
-  async function issueCode(p, fin) {
+  async function issueCode(p, user) {
     const code = randomToken();
     await store.putNew({
       code,
@@ -146,7 +158,8 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       redirectUri: p.redirect_uri,
       codeChallenge: p.code_challenge || null,
       nonce: p.nonce,
-      fin,
+      fin: user.fin,
+      phone: user.phone || null,
       acr: pickAcr(p.acr_values),
       expiresAt: now() + CODE_TTL_SECONDS,
     });
@@ -172,16 +185,31 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       return redirectWith(p.redirect_uri, { error: 'access_denied', error_description: 'User denied consent', state: p.state });
     }
     if (q.get('auto') === '1') {
-      const user = findUser(resolveFin(q.get('fin'), q.get('custom_fin')));
-      if (!user) return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: 'fin must be 16 digits', state: p.state });
-      return issueCode(p, user.fin);
+      // auto=1&phone=<number> signs in as that phone's owner (same phone, same person).
+      const user = q.get('phone') !== null
+        ? userForPhone(q.get('phone'))
+        : findUser(resolveFin(q.get('fin'), q.get('custom_fin')));
+      if (!user) {
+        return redirectWith(p.redirect_uri, {
+          error: 'invalid_request',
+          error_description: q.get('phone') !== null ? 'phone must be an Ethiopian mobile number' : 'fin must be 16 digits',
+          state: p.state,
+        });
+      }
+      return issueCode(p, user);
     }
 
     const hidden = AUTH_FIELDS.map((k) => `<input type="hidden" name="${k}" value="${esc(p[k])}">`).join('');
     const users = TEST_USERS.map((u, i) => `<label class="user"><input type="radio" name="fin" value="${u.fin}"${i === 0 ? ' checked' : ''}>
  <b>${esc(u.name)}</b><br><small>FIN ${u.fin} &middot; ${esc(u.phone || 'no phone')} &middot; ${esc(u.hint)}</small></label>`).join('');
-    const fresh = `<label class="user"><input type="radio" name="fin" value="new">
- <b>Generate new identity</b><br><small>Random FIN, synthetic name, no phone (server sends the SMS OTP)</small></label>
+    const fresh = `<label class="user"><input type="radio" name="fin" value="phone" id="fin-phone">
+ <b>Identity for my phone number</b><br><small>The Fayda record of this phone: same phone, same person every time.
+ Use it for an account you will pay with (Fayda must match the account's phone).</small><br>
+ <input type="tel" class="fin" name="phone" inputmode="tel" placeholder="+2519XXXXXXXX or 09XXXXXXXX"
+ onfocus="document.getElementById('fin-phone').checked=true"></label>
+<label class="user"><input type="radio" name="fin" value="new">
+ <b>Generate new identity</b><br><small>Random FIN, synthetic name, no phone (server sends the SMS OTP).
+ Its FIN is not shown, so it cannot sign in again later: verifying at payment or from the profile fails.</small></label>
 <label class="user"><input type="radio" name="fin" value="custom" id="fin-custom">
  <b>Type a FIN</b><br><small>Any 16 digits. Same FIN, same identity. No phone claim.</small><br>
  <input type="text" class="fin" name="custom_fin" inputmode="numeric" maxlength="16" pattern="\\d{16}" placeholder="16 digits"
@@ -201,10 +229,14 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     if (v.redirectError) {
       return redirectWith(p.redirect_uri, { error: 'invalid_request', error_description: v.redirectError, state: p.state || undefined });
     }
-    const user = findUser(resolveFin(form.get('fin'), form.get('custom_fin')));
-    if (!user) return errorPage(400, 'Pick a test identity, or type a FIN of exactly 16 digits.');
+    const user = resolveUser(form.get('fin'), form.get('custom_fin'), form.get('phone'));
+    if (!user) {
+      return errorPage(400, form.get('fin') === 'phone'
+        ? 'Type an Ethiopian mobile number, like +251912345678 or 0912345678.'
+        : 'Pick a test identity, or type a FIN of exactly 16 digits.');
+    }
     if (form.get('otp') !== TEST_OTP) return errorPage(400, `Wrong OTP. The mock only accepts ${TEST_OTP}.`);
-    return issueCode(p, user.fin);
+    return issueCode(p, user);
   }
 
   /** Client authentication for /token. Returns null on success or an error response. */
@@ -269,7 +301,7 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       }
     }
 
-    const user = findUser(code.fin);
+    const user = issuedUser(code);
     const iat = now();
     const claims = claimsFor(user);
     const idToken = signJwt({
@@ -283,7 +315,9 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     }, await getKey());
 
     const accessToken = randomToken();
-    await store.putNew({ code: `at:${accessToken}`, kind: 'access_token', fin: user.fin, expiresAt: iat + TOKEN_TTL_SECONDS });
+    await store.putNew({
+      code: `at:${accessToken}`, kind: 'access_token', fin: user.fin, phone: code.phone || null, expiresAt: iat + TOKEN_TTL_SECONDS,
+    });
 
     return json(200, {
       access_token: accessToken,
@@ -299,7 +333,7 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     if (!item || item.kind !== 'access_token') {
       return { ...oauthError(401, 'invalid_token', 'missing or expired access token'), headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer error="invalid_token"' } };
     }
-    return json(200, claimsFor(findUser(item.fin)), NO_STORE);
+    return json(200, claimsFor(issuedUser(item)), NO_STORE);
   }
 
   return async function handle(req) {

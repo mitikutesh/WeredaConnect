@@ -82,3 +82,20 @@ always sends the SMS OTP.
 On the picker page choose **Generate new identity** (a random FIN) or **Type a
 FIN**. For automation use `auto=1&fin=new` or `auto=1&fin=<any 16 digits>`.
 Anything that is not exactly 16 digits is rejected.
+
+### Identity for my phone number (accounts that will pay)
+
+The server only links the Fayda identity of the account's owner: the Fayda ID
+already on the account, else one whose `phone_number` equals the account phone
+(`FAYDA_005`/`006`/`007` otherwise, see `specs/contracts/auth-api.md` 2.3.0).
+A generated or typed identity has no phone and its FIN is never shown, so it can
+neither link an account at payment time nor be used to verify again later.
+
+**Identity for my phone number** acts like a real Fayda record: type the phone
+(`+2519XXXXXXXX`, `2519...`, `09...` or `07...`) and the mock signs in as that
+phone's owner. A seeded phone returns its seeded person; any other phone gets a
+synthetic person whose FIN (`9` + 15 digits) is derived from the phone. The same
+phone always returns the same person, with the `phone_number` claim set. Use it
+for any account you will pay with: sign up with it, then pick it again with the
+same phone whenever Fayda is asked for. Automation: `auto=1&phone=<number>`; a
+malformed number redirects with `error=invalid_request`.
