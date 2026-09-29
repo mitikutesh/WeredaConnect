@@ -167,7 +167,8 @@ The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELE
 runs only after they pass. The client reverts the local order to its previous status on
 `ORDER_KYC_REQUIRED`. For a buyer-side reason it offers Fayda verification, which must
 return the account owner's identity (`POST /user/fayda-link`, `auth-api.md` 2.3.0); on
-success it sends the same payment again, on failure the payment stays unsent. For a
+success it sends the same payment again (for `buyer_phone`, only when the link also
+proved the phone, `phoneVerified: true`), on failure the payment stays unsent. For a
 farmer-side reason it only explains. On `AUTH_040` it re-authenticates and retries.
 
 ---

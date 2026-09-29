@@ -2749,7 +2749,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get kycPaymentResubmitted =>
-      'Identity verified. Your payment was sent again.';
+      'Identity verified. Your payment will be sent again.';
 
   @override
   String get kycVerifiedPayAgain =>
@@ -2778,4 +2778,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get faydaIdentityUnconfirmed =>
       'We could not confirm this Fayda ID belongs to your account. Verify with the Fayda ID registered to your phone number.';
+
+  @override
+  String get kycPhoneNotProven =>
+      'Your Fayda ID is confirmed, but Fayda does not list this account\'s phone number, so your phone is still not verified. The payment was not sent.';
 }

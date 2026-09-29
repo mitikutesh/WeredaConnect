@@ -16,6 +16,9 @@ import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/widgets/security_prompt_listener.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -23,6 +26,12 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
 class MockAuthService extends Mock implements AuthService {}
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+class FakeOrderEvent extends Fake implements OrderEvent {}
 
 const _old = AuthTokens(accessToken: 'a1', refreshToken: 'r1', idToken: 'i1');
 const _fresh = AuthTokens(accessToken: 'a2', refreshToken: 'r2', idToken: 'i2');
@@ -48,7 +57,10 @@ void main() {
   late StreamController<AuthState> states;
   late SecurityEvents events;
 
-  setUpAll(() => registerFallbackValue(FakeAuthEvent()));
+  setUpAll(() {
+    registerFallbackValue(FakeAuthEvent());
+    registerFallbackValue(FakeOrderEvent());
+  });
 
   setUp(() {
     bloc = MockAuthBloc();
@@ -209,7 +221,7 @@ void main() {
       const rejected = KycRequired(
         orderId: 'o-1',
         message: 'ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID',
-        paymentMethod: 'cbe_transfer',
+        paymentMethod: 'telebirr',
         paymentReference: 'MOCK-CBE-1',
       );
 
@@ -256,12 +268,87 @@ void main() {
         final resubmitted = await run(tester, rejected, verifies: true);
 
         expect(resubmitted.single.orderId, 'o-1');
-        expect(resubmitted.single.paymentMethod, 'cbe_transfer');
+        expect(resubmitted.single.paymentMethod, 'telebirr');
         expect(resubmitted.single.paymentReference, 'MOCK-CBE-1');
         expect(
-          find.text('Identity verified. Your payment was sent again.'),
+          find.text('Identity verified. Your payment will be sent again.'),
           findsOneWidget,
         );
+      });
+
+      Future<void> verifyWithDefaultResend(
+        WidgetTester tester,
+        MockOrderBloc orderBloc,
+      ) async {
+        await tester.pumpWidget(
+          BlocProvider<OrderBloc>.value(
+            value: orderBloc,
+            child: host(
+              SecurityPromptListener(
+                events: events,
+                verificationScreen: (_) => fayda(true),
+                child: const Text('app'),
+              ),
+            ),
+          ),
+        );
+        events.emit(rejected);
+        await settle(tester);
+        await tester.tap(find.byKey(const Key('kyc_verify_button')));
+        await settle(tester);
+        await tester.tap(find.text('fayda screen'));
+        await settle(tester);
+      }
+
+      testWidgets(
+          'default resend: queues the same payment on the app OrderBloc '
+          'repository', (tester) async {
+        final repo = MockOrderRepository();
+        final orderBloc = MockOrderBloc();
+        when(() => orderBloc.repository).thenReturn(repo);
+        when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+        when(
+          () => repo.submitPayment(
+            any(),
+            any(),
+            paymentMethod: any(named: 'paymentMethod'),
+          ),
+        ).thenAnswer((_) async {});
+
+        await verifyWithDefaultResend(tester, orderBloc);
+
+        verify(
+          () => repo.submitPayment(
+            'o-1',
+            'MOCK-CBE-1',
+            paymentMethod: 'telebirr',
+          ),
+        ).called(1);
+        // The shared bloc is not driven (no state change for open screens).
+        verifyNever(() => orderBloc.add(any()));
+        expect(
+          find.text('Identity verified. Your payment will be sent again.'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('default resend failure: asks to pay again by hand',
+          (tester) async {
+        final repo = MockOrderRepository();
+        final orderBloc = MockOrderBloc();
+        when(() => orderBloc.repository).thenReturn(repo);
+        when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+        when(
+          () => repo.submitPayment(
+            any(),
+            any(),
+            paymentMethod: any(named: 'paymentMethod'),
+          ),
+        ).thenThrow(StateError('order gone'));
+
+        await verifyWithDefaultResend(tester, orderBloc);
+
+        expect(find.textContaining('submit the payment again'), findsOneWidget);
       });
 
       testWidgets('verification failed: nothing is sent', (tester) async {

@@ -817,6 +817,10 @@ Fayda identity of that account's owner:
 | no Fayda ID | `phone_number` different | `403 FAYDA_006`, account unchanged |
 | no Fayda ID | no `phone_number` claim | `403 FAYDA_007`, account unchanged (fails closed) |
 
+The Fayda `phone_number` claim is compared in `+251XXXXXXXXX` form; `+251…`, `00251…`,
+`251…` (E.164 without the plus), `0…` and the bare 9-digit national number are all read as
+the same phone (this also applies to the register phone proof).
+
 The check runs again on the re-read row after a version conflict. Refusals are audited as
 `FAYDA_LINK_MISMATCH` (detail `fayda_id`, `phone` or `no_phone_claim`). The payment KYC
 gate (`ORDER_KYC_REQUIRED`, see `order-lifecycle.md`) passes only after a successful link,

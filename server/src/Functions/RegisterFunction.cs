@@ -455,9 +455,26 @@ public class RegisterFunction
             return false;
         }
 
-        var faydaPhone = RequestValidator.NormalizePhoneNumber(verification.PhoneNumber)
-                         ?? verification.PhoneNumber.Trim();
+        var faydaPhone = NormalizeFaydaPhone(verification.PhoneNumber);
         return string.Equals(faydaPhone, registrationPhone, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The Fayda phone_number claim in the canonical +251XXXXXXXXX form. Besides the
+    /// formats users type (<see cref="RequestValidator.NormalizePhoneNumber"/>), the
+    /// claim may come as 251XXXXXXXXX (E.164 without the plus) or as the 9-digit
+    /// national number. Anything else is kept as sent, so it never matches.
+    /// </summary>
+    internal static string NormalizeFaydaPhone(string claim)
+    {
+        var cleaned = claim.Trim().Replace(" ", "").Replace("-", "");
+        var candidate = cleaned.Length switch
+        {
+            12 when cleaned.StartsWith("251", StringComparison.Ordinal) => "+" + cleaned,
+            9 => "+251" + cleaned,
+            _ => cleaned
+        };
+        return RequestValidator.NormalizePhoneNumber(candidate) ?? claim.Trim();
     }
 
     /// <summary>Issue and send the SMS code. Returns its expiry, or null when nothing was sent.</summary>
