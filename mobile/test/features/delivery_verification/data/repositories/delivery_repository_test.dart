@@ -1313,5 +1313,76 @@ void main() {
         );
       });
     });
+
+    group('findActiveDeliveryForOrder', () {
+      Future<void> insertForOrder(
+        String deliveryId,
+        String? orderId, {
+        DeliveryStatus status = DeliveryStatus.pending,
+      }) async {
+        final d = await _insertTestDelivery(
+          isar,
+          deliveryId: deliveryId,
+          status: status,
+        );
+        await isar.writeTxn(() async {
+          d.orderId = orderId;
+          await isar.deliverys.put(d);
+        });
+      }
+
+      test('finds the order\'s live delivery, never a cancelled one', () async {
+        await insertForOrder(
+          'del-cancelled',
+          'order-1',
+          status: DeliveryStatus.cancelled,
+        );
+        await insertForOrder('del-other-order', 'order-2');
+        await insertForOrder('del-live', 'order-1');
+
+        for (final (userId, role) in [
+          ('farmer-001', 'farmer'),
+          ('trucker-001', 'trucker'),
+          ('buyer-001', 'buyer'),
+        ]) {
+          final found = await repository.findActiveDeliveryForOrder(
+            'order-1',
+            userId: userId,
+            role: role,
+          );
+          expect(found?.deliveryId, 'del-live', reason: role);
+        }
+      });
+
+      test('returns null when only a cancelled delivery exists', () async {
+        await insertForOrder(
+          'del-cancelled',
+          'order-1',
+          status: DeliveryStatus.cancelled,
+        );
+
+        expect(
+          await repository.findActiveDeliveryForOrder(
+            'order-1',
+            userId: 'buyer-001',
+            role: 'buyer',
+          ),
+          isNull,
+        );
+      });
+
+      test('never returns a delivery the user is not a party to', () async {
+        await insertForOrder('del-live', 'order-1');
+
+        expect(
+          await repository.findActiveDeliveryForOrder(
+            'order-1',
+            userId: 'farmer-999',
+            role: 'farmer',
+          ),
+          isNull,
+        );
+      });
+    });
   });
 }

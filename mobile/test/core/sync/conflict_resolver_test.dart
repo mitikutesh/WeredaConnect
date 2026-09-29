@@ -753,6 +753,47 @@ void main() {
       });
     });
 
+    group('Delivery conflict resolution', () {
+      test('keeps a self-pickup delivery\'s type from the server', () async {
+        final operation = SyncOperation()
+          ..operationId = 'op-del'
+          ..idempotencyKey = 'key-del'
+          ..entityType = 'delivery'
+          ..entityId = 'del-self'
+          ..action = 'update'
+          ..data = '{}'
+          ..status = SyncStatus.syncing
+          ..retryCount = 0
+          ..createdAt = DateTime.now().toUtc();
+
+        await resolver.resolve(
+          operation: operation,
+          serverData: {
+            'deliveryId': 'del-self',
+            'tripId': 'del-self',
+            'orderId': 'order-1',
+            'listingId': 'crop-1',
+            'farmerId': 'farmer-1',
+            'farmerName': 'Kedir',
+            'buyerId': 'buyer-1',
+            'buyerName': 'Dawit',
+            'deliveryType': 'self_pickup',
+            'status': 'pending',
+            'createdAt': '2026-09-29T10:00:00Z',
+            'updatedAt': '2026-09-29T10:00:00Z',
+          },
+          serverVersion: 2,
+        );
+
+        final stored = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo('del-self')
+            .findFirst();
+        expect(stored!.deliveryType, 'self_pickup');
+        expect(stored.status, DeliveryStatus.pending);
+      });
+    });
+
     group('Unsupported entity types', () {
       test('throws exception for payment entity', () async {
         final operation = SyncOperation()

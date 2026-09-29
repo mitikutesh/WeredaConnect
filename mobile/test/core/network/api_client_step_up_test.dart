@@ -31,7 +31,30 @@ void main() {
       throwsA(
         isA<StepUpRequiredException>()
             .having((e) => e.message, 'message', 'step-up required')
-            .having((e) => e.statusCode, 'statusCode', 403),
+            .having((e) => e.statusCode, 'statusCode', 403)
+            .having((e) => e.requiresFayda, 'requiresFayda', isFalse),
+      ),
+    );
+  });
+
+  test('403 AUTH_041 becomes a Fayda StepUpRequiredException', () async {
+    dioAdapter.onPost(
+      '/escrow/initiate',
+      (server) => server.reply(403, {
+        'error': {'code': 'AUTH_041', 'message': 'Fayda needed'},
+      }),
+      data: Matchers.any,
+    );
+
+    await expectLater(
+      ApiClient().post<Map<String, dynamic>>(
+        '/escrow/initiate',
+        data: <String, dynamic>{},
+      ),
+      throwsA(
+        isA<StepUpRequiredException>()
+            .having((e) => e.requiresFayda, 'requiresFayda', isTrue)
+            .having((e) => e.code, 'code', 'AUTH_041'),
       ),
     );
   });

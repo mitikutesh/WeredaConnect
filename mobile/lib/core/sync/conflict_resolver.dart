@@ -182,6 +182,10 @@ class ConflictResolver {
         delivery!.tripId = serverData['tripId'] as String? ?? '';
         delivery!.orderId =
             serverData['orderId'] as String? ?? delivery!.orderId;
+        // Keeps a self-pickup a self-pickup (the buyer's scan button and the
+        // pending-to-delivered confirmation key on it).
+        delivery!.deliveryType =
+            serverData['deliveryType'] as String? ?? delivery!.deliveryType;
         delivery!.listingId = serverData['listingId'] as String? ?? '';
         delivery!.farmerId = serverData['farmerId'] as String? ?? '';
         delivery!.farmerName = serverData['farmerName'] as String? ?? '';

@@ -7,13 +7,16 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -25,6 +28,8 @@ class MockOrderBloc extends Mock implements OrderBloc {}
 class MockAuthBloc extends Mock implements AuthBloc {}
 
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockDeliveryRepository extends Mock implements BaseDeliveryRepository {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -76,11 +81,38 @@ Order _makeOrder({
     ..truckerName = truckerName;
 }
 
+/// A delivery of order-001 (self-pickup unless a trucker is given).
+Delivery _makeDelivery({
+  DeliveryStatus status = DeliveryStatus.pending,
+  String orderId = 'order-001',
+  String truckerId = '',
+}) {
+  return Delivery()
+    ..deliveryId = 'delivery-001-abcd'
+    ..tripId = 'delivery-001-abcd'
+    ..orderId = orderId
+    ..listingId = 'listing-001'
+    ..farmerId = _farmerId
+    ..farmerName = 'Farmer Fikru'
+    ..truckerId = truckerId
+    ..truckerName = ''
+    ..buyerId = _buyerId
+    ..buyerName = 'Buyer Bee'
+    ..qrToken = ''
+    ..deliveryType = truckerId.isEmpty ? 'self_pickup' : null
+    ..status = status
+    ..createdAt = DateTime(2026, 9, 29)
+    ..updatedAt = DateTime(2026, 9, 29)
+    ..version = 1;
+}
+
 void main() {
   late MockOrderBloc orderBloc;
   late MockAuthBloc authBloc;
   late MockDeliveryBloc deliveryBloc;
+  late MockDeliveryRepository deliveryRepo;
   late StreamController<DeliveryState> deliveryStream;
+  late Delivery? activeDelivery;
 
   setUpAll(() {
     registerFallbackValue(FakeOrderEvent());
@@ -105,6 +137,26 @@ void main() {
     when(() => deliveryBloc.state).thenReturn(const DeliveryInitial());
     when(() => deliveryBloc.stream).thenAnswer((_) => deliveryStream.stream);
     when(() => deliveryBloc.add(any())).thenReturn(null);
+
+    // The order's delivery is looked up among the user's own deliveries.
+    deliveryRepo = MockDeliveryRepository();
+    activeDelivery = null;
+    when(() => deliveryBloc.repository).thenReturn(deliveryRepo);
+    when(
+      () => deliveryRepo.findActiveDeliveryForOrder(
+        any(),
+        userId: any(named: 'userId'),
+        role: any(named: 'role'),
+        orderCreatedAt: any(named: 'orderCreatedAt'),
+      ),
+    ).thenAnswer((_) async => activeDelivery);
+    when(
+      () => deliveryRepo.persistQrNonce(
+        deliveryId: any(named: 'deliveryId'),
+        qrNonce: any(named: 'qrNonce'),
+        userId: any(named: 'userId'),
+      ),
+    ).thenAnswer((_) async {});
   });
 
   tearDown(() {
@@ -237,6 +289,191 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Collect it myself'), findsNothing);
+    });
+  });
+
+  group('OrderDetailScreen with the order\'s delivery', () {
+    testWidgets(
+        'farmer of an accepted self-pickup order can show the pickup QR '
+        'and open the delivery', (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      activeDelivery = _makeDelivery();
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Show QR Code'), findsOneWidget);
+      expect(find.text('Open delivery'), findsOneWidget);
+      verify(
+        () => deliveryRepo.findActiveDeliveryForOrder(
+          'order-001',
+          userId: _farmerId,
+          role: 'farmer',
+          // Lets web stop paging at deliveries older than the order.
+          orderCreatedAt: DateTime(2026, 3, 10),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('farmer sees no QR once the delivery is past pending',
+        (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      activeDelivery =
+          _makeDelivery(status: DeliveryStatus.pickedUp, truckerId: _truckerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.pickupConfirmed)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Show QR Code'), findsNothing);
+      expect(find.text('Open delivery'), findsOneWidget);
+    });
+
+    testWidgets(
+        'buyer with a delivery already created sees "Open delivery", '
+        'not "Collect it myself"', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      activeDelivery = _makeDelivery();
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Collect it myself'), findsNothing);
+      expect(find.text('Show QR Code'), findsNothing);
+      expect(find.text('Open delivery'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Open delivery'));
+      await tester.tap(find.text('Open delivery'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DeliveryDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('trucker with a delivery already created cannot create another',
+        (tester) async {
+      stubAuth(UserRole.trucker, _truckerId);
+      activeDelivery = _makeDelivery(truckerId: _truckerId);
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(
+            tripId: _tripId,
+            truckerId: _truckerId,
+            truckerName: 'Trucker Tesfaye',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Create Delivery'), findsNothing);
+      expect(find.text('Open delivery'), findsOneWidget);
+    });
+
+    testWidgets('no live delivery for the order: the create is offered',
+        (tester) async {
+      // Cancelled and other orders' deliveries are filtered by the
+      // repository (delivery_repository_test, web_delivery_repository_test).
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Collect it myself'), findsOneWidget);
+      expect(find.text('Open delivery'), findsNothing);
+    });
+
+    testWidgets(
+        'a created delivery opens, and back on the order it is '
+        '"Open delivery"', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Collect it myself'));
+      await tester.tap(find.text('Collect it myself'));
+      await tester.pump();
+      activeDelivery = _makeDelivery();
+      deliveryStream.add(DeliveryCreated(delivery: _makeDelivery()));
+      await tester.pumpAndSettle();
+      expect(find.byType(DeliveryDetailScreen), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Collect it myself'), findsNothing);
+      expect(find.text('Open delivery'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the farmer\'s "Show QR Code" opens the QR, worded for the buyer',
+        (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      activeDelivery = _makeDelivery();
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Show QR Code'));
+      await tester.tap(find.text('Show QR Code'));
+      // Not pumpAndSettle: the QR spinner keeps animating while the device
+      // key (secure storage) never answers in a widget test.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.text('Show this QR code to the buyer when they collect'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+        'a create refused because the order already has a delivery '
+        'opens that delivery instead of doing nothing', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Collect it myself'));
+      await tester.tap(find.text('Collect it myself'));
+      await tester.pump();
+      // Created meanwhile (first tap, another device): the server refuses.
+      activeDelivery = _makeDelivery();
+      deliveryStream.add(
+        const DeliveryError(
+          message: 'SyncRejectedException: DELIVERY_VALIDATION: '
+              'The order already has an active delivery.',
+          code: 'generic',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DeliveryDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('any other create failure shows an error', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Collect it myself'));
+      await tester.tap(find.text('Collect it myself'));
+      await tester.pump();
+      deliveryStream.add(
+        const DeliveryError(message: 'boom', code: 'generic'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delivery operation failed'), findsOneWidget);
+      expect(find.byType(DeliveryDetailScreen), findsNothing);
+      // Still offered, so the buyer can try again.
+      expect(find.text('Collect it myself'), findsOneWidget);
+    });
+
+    testWidgets(
+        'delivery states from other screens are ignored until this '
+        'screen creates one', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(_makeOrder()));
+      await tester.pumpAndSettle();
+
+      deliveryStream.add(const DeliveryError(message: 'x', code: 'generic'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delivery operation failed'), findsNothing);
     });
   });
 }

@@ -278,7 +278,8 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
                 {
                     { "userId", BuyerId },
                     { "custom:role", "buyer" },
-                    // A fresh sign-in, so the AUTH_040 step-up does not get in the way.
+                    // A fresh sign-in. Above 10,000 ETB the step-up is the Fayda login
+                    // (AUTH_041), which this password time does not satisfy.
                     { "auth_time", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString() }
                 }
             }
@@ -358,6 +359,23 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
         var retry = await SubmitPaymentAsync();
         Assert.Contains("\"status\":\"success\"", retry);
         Assert.DoesNotContain("ORDER_KYC_REQUIRED", retry);
+        Assert.DoesNotContain("AUTH_041", retry);
+    }
+
+    [Fact]
+    public async Task VerifiedBuyer_WithAnOldFaydaLogin_MustLogInWithFaydaAgain_ThenPays()
+    {
+        Assert.Equal(200, (await VerifyWithFaydaAsync(SaraFin)).StatusCode);
+        _users[BuyerId] = _users[BuyerId] with { FaydaAuthenticatedAt = DateTime.UtcNow.AddHours(-1).ToString("o") };
+
+        var blocked = await SubmitPaymentAsync();
+        Assert.Contains("AUTH_041:", blocked);
+        Assert.DoesNotContain("\"status\":\"success\"", blocked);
+
+        // Same person, fresh Fayda login: the payment goes through without a password prompt.
+        Assert.Equal(200, (await VerifyWithFaydaAsync(SaraFin)).StatusCode);
+        var retry = await SubmitPaymentAsync();
+        Assert.Contains("\"status\":\"success\"", retry);
     }
 
     [Fact]

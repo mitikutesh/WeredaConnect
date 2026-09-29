@@ -742,6 +742,32 @@ class DeliveryRepository extends BaseDeliveryRepository {
     return delivery;
   }
 
+  /// Local lookup: every delivery the user can see is already in Isar, so
+  /// [orderCreatedAt] is not needed.
+  @override
+  Future<Delivery?> findActiveDeliveryForOrder(
+    String orderId, {
+    required String userId,
+    required String role,
+    DateTime? orderCreatedAt,
+  }) async {
+    final matches = await _isar.deliverys
+        .filter()
+        .orderIdEqualTo(orderId)
+        .not()
+        .statusEqualTo(DeliveryStatus.cancelled)
+        .sortByCreatedAtDesc()
+        .findAll();
+    for (final d in matches) {
+      if (d.farmerId == userId ||
+          d.truckerId == userId ||
+          d.buyerId == userId) {
+        return d;
+      }
+    }
+    return null;
+  }
+
   /// Get all deliveries where the user is a participant.
   /// Queries Isar by farmerId, truckerId, or buyerId.
   /// Optional role filter: 'farmer', 'trucker', 'buyer'.

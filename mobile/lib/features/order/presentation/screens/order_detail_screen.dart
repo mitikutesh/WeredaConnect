@@ -3,16 +3,20 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
-import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
@@ -310,111 +314,26 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Trucker + accepted + has trip → Create Delivery.
-    // The order already carries the matched trip, trucker, farmer and buyer
-    // (set when the buyer placed the order against this trucker's trip), so we
-    // materialize the delivery straight from the order's own fields instead of
-    // re-collecting them on a separate form. This is what lets it work on web,
-    // where there is no local Isar to resolve the listing from.
-    if (userRole == UserRole.trucker &&
-        order.status == OrderStatus.accepted &&
-        order.tripId != null) {
+    // The order's delivery, for every party: the create action while none
+    // exists, then "Open delivery" (and the farmer's pickup QR) once it does.
+    final createAction = _deliveryCreateAction(
+      context,
+      order: order,
+      userId: userId,
+      userRole: userRole,
+      l10n: l10n,
+    );
+    if (createAction != null || _deliveryStatuses.contains(order.status)) {
       widgets.add(
-        BlocConsumer<DeliveryBloc, DeliveryState>(
-          listenWhen: (_, curr) =>
-              curr is DeliveryCreated &&
-              curr.delivery.deliveryType !=
-                  DeliveryConstants.selfPickupDeliveryType,
-          listener: (context, state) {
-            if (state is DeliveryCreated) {
-              Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => DeliveryDetailScreen(
-                    delivery: state.delivery,
-                    currentUserId: userId,
-                  ),
-                ),
-              );
-            }
-          },
-          builder: (context, state) {
-            final isLoading = state is DeliveryLoading;
-            return SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => _createTruckerDelivery(context, order, userId),
-                icon: const Icon(Icons.local_shipping),
-                label: Text(l10n.createDelivery),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
-              ),
-            );
-          },
+        _OrderDeliveryActions(
+          // A new order status looks the delivery up again.
+          key: ValueKey('order-delivery-${order.orderId}-${order.status.name}'),
+          order: order,
+          userId: userId,
+          userRole: userRole,
+          createAction: createAction,
         ),
       );
-      widgets.add(const SizedBox(height: 12));
-    }
-
-    // Buyer + farmer-accepted + no trucker/trip → "Collect it myself"
-    // (self-pickup). Creates a self-pickup delivery the buyer confirms at the
-    // farm by scanning the farmer's QR. Offered once the farmer has accepted
-    // (so the crop can actually move) and only when no trucker is arranging
-    // transport — mirroring the trucker's "Create Delivery" gate above.
-    if (userRole == UserRole.buyer &&
-        order.status == OrderStatus.accepted &&
-        order.truckerId == null &&
-        order.tripId == null) {
-      widgets.add(
-        BlocConsumer<DeliveryBloc, DeliveryState>(
-          listenWhen: (_, curr) =>
-              curr is DeliveryCreated &&
-              curr.delivery.deliveryType ==
-                  DeliveryConstants.selfPickupDeliveryType,
-          listener: (context, state) {
-            if (state is DeliveryCreated) {
-              Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => DeliveryDetailScreen(
-                    delivery: state.delivery,
-                    currentUserId: userId,
-                  ),
-                ),
-              );
-            }
-          },
-          builder: (context, state) {
-            final isLoading = state is DeliveryLoading;
-            return SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => context.read<DeliveryBloc>().add(
-                          CreateSelfPickupDelivery(
-                            orderId: order.orderId,
-                            listingId: order.listingId,
-                            farmerId: order.farmerId,
-                            farmerName: order.farmerName,
-                            buyerId: userId,
-                            buyerName: order.buyerName,
-                          ),
-                        ),
-                icon: const Icon(Icons.storefront),
-                label: Text(l10n.orderCollectMyself),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-      widgets.add(const SizedBox(height: 12));
     }
 
     // Buyer + delivered/settled → rate the farmer (and trucker if any)
@@ -452,6 +371,69 @@ class _OrderDetailBody extends StatelessWidget {
     }
 
     return widgets;
+  }
+
+  /// Order statuses at which the order can have a delivery to open.
+  static const _deliveryStatuses = {
+    OrderStatus.accepted,
+    OrderStatus.pickupConfirmed,
+    OrderStatus.inTransit,
+    OrderStatus.delivered,
+    OrderStatus.disbursing,
+    OrderStatus.settled,
+    OrderStatus.disputed,
+    OrderStatus.disputeResolved,
+  };
+
+  /// The create-delivery action [userRole] has on [order], or null.
+  ///
+  /// Only while the order is accepted and before any delivery exists
+  /// ([_OrderDeliveryActions] hides it once one does):
+  /// - trucker on a trip-matched order → Create Delivery. The order already
+  ///   carries the matched trip, trucker, farmer and buyer (set when the buyer
+  ///   placed the order against this trucker's trip), so the delivery comes
+  ///   straight from the order's own fields instead of a separate form. This
+  ///   is what lets it work on web, where there is no local Isar to resolve
+  ///   the listing from.
+  /// - buyer with no trucker/trip → "Collect it myself" (self-pickup). The
+  ///   buyer confirms it at the farm by scanning the farmer's QR. Offered once
+  ///   the farmer has accepted (so the crop can actually move) and only when
+  ///   no trucker is arranging transport.
+  ({IconData icon, String label, VoidCallback onPressed})?
+      _deliveryCreateAction(
+    BuildContext context, {
+    required Order order,
+    required String userId,
+    required UserRole userRole,
+    required AppLocalizations l10n,
+  }) {
+    if (order.status != OrderStatus.accepted) return null;
+    if (userRole == UserRole.trucker && order.tripId != null) {
+      return (
+        icon: Icons.local_shipping,
+        label: l10n.createDelivery,
+        onPressed: () => _createTruckerDelivery(context, order, userId),
+      );
+    }
+    if (userRole == UserRole.buyer &&
+        order.truckerId == null &&
+        order.tripId == null) {
+      return (
+        icon: Icons.storefront,
+        label: l10n.orderCollectMyself,
+        onPressed: () => context.read<DeliveryBloc>().add(
+              CreateSelfPickupDelivery(
+                orderId: order.orderId,
+                listingId: order.listingId,
+                farmerId: order.farmerId,
+                farmerName: order.farmerName,
+                buyerId: userId,
+                buyerName: order.buyerName,
+              ),
+            ),
+      );
+    }
+    return null;
   }
 
   /// Trucker materializes a delivery from an accepted, trip-matched order.
@@ -539,6 +521,213 @@ class _OrderDetailBody extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The order's delivery on the order detail screen, for every party.
+///
+/// Looks up the order's live (not cancelled) delivery among the user's own
+/// deliveries: Isar on mobile, `GET /deliveries` paged on web (the order row
+/// does not carry the delivery id to the client). While there is none it shows
+/// [createAction] (see `_deliveryCreateAction`). Once there is one, every
+/// party gets "Open delivery", and the farmer of a pending delivery also gets
+/// "Show QR Code": the code the trucker or the self-pickup buyer scans.
+///
+/// A create the server refuses (for example "The order already has an active
+/// delivery" after a second tap) looks again and opens the delivery it
+/// finds; any other failure shows the error. The shared [DeliveryBloc] is
+/// only listened to while this widget's own create is in flight, so other
+/// screens' delivery states never show here.
+class _OrderDeliveryActions extends StatefulWidget {
+  final Order order;
+  final String userId;
+  final UserRole userRole;
+  final ({IconData icon, String label, VoidCallback onPressed})? createAction;
+
+  const _OrderDeliveryActions({
+    required this.order,
+    required this.userId,
+    required this.userRole,
+    required this.createAction,
+    super.key,
+  });
+
+  @override
+  State<_OrderDeliveryActions> createState() => _OrderDeliveryActionsState();
+}
+
+class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
+  Delivery? _delivery;
+  bool _looking = true;
+  bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lookUp();
+  }
+
+  Future<Delivery?> _findDelivery() async {
+    try {
+      return await context
+          .read<DeliveryBloc>()
+          .repository
+          .findActiveDeliveryForOrder(
+            widget.order.orderId,
+            userId: widget.userId,
+            role: widget.userRole.name,
+            orderCreatedAt: widget.order.createdAt,
+          );
+    } on Object catch (e) {
+      // Offline or failed: offer the create action; the server refuses a
+      // duplicate and the error path below looks again.
+      debugPrint('[OrderDetail] delivery lookup failed: $e');
+    }
+    return null;
+  }
+
+  Future<void> _lookUp() async {
+    final found = await _findDelivery();
+    if (!mounted) return;
+    setState(() {
+      _delivery = found;
+      _looking = false;
+    });
+  }
+
+  Future<void> _open(Delivery delivery) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => DeliveryDetailScreen(
+          delivery: delivery,
+          currentUserId: widget.userId,
+        ),
+      ),
+    );
+    // It may have been cancelled or moved on meanwhile.
+    if (mounted) await _lookUp();
+  }
+
+  void _showQr(Delivery delivery) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (context) => QrGenerateScreen(
+          delivery: delivery,
+          qrService: QrVerificationService(
+            deviceKeyService: DeviceSigningKeyService(),
+          ),
+          repository: context.read<DeliveryBloc>().repository,
+          userId: widget.userId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onCreateResult(DeliveryState state) async {
+    setState(() => _creating = false);
+    if (state is DeliveryCreated) {
+      setState(() => _delivery = state.delivery);
+      await _open(state.delivery);
+      return;
+    }
+    if (state is! DeliveryError) return;
+    final existing = await _findDelivery();
+    if (!mounted) return;
+    if (existing != null) {
+      setState(() => _delivery = existing);
+      await _open(existing);
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(localizeDeliveryError(l10n, state.code))),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final delivery = _delivery;
+    final create = widget.createAction;
+
+    if (_looking) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 12),
+        child: SizedBox(
+          height: 48,
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+      );
+    }
+
+    final buttons = <Widget>[];
+    if (delivery != null) {
+      if (widget.userId == delivery.farmerId &&
+          delivery.status == DeliveryStatus.pending) {
+        buttons.add(
+          FilledButton.icon(
+            key: const Key('order_delivery_show_qr'),
+            onPressed: () => _showQr(delivery),
+            icon: const Icon(Icons.qr_code),
+            label: Text(l10n.deliveryShowQr),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        );
+      }
+      buttons.add(
+        OutlinedButton.icon(
+          key: const Key('order_delivery_open'),
+          onPressed: () => _open(delivery),
+          icon: const Icon(Icons.local_shipping_outlined),
+          label: Text(l10n.orderOpenDelivery),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+          ),
+        ),
+      );
+    } else if (create != null) {
+      buttons.add(
+        BlocListener<DeliveryBloc, DeliveryState>(
+          listenWhen: (_, curr) =>
+              _creating && (curr is DeliveryCreated || curr is DeliveryError),
+          listener: (_, state) => _onCreateResult(state),
+          child: FilledButton.icon(
+            key: const Key('order_delivery_create'),
+            onPressed: _creating
+                ? null
+                : () {
+                    setState(() => _creating = true);
+                    create.onPressed();
+                  },
+            icon: _creating
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(create.icon),
+            label: Text(create.label),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final button in buttons) ...[
+          button,
+          const SizedBox(height: 12),
+        ],
+      ],
     );
   }
 }

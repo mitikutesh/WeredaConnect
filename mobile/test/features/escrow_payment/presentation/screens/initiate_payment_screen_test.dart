@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,6 +60,71 @@ void main() {
   Finder findConfirmButton() {
     return find.byIcon(Icons.check);
   }
+
+  group('InitiatePaymentScreen Fayda step-up (AUTH_041)', () {
+    Future<List<EscrowEvent>> rejectThenFayda(
+      WidgetTester tester, {
+      required bool verifies,
+    }) async {
+      final states = StreamController<EscrowState>.broadcast();
+      addTearDown(states.close);
+      final sent = <EscrowEvent>[];
+      when(() => escrowBloc.stream).thenAnswer((_) => states.stream);
+      when(() => escrowBloc.add(any())).thenAnswer(
+        (inv) => sent.add(inv.positionalArguments.first as EscrowEvent),
+      );
+      await tester.pumpWidget(
+        BlocProvider<EscrowBloc>.value(
+          value: escrowBloc,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: InitiatePaymentScreen(
+              deliveryId: 'del-001-long-id',
+              buyerId: 'buyer-001',
+              farmerId: 'farmer-001',
+              farmerName: 'Abebe Kebede',
+              amount: 15000,
+              faydaVerificationScreen: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).pop(verifies),
+                  child: const Text('fayda screen'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      states.add(
+        const EscrowError(code: 'AUTH_041', message: 'Fayda needed'),
+      );
+      await tester.pumpAndSettle();
+      // The Fayda prompt, not the password one that could never satisfy it.
+      expect(find.byKey(const Key('step_up_password_field')), findsNothing);
+      await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('fayda screen'));
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    testWidgets('a Fayda login sends the same payment again', (tester) async {
+      final sent = await rejectThenFayda(tester, verifies: true);
+
+      final retry = sent.whereType<InitiatePayment>().single;
+      expect(retry.deliveryId, 'del-001-long-id');
+      expect(retry.amount, 15000);
+    });
+
+    testWidgets('a failed Fayda login sends nothing', (tester) async {
+      final sent = await rejectThenFayda(tester, verifies: false);
+
+      expect(sent.whereType<InitiatePayment>(), isEmpty);
+    });
+  });
 
   group('InitiatePaymentScreen', () {
     testWidgets('renders commission breakdown correctly',

@@ -691,6 +691,9 @@ class AppLocalizationsAm extends AppLocalizations {
       'መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።';
 
   @override
+  String get orderOpenDelivery => 'ማድረሻውን ክፈት';
+
+  @override
   String get orderCollectMyself => 'ራሴ እወስዳለሁ';
 
   @override
@@ -751,6 +754,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryGpsPermissionDenied => 'የአካባቢ ፈቃድ ተከልክሏል';
+
+  @override
+  String get deliveryQrShowInstructionBuyer => 'ገዢው ሲወስድ ይህን ኪዩአር ለገዢው አሳይ';
 
   @override
   String get deliveryQrShowInstruction => 'ይህን ኪዩአር ለሹፌሩ አሳይ';
@@ -2585,6 +2591,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String otpExpiresAt(String time) {
     return 'ኮዱ በ$time ጊዜው ያልፋል።';
   }
+
+  @override
+  String get faydaStepUpMessage =>
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልጋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።';
 
   @override
   String get stepUpTitle => 'እርስዎ መሆንዎን ያረጋግጡ';

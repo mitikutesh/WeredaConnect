@@ -713,6 +713,9 @@ class AppLocalizationsOm extends AppLocalizations {
       'Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
 
   @override
+  String get orderOpenDelivery => 'Geejjiba bani';
+
+  @override
   String get orderCollectMyself => 'Ani ofiin nan fudhadha';
 
   @override
@@ -773,6 +776,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
+
+  @override
+  String get deliveryQrShowInstructionBuyer =>
+      'Yeroo bitaan fudhatu koodii QR kana bitaaf agarsiisi';
 
   @override
   String get deliveryQrShowInstruction =>
@@ -2676,6 +2683,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String otpExpiresAt(String time) {
     return 'Koodiin sa\'aatii $time irratti dhumata.';
   }
+
+  @override
+  String get faydaStepUpMessage =>
+      'Kaffaltiin qarshii 10,000 ol ta\'e jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta\'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.';
 
   @override
   String get stepUpTitle => 'Isin ta\'uu keessan mirkaneessaa';

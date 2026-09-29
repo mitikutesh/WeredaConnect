@@ -1012,6 +1012,28 @@ void main() {
         expect(result, isA<EscrowError>());
         expect((result as EscrowError).code, stepUpRequiredCode);
       });
+
+      test('initiatePayment keeps AUTH_041 so the screen asks for Fayda',
+          () async {
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const StepUpRequiredException('Fayda needed', 403, 'AUTH_041'),
+        );
+
+        final result = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000,
+        );
+
+        expect((result as EscrowError).code, faydaStepUpRequiredCode);
+        expect(await isar.paymentIntents.count(), 0);
+      });
     });
   });
 }

@@ -42,26 +42,43 @@ final class AuthException extends ApiException {
 }
 
 /// Server error code for "step-up required": the ID token's `auth_time` is
-/// older than the freshness window for a high-value money action.
+/// older than the freshness window for a money action (payments up to
+/// 10,000 ETB, large disputes).
 const String stepUpRequiredCode = 'AUTH_040';
+
+/// Server error code for "Fayda step-up required": a payment above 10,000 ETB
+/// needs a Fayda login within the freshness window (a password is not enough).
+const String faydaStepUpRequiredCode = 'AUTH_041';
 
 /// Sync rejection prefix when a payment needs Fayda KYC or a verified phone.
 const String orderKycRequiredCode = 'ORDER_KYC_REQUIRED';
 
-/// The server wants the user to re-enter their password before a money
-/// action (REST 403 `AUTH_040`). Not an [AuthException]: the session is still
-/// valid, so callers must re-authenticate and retry instead of logging out.
+/// The server wants the user to confirm it is them before a money action
+/// (REST 403 `AUTH_040` for the password, `AUTH_041` for Fayda). Not an
+/// [AuthException]: the session is still valid, so callers must
+/// re-authenticate and retry instead of logging out.
 final class StepUpRequiredException extends ApiException {
   const StepUpRequiredException([
     super.message = 'Please confirm it is you',
     super.statusCode = 403,
+    super.code = stepUpRequiredCode,
   ]);
+
+  /// True when only a fresh Fayda login satisfies the server (AUTH_041).
+  bool get requiresFayda => code == faydaStepUpRequiredCode;
 }
 
-/// Whether a /sync per-operation error message is a step-up rejection
-/// (`AUTH_040: ...`).
+/// Whether a /sync per-operation error message is a step-up rejection of
+/// either kind (`AUTH_040: ...` password, `AUTH_041: ...` Fayda).
 bool isStepUpRequiredMessage(String? message) =>
-    message != null && message.startsWith(stepUpRequiredCode);
+    message != null &&
+    (message.startsWith(stepUpRequiredCode) ||
+        message.startsWith(faydaStepUpRequiredCode));
+
+/// Whether a /sync per-operation error message asks for a Fayda login
+/// (`AUTH_041: ...`).
+bool isFaydaStepUpRequiredMessage(String? message) =>
+    message != null && message.startsWith(faydaStepUpRequiredCode);
 
 /// Whether a /sync per-operation error message is a KYC gate rejection
 /// (`ORDER_KYC_REQUIRED: ...`).

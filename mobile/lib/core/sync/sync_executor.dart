@@ -212,8 +212,9 @@ class SyncBatchResult {
 /// - `success` → mark synced, remove from queue
 /// - `conflict` → invoke [ConflictHandler] (server wins default), mark synced
 /// - `duplicate` → already processed, mark synced
-/// - `error` with `AUTH_040` (step-up) → keep pending, ask the UI for the
-///   password, retry after [SecurityEvents.stepUpCompleted]
+/// - `error` with `AUTH_040` / `AUTH_041` (step-up) → keep pending, ask the
+///   UI for the password or a Fayda login, retry after
+///   [SecurityEvents.stepUpCompleted]
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
@@ -576,6 +577,7 @@ class SyncExecutor {
     var failed = 0;
     var deferred = 0;
     var stepUpRequired = 0;
+    var faydaStepUpRequired = false;
     final operationErrors = <String, String>{};
 
     // Build lookup map for O(1) access by operationId
@@ -656,12 +658,13 @@ class SyncExecutor {
           deferred++;
 
         default:
-          // Step-up (AUTH_040): the session is too old for this amount. The
+          // Step-up (AUTH_040 password, AUTH_041 Fayda above 10,000 ETB): the
           // op is valid, so keep it pending WITHOUT burning a retry and never
           // mark it failed; it goes again after the user re-authenticates.
           if (status == 'error' && isStepUpRequiredMessage(message)) {
             await _syncQueue.revertToPending(operationId);
             stepUpRequired++;
+            faydaStepUpRequired |= isFaydaStepUpRequiredMessage(message);
             continue;
           }
           // KYC gate (ORDER_KYC_REQUIRED): replaying the same payload can't
@@ -707,7 +710,9 @@ class SyncExecutor {
     }
 
     if (stepUpRequired > 0) {
-      _securityEvents.emit(const StepUpRequired());
+      // One prompt for the batch. Fayda wins: after a Fayda login the
+      // password-tier ops still need a password, and the retry asks again.
+      _securityEvents.emit(StepUpRequired(withFayda: faydaStepUpRequired));
     }
 
     // Use the first fraud-related error as the batch error message for UI

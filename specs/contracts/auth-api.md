@@ -527,6 +527,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
 | `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0) | Ask for the password, log in again, retry |
+| `AUTH_041` | 403 | Fayda step-up required: a payment above 10,000 ETB needs a Fayda login within the step-up window; a password does not count (2.4.0) | Open the Fayda flow (`/user/fayda-start`, `/user/fayda-link`), retry |
 | `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
 | `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
@@ -767,19 +768,34 @@ per phone per day, 30 per IP per 5 minutes (`429 AUTH_006`, `Retry-After`).
 per 5 minutes. Suspension also disables the Cognito user and signs out every session;
 `change_role` rewrites `custom:role` and signs the user out.
 
-### Step-up (AUTH_040)
+### Step-up (AUTH_040, AUTH_041)
 
-Money actions at or above `STEP_UP_THRESHOLD_ETB` (default 10,000) require the ID token's
-`auth_time` to be within `STEP_UP_MAX_AGE_SECONDS` (default 300). Refreshed tokens keep the
-original `auth_time`; access tokens carry none and are never fresh.
+Freshness means within `STEP_UP_MAX_AGE_SECONDS` (default 300). A password is fresh when
+the ID token's `auth_time` is; refreshed tokens keep the original `auth_time`, access tokens
+carry none and are never fresh. A Fayda login is fresh when the last successful
+`POST /user/fayda-link` for the account is (server-side `faydaAuthenticatedAt` on the user
+row, never returned to clients).
+
+**Payments** (2.4.0) are tiered at the NBE Fayda threshold, 10,000 ETB:
+
+| Amount | Needs | Otherwise |
+|--------|-------|-----------|
+| up to and including 10,000 ETB | a fresh password | `AUTH_040` |
+| above 10,000 ETB | a fresh Fayda login (the password is not asked) | `AUTH_041` |
+
+**Disputes** on escrows at or above `STEP_UP_THRESHOLD_ETB` (default 10,000) need a fresh
+password (`AUTH_040`).
 
 | Where | Response |
 |-------|----------|
-| `POST /escrow/initiate`, `POST /escrow/dispute` | `403 {error:{code:"AUTH_040"}}` |
-| `/sync` order update to `payment_submitted`, delivery `disputed` | operation `status:"error"`, `message:"AUTH_040: ..."` |
+| `POST /escrow/initiate` (payment tiers) | `403 {error:{code:"AUTH_040"}}` or `403 {error:{code:"AUTH_041"}}` |
+| `/sync` order update to `payment_submitted` (payment tiers) | operation `status:"error"`, `message:"AUTH_040: ..."` or `"AUTH_041: ..."` |
+| `POST /escrow/dispute`, `/sync` delivery `disputed` | `AUTH_040` as above |
 
-Client behaviour: ask for the password, call `POST /auth/login` again, store the tokens as
-a normal login, retry. A queued sync operation stays pending until then.
+Client behaviour: on `AUTH_040` ask for the password, call `POST /auth/login` again, store the
+tokens as a normal login, retry. On `AUTH_041` run the Fayda link flow as the account owner
+(same rules as KYC, `FAYDA_005/006/007` on a different identity), then retry. A queued sync
+operation stays pending until then.
 
 ### Server-driven Fayda OIDC
 
@@ -845,11 +861,12 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.4.0 | 2026-09-29 | Payment step-up is tiered: up to 10,000 ETB a fresh password (`AUTH_040`, now on every payment, not only large ones); above 10,000 ETB a fresh Fayda login instead (`AUTH_041`), recorded by each successful `POST /user/fayda-link`. Disputes unchanged |
 | 2.3.0 | 2026-09-29 | `POST /user/fayda-link` binds only the account owner's identity: same Fayda ID as on file, else a Fayda phone equal to the account phone; `FAYDA_005` (different Fayda ID), `FAYDA_006` (phone mismatch), `FAYDA_007` (no phone claim, nothing to compare), all `403` with no write |
 | 2.2.0 | 2026-09-28 | Registration requires Fayda: `POST /auth/register` without a `faydaVerificationToken` returns `400 AUTH_021`; the app has no skip on the Fayda step and retries transient Fayda failures before showing an error; the server retries Fayda's token endpoint while the code cannot have been used (connection refused, 502/503/504) and reports any Fayda 5xx as `FAYDA_003` instead of `FAYDA_001`; a Fayda ID held only by an abandoned sign-up (profile phone unverified and Cognito user unconfirmed or gone) no longer blocks `fayda-verify` or `register` with `FAYDA_004`: register replaces it |
 | 2.1.0 | 2026-09-26 | Phone proof and step-up: register returns `202 otpRequired` unless Fayda released the same phone; `POST /auth/verify-otp` (code + password) and `POST /auth/resend-otp`; login `AUTH_016` routes to the code; `AUTH_040` step-up on money actions; server-driven Fayda (`/auth/fayda-start`, `/user/fayda-start`, `/user/fayda-link`) with state, nonce and PKCE; single-use phone-bound verification token; refresh refuses suspended accounts (`AUTH_025`); per-IP caps; `X-Device-Id` / `X-Device-Name` and `newDevice` |
 
 ---
 
-**Last Updated**: 2026-09-28
-**Version**: 2.2.0
+**Last Updated**: 2026-09-29
+**Version**: 2.4.0

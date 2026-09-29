@@ -709,6 +709,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Pay into escrow first, then scan at the farm to collect.';
 
   @override
+  String get orderOpenDelivery => 'Open delivery';
+
+  @override
   String get orderCollectMyself => 'Collect it myself';
 
   @override
@@ -769,6 +772,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryGpsPermissionDenied => 'Location permission denied';
+
+  @override
+  String get deliveryQrShowInstructionBuyer =>
+      'Show this QR code to the buyer when they collect';
 
   @override
   String get deliveryQrShowInstruction => 'Show this QR code to the trucker';
@@ -2659,6 +2666,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String otpExpiresAt(String time) {
     return 'The code expires at $time.';
   }
+
+  @override
+  String get faydaStepUpMessage =>
+      'Payments above 10,000 ETB need a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.';
 
   @override
   String get stepUpTitle => 'Confirm it\'s you';

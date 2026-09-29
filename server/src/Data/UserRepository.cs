@@ -103,7 +103,7 @@ public sealed class UserRepository : IUserRepository
             },
             UpdateExpression = "SET #phone = :phone, #name = :name, #fullName = :fullName, #role = :role, " +
                                "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
-                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, " +
+                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
                                "#devices = :devices, #updated = :updated, #v = :newVersion",
             ConditionExpression = "#v = :expectedVersion",
             ExpressionAttributeNames = new Dictionary<string, string>
@@ -119,6 +119,7 @@ public sealed class UserRepository : IUserRepository
                 { "#fayda", "faydaId" },
                 { "#faydaV", "faydaVerified" },
                 { "#faydaVAt", "faydaVerifiedAt" },
+                { "#faydaAuthAt", "faydaAuthenticatedAt" },
                 { "#devices", "knownDevices" },
                 { "#updated", "updatedAt" },
                 { "#v", "version" }
@@ -136,6 +137,7 @@ public sealed class UserRepository : IUserRepository
                 { ":fayda", user.FaydaId != null ? new AttributeValue { S = user.FaydaId } : new AttributeValue { NULL = true } },
                 { ":faydaV", new AttributeValue { BOOL = user.FaydaVerified } },
                 { ":faydaVAt", user.FaydaVerifiedAt != null ? new AttributeValue { S = user.FaydaVerifiedAt } : new AttributeValue { NULL = true } },
+                { ":faydaAuthAt", user.FaydaAuthenticatedAt != null ? new AttributeValue { S = user.FaydaAuthenticatedAt } : new AttributeValue { NULL = true } },
                 { ":devices", user.KnownDevices.Count > 0 ? new AttributeValue { SS = [.. user.KnownDevices] } : new AttributeValue { NULL = true } },
                 { ":updated", new AttributeValue { S = now } },
                 { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
@@ -241,6 +243,11 @@ public sealed class UserRepository : IUserRepository
             item["faydaVerifiedAt"] = new AttributeValue { S = user.FaydaVerifiedAt };
         }
 
+        if (user.FaydaAuthenticatedAt != null)
+        {
+            item["faydaAuthenticatedAt"] = new AttributeValue { S = user.FaydaAuthenticatedAt };
+        }
+
         if (user.ProfilePhotoRef != null)
         {
             item["profilePhotoRef"] = new AttributeValue { S = user.ProfilePhotoRef };
@@ -275,6 +282,7 @@ public sealed class UserRepository : IUserRepository
             FaydaId = item.TryGetValue("faydaId", out var fid) && fid.S != null ? fid.S : null,
             FaydaVerified = item.TryGetValue("faydaVerified", out var fv) && fv.BOOL,
             FaydaVerifiedAt = item.TryGetValue("faydaVerifiedAt", out var fva) && fva.S != null ? fva.S : null,
+            FaydaAuthenticatedAt = item.TryGetValue("faydaAuthenticatedAt", out var faa) && faa.S != null ? faa.S : null,
             PreferredLanguage = item.TryGetValue("preferredLanguage", out var lang) ? lang.S : "am",
             IsPhoneVerified = item.TryGetValue("isPhoneVerified", out var verified) && verified.BOOL,
             Suspended = item.TryGetValue("suspended", out var susp) && susp.BOOL,

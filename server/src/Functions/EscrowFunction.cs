@@ -26,6 +26,7 @@ public class EscrowFunction
 {
     private readonly EscrowService _escrowService;
     private readonly IFraudDetectionService? _fraudService;
+    private readonly IUserRepository? _userRepo;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -70,6 +71,7 @@ public class EscrowFunction
 
         _escrowService = new EscrowService(
             escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo);
+        _userRepo = userRepo;
 
         // Fraud detection (F-14)
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
@@ -86,10 +88,12 @@ public class EscrowFunction
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public EscrowFunction(EscrowService escrowService, IFraudDetectionService? fraudService = null)
+    public EscrowFunction(
+        EscrowService escrowService, IFraudDetectionService? fraudService = null, IUserRepository? userRepo = null)
     {
         _escrowService = escrowService ?? throw new ArgumentNullException(nameof(escrowService));
         _fraudService = fraudService;
+        _userRepo = userRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -164,14 +168,36 @@ public class EscrowFunction
             return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can initiate escrow payments.");
         }
 
-        // Step-up: a large payment needs a recent password entry (auth_time), so a
-        // long-lived session on a shared or stolen phone cannot pay on its own.
-        if (StepUpPolicy.Check(request, body.Amount) != null)
+        // Step-up: a payment needs a recent password (up to 10,000 ETB) or a recent
+        // Fayda login (above it), so a long-lived session on a shared or stolen phone
+        // cannot pay on its own. Without the user table the Fayda tier fails closed.
+        string? buyerFaydaAuthAt = null;
+        if (body.Amount > KycPolicy.FaydaThresholdEtb && _userRepo != null)
         {
+            try
+            {
+                buyerFaydaAuthAt = (await _userRepo.GetUserByIdAsync(userId))?.FaydaAuthenticatedAt;
+            }
+            catch (Exception ex)
+            {
+                // Temporary: nothing was held, the client may retry.
+                context.Logger.LogError($"Step-up profile read failed: [{ex.GetType().Name}]");
+                AuditLogger.LogAudit("ESCROW", "INITIATE",
+                    userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
+                    entityType: "escrow", outcome: "failure", errorCode: "ESCROW_012");
+                return LambdaResponse.Error(503, "ESCROW_012",
+                    "Payment is temporarily unavailable. Please try again.");
+            }
+        }
+        var stepUpError = StepUpPolicy.CheckPayment(AuthHelper.GetAuthTime(request), buyerFaydaAuthAt, body.Amount);
+        if (stepUpError != null)
+        {
+            var stepUpCode = StepUpPolicy.CodeOf(stepUpError);
             AuditLogger.LogAudit("ESCROW", "INITIATE",
                 userId: userId, correlationId: AuditLogger.GetCorrelationId(request),
-                entityType: "escrow", outcome: "failure", errorCode: StepUpPolicy.ErrorCode);
-            return LambdaResponse.Error(403, StepUpPolicy.ErrorCode, StepUpPolicy.ErrorMessage);
+                entityType: "escrow", outcome: "failure", errorCode: stepUpCode);
+            return LambdaResponse.Error(403, stepUpCode,
+                stepUpCode == StepUpPolicy.FaydaErrorCode ? StepUpPolicy.FaydaErrorMessage : StepUpPolicy.ErrorMessage);
         }
 
         // ── Fraud velocity check (F-14) ──

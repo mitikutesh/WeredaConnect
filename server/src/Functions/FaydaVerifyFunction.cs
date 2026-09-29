@@ -300,6 +300,8 @@ public class FaydaVerifyFunction
             FaydaId = verification.FaydaId,
             FaydaVerified = true,
             FaydaVerifiedAt = current.FaydaVerified ? current.FaydaVerifiedAt ?? now : now,
+            // Every link is a fresh Fayda login: the proof a payment above 10,000 ETB needs.
+            FaydaAuthenticatedAt = now,
             FullName = string.IsNullOrWhiteSpace(current.FullName) ? verification.FullName : current.FullName,
             IsPhoneVerified = current.IsPhoneVerified || RegisterFunction.IsPhoneProven(verification, current.PhoneNumber)
         };

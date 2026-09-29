@@ -145,13 +145,41 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..version = 1;
   }
 
+  /// Registers the farmer's QR nonce with the server: a `/sync` delivery
+  /// update carrying only `qrNonce` (the server moves it to the QR secret
+  /// store). Web has no sync queue, so without this a QR shown on web could
+  /// never be confirmed: the scan would stay deferred until the nonce
+  /// arrives. Throws when the server refuses it, so the QR screen keeps the
+  /// code hidden instead of showing one that cannot work.
   @override
   Future<void> persistQrNonce({
     required String deliveryId,
     required String qrNonce,
     required String userId,
   }) async {
-    // On web, QR nonces are not needed (no QR scanning on web)
+    final now = DateTime.now().toUtc().toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'delivery',
+            'action': 'update',
+            'entityId': deliveryId,
+            'timestamp': now,
+            'idempotencyKey': 'web_qr_nonce_${deliveryId}_$now',
+            'data': {
+              'qrNonce': qrNonce,
+              'version': await _currentVersion(deliveryId),
+            },
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
   }
 
   /// Fetch the delivery's current server version for optimistic-concurrency.
@@ -406,16 +434,8 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     // ParticipantIndex. Farmer/trucker participant queries are a server
     // follow-up (ParticipantIndex is buyer-keyed), so they keep the existing
     // filter path.
-    final params = <String, dynamic>{};
-    var mine = false;
-    if (role == 'farmer') {
-      params['farmerId'] = userId;
-    } else if (role == 'trucker') {
-      params['truckerId'] = userId;
-    } else {
-      params['mine'] = 'true';
-      mine = true;
-    }
+    final params = _participantParams(userId, role);
+    final mine = params.containsKey('mine');
     if (statusFilter != null) params['status'] = statusFilter;
     final data = await _api.get<Map<String, dynamic>>(
       '/deliveries',
@@ -428,6 +448,59 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       return all.where((d) => d.status.name == statusFilter).toList();
     }
     return all;
+  }
+
+  /// Query keys that scope `GET /deliveries` to the user's own deliveries:
+  /// the farmer and trucker GSIs, else the buyer's participant ("mine") query.
+  Map<String, dynamic> _participantParams(String userId, String? role) {
+    if (role == 'farmer') return {'farmerId': userId};
+    if (role == 'trucker') return {'truckerId': userId};
+    return {'mine': 'true'};
+  }
+
+  /// Most pages [findActiveDeliveryForOrder] reads (50 deliveries each).
+  static const _maxOrderLookupPages = 10;
+
+  /// Slack for clock skew between the order's and the deliveries' timestamps
+  /// before the lookup gives up on older pages.
+  static const _orderClockSkew = Duration(days: 1);
+
+  /// Pages through the user's deliveries (newest first) until the order's
+  /// live delivery turns up. `GET /deliveries` has no order filter and returns
+  /// 20 by default, so reading one page missed it for busy users. A delivery
+  /// cannot predate its order, so paging stops at the first page that
+  /// reaches deliveries older than [orderCreatedAt]: on 3G the usual case
+  /// (no delivery yet) costs one request, not ten.
+  @override
+  Future<Delivery?> findActiveDeliveryForOrder(
+    String orderId, {
+    required String userId,
+    required String role,
+    DateTime? orderCreatedAt,
+  }) async {
+    final cutoff = orderCreatedAt?.toUtc().subtract(_orderClockSkew);
+    final params = _participantParams(userId, role)..['limit'] = 50;
+    for (var page = 0; page < _maxOrderLookupPages; page++) {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/deliveries',
+        queryParameters: params,
+      );
+      final rows = _parseDeliveries(data);
+      for (final d in rows) {
+        if (d.orderId == orderId && d.status != DeliveryStatus.cancelled) {
+          return d;
+        }
+      }
+      if (cutoff != null &&
+          rows.isNotEmpty &&
+          rows.last.createdAt.toUtc().isBefore(cutoff)) {
+        return null;
+      }
+      final next = data['nextToken'] as String?;
+      if (next == null || next.isEmpty) return null;
+      params['nextToken'] = next;
+    }
+    return null;
   }
 
   List<Delivery> _parseDeliveries(Map<String, dynamic> data) {

@@ -103,6 +103,28 @@ void main() {
       ),
     ).called(1);
     expect(emitted.whereType<StepUpRequired>(), hasLength(1));
+    expect(emitted.whereType<StepUpRequired>().single.withFayda, isFalse);
+  });
+
+  test('AUTH_041 keeps the intent pending and asks for a Fayda login',
+      () async {
+    await insertIntent('k-1', 'del-1');
+    when(
+      () => api.post<Map<String, dynamic>>(
+        any(),
+        data: any<dynamic>(named: 'data'),
+      ),
+    ).thenThrow(
+      const StepUpRequiredException('Fayda needed', 403, 'AUTH_041'),
+    );
+
+    await service.processQueuedIntents();
+    await Future<void>.delayed(Duration.zero);
+
+    final intent = (await isar.paymentIntents.where().findAll()).single;
+    expect(intent.status, IntentStatus.pendingSync);
+    expect(intent.retryCount, 0);
+    expect(emitted.whereType<StepUpRequired>().single.withFayda, isTrue);
   });
 
   test('a completed step-up retries the queued intent', () async {

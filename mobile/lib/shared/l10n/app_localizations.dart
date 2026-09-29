@@ -1420,6 +1420,12 @@ abstract class AppLocalizations {
   /// **'Pay into escrow first, then scan at the farm to collect.'**
   String get deliverySelfPickupPayFirst;
 
+  /// Order detail button that opens the delivery already created for this order
+  ///
+  /// In en, this message translates to:
+  /// **'Open delivery'**
+  String get orderOpenDelivery;
+
   /// Buyer button to arrange self-pickup (no trucker) for an order
   ///
   /// In en, this message translates to:
@@ -1539,6 +1545,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Location permission denied'**
   String get deliveryGpsPermissionDenied;
+
+  /// Instruction on the farmer's QR screen for a self-pickup delivery (the buyer scans it)
+  ///
+  /// In en, this message translates to:
+  /// **'Show this QR code to the buyer when they collect'**
+  String get deliveryQrShowInstructionBuyer;
 
   /// Instruction to show QR code to trucker
   ///
@@ -4929,6 +4941,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The code expires at {time}.'**
   String otpExpiresAt(String time);
+
+  /// Fayda step-up dialog (AUTH_041): a payment above 10,000 ETB needs a fresh Fayda login instead of the password
+  ///
+  /// In en, this message translates to:
+  /// **'Payments above 10,000 ETB need a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.'**
+  String get faydaStepUpMessage;
 
   /// Title of the step-up re-authentication dialog
   ///

@@ -904,6 +904,10 @@
   "@deliverySelfPickupPayFirst": {
     "description": "Hint shown when the self-pickup scan is disabled because escrow is not yet funded"
   },
+  "orderOpenDelivery": "Open delivery",
+  "@orderOpenDelivery": {
+    "description": "Order detail button that opens the delivery already created for this order"
+  },
   "orderCollectMyself": "Collect it myself",
   "@orderCollectMyself": {
     "description": "Buyer button to arrange self-pickup (no trucker) for an order"
@@ -989,6 +993,10 @@
   "deliveryGpsPermissionDenied": "Location permission denied",
   "@deliveryGpsPermissionDenied": {
     "description": "Location permission was denied by user"
+  },
+  "deliveryQrShowInstructionBuyer": "Show this QR code to the buyer when they collect",
+  "@deliveryQrShowInstructionBuyer": {
+    "description": "Instruction on the farmer's QR screen for a self-pickup delivery (the buyer scans it)"
   },
   "deliveryQrShowInstruction": "Show this QR code to the trucker",
   "@deliveryQrShowInstruction": {
@@ -3370,6 +3378,10 @@
         "type": "String"
       }
     }
+  },
+  "faydaStepUpMessage": "Payments above 10,000 ETB need a Fayda login, not your password. Confirm it's you with Fayda and your payment continues right after.",
+  "@faydaStepUpMessage": {
+    "description": "Fayda step-up dialog (AUTH_041): a payment above 10,000 ETB needs a fresh Fayda login instead of the password"
   },
   "stepUpTitle": "Confirm it's you",
   "@stepUpTitle": {

@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.5.2
+1.6.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -162,7 +162,8 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | farmer profile missing or phone not verified | `ORDER_KYC_REQUIRED: farmer_phone: ...` |
 | `orderTotal` above 10,000 ETB and buyer not Fayda-verified | `ORDER_KYC_REQUIRED: buyer_fayda: Verify your Fayda ID ...` |
 | `orderTotal` above 10,000 ETB and farmer not Fayda-verified | `ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify ...` |
-| `orderTotal` at or above the step-up threshold and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
+| `orderTotal` up to and including 10,000 ETB and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
+| `orderTotal` above 10,000 ETB and the buyer's last Fayda login (`POST /user/fayda-link`) older than the step-up window; a fresh password does not count | `AUTH_041: Confirm it's you with Fayda ...` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
 runs only after they pass. The client reverts the local order to its previous status on
@@ -170,12 +171,22 @@ runs only after they pass. The client reverts the local order to its previous st
 return the account owner's identity (`POST /user/fayda-link`, `auth-api.md` 2.3.0); on
 success it sends the same payment again (for `buyer_phone`, only when the link also
 proved the phone, `phoneVerified: true`), on failure the payment stays unsent. For a
-farmer-side reason it only explains. On `AUTH_040` it re-authenticates and retries.
+farmer-side reason it only explains. On `AUTH_040` it asks for the password and retries; on
+`AUTH_041` it runs the Fayda link flow as the account owner and retries. A buyer who is not
+Fayda-verified yet gets `buyer_fayda` first; that link is also the fresh Fayda login, so the
+resubmitted payment passes both gates.
+
+Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
+order detail screen offers every party "Open delivery" instead of a second create, and the
+farmer of a pending delivery "Show QR Code" (the code the trucker or the self-pickup buyer
+scans). A create the server refuses with `DELIVERY_VALIDATION: The order already has an
+active delivery.` opens the existing delivery.
 
 ---
 
 ## Changelog
 
+- **1.6.0 (2026-09-29)**: Payment step-up is tiered: a fresh password (`AUTH_040`) on every payment up to 10,000 ETB, a fresh Fayda login (`AUTH_041`) above it instead of the password. Order detail links every party to the order's delivery (and the farmer to the pickup QR) once one exists, so a second create is never offered.
 - **1.5.2 (2026-09-29)**: The order quantity cap is 1,000,000 kg, the kg size of a full 10,000-quintal listing. It was 100,000, which rejected full orders on any listing above 1,000 quintals. The place-order screen now blocks a quantity above the listing stock before sending.
 - **1.5.1 (2026-09-29)**: KYC errors name whose verification is missing (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`); the buyer's payment is resubmitted after a successful Fayda link and not otherwise.
 - **1.5.0 (2026-09-26)**: Payment gates on `payment_submitted`: both parties phone-verified and, above 10,000 ETB, Fayda-verified (`ORDER_KYC_REQUIRED`); fresh password (`AUTH_040`) at or above the step-up threshold; mock auto-fund runs only after the gates.

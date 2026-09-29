@@ -80,6 +80,216 @@ void main() {
     });
   });
 
+  group('findActiveDeliveryForOrder', () {
+    Map<String, dynamic> row(
+      String id,
+      String orderId,
+      String status, {
+      String createdAt = '2026-09-29T10:00:00Z',
+    }) =>
+        {
+          'deliveryId': id,
+          'orderId': orderId,
+          'status': status,
+          'farmerId': 'farmer-1',
+          'buyerId': 'buyer-1',
+          'createdAt': createdAt,
+        };
+
+    test('stops at deliveries older than the order (one request, not ten)',
+        () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        return {
+          'deliveries': [
+            row('d-new', 'order-9', 'pending'),
+            row(
+              'd-old',
+              'order-8',
+              'delivered',
+              createdAt: '2026-09-20T10:00:00Z',
+            ),
+          ],
+          'nextToken': 'more',
+        };
+      });
+
+      final found = await repository.findActiveDeliveryForOrder(
+        'order-1',
+        userId: 'buyer-1',
+        role: 'buyer',
+        orderCreatedAt: DateTime.utc(2026, 9, 28),
+      );
+
+      expect(found, isNull);
+      expect(requests, 1);
+    });
+
+    test('keeps paging while the page is newer than the order', () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        return requests == 1
+            ? {
+                'deliveries': [row('d-new', 'order-9', 'pending')],
+                'nextToken': 'more',
+              }
+            : {
+                'deliveries': [row('d-live', 'order-1', 'pending')],
+              };
+      });
+
+      final found = await repository.findActiveDeliveryForOrder(
+        'order-1',
+        userId: 'buyer-1',
+        role: 'buyer',
+        orderCreatedAt: DateTime.utc(2026, 9, 28),
+      );
+
+      expect(found?.deliveryId, 'd-live');
+      expect(requests, 2);
+    });
+
+    test('pages past the first page and skips cancelled deliveries', () async {
+      final queries = <Map<String, dynamic>>[];
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((invocation) async {
+        final q = Map<String, dynamic>.from(
+          invocation.namedArguments[#queryParameters] as Map,
+        );
+        queries.add(q);
+        if (q['nextToken'] == null) {
+          return {
+            'deliveries': [
+              row('d-cancelled', 'order-1', 'cancelled'),
+              row('d-other', 'order-2', 'pending'),
+            ],
+            'nextToken': 'page-2',
+          };
+        }
+        return {
+          'deliveries': [row('d-live', 'order-1', 'pending')],
+        };
+      });
+
+      final found = await repository.findActiveDeliveryForOrder(
+        'order-1',
+        userId: 'farmer-1',
+        role: 'farmer',
+      );
+
+      expect(found?.deliveryId, 'd-live');
+      expect(queries, hasLength(2));
+      // Scoped to the caller's own deliveries, at the largest page size.
+      expect(queries.first['farmerId'], 'farmer-1');
+      expect(queries.first['limit'], 50);
+      expect(queries.last['nextToken'], 'page-2');
+    });
+
+    test('a buyer uses the participant query and gets null when none match',
+        () async {
+      Map<String, dynamic>? query;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((invocation) async {
+        query = Map<String, dynamic>.from(
+          invocation.namedArguments[#queryParameters] as Map,
+        );
+        return {
+          'deliveries': [row('d-cancelled', 'order-1', 'cancelled')],
+        };
+      });
+
+      final found = await repository.findActiveDeliveryForOrder(
+        'order-1',
+        userId: 'buyer-1',
+        role: 'buyer',
+      );
+
+      expect(found, isNull);
+      expect(query!['mine'], 'true');
+      expect(query!.containsKey('farmerId'), isFalse);
+    });
+  });
+
+  // The farmer's QR shown on web must reach the server, or the buyer's scan
+  // stays deferred forever (web has no sync queue to carry it later).
+  group('persistQrNonce', () {
+    setUp(() {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {
+            'deliveryId': 'del-1',
+            'status': 'pending',
+            'deliveryType': 'self_pickup',
+            'version': 3,
+          },
+        },
+      );
+    });
+
+    test('registers the nonce as a delivery update at the current version',
+        () async {
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.persistQrNonce(
+        deliveryId: 'del-1',
+        qrNonce: 'nonce-1',
+        userId: 'farmer-1',
+      );
+
+      final op = sentOp();
+      expect(op['entityType'], 'delivery');
+      expect(op['action'], 'update');
+      expect(op['entityId'], 'del-1');
+      expect(op['data'], {'qrNonce': 'nonce-1', 'version': 3});
+    });
+
+    test('a refused nonce throws so the QR screen keeps the code hidden',
+        () async {
+      answerSync({
+        'results': [
+          {
+            'status': 'error',
+            'message': 'DELIVERY_UNAUTHORIZED: You can only update your own '
+                'deliveries.',
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.persistQrNonce(
+          deliveryId: 'del-1',
+          qrNonce: 'nonce-1',
+          userId: 'farmer-1',
+        ),
+        throwsA(isA<SyncRejectedException>()),
+      );
+    });
+  });
+
   test('a deferred pickup throws instead of reporting success', () async {
     // The version read-back falls back to 1 when the GET fails.
     when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))

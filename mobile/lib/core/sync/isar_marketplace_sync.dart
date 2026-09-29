@@ -361,6 +361,10 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..buyerName = m['buyerName'] as String? ?? ''
       ..qrToken = m['qrToken'] as String? ?? ''
       ..orderId = m['orderId'] as String?
+      // Without it a pulled self-pickup row turns back into a trucker
+      // delivery: the buyer's scan button and the pending-to-delivered
+      // confirmation both key on it.
+      ..deliveryType = m['deliveryType'] as String?
       ..qrNonce = m['qrNonce'] as String?
       ..status = _parseDeliveryStatus(m['status'] as String?)
       ..pickupPhotoRef = m['pickupPhotoRef'] as String?

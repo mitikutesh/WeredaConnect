@@ -3990,6 +3990,22 @@ public partial class SyncFunction
                             }
 
                             operation.Data.Remove("qrNonce");
+
+                            // Nonce only: nothing on the delivery item changes, so skip the
+                            // write and keep the version. Bumping it made the scanner's
+                            // queued confirm (sent at the version it last pulled) conflict,
+                            // and server-wins silently undid the pickup or collection.
+                            if (operation.Data.Keys.All(k => k is "version" or "updatedAt"))
+                            {
+                                return new SyncOperationResult
+                                {
+                                    OperationId = operation.OperationId,
+                                    Status = "success",
+                                    ServerVersion = existing.TryGetValue("version", out var nonceVer)
+                                        && int.TryParse(nonceVer.N, out var nonceVerN) ? nonceVerN : 0,
+                                    ServerData = ScrubSyncSecrets(CropRepository.FromItem(existing))
+                                };
+                            }
                         }
                     }
 
@@ -5263,12 +5279,13 @@ public partial class SyncFunction
 
             // KYC and step-up gates on the buyer's payment. The order-funded escrow leg is
             // the real money path, so the checks /escrow/initiate makes (both parties
-            // phone-verified, Fayda above 10,000 ETB) and a fresh password for large
-            // amounts (AUTH_040) run here, before any money moves.
+            // phone-verified, Fayda above 10,000 ETB) and the payment step-up (a fresh
+            // password up to 10,000 ETB, AUTH_040; a fresh Fayda login above, AUTH_041)
+            // run here, before any money moves.
             if (newStatus == "payment_submitted")
             {
                 var orderTotal = ReadDecimal(existingOrder, "orderTotal");
-                var kycError = await CheckPaymentKycAsync(authenticatedUserId!, orderFarmerId, orderTotal, context);
+                var (kycError, buyer) = await CheckPaymentKycAsync(authenticatedUserId!, orderFarmerId, orderTotal, context);
                 if (kycError != null)
                 {
                     return new SyncOperationResult
@@ -5279,7 +5296,7 @@ public partial class SyncFunction
                     };
                 }
 
-                var stepUpError = StepUpPolicy.Check(_requestAuthTime, orderTotal);
+                var stepUpError = StepUpPolicy.CheckPayment(_requestAuthTime, buyer?.FaydaAuthenticatedAt, orderTotal);
                 if (stepUpError != null)
                 {
                     return new SyncOperationResult
@@ -5818,19 +5835,20 @@ public partial class SyncFunction
     /// <summary>
     /// Both parties must be phone-verified, and Fayda-verified above the NBE
     /// threshold, before the buyer pays. Fails closed when the profiles cannot be read.
+    /// Also returns the buyer's row so the step-up check can read the last Fayda login.
     /// </summary>
-    private async Task<string?> CheckPaymentKycAsync(
+    private async Task<(string? Error, UserDto? Buyer)> CheckPaymentKycAsync(
         string buyerId, string? farmerId, decimal orderTotal, ILambdaContext context)
     {
         if (_userRepo == null)
         {
             context.Logger.LogError("Payment KYC gate unavailable: user repository not configured.");
-            return KycPolicy.Message(KycPolicy.ReasonUnavailable, "Identity verification is unavailable right now. Please try again later.");
+            return (KycPolicy.Message(KycPolicy.ReasonUnavailable, "Identity verification is unavailable right now. Please try again later."), null);
         }
 
         var buyer = await _userRepo.GetUserByIdAsync(buyerId);
         var farmer = string.IsNullOrEmpty(farmerId) ? null : await _userRepo.GetUserByIdAsync(farmerId);
-        return KycPolicy.CheckPayment(buyer, farmer, orderTotal);
+        return (KycPolicy.CheckPayment(buyer, farmer, orderTotal), buyer);
     }
 
     /// <summary>

@@ -73,6 +73,53 @@ public class StepUpPolicyTests
         Assert.False(StepUpPolicy.IsFresh(request));
         Assert.Null(AuthHelper.GetAuthTime(request));
     }
+
+    // Payment tiers: password up to 10,000 ETB (AUTH_040), Fayda above (AUTH_041)
+
+    private static string FaydaAt(int secondsAgo) => Now.AddSeconds(-secondsAgo).ToString("o");
+
+    [Fact]
+    public void Payment_SmallAmount_NeedsFreshPassword()
+    {
+        var fresh = Now.AddSeconds(-10).ToUnixTimeSeconds();
+        var stale = Now.AddSeconds(-StepUpPolicy.DefaultMaxAgeSeconds - 1).ToUnixTimeSeconds();
+
+        Assert.Null(StepUpPolicy.CheckPayment(fresh, null, 500m, Now));
+        Assert.StartsWith("AUTH_040:", StepUpPolicy.CheckPayment(stale, null, 500m, Now));
+        Assert.StartsWith("AUTH_040:", StepUpPolicy.CheckPayment(null, null, 500m, Now));
+    }
+
+    [Fact]
+    public void Payment_SmallAmount_FaydaLoginDoesNotReplaceThePassword()
+    {
+        Assert.StartsWith("AUTH_040:", StepUpPolicy.CheckPayment(null, FaydaAt(10), 9_000m, Now));
+    }
+
+    [Fact]
+    public void Payment_Exactly10K_IsThePasswordTier()
+    {
+        Assert.StartsWith("AUTH_040:", StepUpPolicy.CheckPayment(null, FaydaAt(10), 10_000m, Now));
+        Assert.Null(StepUpPolicy.CheckPayment(Now.ToUnixTimeSeconds(), null, 10_000m, Now));
+    }
+
+    [Fact]
+    public void Payment_Above10K_NeedsRecentFaydaLogin_NotAPassword()
+    {
+        var freshPassword = Now.ToUnixTimeSeconds();
+
+        Assert.StartsWith("AUTH_041:", StepUpPolicy.CheckPayment(freshPassword, null, 10_000.01m, Now));
+        Assert.StartsWith("AUTH_041:", StepUpPolicy.CheckPayment(freshPassword,
+            FaydaAt(StepUpPolicy.DefaultMaxAgeSeconds + 1), 25_000m, Now));
+        Assert.StartsWith("AUTH_041:", StepUpPolicy.CheckPayment(freshPassword, "not-a-date", 25_000m, Now));
+        Assert.Null(StepUpPolicy.CheckPayment(null, FaydaAt(StepUpPolicy.DefaultMaxAgeSeconds - 5), 25_000m, Now));
+    }
+
+    [Fact]
+    public void CodeOf_ReadsTheMessagePrefix()
+    {
+        Assert.Equal("AUTH_041", StepUpPolicy.CodeOf(StepUpPolicy.CheckPayment(null, null, 50_000m, Now)!));
+        Assert.Equal("AUTH_040", StepUpPolicy.CodeOf(StepUpPolicy.CheckPayment(null, null, 50m, Now)!));
+    }
 }
 
 public class KycPolicyTests

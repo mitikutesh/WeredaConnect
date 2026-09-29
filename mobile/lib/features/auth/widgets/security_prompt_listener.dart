@@ -19,9 +19,10 @@ typedef KycPaymentResubmitter = Future<void> Function(
 
 /// Shows the prompts that background work cannot resolve on its own:
 ///
-/// - [StepUpRequired]: a queued payment hit AUTH_040. After the user
-///   confirms their password, [SecurityEvents.stepUpCompleted] fires and the
-///   sync workers retry the still-pending operations.
+/// - [StepUpRequired]: a queued payment hit AUTH_040 (password) or AUTH_041
+///   (Fayda login, payments above 10,000 ETB). After the user confirms,
+///   [SecurityEvents.stepUpCompleted] fires and the sync workers retry the
+///   still-pending operations.
 /// - [KycRequired]: a queued payment hit ORDER_KYC_REQUIRED (the local order
 ///   was already reverted). Once the buyer verifies with Fayda as this
 ///   account's owner, the same payment is queued again via
@@ -39,7 +40,7 @@ class SecurityPromptListener extends StatefulWidget {
   /// so an open list screen is not disturbed). Tests inject one.
   final KycPaymentResubmitter? resubmitPayment;
 
-  /// Replaces the Fayda screen the KYC prompt opens (tests).
+  /// Replaces the Fayda screen the KYC and Fayda step-up prompts open (tests).
   final WidgetBuilder? verificationScreen;
 
   const SecurityPromptListener({
@@ -88,12 +89,13 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     _showing = true;
     try {
       switch (event) {
-        case StepUpRequired():
-          final ok = await showStepUpDialog(context, securityEvents: _events);
+        case StepUpRequired(:final withFayda):
+          final outcome = await _confirmStepUp(withFayda: withFayda);
           // Cancelled: stay quiet for a while instead of reopening on every
-          // background sync.
-          if (!ok) _events.stepUpDeclined();
-          if (ok && mounted) {
+          // background sync. A Fayda attempt that did not finish is not a
+          // "no": the next sync asks again.
+          if (outcome == StepUpOutcome.declined) _events.stepUpDeclined();
+          if (outcome == StepUpOutcome.verified && mounted) {
             ScaffoldMessenger.maybeOf(context)?.showSnackBar(
               SnackBar(
                 content: Text(AppLocalizations.of(context)!.stepUpDone),
@@ -111,6 +113,20 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     } finally {
       _showing = false;
     }
+  }
+
+  /// The password prompt, or above 10,000 ETB (AUTH_041) the Fayda login.
+  /// The password prompt only closes unconfirmed when cancelled.
+  Future<StepUpOutcome> _confirmStepUp({required bool withFayda}) async {
+    if (withFayda) {
+      return showFaydaStepUpDialog(
+        context,
+        securityEvents: _events,
+        verificationScreen: widget.verificationScreen,
+      );
+    }
+    final ok = await showStepUpDialog(context, securityEvents: _events);
+    return ok ? StepUpOutcome.verified : StepUpOutcome.declined;
   }
 
   Future<void> _resubmit(KycRequired event) async {
