@@ -67,8 +67,10 @@ Map<String, dynamic> _deliveryJson({
   String deliveryId = 'del-1',
   String status = 'pickedUp',
   int version = 2,
+  String? deliveryType,
 }) =>
     {
+      if (deliveryType != null) 'deliveryType': deliveryType,
       'deliveryId': deliveryId,
       'tripId': 'trip-1',
       'listingId': 'crop-1',
@@ -368,6 +370,19 @@ void main() {
       expect(stored, hasLength(1));
       expect(stored.single.deliveryId, 'del-1');
       expect(stored.single.status, DeliveryStatus.pickedUp);
+    });
+
+    test('pullDeliveries keeps a self-pickup delivery\'s type', () async {
+      stubApi(
+        deliveries: [
+          _deliveryJson(status: 'pending', deliveryType: 'self_pickup'),
+        ],
+      );
+
+      await buildSync(currentUserId: () async => 'buyer-1').pullDeliveries();
+
+      final stored = await isar.deliverys.where().findAll();
+      expect(stored.single.deliveryType, 'self_pickup');
     });
 
     test('pullDeliveries scopes by farmerId (a farmer is not the buyer key)',

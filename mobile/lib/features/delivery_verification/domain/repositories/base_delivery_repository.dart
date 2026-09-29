@@ -89,4 +89,14 @@ abstract class BaseDeliveryRepository {
     String? role,
     String? statusFilter,
   });
+
+  /// The order's live (not cancelled) delivery that [userId] is a party to,
+  /// or null. [role] is 'farmer', 'trucker' or 'buyer'. [orderCreatedAt]
+  /// lets a remote lookup stop at deliveries older than the order.
+  Future<Delivery?> findActiveDeliveryForOrder(
+    String orderId, {
+    required String userId,
+    required String role,
+    DateTime? orderCreatedAt,
+  });
 }

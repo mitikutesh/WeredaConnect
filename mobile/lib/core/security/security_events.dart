@@ -5,9 +5,15 @@ sealed class SecurityEvent {
   const SecurityEvent();
 }
 
-/// The server wants a fresh password before a high-value action (AUTH_040).
+/// The server wants the user to confirm it is them before a money action:
+/// a fresh password (AUTH_040), or for a payment above 10,000 ETB a fresh
+/// Fayda login (AUTH_041, [withFayda]).
 class StepUpRequired extends SecurityEvent {
-  const StepUpRequired();
+  const StepUpRequired({this.withFayda = false});
+
+  /// True when only a Fayda login satisfies the server; the password
+  /// prompt would not help.
+  final bool withFayda;
 }
 
 /// Whose verification a KYC rejection says is missing.

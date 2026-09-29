@@ -902,6 +902,7 @@
   "deliveryConfirmDelivery": "ማድረሻን አረጋግጥ",
   "deliverySelfPickupConfirm": "ለመረከብ የገበሬውን ኪዩአር ይቃኙ",
   "deliverySelfPickupPayFirst": "መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።",
+  "orderOpenDelivery": "ማድረሻውን ክፈት",
   "orderCollectMyself": "ራሴ እወስዳለሁ",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"
@@ -988,6 +989,7 @@
   "@deliveryGpsPermissionDenied": {
     "description": "Location permission was denied by user"
   },
+  "deliveryQrShowInstructionBuyer": "ገዢው ሲወስድ ይህን ኪዩአር ለገዢው አሳይ",
   "deliveryQrShowInstruction": "ይህን ኪዩአር ለሹፌሩ አሳይ",
   "@deliveryQrShowInstruction": {
     "description": "Instruction to show QR code to trucker"
@@ -2494,6 +2496,7 @@
   "otpSentTo": "ባለ 6 አሃዝ ኮድ በኤስኤምኤስ ወደ {phone} ልከናል።",
   "otpCodeHint": "ባለ 6 አሃዝ ኮድ",
   "otpExpiresAt": "ኮዱ በ{time} ጊዜው ያልፋል።",
+  "faydaStepUpMessage": "ከ10,000 ብር በላይ ለሆኑ ክፍያዎች የይለፍ ቃል ሳይሆን የፋይዳ ማረጋገጫ ያስፈልጋል። እርስዎ መሆንዎን በፋይዳ ያረጋግጡ፣ ክፍያዎ ወዲያውኑ ይቀጥላል።",
   "stepUpTitle": "እርስዎ መሆንዎን ያረጋግጡ",
   "stepUpPhoneLabel": "ስልክ፦ {phone}",
   "stepUpConfirm": "አረጋግጥ",

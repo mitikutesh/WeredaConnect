@@ -21,7 +21,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 class PaymentInstructionsScreen extends StatefulWidget {
   final Order order;
 
-  /// Replaces the Fayda screen the KYC prompt opens (tests).
+  /// Replaces the Fayda screen the KYC and Fayda step-up prompts open (tests).
   final WidgetBuilder? kycVerificationScreen;
 
   const PaymentInstructionsScreen({
@@ -83,6 +83,15 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     if (ok && mounted) _submitPayment();
   }
 
+  /// Above 10,000 ETB the server wants a fresh Fayda login, not the password.
+  Future<void> _retryAfterFaydaStepUp() async {
+    final outcome = await showFaydaStepUpDialog(
+      context,
+      verificationScreen: widget.kycVerificationScreen,
+    );
+    if (outcome == StepUpOutcome.verified && mounted) _submitPayment();
+  }
+
   /// KYC gate: verified as this account's owner → send the same payment
   /// again; anything else → the payment stays unsent.
   Future<void> _retryAfterKyc(String message) async {
@@ -127,6 +136,9 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // Web submits straight to /sync: confirm the password, then
             // submit the same payment again.
             _retryAfterStepUp();
+          } else if (state is OrderError &&
+              state.code == AppErrorCode.faydaStepUpRequired) {
+            _retryAfterFaydaStepUp();
           } else if (state is OrderError &&
               state.code == AppErrorCode.kycRequired) {
             _retryAfterKyc(state.message);

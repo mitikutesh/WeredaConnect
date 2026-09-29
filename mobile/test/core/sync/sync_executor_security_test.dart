@@ -121,6 +121,38 @@ void main() {
     expect(op!.status, SyncStatus.pending);
     expect(op.retryCount, 0);
     expect(emitted.whereType<StepUpRequired>(), hasLength(1));
+    expect(emitted.whereType<StepUpRequired>().single.withFayda, isFalse);
+    expect(kycCalls, isEmpty);
+  });
+
+  test('AUTH_041 keeps the op pending and asks for a Fayda login', () async {
+    await enqueueOrderPayment('op-1', 'order-1');
+    await enqueueOrderPayment('op-2', 'order-2');
+    replyWith([
+      {
+        'operationId': 'op-1',
+        'status': 'error',
+        'message': 'AUTH_040: step-up required',
+      },
+      {
+        'operationId': 'op-2',
+        'status': 'error',
+        'message': "AUTH_041: Confirm it's you with Fayda",
+      },
+    ]);
+
+    final result = await executor.executeBatch();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(result.stepUpRequired, 2);
+    expect(result.failed, 0);
+    final op = await syncQueue.getOperation('op-2');
+    expect(op!.status, SyncStatus.pending);
+    expect(op.retryCount, 0);
+    // One prompt for the batch, and it is the Fayda one.
+    final prompts = emitted.whereType<StepUpRequired>().toList();
+    expect(prompts, hasLength(1));
+    expect(prompts.single.withFayda, isTrue);
     expect(kycCalls, isEmpty);
   });
 

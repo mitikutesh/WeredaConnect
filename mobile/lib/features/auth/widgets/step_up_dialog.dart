@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Re-authenticates the signed-in user with their password.
@@ -56,6 +57,68 @@ Future<bool> showStepUpDialog(
     return true;
   }
   return false;
+}
+
+/// How a step-up prompt ended (password or Fayda).
+enum StepUpOutcome {
+  /// Logged in with Fayda as the account owner: send the payment again.
+  verified,
+
+  /// Cancelled at the explanation: the user chose not to confirm now.
+  declined,
+
+  /// Opened Fayda but did not finish (failed, refused identity, backed out).
+  /// Not a "no": background prompts must not go quiet because of it.
+  notVerified,
+}
+
+/// "Confirm it's you with Fayda" (AUTH_041 step-up).
+///
+/// A payment above 10,000 ETB needs a fresh Fayda login rather than the
+/// password. Explains that, then opens the Fayda screen in payment mode: a
+/// successful /user/fayda-link (only this account's own identity passes) is
+/// the proof the server checks. On [StepUpOutcome.verified] the caller
+/// retries, and [SecurityEvents.stepUpCompleted] fires so queued money ops
+/// retry too.
+///
+/// [verificationScreen] replaces the Fayda screen (tests).
+Future<StepUpOutcome> showFaydaStepUpDialog(
+  BuildContext context, {
+  SecurityEvents? securityEvents,
+  WidgetBuilder? verificationScreen,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final wantsVerify = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      icon: const Icon(Icons.verified_user_outlined),
+      title: Text(l10n.stepUpTitle),
+      content: Text(l10n.faydaStepUpMessage),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l10n.cancel),
+        ),
+        FilledButton.icon(
+          key: const Key('fayda_step_up_verify_button'),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          icon: const Icon(Icons.fingerprint),
+          label: Text(l10n.verifyWithFayda),
+        ),
+      ],
+    ),
+  );
+  if (wantsVerify != true) return StepUpOutcome.declined;
+  if (!context.mounted) return StepUpOutcome.notVerified;
+  final verified = await Navigator.of(context).push<bool>(
+    MaterialPageRoute<bool>(
+      builder: verificationScreen ??
+          (_) => const FaydaVerificationScreen(forPayment: true),
+    ),
+  );
+  if (verified != true) return StepUpOutcome.notVerified;
+  (securityEvents ?? SecurityEvents.instance).stepUpCompleted();
+  return StepUpOutcome.verified;
 }
 
 class _StepUpDialog extends StatefulWidget {

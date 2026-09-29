@@ -290,10 +290,12 @@ class ApiClient {
 
           if (statusCode == 400) {
             return ValidationException(message, statusCode, code);
-          } else if (statusCode == 403 && code == stepUpRequiredCode) {
-            // Step-up: the session is valid but too old for this money
-            // action. Callers re-authenticate and retry; never a logout.
-            return StepUpRequiredException(message, statusCode);
+          } else if (statusCode == 403 &&
+              (code == stepUpRequiredCode || code == faydaStepUpRequiredCode)) {
+            // Step-up: the session is valid but needs a fresh password
+            // (AUTH_040) or Fayda login (AUTH_041) for this money action.
+            // Callers re-authenticate and retry; never a logout.
+            return StepUpRequiredException(message, statusCode, code);
           } else if (statusCode == 401 || statusCode == 403) {
             return AuthException(message, statusCode, code);
           } else if (statusCode == 404) {

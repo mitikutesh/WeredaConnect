@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
@@ -12,6 +13,8 @@ import 'package:wereda_connect/features/delivery_verification/presentation/scree
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockDeliveryRepository extends Mock implements BaseDeliveryRepository {}
 
 class FakeDeliveryEvent extends Fake implements DeliveryEvent {}
 
@@ -193,6 +196,37 @@ void main() {
 
       expect(find.text('Show QR Code'), findsOneWidget);
       expect(find.byIcon(Icons.qr_code), findsOneWidget);
+    });
+
+    testWidgets(
+        'farmer of a pending self-pickup gets the QR, worded for the buyer',
+        (tester) async {
+      final delivery =
+          _makeDelivery(truckerId: '', deliveryType: 'self_pickup');
+      final repository = MockDeliveryRepository();
+      when(() => deliveryBloc.repository).thenReturn(repository);
+      when(
+        () => repository.persistQrNonce(
+          deliveryId: any(named: 'deliveryId'),
+          qrNonce: any(named: 'qrNonce'),
+          userId: any(named: 'userId'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await tester.pumpWidget(buildTestWidget(delivery: delivery));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Show QR Code'));
+      await tester.tap(find.text('Show QR Code'));
+      // Not pumpAndSettle: the QR spinner keeps animating while the device
+      // key (secure storage) never answers in a widget test.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.text('Show this QR code to the buyer when they collect'),
+        findsOneWidget,
+      );
+      expect(find.text('Show this QR code to the trucker'), findsNothing);
     });
 
     testWidgets('shows Confirm Pickup button for trucker with pending delivery',

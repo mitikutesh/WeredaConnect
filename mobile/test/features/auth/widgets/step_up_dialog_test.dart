@@ -183,7 +183,168 @@ void main() {
     });
   });
 
+  /// Stands in for the Fayda screen: pops [result] when tapped.
+  Widget faydaScreen(bool result) => Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => Navigator.of(context).pop(result),
+            child: const Text('fayda screen'),
+          ),
+        ),
+      );
+
+  group('showFaydaStepUpDialog', () {
+    Future<StepUpOutcome?> run(
+      WidgetTester tester, {
+      required bool verifies,
+      bool cancel = false,
+    }) async {
+      StepUpOutcome? outcome;
+      await tester.pumpWidget(
+        host(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                outcome = await showFaydaStepUpDialog(
+                  context,
+                  securityEvents: events,
+                  verificationScreen: (_) => faydaScreen(verifies),
+                );
+              },
+              child: const Text('pay'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('pay'));
+      await settle(tester);
+      expect(
+        find.textContaining('Payments above 10,000 ETB need a Fayda login'),
+        findsOneWidget,
+      );
+      // No password here: above 10,000 ETB only Fayda counts.
+      expect(find.byKey(const Key('step_up_password_field')), findsNothing);
+      if (cancel) {
+        await tester.tap(find.text('Cancel'));
+      } else {
+        await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+        await settle(tester);
+        await tester.tap(find.text('fayda screen'));
+      }
+      await settle(tester);
+      return outcome;
+    }
+
+    testWidgets('a Fayda login is verified and retries queued payments',
+        (tester) async {
+      var completed = 0;
+      final sub = events.onStepUpCompleted.listen((_) => completed++);
+
+      expect(await run(tester, verifies: true), StepUpOutcome.verified);
+      expect(completed, 1);
+      unawaited(sub.cancel());
+    });
+
+    testWidgets('a failed Fayda login is not verified and retries nothing',
+        (tester) async {
+      var completed = 0;
+      final sub = events.onStepUpCompleted.listen((_) => completed++);
+
+      expect(await run(tester, verifies: false), StepUpOutcome.notVerified);
+      expect(completed, 0);
+      unawaited(sub.cancel());
+    });
+
+    testWidgets('cancelling the prompt is a decline', (tester) async {
+      expect(
+        await run(tester, verifies: true, cancel: true),
+        StepUpOutcome.declined,
+      );
+    });
+  });
+
   group('SecurityPromptListener', () {
+    testWidgets('a background Fayda step-up opens Fayda, not the password',
+        (tester) async {
+      var completed = 0;
+      final sub = events.onStepUpCompleted.listen((_) => completed++);
+      await tester.pumpWidget(
+        host(
+          SecurityPromptListener(
+            events: events,
+            verificationScreen: (_) => faydaScreen(true),
+            child: const Text('app'),
+          ),
+        ),
+      );
+
+      events.emit(const StepUpRequired(withFayda: true));
+      await settle(tester);
+      expect(find.byKey(const Key('step_up_password_field')), findsNothing);
+      await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+      await settle(tester);
+      await tester.tap(find.text('fayda screen'));
+      await settle(tester);
+
+      expect(completed, 1);
+      expect(find.text('Confirmed. Retrying your payment.'), findsOneWidget);
+      unawaited(sub.cancel());
+    });
+
+    Future<void> tryFayda(WidgetTester tester, {required bool cancel}) async {
+      events.emit(const StepUpRequired(withFayda: true));
+      await settle(tester);
+      if (cancel) {
+        await tester.tap(find.text('Cancel'));
+      } else {
+        await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+        await settle(tester);
+        await tester.tap(find.text('fayda screen'));
+      }
+      await settle(tester);
+    }
+
+    testWidgets('a Fayda attempt that did not verify keeps prompting',
+        (tester) async {
+      await tester.pumpWidget(
+        host(
+          SecurityPromptListener(
+            events: events,
+            verificationScreen: (_) => faydaScreen(false),
+            child: const Text('app'),
+          ),
+        ),
+      );
+
+      await tryFayda(tester, cancel: false);
+
+      // Not a "no": the next background sync asks again.
+      expect(events.stepUpSuppressed, isFalse);
+      events.emit(const StepUpRequired(withFayda: true));
+      await settle(tester);
+      expect(
+        find.byKey(const Key('fayda_step_up_verify_button')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('cancelling the Fayda prompt starts the quiet period',
+        (tester) async {
+      await tester.pumpWidget(
+        host(
+          SecurityPromptListener(
+            events: events,
+            verificationScreen: (_) => faydaScreen(true),
+            child: const Text('app'),
+          ),
+        ),
+      );
+
+      await tryFayda(tester, cancel: true);
+
+      expect(events.stepUpSuppressed, isTrue);
+    });
+
     testWidgets('a background StepUpRequired opens the step-up dialog',
         (tester) async {
       await tester.pumpWidget(

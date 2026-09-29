@@ -118,11 +118,11 @@ class EscrowSyncService {
           .findAll();
 
       for (final intent in intents) {
-        final needsStepUp = await _processIntent(intent);
-        if (needsStepUp) {
-          // Every remaining high-value intent would hit the same gate: stop,
-          // ask the user once, and retry after they re-authenticate.
-          _securityEvents.emit(const StepUpRequired());
+        final stepUp = await _processIntent(intent);
+        if (stepUp != null) {
+          // The remaining intents would likely hit the same gate: stop, ask
+          // the user once, and retry after they re-authenticate.
+          _securityEvents.emit(stepUp);
           break;
         }
       }
@@ -203,9 +203,10 @@ class EscrowSyncService {
 
   /// Process a single intent: transition to syncing, call API, update status.
   ///
-  /// Returns true when the server asked for step-up (AUTH_040): the intent is
-  /// put back to pendingSync without burning a retry.
-  Future<bool> _processIntent(PaymentIntent intent) async {
+  /// Returns the step-up the server asked for (AUTH_040 password, AUTH_041
+  /// Fayda), or null: the intent is put back to pendingSync without burning
+  /// a retry.
+  Future<StepUpRequired?> _processIntent(PaymentIntent intent) async {
     // MH4: Atomic status transition pendingSync -> syncing
     await _isar.writeTxn(() async {
       // Re-read to ensure still pendingSync (prevents double-pickup)
@@ -221,7 +222,7 @@ class EscrowSyncService {
 
     // Re-read after transaction to verify transition happened
     final syncing = await _isar.paymentIntents.get(intent.id);
-    if (syncing == null || syncing.status != IntentStatus.syncing) return false;
+    if (syncing == null || syncing.status != IntentStatus.syncing) return null;
 
     // Apply exponential backoff delay based on retry count
     await _applyBackoff(syncing.retryCount);
@@ -293,9 +294,10 @@ class EscrowSyncService {
           await _isar.paymentIntents.put(current);
         }
       });
-    } on StepUpRequiredException {
-      // The session is too old for this amount. Not a failure: keep the
-      // intent (same idempotency key) and retry after re-authentication.
+    } on StepUpRequiredException catch (e) {
+      // The server wants a fresh password or Fayda login for this amount. Not
+      // a failure: keep the intent (same idempotency key) and retry after
+      // re-authentication.
       await _isar.writeTxn(() async {
         final current = await _isar.paymentIntents.get(syncing.id);
         if (current != null) {
@@ -303,13 +305,13 @@ class EscrowSyncService {
           await _isar.paymentIntents.put(current);
         }
       });
-      return true;
+      return StepUpRequired(withFayda: e.requiresFayda);
     } on ApiException catch (e) {
       await _handleIntentFailure(syncing, e.message);
     } on Exception catch (e) {
       await _handleIntentFailure(syncing, e.toString());
     }
-    return false;
+    return null;
   }
 
   /// Handle a failed intent: increment retry count or mark as failed.

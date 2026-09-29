@@ -26,12 +26,16 @@ class InitiatePaymentScreen extends StatelessWidget {
   final String farmerName;
   final double amount;
 
+  /// Replaces the Fayda screen the Fayda step-up opens (tests).
+  final WidgetBuilder? faydaVerificationScreen;
+
   const InitiatePaymentScreen({
     required this.deliveryId,
     required this.buyerId,
     required this.farmerId,
     required this.farmerName,
     required this.amount,
+    this.faydaVerificationScreen,
     super.key,
   });
 
@@ -84,9 +88,13 @@ class InitiatePaymentScreen extends StatelessWidget {
           );
           Navigator.of(context).pop();
         } else if (state is EscrowError && state.code == stepUpRequiredCode) {
-          // High-value payment with an old session: confirm the password,
-          // then send the same payment again.
+          // Payment with an old session: confirm the password, then send the
+          // same payment again.
           _retryAfterStepUp(context);
+        } else if (state is EscrowError &&
+            state.code == faydaStepUpRequiredCode) {
+          // Above 10,000 ETB: a fresh Fayda login instead of the password.
+          _retryAfterFaydaStepUp(context);
         } else if (state is EscrowError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -309,6 +317,16 @@ class InitiatePaymentScreen extends StatelessWidget {
   Future<void> _retryAfterStepUp(BuildContext context) async {
     final ok = await showStepUpDialog(context);
     if (ok && context.mounted) {
+      context.read<EscrowBloc>().add(_paymentEvent);
+    }
+  }
+
+  Future<void> _retryAfterFaydaStepUp(BuildContext context) async {
+    final outcome = await showFaydaStepUpDialog(
+      context,
+      verificationScreen: faydaVerificationScreen,
+    );
+    if (outcome == StepUpOutcome.verified && context.mounted) {
       context.read<EscrowBloc>().add(_paymentEvent);
     }
   }

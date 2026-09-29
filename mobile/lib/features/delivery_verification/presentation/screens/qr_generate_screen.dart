@@ -3,11 +3,13 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-/// Display QR code for farmers to show to truckers (or truckers to buyers).
+/// Display QR code for farmers to show to truckers, or to the buyer on a
+/// self-pickup delivery.
 ///
 /// Generates an HMAC-SHA256 QR token offline with a device-local key
 /// and cryptographic nonce. No internet required.
@@ -75,7 +77,11 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
     final dateFormat = DateFormat.yMMMd();
     final delivery = widget.delivery;
 
-    final instruction = l10n.deliveryQrShowInstruction;
+    // Self-pickup: the buyer scans it at the farm, there is no trucker.
+    final instruction =
+        delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType
+            ? l10n.deliveryQrShowInstructionBuyer
+            : l10n.deliveryQrShowInstruction;
 
     return Scaffold(
       appBar: AppBar(

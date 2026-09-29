@@ -892,6 +892,7 @@
   "deliveryConfirmDelivery": "Geejjiba Mirkaneessi",
   "deliverySelfPickupConfirm": "Fudhachuuf QR qonnaan bulaa iskaanii godhi",
   "deliverySelfPickupPayFirst": "Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.",
+  "orderOpenDelivery": "Geejjiba bani",
   "orderCollectMyself": "Ani ofiin nan fudhadha",
   "@deliveryConfirmDelivery": {
     "description": "Button to confirm delivery completion"
@@ -978,6 +979,7 @@
   "@deliveryGpsPermissionDenied": {
     "description": "Location permission was denied by user"
   },
+  "deliveryQrShowInstructionBuyer": "Yeroo bitaan fudhatu koodii QR kana bitaaf agarsiisi",
   "deliveryQrShowInstruction": "Koodii QR kana konkolaachisaaf agarsiisi",
   "@deliveryQrShowInstruction": {
     "description": "Instruction to show QR code to trucker"
@@ -2487,6 +2489,7 @@
   "otpSentTo": "Koodii lakkoofsa 6 qabu SMS'n gara {phone} ergineerra.",
   "otpCodeHint": "Koodii lakkoofsa 6",
   "otpExpiresAt": "Koodiin sa'aatii {time} irratti dhumata.",
+  "faydaStepUpMessage": "Kaffaltiin qarshii 10,000 ol ta'e jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.",
   "stepUpTitle": "Isin ta'uu keessan mirkaneessaa",
   "stepUpPhoneLabel": "Bilbila: {phone}",
   "stepUpConfirm": "Mirkaneessi",

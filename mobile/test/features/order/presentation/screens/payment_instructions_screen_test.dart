@@ -17,9 +17,10 @@ class MockOrderBloc extends Mock implements OrderBloc {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
-/// Payment above 10,000 ETB blocked by the KYC gate (web path: the error
-/// comes straight back from /sync). Verifying as the account's owner must
-/// send the same payment again; anything else must leave it unsent.
+/// Payment above 10,000 ETB blocked by the KYC gate or the Fayda step-up
+/// (web path: the error comes straight back from /sync). Verifying as the
+/// account's owner must send the same payment again; anything else must
+/// leave it unsent.
 void main() {
   late MockOrderBloc bloc;
   late StreamController<OrderState> states;
@@ -77,14 +78,56 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> payAndGetRejected(WidgetTester tester, String message) async {
+  Future<void> payAndGetRejected(
+    WidgetTester tester,
+    String message, {
+    AppErrorCode code = AppErrorCode.kycRequired,
+  }) async {
     await tester.ensureVisible(find.text('Submit Payment'));
     await tester.tap(find.text('Submit Payment'));
     await tester.pump();
     expect(submitted, hasLength(1));
-    states.add(OrderError(message: message, code: AppErrorCode.kycRequired));
+    states.add(OrderError(message: message, code: code));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('above 10,000 ETB: a Fayda login resubmits the same payment',
+      (tester) async {
+    await open(tester, verifies: true);
+    await payAndGetRejected(
+      tester,
+      "SyncRejectedException: AUTH_041: Confirm it's you with Fayda",
+      code: AppErrorCode.faydaStepUpRequired,
+    );
+
+    // The Fayda prompt, not the password one.
+    expect(find.byKey(const Key('step_up_password_field')), findsNothing);
+    await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('fayda screen'));
+    await tester.pumpAndSettle();
+
+    expect(submitted, hasLength(2));
+    expect(submitted[1].orderId, submitted[0].orderId);
+    expect(submitted[1].cbeTransactionId, submitted[0].cbeTransactionId);
+  });
+
+  testWidgets('above 10,000 ETB: a failed Fayda login sends nothing',
+      (tester) async {
+    await open(tester, verifies: false);
+    await payAndGetRejected(
+      tester,
+      "AUTH_041: Confirm it's you with Fayda",
+      code: AppErrorCode.faydaStepUpRequired,
+    );
+
+    await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('fayda screen'));
+    await tester.pumpAndSettle();
+
+    expect(submitted, hasLength(1));
+  });
 
   testWidgets('verified as the owner: the same payment is submitted again',
       (tester) async {
