@@ -1,19 +1,46 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const { TEST_USERS, findUser, generateFin } = require('./users');
 const { randomToken, verifyPkce, subjectForFin, signJwt, verifyJwt } = require('./crypto');
 
 const CODE_TTL_SECONDS = 300;
 const TOKEN_TTL_SECONDS = 300;
 const TEST_OTP = '123456';
-const ACR_VALUES = ['mosip:idp:acr:generated-code', 'mosip:idp:acr:biometrics'];
 const CLIENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+// The Function URL is public: a failed assertion may re-read the client key at
+// most this often, so junk requests cannot turn into a stream of SSM reads.
+const CLIENT_KEY_REFRESH_SECONDS = 10;
+
+// Everything below mirrors the live VeriFayda discovery document
+// (https://esignet.ida.fayda.et/v1/esignet/oidc/.well-known/openid-configuration),
+// so the server is built against the real shape, not a friendlier one.
+const ACR_VALUES = [
+  'mosip:idp:acr:generated-code',
+  'mosip:idp:acr:static-code',
+  'mosip:idp:acr:linked-wallet',
+  'mosip:idp:acr:biometrics',
+];
+const CLAIMS_SUPPORTED = ['name', 'address', 'gender', 'birthdate', 'picture', 'email',
+  'phone_number', 'nationality', 'individual_id'];
+
+// eSignet paths. The issuer is the host root, but discovery, token, userinfo and
+// the JWKS live under /v1/esignet. Real Fayda advertises jwks_uri as
+// /.well-known/jwks.json and answers 404 there; the mock does the same, so the
+// server has to fall back to JWKS_PATH exactly as it must against production.
+const PATHS = {
+  discovery: '/v1/esignet/oidc/.well-known/openid-configuration',
+  authorize: '/authorize',
+  token: '/v1/esignet/oauth/v2/token',
+  userinfo: '/v1/esignet/oidc/userinfo',
+  jwks: '/v1/esignet/oauth/.well-known/jwks.json',
+  advertisedJwks: '/.well-known/jwks.json',
+};
 
 /** Reads config from env. Exported so tests can build one without env. */
 function configFromEnv(env = process.env) {
   return {
     clientId: env.CLIENT_ID || 'weredaconnect-dev',
-    clientSecret: env.CLIENT_SECRET || 'dev-fayda-mock-secret',
     allowedRedirectUris: (env.ALLOWED_REDIRECT_URIS || 'weredaconnect://fayda-callback')
       .split(',').map((s) => s.trim()).filter(Boolean),
     requirePkce: (env.REQUIRE_PKCE || 'true').toLowerCase() !== 'false',
@@ -21,6 +48,27 @@ function configFromEnv(env = process.env) {
     clientJwks: env.CLIENT_JWKS_JSON ? JSON.parse(env.CLIENT_JWKS_JSON) : null,
   };
 }
+
+/**
+ * The userinfo claims an authorize request asks for: the keys of claims.userinfo
+ * that Fayda supports. eSignet releases user data only through this parameter.
+ * Returns null when the parameter is not valid JSON.
+ */
+function requestedClaims(claimsParam) {
+  if (!claimsParam) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(claimsParam);
+  } catch {
+    return null;
+  }
+  const userinfo = parsed && typeof parsed.userinfo === 'object' && parsed.userinfo ? parsed.userinfo : {};
+  return Object.keys(userinfo).filter((k) => CLAIMS_SUPPORTED.includes(k));
+}
+
+/** OIDC Core 3.1.3.6: left half of SHA-256 of the access token, base64url. */
+const atHash = (accessToken) =>
+  crypto.createHash('sha256').update(accessToken, 'ascii').digest().subarray(0, 16).toString('base64url');
 
 // ---------- response helpers ----------
 
@@ -78,32 +126,66 @@ function redirectWith(redirectUri, params) {
 // ---------- app ----------
 
 /**
- * createApp({ config, store, getKey, now }) returns handle(req).
+ * createApp({ config, store, getKey, getClientJwks, now }) returns handle(req).
+ * getClientJwks resolves the relying party's public JWKS for private_key_jwt
+ * (null when none is configured); it defaults to config.clientJwks.
  * req: { method, path, query: URLSearchParams, headers (lowercased), body: string, origin }
  * origin is the scheme+host the request arrived on; used as issuer unless
  * config.issuerOverride is set.
  */
-function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 1000) }) {
+function createApp({
+  config, store, getKey, getClientJwks = async () => config.clientJwks, now = () => Math.floor(Date.now() / 1000),
+}) {
   const issuerFor = (req) => config.issuerOverride || req.origin;
 
-  function discovery(req) {
+  // The RP public JWKS, cached. Re-read when an assertion does not verify (the key
+  // was replaced), rate limited to one read per CLIENT_KEY_REFRESH_SECONDS.
+  let clientJwks = null;
+  let clientJwksReadAt = -Infinity;
+  async function clientJwksFor({ refresh = false } = {}) {
+    const stale = refresh && now() - clientJwksReadAt >= CLIENT_KEY_REFRESH_SECONDS;
+    if (clientJwks && !stale) return clientJwks;
+    clientJwksReadAt = now();
+    clientJwks = await getClientJwks();
+    return clientJwks;
+  }
+
+  /**
+   * Stands in for client registration: makes sure the RP key exists before any
+   * login can reach the token endpoint. On a fresh dev deploy this creates it (or
+   * replaces the seeded PLACEHOLDER), so the server finds a usable key when it
+   * signs its first client assertion. Cached after the first success. Failures
+   * are logged, not shown: the token endpoint reports them.
+   */
+  const ensureClientKey = () => clientJwksFor().catch((err) => {
+    console.error('fayda-mock: client key unavailable', err);
+  });
+
+  async function discovery(req) {
+    await ensureClientKey();
     const iss = issuerFor(req);
     return json(200, {
       issuer: iss,
-      authorization_endpoint: `${iss}/authorize`,
-      token_endpoint: `${iss}/token`,
-      jwks_uri: `${iss}/.well-known/jwks.json`,
-      userinfo_endpoint: `${iss}/userinfo`,
+      authorization_endpoint: `${iss}${PATHS.authorize}`,
+      token_endpoint: `${iss}${PATHS.token}`,
+      userinfo_endpoint: `${iss}${PATHS.userinfo}`,
+      jwks_uri: `${iss}${PATHS.advertisedJwks}`,
+      scopes_supported: ['profile', 'email', 'phone'],
       response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code'],
-      subject_types_supported: ['public'],
-      scopes_supported: ['openid', 'profile', 'phone'],
-      id_token_signing_alg_values_supported: ['RS256'],
-      token_endpoint_auth_methods_supported: ['client_secret_post', 'private_key_jwt'],
+      response_modes_supported: ['query'],
+      token_endpoint_auth_methods_supported: ['private_key_jwt'],
       token_endpoint_auth_signing_alg_values_supported: ['RS256'],
-      code_challenge_methods_supported: ['S256'],
+      userinfo_signing_alg_values_supported: ['RS256'],
+      id_token_signing_alg_values_supported: ['RS256'],
+      claim_types_supported: ['normal'],
+      claims_parameter_supported: true,
+      display_values_supported: ['page', 'popup', 'touch', 'wap'],
+      subject_types_supported: ['pairwise'],
+      claims_supported: CLAIMS_SUPPORTED,
       acr_values_supported: ACR_VALUES,
-      claims_supported: ['sub', 'name', 'given_name', 'family_name', 'phone_number', 'acr', 'nonce'],
+      request_parameter_supported: false,
+      claims_locales_supported: ['en'],
+      ui_locales_supported: ['en'],
     });
   }
 
@@ -131,6 +213,7 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       if (!p.code_challenge) return bad('code_challenge is required');
       if (p.code_challenge_method !== 'S256') return bad('code_challenge_method must be S256');
     }
+    if (requestedClaims(p.claims) === null) return bad('claims must be a JSON object');
     return { ok: p };
   }
 
@@ -148,16 +231,18 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
       nonce: p.nonce,
       fin,
       acr: pickAcr(p.acr_values),
+      claims: requestedClaims(p.claims),
       expiresAt: now() + CODE_TTL_SECONDS,
     });
     return redirectWith(p.redirect_uri, { code, state: p.state });
   }
 
   const AUTH_FIELDS = ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'nonce',
-    'code_challenge', 'code_challenge_method', 'acr_values'];
+    'code_challenge', 'code_challenge_method', 'acr_values', 'claims'];
   const pickFields = (params) => Object.fromEntries(AUTH_FIELDS.map((k) => [k, params.get(k) || '']));
 
-  function authorize(req) {
+  async function authorize(req) {
+    await ensureClientKey();
     const q = req.query;
     if (q.get('simulate') === 'down') {
       return page(503, 'Unavailable', '<h1>Fayda is temporarily unavailable</h1><p>Simulated outage.</p>');
@@ -207,45 +292,44 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     return issueCode(p, user.fin);
   }
 
-  /** Client authentication for /token. Returns null on success or an error response. */
+  /**
+   * Client authentication for the token endpoint: private_key_jwt only, as on
+   * real Fayda. Returns null on success or an error response.
+   */
   async function authenticateClient(form, req) {
-    const clientId = form.get('client_id');
-    const assertionType = form.get('client_assertion_type');
-    if (assertionType) {
-      if (assertionType !== CLIENT_ASSERTION_TYPE) return oauthError(401, 'invalid_client', 'unsupported client_assertion_type');
-      if (!config.clientJwks) return oauthError(401, 'invalid_client', 'private_key_jwt is not configured (CLIENT_JWKS_JSON unset)');
-      let claims;
+    if (form.get('client_id') !== config.clientId) return oauthError(401, 'invalid_client', 'unknown client_id');
+    if (form.get('client_assertion_type') !== CLIENT_ASSERTION_TYPE) {
+      return oauthError(401, 'invalid_client', `client_assertion_type must be ${CLIENT_ASSERTION_TYPE}`);
+    }
+    let claims;
+    try {
+      let jwks = await clientJwksFor();
+      if (!jwks) return oauthError(401, 'invalid_client', 'no client public key is configured for private_key_jwt');
       try {
-        claims = verifyJwt(form.get('client_assertion'), config.clientJwks);
-      } catch (err) {
-        return oauthError(401, 'invalid_client', `client_assertion rejected: ${err.message}`);
+        claims = verifyJwt(form.get('client_assertion'), jwks);
+      } catch {
+        // The stored key may have been replaced since it was cached: read it again once.
+        jwks = await clientJwksFor({ refresh: true });
+        claims = verifyJwt(form.get('client_assertion'), jwks || { keys: [] });
       }
-      const iss = issuerFor(req);
-      const aud = [].concat(claims.aud || []);
-      if (claims.iss !== config.clientId || claims.sub !== config.clientId) return oauthError(401, 'invalid_client', 'client_assertion iss/sub must be the client_id');
-      if (clientId && clientId !== config.clientId) return oauthError(401, 'invalid_client', 'client_id mismatch');
-      if (!aud.includes(`${iss}/token`) && !aud.includes(iss)) return oauthError(401, 'invalid_client', 'client_assertion aud must be the token endpoint');
-      if (typeof claims.exp !== 'number' || claims.exp <= now()) return oauthError(401, 'invalid_client', 'client_assertion expired');
-      if (!claims.jti) return oauthError(401, 'invalid_client', 'client_assertion jti required');
-      const fresh = await store.putNew({ code: `jti:${claims.jti}`, kind: 'jti', expiresAt: claims.exp });
-      if (!fresh) return oauthError(401, 'invalid_client', 'client_assertion replayed');
-      return null;
+    } catch (err) {
+      return oauthError(401, 'invalid_client', `client_assertion rejected: ${err.message}`);
     }
-    if (clientId !== config.clientId || form.get('client_secret') !== config.clientSecret) {
-      return oauthError(401, 'invalid_client', 'bad client_id or client_secret');
-    }
+    const aud = [].concat(claims.aud || []);
+    if (claims.iss !== config.clientId || claims.sub !== config.clientId) return oauthError(401, 'invalid_client', 'client_assertion iss/sub must be the client_id');
+    if (!aud.includes(`${issuerFor(req)}${PATHS.token}`)) return oauthError(401, 'invalid_client', 'client_assertion aud must be the token endpoint');
+    if (typeof claims.exp !== 'number' || claims.exp <= now()) return oauthError(401, 'invalid_client', 'client_assertion expired');
+    if (!claims.jti) return oauthError(401, 'invalid_client', 'client_assertion jti required');
+    const fresh = await store.putNew({ code: `jti:${claims.jti}`, kind: 'jti', expiresAt: claims.exp });
+    if (!fresh) return oauthError(401, 'invalid_client', 'client_assertion replayed');
     return null;
   }
 
-  function claimsFor(user) {
-    const claims = {
-      sub: subjectForFin(user.fin),
-      name: user.name,
-      given_name: user.givenName,
-      family_name: user.familyName,
-    };
-    if (user.phone) claims.phone_number = user.phone;
-    return claims;
+  /** The claims a user record can release, keyed by the OIDC claim name. */
+  function userClaims(user) {
+    const all = { name: user.name, individual_id: user.fin, nationality: 'Ethiopian' };
+    if (user.phone) all.phone_number = user.phone;
+    return all;
   }
 
   async function token(req) {
@@ -271,19 +355,24 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
 
     const user = findUser(code.fin);
     const iat = now();
-    const claims = claimsFor(user);
+    const accessToken = randomToken();
+    // Like eSignet, the id_token proves who signed in and nothing more: user
+    // data (name, phone) is released only by the userinfo endpoint.
     const idToken = signJwt({
       iss: issuerFor(req),
+      sub: subjectForFin(user.fin),
       aud: config.clientId,
       iat,
       exp: iat + TOKEN_TTL_SECONDS,
+      auth_time: iat,
       nonce: code.nonce,
       acr: code.acr,
-      ...claims,
+      at_hash: atHash(accessToken),
     }, await getKey());
 
-    const accessToken = randomToken();
-    await store.putNew({ code: `at:${accessToken}`, kind: 'access_token', fin: user.fin, expiresAt: iat + TOKEN_TTL_SECONDS });
+    await store.putNew({
+      code: `at:${accessToken}`, kind: 'access_token', fin: user.fin, claims: code.claims || [], expiresAt: iat + TOKEN_TTL_SECONDS,
+    });
 
     return json(200, {
       access_token: accessToken,
@@ -293,25 +382,37 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
     }, NO_STORE);
   }
 
+  /**
+   * Signed userinfo (application/jwt), as eSignet returns it. Carries sub plus
+   * only the claims the authorize request asked for in its claims parameter.
+   */
   async function userinfo(req) {
     const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
     const item = m ? await store.get(`at:${m[1]}`, now()) : null;
     if (!item || item.kind !== 'access_token') {
       return { ...oauthError(401, 'invalid_token', 'missing or expired access token'), headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer error="invalid_token"' } };
     }
-    return json(200, claimsFor(findUser(item.fin)), NO_STORE);
+    const user = findUser(item.fin);
+    const available = userClaims(user);
+    const payload = { iss: issuerFor(req), aud: config.clientId, sub: subjectForFin(user.fin) };
+    for (const k of item.claims || []) if (available[k] !== undefined) payload[k] = available[k];
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/jwt', ...NO_STORE },
+      body: signJwt(payload, await getKey()),
+    };
   }
 
   return async function handle(req) {
     const route = `${req.method} ${req.path.replace(/\/+$/, '') || '/'}`;
     try {
       switch (route) {
-        case 'GET /.well-known/openid-configuration': return discovery(req);
-        case 'GET /.well-known/jwks.json': return await jwks();
-        case 'GET /authorize': return authorize(req);
+        case `GET ${PATHS.discovery}`: return await discovery(req);
+        case `GET ${PATHS.jwks}`: return await jwks();
+        case `GET ${PATHS.authorize}`: return await authorize(req);
         case 'POST /authorize/complete': return await authorizeComplete(req);
-        case 'POST /token': return await token(req);
-        case 'GET /userinfo': return await userinfo(req);
+        case `POST ${PATHS.token}`: return await token(req);
+        case `GET ${PATHS.userinfo}`: return await userinfo(req);
         case 'GET /health': return json(200, { status: 'ok' });
         default: return json(404, { error: 'not_found' });
       }
@@ -322,4 +423,4 @@ function createApp({ config, store, getKey, now = () => Math.floor(Date.now() / 
   };
 }
 
-module.exports = { createApp, configFromEnv, TEST_OTP, ACR_VALUES };
+module.exports = { createApp, configFromEnv, TEST_OTP, ACR_VALUES, CLAIMS_SUPPORTED, PATHS };

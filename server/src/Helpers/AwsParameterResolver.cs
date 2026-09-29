@@ -51,24 +51,29 @@ internal static class AwsParameterResolver
             return cached;
         }
 
-        string value;
+        var value = FetchSecretOrParameterValue(reference);
+        Cache[reference] = value;
+        return value;
+    }
+
+    /// <summary>
+    /// Same routing as <see cref="GetSecretOrParameterValue"/>, without the cache:
+    /// one AWS call each time. For a value that may still be a seeded PLACEHOLDER
+    /// when first read (the Fayda client key); the caller caches it once usable.
+    /// </summary>
+    public static string FetchSecretOrParameterValue(string reference)
+    {
         if (reference.Contains(":secretsmanager:", StringComparison.Ordinal))
         {
-            value = (SecretsFetchOverride ?? GetSecretValue)(reference);
+            return (SecretsFetchOverride ?? GetSecretValue)(reference);
         }
-        else if (reference.StartsWith("arn:", StringComparison.Ordinal))
+        if (reference.StartsWith("arn:", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 $"Unsupported secret reference '{reference}': expected a Secrets Manager ARN "
                 + "or an SSM parameter name.");
         }
-        else
-        {
-            value = (SsmFetchOverride ?? GetSsmParameterValue)(reference);
-        }
-
-        Cache[reference] = value;
-        return value;
+        return (SsmFetchOverride ?? GetSsmParameterValue)(reference);
     }
 
     /// <summary>

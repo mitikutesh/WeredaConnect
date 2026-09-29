@@ -21,12 +21,21 @@ namespace WeredaConnect.Server.Tests.Integration;
 public sealed class FaydaMockProvider : IAsyncLifetime
 {
     public const string ClientId = "weredaconnect-flowtest";
-    public const string ClientSecret = "dev-fayda-mock-secret";
     public const string LinkRedirect = "weredaconnect://fayda-link-callback";
 
     private Process? _process;
+    // Stand-in for the /{prefix}/fayda/client-private-key parameter, which both the
+    // mock and the server read, exactly as deployed.
+    private readonly string _clientKeyFile = Path.Combine(Path.GetTempPath(), $"fayda-client-key-{Guid.NewGuid():N}");
 
     public string IssuerUrl { get; private set; } = "";
+
+    /// <summary>
+    /// The server's read of the client key parameter. Starts as the PLACEHOLDER the
+    /// seed script writes; the mock replaces it with a base64 JWK on the first
+    /// authorize, the same PRIVATE_KEY_BASE64 form a live Fayda key comes in.
+    /// </summary>
+    public string ReadClientPrivateKey() => File.ReadAllText(_clientKeyFile);
 
     public async Task InitializeAsync()
     {
@@ -41,7 +50,8 @@ public sealed class FaydaMockProvider : IAsyncLifetime
         };
         start.Environment["PORT"] = port.ToString();
         start.Environment["CLIENT_ID"] = ClientId;
-        start.Environment["CLIENT_SECRET"] = ClientSecret;
+        File.WriteAllText(_clientKeyFile, "PLACEHOLDER");
+        start.Environment["CLIENT_KEY_FILE"] = _clientKeyFile;
         start.Environment["ALLOWED_REDIRECT_URIS"] = $"weredaconnect://fayda-callback,{LinkRedirect}";
         start.Environment["REQUIRE_PKCE"] = "true";
 
@@ -82,6 +92,7 @@ public sealed class FaydaMockProvider : IAsyncLifetime
             _process.Kill(entireProcessTree: true);
         }
         _process?.Dispose();
+        File.Delete(_clientKeyFile);
         return Task.CompletedTask;
     }
 
@@ -110,7 +121,8 @@ public sealed class FaydaMockProvider : IAsyncLifetime
 
 /// <summary>
 /// Full flow of the payment Fayda check against the mock provider: a real OIDC round
-/// trip (authorize → code → token → RS256 ID token with PKCE and nonce) through
+/// trip (authorize → code → token with a private_key_jwt client assertion → RS256 ID
+/// token with PKCE and nonce → signed userinfo with the name and phone) through
 /// /user/fayda-start and /user/fayda-link, with the buyer's payment submitted to /sync
 /// before and after. Only the storage is in memory.
 /// Verified as the account's owner → the same payment goes through. Any other
@@ -198,7 +210,7 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
             }));
 
         _fayda = new FaydaVerifyFunction(
-            new FaydaOidcService(new HttpClient(), FaydaMockProvider.ClientId, FaydaMockProvider.ClientSecret,
+            new FaydaOidcService(new HttpClient(), FaydaMockProvider.ClientId, provider.ReadClientPrivateKey,
                 provider.IssuerUrl, "flowtest-signing-secret-at-least-32-bytes-long"),
             _userRepo, authState);
 

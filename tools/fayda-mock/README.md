@@ -1,9 +1,10 @@
 # Fayda mock (eSignet OIDC provider)
 
 A mock VeriFayda eSignet OpenID Connect provider for dev. The WeredaConnect
-server talks to it exactly like real Fayda: discovery, authorization code with
-PKCE S256, `client_secret_post` (or `private_key_jwt`), RS256 id_token checked
-against the JWKS. Zero npm dependencies. In Lambda it uses the AWS SDK v3 that
+server talks to it exactly like real Fayda: eSignet paths under `/v1/esignet`,
+authorization code with PKCE S256, `private_key_jwt` client authentication only,
+an RS256 id_token with identity only, and a signed userinfo JWT that carries the
+claims the `claims` parameter asked for. Zero npm dependencies. In Lambda it uses the AWS SDK v3 that
 ships with the Lambda Node.js runtime (nodejs24.x).
 
 Deployed by `infra/lib/constructs/fayda-mock-construct.ts`. Runbook:
@@ -26,19 +27,19 @@ start, so tokens from a previous run no longer verify.
 Quick check:
 
 ```bash
-curl -s localhost:8788/.well-known/openid-configuration
+curl -s localhost:8788/v1/esignet/oidc/.well-known/openid-configuration
 ```
 
 ## Endpoints
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/.well-known/openid-configuration` | Discovery |
-| GET | `/.well-known/jwks.json` | Public signing key |
+| GET | `/v1/esignet/oidc/.well-known/openid-configuration` | Discovery (same fields as live Fayda; `jwks_uri` points at `/.well-known/jwks.json`, which answers 404 like on Fayda) |
+| GET | `/v1/esignet/oauth/.well-known/jwks.json` | Public signing key |
 | GET | `/authorize` | Test-user picker + OTP page. `auto=1&fin=<FIN>` (or `fin=new`) skips it, `simulate=denied` or `simulate=down` |
 | POST | `/authorize/complete` | Form target of the picker, redirects with `code` + `state` |
-| POST | `/token` | `authorization_code` only, PKCE required |
-| GET | `/userinfo` | `Authorization: Bearer <access_token>` |
+| POST | `/v1/esignet/oauth/v2/token` | `authorization_code` only, PKCE required, `private_key_jwt` (aud = this URL, single-use jti) |
+| GET | `/v1/esignet/oidc/userinfo` | `Authorization: Bearer <access_token>`. Signed JWT (`application/jwt`) with `sub` + requested claims |
 | GET | `/health` | 200 |
 
 The OTP is always `123456`. Codes are single use and expire after 5 minutes.
@@ -49,11 +50,12 @@ Any exchange attempt burns the code, even a failed one.
 | Name | Default | Purpose |
 |------|---------|---------|
 | `CLIENT_ID` | `weredaconnect-dev` | The only accepted client |
-| `CLIENT_SECRET` | `dev-fayda-mock-secret` | For `client_secret_post` |
 | `ALLOWED_REDIRECT_URIS` | `weredaconnect://fayda-callback` | Comma list, exact match |
 | `REQUIRE_PKCE` | `true` | Set `false` to allow requests without `code_challenge` |
 | `ISSUER_URL_OVERRIDE` | request origin | Fixes `iss` and the discovery URLs |
-| `CLIENT_JWKS_JSON` | unset | JWKS for `private_key_jwt`; unset means it is rejected |
+| `CLIENT_JWKS_JSON` | unset | Relying party public JWKS for `private_key_jwt` (local runs, tests) |
+| `CLIENT_KEY_PARAM` | unset | SSM SecureString with the RP private key, the parameter the server signs with (`/{prefix}/fayda/client-private-key`). Missing or `PLACEHOLDER` means the mock writes a new base64 JWK there on its first discovery or authorize call; a usable key is kept. Its public half verifies client assertions |
+| `CLIENT_KEY_FILE` | unset | Local stand-in for `CLIENT_KEY_PARAM`: a file with the same get-or-create behaviour (`server-local.js`, the server's full-flow test). With neither this, `CLIENT_KEY_PARAM` nor `CLIENT_JWKS_JSON`, every token request is rejected |
 | `CODES_TABLE` | unset | DynamoDB table; unset means in-memory |
 | `SIGNING_KEY_PARAM` | unset | SSM SecureString holding the PEM key; created on first cold start if missing. Unset means an in-memory key |
 
@@ -73,9 +75,8 @@ Any exchange attempt burns the code, even a failed one.
 
 The server links each Fayda identity to one account (`FAYDA_004`), so the five
 seeded FINs run out fast. The mock accepts **any** 16-digit FIN and derives a
-synthetic identity from it: `sub` from the FIN hash as above, and a name,
-`given_name` and `family_name` picked by a hash of the FIN, so the same FIN
-always returns the same person. Synthetic identities carry **no**
+synthetic identity from it: `sub` from the FIN hash as above, and a name
+picked by a hash of the FIN, so the same FIN always returns the same person. Synthetic identities carry **no**
 `phone_number` claim, so the server never treats the phone as Fayda-proven and
 always sends the SMS OTP.
 

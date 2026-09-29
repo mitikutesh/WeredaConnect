@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { pkceChallenge, verifyPkce } = require('../src/crypto');
-const { makeApp, getCode, tokenBody } = require('./helpers');
+const { makeApp, getCode, tokenBody, PATHS } = require('./helpers');
 
 test('S256 matches the RFC 7636 appendix B example', () => {
   const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
@@ -22,7 +22,7 @@ test('verifyPkce rejects wrong, short and missing verifiers', () => {
 test('token endpoint rejects a wrong code_verifier', async () => {
   const app = makeApp();
   const { code } = await getCode(app);
-  const res = await app.call('POST', '/token', { body: tokenBody({ code, code_verifier: 'x'.repeat(50) }) });
+  const res = await app.call('POST', PATHS.token, { body: tokenBody({ code, code_verifier: 'x'.repeat(50) }) });
   assert.equal(res.statusCode, 400);
   assert.equal(JSON.parse(res.body).error, 'invalid_grant');
 });

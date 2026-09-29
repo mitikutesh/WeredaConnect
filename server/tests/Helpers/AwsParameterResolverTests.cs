@@ -110,4 +110,18 @@ public sealed class AwsParameterResolverTests : IDisposable
         AwsParameterResolver.SsmFetchOverride = _ => "recovered";
         Assert.Equal("recovered", AwsParameterResolver.GetSecretOrParameterValue(ParameterName));
     }
+
+    [Fact]
+    public void FetchSecretOrParameterValue_RoutesTheSameButNeverCaches()
+    {
+        var values = new Queue<string>(["PLACEHOLDER", "real-key"]);
+        AwsParameterResolver.SsmFetchOverride = _ => values.Dequeue();
+        AwsParameterResolver.SecretsFetchOverride = _ => "from-secrets-manager";
+
+        Assert.Equal("PLACEHOLDER", AwsParameterResolver.FetchSecretOrParameterValue(ParameterName));
+        Assert.Equal("real-key", AwsParameterResolver.FetchSecretOrParameterValue(ParameterName));
+        Assert.Equal("from-secrets-manager", AwsParameterResolver.FetchSecretOrParameterValue(SecretArn));
+        Assert.Throws<InvalidOperationException>(() =>
+            AwsParameterResolver.FetchSecretOrParameterValue("arn:aws:ssm:eu-north-1:123456789012:parameter/x"));
+    }
 }
