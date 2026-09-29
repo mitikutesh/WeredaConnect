@@ -2770,7 +2770,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycPaymentResubmitted =>
-      'Eenyummaan keessan mirkanaa\'eera. Kaffaltiin keessan irra deebi\'ee ergameera.';
+      'Eenyummaan keessan mirkanaa\'eera. Kaffaltiin keessan irra deebi\'ee ni ergama.';
 
   @override
   String get kycVerifiedPayAgain =>
@@ -2799,4 +2799,8 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get faydaIdentityUnconfirmed =>
       'ID Faayidaa kun kan herrega keessanii ta\'uu isaa mirkaneessuu hin dandeenye. ID Faayidaa lakkoofsa bilbila keessaniin galmaa\'een mirkaneessaa.';
+
+  @override
+  String get kycPhoneNotProven =>
+      'ID Faayidaa keessan mirkanaa\'eera, garuu Faayidaan lakkoofsa bilbila herrega kanaa hin qabu, kanaaf bilbilli keessan ammallee hin mirkanoofne. Kaffaltiin hin ergamne.';
 }

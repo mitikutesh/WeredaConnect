@@ -40,6 +40,33 @@ function findUser(fin) {
   return TEST_USERS.find((u) => u.fin === fin) || syntheticUser(fin);
 }
 
+/**
+ * Ethiopian mobile number in the server's canonical form (+2519XXXXXXXX or
+ * +2517XXXXXXXX), from +251..., 251..., 0... or 9/7... input. Null otherwise.
+ */
+function normalizePhone(input) {
+  const digits = String(input || '').replace(/[\s-]/g, '');
+  const m = /^(?:\+?251|0)?([79]\d{8})$/.exec(digits);
+  return m ? `+251${m[1]}` : null;
+}
+
+/**
+ * The person who owns [phone] at Fayda: the seeded user with that phone, else
+ * a synthetic identity whose FIN is derived from the phone, so the same phone
+ * always returns the same person (sign-up, then Fayda again at payment time).
+ * Carries the phone_number claim, like a real Fayda record. Null for a bad phone.
+ */
+function userForPhone(input) {
+  const phone = normalizePhone(input);
+  if (!phone) return null;
+  const seeded = TEST_USERS.find((u) => u.phone === phone);
+  if (seeded) return seeded;
+  const h = crypto.createHash('sha256').update(`fayda-mock-phone:${phone}`).digest();
+  // 15 digits from the hash after a leading 9: 16 digits, never a seeded FIN.
+  const fin = `9${(h.readBigUInt64BE(0) % 10n ** 15n).toString().padStart(15, '0')}`;
+  return { ...syntheticUser(fin), phone, hint: 'phone identity' };
+}
+
 /** Random 16-digit FIN (no leading zero) that is not one of the seeded ones. */
 function generateFin() {
   for (;;) {
@@ -51,4 +78,4 @@ function generateFin() {
   }
 }
 
-module.exports = { TEST_USERS, findUser, isValidFin, generateFin };
+module.exports = { TEST_USERS, findUser, isValidFin, generateFin, normalizePhone, userForPhone };

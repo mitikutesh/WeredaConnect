@@ -377,6 +377,7 @@ void main() {
           'faydaVerified': true,
           'faydaVerifiedAt': '2026-09-25T09:00:00Z',
           'verifiedName': 'Abebe Kebede',
+          'phoneVerified': true,
         }),
         data: {
           'authorizationCode': 'code-9',
@@ -391,6 +392,7 @@ void main() {
       expect(result.faydaVerified, isTrue);
       expect(result.faydaVerifiedAt, DateTime.utc(2026, 9, 25, 9));
       expect(result.verifiedName, 'Abebe Kebede');
+      expect(result.phoneVerified, isTrue);
     });
 
     test('maps FAYDA_004 (already linked to another account)', () async {

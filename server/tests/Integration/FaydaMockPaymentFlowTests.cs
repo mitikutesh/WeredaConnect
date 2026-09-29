@@ -292,7 +292,14 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
     /// What the app does after "Verify with Fayda": fayda-start, the user signs in
     /// as <paramref name="fin"/> at the provider, then fayda-link with the callback.
     /// </summary>
-    private async Task<APIGatewayProxyResponse> VerifyWithFaydaAsync(string fin)
+    private Task<APIGatewayProxyResponse> VerifyWithFaydaAsync(string fin) =>
+        VerifyAtProviderAsync($"fin={fin}");
+
+    /// <summary>The mock's "Identity for my phone number": that phone's Fayda record.</summary>
+    private Task<APIGatewayProxyResponse> VerifyWithFaydaPhoneAsync(string phone) =>
+        VerifyAtProviderAsync($"phone={Uri.EscapeDataString(phone)}");
+
+    private async Task<APIGatewayProxyResponse> VerifyAtProviderAsync(string identity)
     {
         var start = await _fayda.FunctionHandler(
             AuthedRequest("/user/fayda-start", new { redirectUri = FaydaMockProvider.LinkRedirect }), _context);
@@ -300,7 +307,7 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
         var started = JsonSerializer.Deserialize<FaydaStartResponse>(start.Body, Json)!;
 
         using var browser = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
-        var authorize = await browser.GetAsync($"{started.AuthorizeUrl}&auto=1&fin={fin}");
+        var authorize = await browser.GetAsync($"{started.AuthorizeUrl}&auto=1&{identity}");
         Assert.Equal(HttpStatusCode.Found, authorize.StatusCode);
         var callback = authorize.Headers.Location!;
         Assert.StartsWith(FaydaMockProvider.LinkRedirect, callback.OriginalString);
@@ -402,6 +409,48 @@ public class FaydaMockPaymentFlowTests : IClassFixture<FaydaMockProvider>
 
         // The buyer cannot fix this one: the client must not send them to Fayda again.
         AssertPaymentBlocked(await SubmitPaymentAsync(), "farmer_fayda");
+    }
+
+    [Fact]
+    public async Task AccountWithAnyPhone_GeneratedIdentityFails_PhoneIdentityPasses_AndPaymentGoesThrough()
+    {
+        // A buyer whose phone matches no seeded mock identity.
+        _users[BuyerId] = _users[BuyerId] with { PhoneNumber = "+251911223344" };
+
+        // "Generate new identity": random FIN, no phone → nothing ties it to the account.
+        var generated = await VerifyWithFaydaAsync("new");
+        Assert.Equal(403, generated.StatusCode);
+        Assert.Contains("FAYDA_007", generated.Body);
+        AssertPaymentBlocked(await SubmitPaymentAsync(), "buyer_fayda");
+
+        // "Identity for my phone number" with another phone → phone mismatch.
+        var otherPhone = await VerifyWithFaydaPhoneAsync("0911000000");
+        Assert.Equal(403, otherPhone.StatusCode);
+        Assert.Contains("FAYDA_006", otherPhone.Body);
+
+        // The account's own phone (typed in local format) → verified, payment goes through.
+        var own = await VerifyWithFaydaPhoneAsync("0911223344");
+        Assert.Equal(200, own.StatusCode);
+        Assert.True(_users[BuyerId].FaydaVerified);
+        Assert.Contains("\"status\":\"success\"", await SubmitPaymentAsync());
+    }
+
+    [Fact]
+    public async Task PhoneIdentity_VerifiesAgainLater_ButAGeneratedOneDoesNot()
+    {
+        _users[BuyerId] = _users[BuyerId] with { PhoneNumber = "+251911223344" };
+        Assert.Equal(200, (await VerifyWithFaydaPhoneAsync("+251911223344")).StatusCode);
+        var boundId = _users[BuyerId].FaydaId;
+
+        // Fayda again at payment time (or from the profile): same phone, same person.
+        Assert.Equal(200, (await VerifyWithFaydaPhoneAsync("0911223344")).StatusCode);
+        Assert.Equal(boundId, _users[BuyerId].FaydaId);
+
+        // A freshly generated identity is someone else.
+        var generated = await VerifyWithFaydaAsync("new");
+        Assert.Equal(403, generated.StatusCode);
+        Assert.Contains("FAYDA_005", generated.Body);
+        Assert.Equal(boundId, _users[BuyerId].FaydaId);
     }
 
     [Fact]

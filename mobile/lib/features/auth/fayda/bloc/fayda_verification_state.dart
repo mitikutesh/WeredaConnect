@@ -59,10 +59,17 @@ class FaydaVerificationSucceeded extends FaydaVerificationState {
   final String? verifiedName;
   final DateTime? verifiedAt;
 
-  const FaydaVerificationSucceeded({this.verifiedName, this.verifiedAt});
+  /// The account's phone is proven after this link.
+  final bool phoneVerified;
+
+  const FaydaVerificationSucceeded({
+    this.verifiedName,
+    this.verifiedAt,
+    this.phoneVerified = false,
+  });
 
   @override
-  List<Object?> get props => [verifiedName, verifiedAt];
+  List<Object?> get props => [verifiedName, verifiedAt, phoneVerified];
 }
 
 /// Verification failed; [errorCode] is a FAYDA_* / AUTH_* code.

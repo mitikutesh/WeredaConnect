@@ -36,6 +36,11 @@ typedef FaydaUrlLauncher = Future<bool> Function(Uri url);
 /// after verifying and closes itself with `true` on success, so the payment
 /// is sent again without the user having to press back.
 ///
+/// [requirePhoneProof]: the payment was blocked because the phone is not
+/// verified. Linking the Fayda ID alone does not fix that, so success then
+/// also needs the link to prove the phone; otherwise the screen stays open,
+/// says so, and pops `false`.
+///
 /// Web runs the same flow: Fayda redirects to `web/fayda-callback.html`,
 /// which relays the callback to this tab (see [faydaCallbackLinks]). When
 /// the server refuses the web redirect (real provider) the start fails with
@@ -46,6 +51,7 @@ class FaydaVerificationScreen extends StatelessWidget {
   final FaydaUrlLauncher? launcher;
   final FaydaVerifiedRecorder? recordVerified;
   final bool forPayment;
+  final bool requirePhoneProof;
 
   const FaydaVerificationScreen({
     this.service,
@@ -53,6 +59,7 @@ class FaydaVerificationScreen extends StatelessWidget {
     this.launcher,
     this.recordVerified,
     this.forPayment = false,
+    this.requirePhoneProof = false,
     super.key,
   });
 
@@ -67,6 +74,7 @@ class FaydaVerificationScreen extends StatelessWidget {
         deepLinks: deepLinks,
         launcher: launcher,
         forPayment: forPayment,
+        requirePhoneProof: requirePhoneProof,
       ),
     );
   }
@@ -92,9 +100,11 @@ class _FaydaVerificationView extends StatefulWidget {
   final Stream<Uri>? deepLinks;
   final FaydaUrlLauncher? launcher;
   final bool forPayment;
+  final bool requirePhoneProof;
 
   const _FaydaVerificationView({
     required this.forPayment,
+    required this.requirePhoneProof,
     this.deepLinks,
     this.launcher,
   });
@@ -205,6 +215,9 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
     }
   }
 
+  bool _phoneStillUnproven(FaydaVerificationSucceeded state) =>
+      widget.requirePhoneProof && !state.phoneVerified;
+
   String _errorText(AppLocalizations l10n, FaydaVerificationFailure failure) {
     return switch (failure.errorCode) {
       AuthErrorCode.faydaServiceUnavailable => l10n.faydaUnavailable,
@@ -229,6 +242,9 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
             _launch(state.authorizeUrl);
           }
         } else if (state is FaydaVerificationSucceeded) {
+          // Linked, but the phone the payment needs is still unproven: the
+          // builder explains, and the payment is not sent again.
+          if (_phoneStillUnproven(state)) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -243,7 +259,10 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
         }
       },
       builder: (context, state) {
-        final verified = state is FaydaVerificationSucceeded;
+        final phoneStillUnproven =
+            state is FaydaVerificationSucceeded && _phoneStillUnproven(state);
+        final verified =
+            state is FaydaVerificationSucceeded && !phoneStillUnproven;
         final verifying = state is FaydaVerificationStarting ||
             state is FaydaAwaitingCallback ||
             state is FaydaLinking;
@@ -284,7 +303,9 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
                   : null,
               errorMessage: state is FaydaVerificationFailure
                   ? _errorText(l10n, state)
-                  : null,
+                  : phoneStillUnproven
+                      ? l10n.kycPhoneNotProven
+                      : null,
             ),
           ),
         );

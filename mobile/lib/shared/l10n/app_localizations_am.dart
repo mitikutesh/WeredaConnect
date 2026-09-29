@@ -2668,7 +2668,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get kycPaymentNotSent => 'ክፍያው አልተላከም። ማንነትዎ አልተረጋገጠም።';
 
   @override
-  String get kycPaymentResubmitted => 'ማንነትዎ ተረጋግጧል። ክፍያዎ እንደገና ተልኳል።';
+  String get kycPaymentResubmitted => 'ማንነትዎ ተረጋግጧል። ክፍያዎ እንደገና ይላካል።';
 
   @override
   String get kycVerifiedPayAgain =>
@@ -2696,4 +2696,8 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String get faydaIdentityUnconfirmed =>
       'ይህ የፋይዳ መታወቂያ የመለያዎ መሆኑን ማረጋገጥ አልቻልንም። በስልክ ቁጥርዎ በተመዘገበው የፋይዳ መታወቂያ ያረጋግጡ።';
+
+  @override
+  String get kycPhoneNotProven =>
+      'የፋይዳ መታወቂያዎ ተረጋግጧል፣ ነገር ግን ፋይዳ የዚህን መለያ ስልክ ቁጥር አልያዘም፣ ስለዚህ ስልክዎ አሁንም አልተረጋገጠም። ክፍያው አልተላከም።';
 }

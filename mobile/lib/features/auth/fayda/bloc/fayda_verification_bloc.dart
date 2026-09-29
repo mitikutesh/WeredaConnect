@@ -120,6 +120,7 @@ class FaydaVerificationBloc
       FaydaVerificationSucceeded(
         verifiedName: result.verifiedName,
         verifiedAt: result.faydaVerifiedAt,
+        phoneVerified: result.phoneVerified,
       ),
     );
   }

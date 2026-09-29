@@ -588,6 +588,13 @@ public class RegisterFunctionTests
     [Theory]
     [InlineData("+251912345678", "+251912345678", true)]
     [InlineData("0912345678", "+251912345678", true)]
+    [InlineData("00251912345678", "+251912345678", true)]
+    [InlineData("251912345678", "+251912345678", true)]
+    [InlineData("912345678", "+251912345678", true)]
+    [InlineData("+251 91 234 5678", "+251912345678", true)]
+    [InlineData("251999999999", "+251912345678", false)]
+    [InlineData("12345678", "+251912345678", false)]
+    [InlineData("25191234567", "+251912345678", false)]
     [InlineData("+251999999999", "+251912345678", false)]
     [InlineData(null, "+251912345678", false)]
     public void IsPhoneProven_ComparesNormalisedFaydaPhone(string? faydaPhone, string registrationPhone, bool expected)
