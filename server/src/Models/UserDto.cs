@@ -27,6 +27,13 @@ public sealed record UserDto
     public string? FaydaId { get; init; }
     public bool FaydaVerified { get; init; }
     public string? FaydaVerifiedAt { get; init; }
+    /// <summary>
+    /// Last successful Fayda login through /user/fayda-link (ISO 8601). Payments above
+    /// 10,000 ETB need it to be recent (step-up AUTH_041). Server-side only, never
+    /// returned to clients.
+    /// </summary>
+    [JsonIgnore]
+    public string? FaydaAuthenticatedAt { get; init; }
     public string PreferredLanguage { get; init; } = "am";
     public required bool IsPhoneVerified { get; init; }
     public bool Suspended { get; init; }

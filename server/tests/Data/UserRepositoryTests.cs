@@ -2,6 +2,7 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+using WeredaConnect.Server;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Models;
 using Xunit;
@@ -134,6 +135,21 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task UpdateUserAsync_WritesTheFaydaLoginTime()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { FaydaAuthenticatedAt = "2026-09-29T10:00:00Z" }, 1);
+
+        Assert.NotNull(sent);
+        Assert.Contains("#faydaAuthAt = :faydaAuthAt", sent!.UpdateExpression);
+        Assert.Equal("faydaAuthenticatedAt", sent.ExpressionAttributeNames["#faydaAuthAt"]);
+        Assert.Equal("2026-09-29T10:00:00Z", sent.ExpressionAttributeValues[":faydaAuthAt"].S);
+    }
+
+    [Fact]
     public async Task UpdateUserAsync_VersionConflict_ReturnsFailure()
     {
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
@@ -172,6 +188,36 @@ public class UserRepositoryTests
         Assert.Equal(user.CreatedAt, restored.CreatedAt);
         Assert.Equal(user.UpdatedAt, restored.UpdatedAt);
         Assert.Equal(user.Version, restored.Version);
+    }
+
+    [Fact]
+    public void ToItem_FromItem_RoundTripsFaydaLoginTime()
+    {
+        var user = CreateTestUser() with { FaydaAuthenticatedAt = "2026-09-29T10:00:00.0000000Z" };
+
+        var item = UserRepository.ToItem(user);
+        var restored = UserRepository.FromItem(item);
+
+        Assert.Equal("2026-09-29T10:00:00.0000000Z", item["faydaAuthenticatedAt"].S);
+        Assert.Equal(user.FaydaAuthenticatedAt, restored.FaydaAuthenticatedAt);
+        Assert.False(UserRepository.ToItem(CreateTestUser()).ContainsKey("faydaAuthenticatedAt"));
+        Assert.Null(UserRepository.FromItem(UserRepository.ToItem(CreateTestUser())).FaydaAuthenticatedAt);
+    }
+
+    [Fact]
+    public void UserDto_Json_NeverCarriesTheFaydaLoginTime()
+    {
+        var user = CreateTestUser() with
+        {
+            FaydaVerifiedAt = "2026-09-01T00:00:00Z",
+            FaydaAuthenticatedAt = "2026-09-29T10:00:00Z"
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(user, AppJsonContext.Default.UserDto);
+
+        Assert.Contains("faydaVerifiedAt", json);
+        Assert.DoesNotContain("faydaAuthenticatedAt", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("2026-09-29T10:00:00Z", json);
     }
 
     [Fact]

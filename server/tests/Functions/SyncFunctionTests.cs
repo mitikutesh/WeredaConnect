@@ -3152,7 +3152,7 @@ public class SyncFunctionTests
                 }
             };
             var response = await function.FunctionHandler(
-                MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+                MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
             Assert.Equal(200, response.StatusCode);
             Assert.Contains("success", response.Body);
@@ -3515,7 +3515,7 @@ public class SyncFunctionTests
                 { "version", 1 }
             }
         };
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         var response = await function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
@@ -3635,7 +3635,7 @@ public class SyncFunctionTests
                     { "version", 1 }
                 }
             };
-            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             var response = await function.FunctionHandler(request, _context);
 
             Assert.Equal(200, response.StatusCode);
@@ -4383,7 +4383,7 @@ public class SyncFunctionTests
                     { "version", 1 }
                 }
             };
-            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
+            var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             var response = await function.FunctionHandler(request, _context);
 
             Assert.Equal(200, response.StatusCode);
@@ -4666,6 +4666,63 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task FarmerNonceOnlyUpdate_StoresSecret_WithoutWritingOrBumpingTheVersion()
+    {
+        var mockSecret = Substitute.For<IDeliveryQrSecretRepository>();
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, qrSecretRepo: mockSecret);
+        SetupExistingDelivery("del-001", "", "pending", 3);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-nonce",
+            IdempotencyKey = "farmer-001:delivery:del-001:update:nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "qrNonce", "nonce-1" }, { "version", 3 } }
+        };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"serverVersion\":3", response.Body);
+        Assert.DoesNotContain("nonce-1", response.Body);
+        await mockSecret.Received(1).PutNonceAsync("del-001", "nonce-1");
+        // The scanner's queued confirm at version 3 must still match.
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r => r.TableName == "test-deliveries-table"));
+    }
+
+    [Fact]
+    public async Task NonceOnlyUpdate_FromTheBuyer_StoresNothing()
+    {
+        var mockSecret = Substitute.For<IDeliveryQrSecretRepository>();
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, qrSecretRepo: mockSecret);
+        SetupExistingDelivery("del-001", "", "pending", 3);
+
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-nonce-buyer",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:nonce",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "qrNonce", "nonce-x" }, { "version", 3 } }
+        };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("DELIVERY_UNAUTHORIZED", response.Body);
+        await mockSecret.DidNotReceive().PutNonceAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task DeliveryConflict_DoesNotLeakQrNonce()
     {
         SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "secret-nonce-999");
@@ -4696,7 +4753,7 @@ public class SyncFunctionTests
         Assert.DoesNotContain("qrNonce", response.Body);
     }
 
-    // ===== Payment gates: KYC (ORDER_KYC_REQUIRED) and step-up (AUTH_040) =====
+    // ===== Payment gates: KYC (ORDER_KYC_REQUIRED) and step-up (AUTH_040 password / AUTH_041 Fayda) =====
 
     private static UserDto PaymentParty(string id, bool phoneVerified = true, bool faydaVerified = false) => new()
     {
@@ -4795,34 +4852,11 @@ public class SyncFunctionTests
         Assert.Contains("Fayda", response.Body);
     }
 
-    [Fact]
-    public async Task PaymentSubmitted_Above10K_StaleAuth_RequiresStepUp()
-    {
-        var function = PaymentFunction(15_000m,
-            PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
-
-        var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
-                authTime: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()), _context);
-
-        Assert.Contains("AUTH_040", response.Body);
-        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
-    }
+    private static UserDto WithFaydaLogin(UserDto user, DateTime at)
+        => user with { FaydaAuthenticatedAt = at.ToString("o") };
 
     [Fact]
-    public async Task PaymentSubmitted_Above10K_NoAuthTimeClaim_RequiresStepUp()
-    {
-        var function = PaymentFunction(15_000m,
-            PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
-
-        var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
-
-        Assert.Contains("AUTH_040", response.Body);
-    }
-
-    [Fact]
-    public async Task PaymentSubmitted_Above10K_FreshAuthAndFayda_Succeeds()
+    public async Task PaymentSubmitted_Above10K_FreshPasswordOnly_RequiresFaydaStepUp()
     {
         var function = PaymentFunction(15_000m,
             PaymentParty("buyer-001", faydaVerified: true), PaymentParty("farmer-001", faydaVerified: true));
@@ -4831,18 +4865,77 @@ public class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
                 authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("\"status\":\"success\"", response.Body);
-        Assert.DoesNotContain("AUTH_040", response.Body);
+        Assert.Contains("AUTH_041", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
     }
 
     [Fact]
-    public async Task PaymentSubmitted_SmallAmount_NeedsNoStepUp()
+    public async Task PaymentSubmitted_Above10K_StaleFaydaLogin_RequiresFaydaStepUp()
+    {
+        var buyer = WithFaydaLogin(PaymentParty("buyer-001", faydaVerified: true), DateTime.UtcNow.AddMinutes(-30));
+        var function = PaymentFunction(15_000m, buyer, PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_041", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Above10K_RecentFaydaLogin_SucceedsWithoutPassword()
+    {
+        var buyer = WithFaydaLogin(PaymentParty("buyer-001", faydaVerified: true), DateTime.UtcNow.AddMinutes(-1));
+        var function = PaymentFunction(15_000m, buyer, PaymentParty("farmer-001", faydaVerified: true));
+
+        // No auth_time claim: above 10,000 ETB the Fayda login replaces the password.
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("AUTH_04", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_Exactly10K_NeedsPasswordNotFayda()
+    {
+        var function = PaymentFunction(10_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var stale = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()), _context);
+        var fresh = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_040", stale.Body);
+        Assert.Contains("\"status\":\"success\"", fresh.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_SmallAmount_WithoutFreshPassword_RequiresStepUp()
+    {
+        var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var noClaim = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+        var stale = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("AUTH_040", noClaim.Body);
+        Assert.Contains("AUTH_040", stale.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_SmallAmount_FreshPassword_Succeeds()
     {
         var function = PaymentFunction(2_000m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
 
         var response = await function.FunctionHandler(
-            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
         Assert.Contains("\"status\":\"success\"", response.Body);
     }

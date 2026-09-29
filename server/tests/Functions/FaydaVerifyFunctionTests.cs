@@ -523,15 +523,26 @@ public class FaydaVerifyFunctionTests
     [Fact]
     public async Task Link_SameFaydaIdAsAccount_Reverifies()
     {
-        LinkStarted(LinkingUser() with { FaydaId = "FAYDA-123", FaydaVerified = true, FaydaVerifiedAt = "2026-09-01T00:00:00Z" });
+        LinkStarted(LinkingUser() with
+        {
+            FaydaId = "FAYDA-123",
+            FaydaVerified = true,
+            FaydaVerifiedAt = "2026-09-01T00:00:00Z",
+            FaydaAuthenticatedAt = "2026-09-01T00:00:00Z"
+        });
         _mockRepo.GetUserByFaydaIdAsync("FAYDA-123").Returns(LinkingUser() with { FaydaId = "FAYDA-123" });
 
         var response = await _function.FunctionHandler(
             MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
 
         Assert.Equal(200, response.StatusCode);
+        // The first verification date stays; the Fayda login time (payment step-up
+        // proof above 10,000 ETB) moves to now.
         await _mockRepo.Received(1).UpdateUserAsync(
-            Arg.Is<UserDto>(u => u.FaydaId == "FAYDA-123" && u.FaydaVerifiedAt == "2026-09-01T00:00:00Z"), 2);
+            Arg.Is<UserDto>(u => u.FaydaId == "FAYDA-123"
+                && u.FaydaVerifiedAt == "2026-09-01T00:00:00Z"
+                && u.FaydaAuthenticatedAt != null
+                && DateTimeOffset.Parse(u.FaydaAuthenticatedAt) > DateTimeOffset.UtcNow.AddMinutes(-1)), 2);
     }
 
     [Fact]
@@ -618,6 +629,25 @@ public class FaydaVerifyFunctionTests
         Assert.Equal(403, response.StatusCode);
         Assert.Contains("FAYDA_005", response.Body);
         await _mockRepo.DidNotReceive().UpdateUserAsync(Arg.Any<UserDto>(), 3);
+    }
+
+    [Fact]
+    public async Task Link_VersionRace_RetryStillRecordsTheFaydaLogin()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser(), LinkingUser() with { Version = 3 });
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 2)
+            .Returns(AuthResult<UserDto>.Failure(409, "CONFLICT", "version"));
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 3)
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = 4 }));
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockRepo.Received(1).UpdateUserAsync(
+            Arg.Is<UserDto>(u => u.FaydaAuthenticatedAt != null
+                && DateTimeOffset.Parse(u.FaydaAuthenticatedAt) > DateTimeOffset.UtcNow.AddMinutes(-1)), 3);
     }
 
     [Fact]

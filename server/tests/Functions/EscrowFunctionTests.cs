@@ -127,7 +127,8 @@ public class EscrowFunctionTests
             IdempotencyKey = $"{BuyerId}:del-001:initiate:1708084800000"
         }, AppJsonContext.Default.InitiateEscrowRequest);
 
-        var request = MakePostRequest("/escrow/initiate", body, BuyerId);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", body, BuyerId), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         var response = await _function.FunctionHandler(request, _context);
 
@@ -591,7 +592,8 @@ public class EscrowFunctionTests
             IdempotencyKey = $"{BuyerId}:del-001:initiate:1708084800000"
         }, AppJsonContext.Default.InitiateEscrowRequest);
 
-        var request = MakePostRequest("/escrow/initiate", body, BuyerId);
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", body, BuyerId), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(500, response.StatusCode);
@@ -675,7 +677,8 @@ public class EscrowFunctionTests
     }
 
     // ──────────────────────────────────────────────
-    // Step-up (AUTH_040) on large initiate / dispute
+    // Step-up: initiate is tiered (password up to 10,000 ETB, AUTH_040; Fayda
+    // above, AUTH_041); disputes on large escrows need a fresh password
     // ──────────────────────────────────────────────
 
     private static APIGatewayProxyRequest WithAuthTime(APIGatewayProxyRequest request, long authTime)
@@ -725,11 +728,101 @@ public class EscrowFunctionTests
         IdempotencyKey = $"{BuyerId}:{escrowId}:dispute:1708171200999"
     }, AppJsonContext.Default.DisputeEscrowRequest);
 
+    /// <summary>The function with a buyer whose last Fayda login was at <paramref name="faydaAuthenticatedAt"/>.</summary>
+    private EscrowFunction FunctionWithBuyerFayda(string? faydaAuthenticatedAt)
+    {
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(BuyerId).Returns(new UserDto
+        {
+            UserId = BuyerId,
+            PhoneNumber = "+251900000003",
+            Role = "buyer",
+            Woreda = "Adama",
+            IsPhoneVerified = true,
+            FaydaVerified = true,
+            FaydaAuthenticatedAt = faydaAuthenticatedAt,
+            CreatedAt = "2026-09-25T10:00:00Z",
+            UpdatedAt = "2026-09-25T10:00:00Z",
+            Version = 1
+        });
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        return new EscrowFunction(service, userRepo: userRepo);
+    }
+
     [Fact]
-    public async Task Initiate_LargeAmount_WithoutFreshAuth_Returns403StepUp()
+    public async Task Initiate_LargeAmount_WithoutFaydaLogin_Returns403FaydaStepUp()
     {
         var response = await _function.FunctionHandler(
             MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_041", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_FreshPasswordOnly_StillNeedsFayda()
+    {
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var response = await FunctionWithBuyerFayda(null).FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_041", response.Body);
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_StaleFaydaLogin_Returns403FaydaStepUp()
+    {
+        var stale = DateTime.UtcNow.AddMinutes(-30).ToString("o");
+
+        var response = await FunctionWithBuyerFayda(stale).FunctionHandler(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_041", response.Body);
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_RecentFaydaLogin_PassesStepUpWithoutPassword()
+    {
+        var recent = DateTime.UtcNow.AddMinutes(-1).ToString("o");
+
+        // No auth_time at all: above 10,000 ETB the Fayda login replaces the password.
+        var response = await FunctionWithBuyerFayda(recent).FunctionHandler(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId), _context);
+
+        Assert.DoesNotContain("AUTH_040", response.Body);
+        Assert.DoesNotContain("AUTH_041", response.Body);
+    }
+
+    [Fact]
+    public async Task Initiate_LargeAmount_ProfileReadFails_Returns503AndHoldsNothing()
+    {
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(BuyerId).ThrowsAsync(new InvalidOperationException("dynamo down +251911111111"));
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowFunction(service, userRepo: userRepo);
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId), _context);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("ESCROW_012", response.Body);
+        Assert.DoesNotContain("+251911111111", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Initiate_SmallAmount_WithoutFreshPassword_Returns403StepUp()
+    {
+        var request = WithAuthTime(
+            MakePostRequest("/escrow/initiate", InitiateBody(5_000m), BuyerId),
+            DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds());
+
+        var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(403, response.StatusCode);
         Assert.Contains("AUTH_040", response.Body);
@@ -737,35 +830,13 @@ public class EscrowFunctionTests
     }
 
     [Fact]
-    public async Task Initiate_LargeAmount_StaleAuth_Returns403StepUp()
+    public async Task Initiate_SmallAmount_FreshPassword_Succeeds()
     {
         var request = WithAuthTime(
-            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId),
-            DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds());
-
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(403, response.StatusCode);
-        Assert.Contains("AUTH_040", response.Body);
-    }
-
-    [Fact]
-    public async Task Initiate_LargeAmount_FreshAuth_PassesStepUp()
-    {
-        var request = WithAuthTime(
-            MakePostRequest("/escrow/initiate", InitiateBody(15_000m), BuyerId),
+            MakePostRequest("/escrow/initiate", InitiateBody(5_000m), BuyerId),
             DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         var response = await _function.FunctionHandler(request, _context);
-
-        Assert.DoesNotContain("AUTH_040", response.Body);
-    }
-
-    [Fact]
-    public async Task Initiate_SmallAmount_NeedsNoStepUp()
-    {
-        var response = await _function.FunctionHandler(
-            MakePostRequest("/escrow/initiate", InitiateBody(5_000m), BuyerId), _context);
 
         Assert.Equal(201, response.StatusCode);
     }
