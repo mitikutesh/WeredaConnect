@@ -121,8 +121,9 @@ describe('ApiStack', () => {
     //                 /messages, /messages/{id} (in-app chat)
     // Plus admin routes and the delivery-qr-secrets work → 49,
     // plus /auth/verify-otp, /auth/resend-otp, /auth/fayda-start, /user/fayda-start,
-    // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 55);
+    // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55,
+    // plus POST /escrow/order-checkout (ESC-01, live order payments) → 56 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 56);
   });
 
   test('auth hardening: password login only through the server, settlement only for admins', () => {
@@ -356,6 +357,30 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     });
   });
 
+  test('ON: webhook Lambda gets the order tables it needs to fund orders (ESC-01)', () => {
+    buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-telebirr-webhook',
+      Environment: {
+        Variables: Match.objectLike({
+          ORDERS_TABLE: Match.anyValue(),
+          CROPS_TABLE: Match.anyValue(),
+          TRANSACTION_AUDIT_TABLE: Match.anyValue(),
+          ESCROW_IDEMPOTENCY_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  test.each([false, true])(
+    'order checkout route is JWT-protected (live=%s, ESC-01)',
+    (live) => {
+      buildTemplate(live).hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: 'POST /escrow/order-checkout',
+        AuthorizationType: 'JWT',
+      });
+    },
+  );
+
   test('ON: escrow Lambda drops TELEBIRR_MOCK and gets the secret + notify URL', () => {
     buildTemplate(true).hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow',
@@ -573,6 +598,36 @@ describe('MonitoringStack', () => {
 
     const template = Template.fromStack(stack);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+  });
+
+  function monitoringTemplate(enableTelebirrLive: boolean): Template {
+    const app = new cdk.App();
+    const stack = new MonitoringStack(app, 'TestMonitoringStackLive', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: { ...devConfig, enableTelebirrLive },
+      apiUrl: `https://test.execute-api.${devConfig.region}.amazonaws.com`,
+      apiId: 'testapi123',
+    });
+    return Template.fromStack(stack);
+  }
+
+  test('ON: alarms on order payments the Telebirr webhook could not apply (ESC-01)', () => {
+    const template = monitoringTemplate(true);
+    template.hasResourceProperties('AWS::Logs::MetricFilter', {
+      LogGroupName: '/aws/lambda/wereda-connect-dev-telebirr-webhook',
+      FilterPattern: Match.stringLikeRegexp('ORDER_PAYMENT_UNMATCHED'),
+      MetricTransformations: [Match.objectLike({ MetricName: 'OrderPaymentProblems' })],
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-payment-problems',
+      Threshold: 0,
+    });
+  });
+
+  test('OFF: no webhook log filter (that log group does not exist)', () => {
+    const template = monitoringTemplate(false);
+    const filters = template.findResources('AWS::Logs::MetricFilter');
+    expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
   });
 });
 

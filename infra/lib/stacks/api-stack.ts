@@ -1141,6 +1141,12 @@ export class ApiStack extends cdk.Stack {
           ...(String(this.node.tryGetContext("telebirrRequirePayerMatch")) === "true"
             ? { TELEBIRR_REQUIRE_PAYER_MATCH: "true" }
             : {}),
+          // ESC-01: a paid order checkout funds the order here: status-conditional
+          // order write, idempotent listing stock decrement, order escrow, and a
+          // transaction-audit row. Without these the order path stays unprocessed.
+          ORDERS_TABLE: props.ordersTable.tableName,
+          CROPS_TABLE: props.cropsTable.tableName,
+          TRANSACTION_AUDIT_TABLE: props.transactionAuditTable.tableName,
         },
         timeout: cdk.Duration.seconds(15),
         memorySize: 512,
@@ -1151,6 +1157,9 @@ export class ApiStack extends cdk.Stack {
       props.escrowAuditTable.grantWriteData(telebirrWebhookFn.function);
       props.escrowIdempotencyTable.grantReadWriteData(telebirrWebhookFn.function);
       props.usersTable.grantReadData(telebirrWebhookFn.function);
+      props.ordersTable.grantReadWriteData(telebirrWebhookFn.function);
+      props.cropsTable.grantReadWriteData(telebirrWebhookFn.function);
+      props.transactionAuditTable.grantWriteData(telebirrWebhookFn.function);
     }
 
     // ─── Order Function ──────────────────────────────────────────────
@@ -1690,6 +1699,21 @@ export class ApiStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
       integration: new integrations.HttpLambdaIntegration(
         "EscrowInitiateInt",
+        escrowFn.function,
+        {
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
+      ),
+    });
+
+    // ESC-01: the buyer opens (or gets back) the live Telebirr checkout for a
+    // payment_submitted order. With mock payments it answers ESCROW_031.
+    httpApi.addRoutes({
+      path: "/escrow/order-checkout",
+      methods: [apigateway.HttpMethod.POST],
+      authorizer: jwtAuthorizer,
+      integration: new integrations.HttpLambdaIntegration(
+        "EscrowOrderCheckoutInt",
         escrowFn.function,
         {
           payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,

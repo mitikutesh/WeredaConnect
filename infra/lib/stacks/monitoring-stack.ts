@@ -693,6 +693,68 @@ export class MonitoringStack extends cdk.Stack {
     orderEscrowCreateFailedAlarm.addAlarmAction(snsAction);
     orderEscrowCreateFailedAlarm.addOkAction(snsAction);
 
+    // ESC-01: live order payments. The Telebirr webhook (and its log group) only
+    // exists when the live gateway is on, same flag as api-stack. Any payment the
+    // webhook could not apply is money the platform holds for a manual refund, and
+    // the webhook always answers 200, so its Lambda Errors metric never shows it.
+    const telebirrLive =
+      (envConfig.enableTelebirrLive ?? false) ||
+      this.node.tryGetContext('enableTelebirrLive') === 'true';
+    if (telebirrLive) {
+      const webhookLogGroup = logs.LogGroup.fromLogGroupName(
+        this,
+        'TelebirrWebhookLogGroup',
+        `/aws/lambda/${prefix}-telebirr-webhook`,
+      );
+      new logs.MetricFilter(this, 'OrderPaymentProblemsFilter', {
+        logGroup: webhookLogGroup,
+        filterPattern: logs.FilterPattern.anyTerm(
+          'ORDER_PAYMENT_UNMATCHED',
+          'ORDER_PAYMENT_DUPLICATE',
+          'ORDER_PAYMENT_UNPROCESSED',
+          'ORDER_ESCROW_CREATE_FAILED',
+          'ORDER_STOCK_DECREMENT_FAILED',
+        ),
+        metricNamespace,
+        metricName: 'OrderPaymentProblems',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+
+      const orderPaymentProblemsAlarm = new cloudwatch.Alarm(
+        this,
+        'OrderPaymentProblems',
+        {
+          alarmName: `${prefix}-order-payment-problems`,
+          alarmDescription:
+            'The Telebirr webhook received an order payment it could not apply ' +
+            '(ORDER_PAYMENT_UNMATCHED, _DUPLICATE or _UNPROCESSED), or funded an ' +
+            'order whose stock or escrow step failed (ORDER_STOCK_DECREMENT_FAILED, ' +
+            'ORDER_ESCROW_CREATE_FAILED: repair these, never refund). Find the ' +
+            'payment in this log group (an _UNPROCESSED payment may be recorded only ' +
+            'here), the escrow audit (order_payment_unmatched, _duplicate, ' +
+            '_unprocessed) or the webhook-inbox rows of the escrow idempotency table. ' +
+            'Before refunding, read the order: if its telebirrPaymentOrderId is this ' +
+            'payment, the payment funded the order and must not be refunded. Refund ' +
+            'an _UNPROCESSED payment only once its order has left that payment attempt.',
+          metric: new cloudwatch.Metric({
+            namespace: metricNamespace,
+            metricName: 'OrderPaymentProblems',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(15),
+            label: 'Order Payment Problems',
+          }),
+          threshold: 0,
+          evaluationPeriods: 1,
+          comparisonOperator:
+            cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        },
+      );
+      orderPaymentProblemsAlarm.addAlarmAction(snsAction);
+      orderPaymentProblemsAlarm.addOkAction(snsAction);
+    }
+
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
     // fail silently (mirrors escrow-cron). It gets a dedicated alarm rather than
     // joining the aggregate LambdaErrors alarm, which is capped at 10 metrics.
