@@ -80,7 +80,7 @@ Previous reports listed 7 web bugs — **validation confirmed all were already f
 | F-11 Trip Listings | DONE | DONE | DONE | DONE | DONE | 100% |
 | F-12 Delivery Verification | DONE (presigned S3) | DONE (5 screens) | DONE | DONE | DONE | 100% |
 | F-13 Telebirr Escrow | DONE (mock gateway) | DONE (4 screens) | DONE | DONE | DONE | 100% |
-| F-14 Fraud Detection | DONE (5 rules) | DONE (error handling) | N/A | DONE | DONE | 100% |
+| F-14 Fraud Detection | PARTIAL (4 rules + signal writes; risk scoring, tiers, holds NOT built, see EPIC FRD) | DONE (error handling) | N/A | DONE | DONE | ~50% |
 | F-15 Conflict Resolution | DONE | DONE (4 widgets) | DONE | N/A | DONE (49 tests) | 100% |
 | F-18 S3 Logging | DONE | N/A | N/A | DONE | N/A | 100% |
 
@@ -321,6 +321,53 @@ Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair
 | SIM-36 | P3 | @Tests | Fix stale e2e assertions: admin nav count (10 vs 11), webapp listing-flow invalid crop type, login spec passing on redirect timeout. | `e2e` suites green for the right reasons. |
 | SIM-37 | P3 | @Mobile @Server | Sync `preferredLanguage` to the server profile when changed in Settings. | Language persists across devices. |
 
+## EPIC FRD: Fraud Risk Engine (2026-09-26) - @Scope tasks
+
+Goal: suspicious activity holds the money or forces stronger identity proof (step-up, Fayda re-auth) before it moves.
+Principle: deterministic rules decide, AI only advises. No AI output ever releases, refunds or blocks money on its own.
+
+Current state (verified 2026-09-26): `FraudDetectionService` has 4 rules (listing velocity, duplicate listing, price 3 sigma, GPS) plus payment velocity, and writes weighted signals to the fraud-signals table. Nothing sums the weights, no risk tiers exist, no escrow can be `held`, and admin Fraud Review actions only mark a signal reviewed. The spec is `specs/architecture/fraud-detection-architecture.md` (Rule 5 tiers never implemented).
+
+Depends on: `feat/auth-hardening` (worktree `.claude/worktrees/auth-hardening`, uncommitted) for `AUTH_040` step-up, `KycPolicy`, `POST /user/fayda-link`, device identity headers and real suspension. Land it first.
+
+Priority: P0 money moves despite a known red flag; P1 detection or enforcement gap on a money path; P2 evidence, admin tooling or coverage; P3 deferred / needs data.
+Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair, tests, contracts, 3 languages).
+
+Stories:
+- **S1 Risk score + enforcement**: turn signals into a per-user score and act on it at every money action.
+- **S2 Signal coverage**: every rejected invariant and suspicious transaction pattern becomes a signal.
+- **S3 Delivery + payout evidence**: prove pickup and delivery, delay payouts by risk.
+- **S4 Relationship detection**: async detection of collusion and self-trading across accounts.
+- **S5 Adversarial E2E**: synthetic fraud personas prove detection and enforcement end to end.
+- **S6 AI advisory (deferred)**: labelled outcomes first, then an LLM reviewer that only adds advisory signals.
+
+| ID | Story | Pri | Scope | Task | Done when |
+|---|---|---|---|---|---|
+| FRD-01 | S1 | P1 | @Docs | Update `fraud-detection-architecture.md` to v3 (score formula, tiers, enforcement matrix, held status, decay, AI boundary) and bump `escrow-protocol.md`, `order-lifecycle.md`, `auth-api.md`, `sync-protocol.md` for the new codes and status. Correct STATE.md/ROADMAP.md claims that risk scoring is done. | Contracts reviewed before any code; new codes (`AUTH_041`, `FRAUD_ACCOUNT_HELD`, escrow `held`) documented with owners. |
+| FRD-02 | S1 | P0 | @Server | Implement `GetUserRiskScoreAsync`: sum weights of `pending` signals in the 30-day window (one Query by `userId`), tiers LOW 0-29, MEDIUM 30-59, HIGH 60-99, CRITICAL 100+. Whitelisted users skip soft-rule weights. | Unit tests per tier boundary, whitelist and expired signals; one DynamoDB Query per call; cold start budget kept. |
+| FRD-03 | S1 | P0 | @Server @Infra | New escrow status `held` with `holdReason`/`heldAt`/`heldBy`: auto-release and settlement crons skip it; only an admin (group check) moves `held` to release or refund; transitions audited in escrow-audit and transaction-audit. | Held escrow never settles by cron (test); admin release/refund from held works; order and delivery views show it for all 3 roles. |
+| FRD-04 | S1 | P0 | @Server | Risk policy gate at order `payment_submitted`, `POST /escrow/initiate`, escrow release and payout: MEDIUM forces step-up (`AUTH_040`) at any amount; HIGH forces fresh Fayda re-auth (`faydaAuthTime` stamped by `/user/fayda-link`, new `AUTH_041`) plus step-up; CRITICAL puts active escrows in `held` and rejects new listings, trips, orders with `FRAUD_ACCOUNT_HELD`. | Each tier covered by tests on every gated path, sync and REST; LOW path unchanged; farmer, trucker and buyer each tested. |
+| FRD-05 | S1 | P1 | @Server @Admin | Admin fraud actions get side effects: `reject` suspends the user (Cognito disable + global sign-out from auth-hardening) and holds their active escrows; `approve` clears the signal from the score; `whitelist` sets a per-user soft-rule bypass with an expiry. All written to transaction-audit. | Each action changes score/escrow/user state as specified; tests; admin UI reflects the result. |
+| FRD-06 | S1 | P1 | @Mobile @l10n | Client handling: `AUTH_041` opens the Fayda re-auth flow then retries; `FRAUD_ACCOUNT_HELD` message; "Under review" badge on order and escrow detail/list for `held`. Mobile and web together, 3 languages, offline queue treats these as non-retryable. | Widget tests; web build passes; no raw codes shown; all 3 roles verified. |
+| FRD-07 | S1 | P2 | @Admin @Infra | Fraud Review rework: GSI on fraud-signals `status` (replace the Scan), signals grouped by user with risk score and tier, a held-escrow queue, link to the transaction timeline. | Page loads without Scan; admin e2e covers approve/reject/whitelist and held release/refund. |
+| FRD-08 | S2 | P1 | @Server | Emit signals from existing rejects: sync create conflict on another user's id (IDOR probe), role/action 403s, identity/money field mutation attempts (SIM-02/03/06 guards), stale-version replays, repeated QR handoff failures, Telebirr webhook signature failures and payer mismatch (auth-hardening writes escrow-audit only), requests with a suspended user's token. Rate-limit signal writes per user/type. | Each source writes one typed signal with weight; best-effort (a failed write never changes the response); tests. |
+| FRD-09 | S2 | P1 | @Server | Transaction pattern rules: amount above 3 sigma of the user's own history (escrow-protocol spec), new account (under 7 days) with a large amount, repeated amounts just under the 10K KYC threshold, cancel-after-fund rate, per-buyer dispute rate, delivery time impossible for the trip distance. | Each rule has thresholds in config, a signal type and weight, and tests for hit and miss. |
+| FRD-10 | S2 | P2 | @Server | Score decay: a completed delivery with no flags subtracts 5 (spec), a signal resolved as false positive drops its weight, scores never go below 0. | Tests for decay and floor. |
+| FRD-11 | S3 | P1 | @Server @Mobile | Pickup proof: farmer-side QR scan at pickup (mirror of the delivery handoff QR: secret table, single use, fail closed) with GPS stamped at scan; optional cargo photo. Works offline (scan queued, verified on sync). Self-pickup path included. | Pickup without a valid scan cannot move a delivery to `pickedUp`; contract `delivery-verification-api.md` bumped; tests for trucker and self-pickup flows. |
+| FRD-12 | S3 | P2 | @Mobile @Server | Optional delivery photo at handoff via the existing presigned S3 upload, attached to the delivery and shown in dispute evidence. Compressed for 3G. | Photo visible to buyer, farmer, trucker of that delivery and admin; size cap test. |
+| FRD-13 | S3 | P1 | @Server | Risk-based payout delay: escrow gains `releaseNotBefore`; new or flagged farmer/trucker gets a 24-72h hold after delivery confirm, trusted users (history, no flags) shorter; crons respect it. Thresholds in config. | Cron test: no payout before `releaseNotBefore`; trusted vs new user timings tested; payout views show expected date. |
+| FRD-14 | S3 | P2 | @Admin @Server | Dispute evidence package: one admin view stitching audit timeline, pickup and delivery GPS, QR scans, photos and order messages for a delivery. | Admin can resolve a dispute from one screen; e2e test. |
+| FRD-15 | S4 | P2 | @Server @Infra | Hourly EventBridge Lambda for relationship patterns: repeated farmer+buyer pairs, same device/phone/IP on both sides of an order (device ids from auth-hardening), confirm-then-dispute buyers, self-trading. DynamoDB queries only, no graph database. Writes signals. | Seeded fixtures trigger each pattern; runs within Lambda limits on dev data volume; cost noted. |
+| FRD-16 | S4 | P3 | @Infra | CloudWatch metric per signal type from logs plus an anomaly-detection alarm on total signal volume to the existing alarm topic. | Alarm fires in a synthetic spike test; `cdk synth` passes. |
+| FRD-17 | S5 | P1 | @Tests | Adversarial personas in the synthetic fleet: listing spammer, self-trader, IDOR prober, payer mismatch, GPS spoofer, confirm-then-dispute buyer. Assert expected signal, tier, challenge (`AUTH_040`/`AUTH_041`) and hold. | Fleet report shows every persona detected and enforced; runs against dev after deploy. |
+| FRD-18 | S6 | P3 | @Server @Admin | Capture labelled outcomes: admin dispute resolutions and fraud actions stored as labels linked to their signals and transactions, exportable for later analysis. | Every resolved case has a label; export script documented. |
+| FRD-19 | S6 | P3 | @Server @Infra | Deferred: Bedrock LLM reviewer in a separate non-AOT Lambda, async on HIGH/CRITICAL users only. Input: audit timeline; output: an advisory signal with a capped weight plus an admin-facing explanation. Never moves money. Check Bedrock model availability in eu-north-1 and me-south-1 first. | Decision record written; reviewer output visible in Fraud Review; kill switch in config. |
+| FRD-20 | S6 | P3 | @Server | Deferred: ML risk scoring once enough labelled outcomes exist (from FRD-18). Replaces or complements the fixed weights, rules stay authoritative. | Decision record with dataset size, evaluation metrics and rollback plan. |
+
+Order: FRD-01, then FRD-02/03/04 together (smallest useful slice), then FRD-05/06/08, then S3, then S4/S5, S6 last.
+
+---
+
 ## EPIC ESC: Three-Party Escrow, Commitments and Reputation (2026-09-29) - @Scope tasks
 
 Goal: one buyer payment is held before anyone commits; the farmer and the trucker each accept before a deadline; a failed trucker gives the buyer a choice; money is never stuck; broken commitments cost reputation.
@@ -416,6 +463,59 @@ Order:
 
 ---
 
+## In-App Account Deletion (2026-09-28) - @Scope tasks
+
+Why: Apple App Store guideline 5.1.1(v) rejects any app that allows sign-up without in-app account deletion (blocker for the iOS app). Google Play also requires in-app deletion plus a web deletion link. Verified 2026-09-28: no deletion endpoint or UI exists in `mobile/lib` or `server/src`.
+Principle: delete or anonymize personal data, but keep money and audit records (escrow, escrow-audit, transaction-audit, orders) with the user id pseudonymized, since they back financial and dispute history.
+Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair, tests, contracts, 3 languages).
+
+| ID | Pri | Scope | Task | Done when |
+|---|---|---|---|---|
+| ACC-01 | P1 | @Docs | Write the deletion contract `specs/contracts/account-deletion.md`: endpoint, error codes, per-table policy (delete: device tokens, messages, drafts, crop/trip listings not in an active order, Fayda link; anonymize: users row, orders, deliveries, ratings; retain untouched: escrow, escrow-audit, transaction-audit), retention period, and the "blocked while active" rule. | Contract reviewed; every DynamoDB table has a listed action. |
+| ACC-02 | P1 | @Server @Infra | `DELETE /user/account`: requires step-up re-auth (`AUTH_040` from auth-hardening, or password/OTP re-entry); rejects with a typed error while the user has an active order, unreleased escrow, open delivery or open dispute; otherwise runs the ACC-01 policy, deletes SNS endpoints, revokes refresh tokens and calls Cognito `AdminDeleteUser`. Idempotent and resumable (a partial failure can be retried). Writes a transaction-audit entry. Register DTOs in `AppJsonContext.cs`; add API route + IAM grants in CDK. | Tests for each role, the active-order/escrow block, idempotent retry, and token revocation; `cdk synth` passes; deleted user cannot log in. |
+| ACC-03 | P1 | @Mobile | Profile > "Delete account" for Farmer, Trucker and Buyer: explains what is deleted and what is kept, confirm step, re-auth, shows the blocked reason when active items exist. Online-only action (clear offline message, never queued in sync). On success wipe Isar, secure storage, offline auth cache and push token, then go to login. Web counterpart via the web auth/storage pair. Strings in am/om/en `.arb`. | Works for all 3 roles on Android and web; `flutter analyze`, tests and web build pass; bloc + widget tests added. |
+| ACC-04 | P2 | @Web @Docs | Public web deletion request page (Play Store "delete account" URL) linked from the website and privacy policy, pointing to the same flow after login. | URL live on dev website; privacy policy updated. |
+| ACC-05 | P2 | @Admin | Admin sees deleted accounts as anonymized ("Deleted user") in orders, disputes and audit views without errors. | Admin e2e covers an order whose buyer was deleted. |
+
+Order: ACC-01, then ACC-02, then ACC-03 (needs ACC-02 deployed to dev), then ACC-04/05.
+
+---
+
+## Synthetic Simulation Bugs (2026-09-28) - @Scope tasks
+
+Source: 2-agent simulation on deployed dev (API run tag `simapi0928`, web UI via Playwright), new + seeded farmer/trucker/buyer.
+Role visibility PASSED everywhere (API + UI, both directions). IDs continue the SIM series. Severity as in the 2026-09-24 section.
+Every task must follow `.ai/completeness-rules.md` (all 3 roles, mobile+web pair, tests, contracts, 3 languages).
+
+| ID | Sev | Scope | Task | Done when |
+|---|---|---|---|---|
+| SIM-38 | P0 | @Mobile @Server | ✅ DONE 2026-09-28 (`25546e7`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Web cannot create any delivery: web ids are `trp_<ms>_<hash>` / `dlv_...` but the server requires UUIDs (`SyncFunction.cs:2966`, self-pickup copies entityId into tripId at 3202). Handoff, QR, delivered, escrow release and ratings unreachable on web. | Web trip + delivery ids are UUIDs; trucker delivery and self-pickup persist on dev; tests. |
+| SIM-39 | P1 | @Server | ✅ DONE 2026-09-28 (`ee4cdb0`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Sync create with an existing order/trip id adds a duplicate row (keys are id + createdAt, createdAt stamped now, so `attribute_not_exists` always passes). `GET /orders` listed one order 3 times. | Re-create returns duplicate/conflict, no new row; crops checked too; tests. |
+| SIM-40 | P1 | @Server | ✅ DONE 2026-09-28 (`333ea3a`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Crop/trip create publishes client-sent `farmerName`/`farmerPhone`/`truckerName`/`truckerPhone`. | Server stamps them from the users table on create; tests. |
+| SIM-41 | P1 | @Server | ✅ DONE 2026-09-28 (`68fba66`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Trucker can supply his own `qrNonce` on delivery create and confirm pickup without the farmer's QR (`SyncFunction.cs:201`, 3900-3947 legacy fallback). | Only the server secret-store nonce authorizes pickup; client qrNonce ignored; tests. |
+| SIM-42 | P1 | @Tools @Infra | ✅ DONE 2026-09-28 (`5ef9fb1`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Dev Fayda mock has 5 fixed FINs, each binds to one account; dev can no longer register anyone. | Mock accepts any 16-digit FIN and derives a synthetic identity; fixed FINs keep their scenarios. |
+| SIM-43 | P1 | @Mobile | ✅ DONE 2026-09-28 (`b520df1`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Crop create without GPS sends 0,0 although a place was picked from autocomplete; user sees "An error occurred" (`create_crop_listing_screen.dart:119`). | Selected place lat/lng used; clear message when no location; tests. |
+| SIM-44 | P1 | @Mobile | ✅ DONE 2026-09-28 (`c642126`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Role FAB (Sell Crops / Post Trip / New Buying Intent) floats over pushed screens and covers Send, Save, Continue, Place Order, Call; taps open the FAB target (`adaptive_shell.dart:143,191`, `main_navigation.dart:196`). | FAB only on the tab root screens; widget test. |
+| SIM-45 | P1 | @Mobile | ✅ DONE 2026-09-28 (`53c3fbb`, PR #67 merged eeb15db, DEPLOYED dev 2026-09-28). Web orders over 10,000 ETB can never be paid: "Verify with Fayda" is a dead end on web (`fayda_verification_screen.dart:62`). | Web runs the Fayda link flow (mock on dev) and the payment proceeds; tests. |
+| SIM-46 | P2 | @Server | Delivery create takes buyer/farmer phones from the client (`SyncFunction.cs:3093`). | Phones come from the order/users rows; test. |
+| SIM-47 | P2 | @Server @Infra | `POST /escrow/dispute` leaves order + delivery `delivered` and ratings allowed; escrow Lambda has read-only grants, write error swallowed (`api-stack.ts:1046`, `EscrowService.cs:1431`). | Order + delivery become disputed; failure surfaces; tests. |
+| SIM-48 | P2 | @Server | Sync idempotency keys are global: another user can pre-claim your key and your op is dropped as duplicate (`SyncFunction.cs:636`). | Keys scoped to the caller; test. |
+| SIM-49 | P2 | @Mobile | Buyer told to verify Fayda when the server says the FARMER must (`api_exception.dart:49-67`). | Message names the right party; test. |
+| SIM-50 | P2 | @Mobile | Trip departure date shown one day early on web (UTC formatted without `toLocal`, `web_trip_listing_repository.dart:333`, `trip_card.dart:161`). | Local date shown; test. |
+| SIM-51 | P2 | @Mobile | Buyer search matches only location; crop and farmer names return 0 and an "offline" empty state (`browse_listings_screen.dart:247`). | Search covers crop, farmer, location; correct empty state. |
+| SIM-52 | P2 | @Mobile | Intent matches say "No trips yet" when trips exist ("Adama, Oromia" vs "Adama"). | Woreda matching normalized; test. |
+| SIM-53 | P2 | @Mobile | Order preview total charges commission on transport (18375) but server charges crop only (18350). | Preview equals server total. |
+| SIM-54 | P2 | @Mobile | Payment reference is the first 8 chars of the order id, "ORD_1790" for every web order (`payment_instructions_screen.dart:56`). | Unique reference per order. |
+| SIM-55 | P2 | @Mobile | Web logout gets 401 from `POST /auth/logout`; refresh token likely not revoked server side. | Logout 200 and token revoked. |
+| SIM-56 | P2 | @Mobile @Server | No profile edit UI and no profile get/update route; no crop edit/delete UI; buyer My Requests empty after reload (no list-intents endpoint). | Each feature present or explicitly descoped in TASK. |
+| SIM-57 | P2 | @Mobile | Web is not offline-capable: no create queue, no cached browse, offline reload is a blank page. | Decision recorded; queue + cached browse or documented limitation. |
+| SIM-58 | P2 | @L10n | am `tapToListCrops` has a Thai char, om `syncedAgo` has Cyrillic, recent-activity statuses in English in am/om. | Strings fixed in all 3 files. |
+| SIM-59 | P2 | @Mobile | Trip "To" autocomplete: tapping a suggestion opens the date picker (overlap). | Tap selects; widget test. |
+| SIM-60 | P3 | @Server | Logout can revoke another user's refresh token; trip update accepts past departure; intent update needs buyerId echoed; buyer sets `pickup_confirmed` without delivery; photos contract drift; device token accepts any platform. | One test per item. |
+| SIM-61 | P3 | @Mobile | Minor UI: Enter does not submit login/chat, duplicate place suggestions, odd woreda names ("Boru Debre Birhan", "Adama" with macron), trucker banner copy, crop icons, past trips listed Open, 12 identical GETs per keystroke, Copy console error, "5 kg" for quintals, Trades 0, tab tap no pop to root, Logout under nav, Fayda popup close leaves spinner, password hint cut, notifications always empty. | Each fixed or split out. |
+
+---
+
 ## Deployment
 
 - **API:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
@@ -426,4 +526,4 @@ Order:
 
 ---
 
-**Last Updated:** 2026-09-30 (ESC-00 decisions recorded, ESC-01 live order funding implemented and review-fixed, ESC-44..ESC-47 follow-ups added; 2026-09-29 EPIC ESC three-party escrow, commitments and reputation ESC-00..ESC-43 added, design + code survey linked; 2026-09-24 synthetic fleet simulation bug tasks SIM-01..SIM-37 added; prior PO audit 2026-03-19)
+**Last Updated:** 2026-09-30 (ESC-00 decisions recorded, ESC-01 live order funding implemented and review-fixed, ESC-44..ESC-47 follow-ups added; 2026-09-29 EPIC ESC three-party escrow, commitments and reputation ESC-00..ESC-43 added, design + code survey linked; 2026-09-28 synthetic simulation SIM-38..SIM-61 added; in-app account deletion ACC-01..ACC-05 added; 2026-09-26 EPIC FRD fraud risk engine FRD-01..FRD-20 added, F-14 status corrected; 2026-09-24 synthetic fleet tasks SIM-01..SIM-37; prior PO audit 2026-03-19)
