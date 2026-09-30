@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.3.0
+1.5.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -109,10 +109,13 @@ The order-payment leg (order `payment_submitted` → `funded`, see
 exists. The server materializes an escrow record at that moment so
 `GET /escrow/history`, refunds, and release all flow through this protocol:
 
-- **Creation**: applied by the funding path (`EscrowService.CreateFromFundedOrderAsync`,
-  called from the sync Lambda's auto-fund today; the live gateway leg MUST call the
-  same method). The record is born `escrowed` — the hold already happened on the
-  payment leg, so no Telebirr HoldFunds call is made.
+- **Creation**: applied by the funding path (`EscrowService.CreateFromFundedOrderAsync`
+  through `OrderFundingService`, called from the sync Lambda's mock auto-fund and, since
+  1.5.0, from the Telebirr webhook when a live order checkout is paid; see §Additions in
+  1.5.0). The record is born `escrowed`: the hold already happened on the
+  payment leg, so no Telebirr HoldFunds call is made. The hold reference is the order's
+  server-only `telebirrPaymentOrderId` when present, else `cbeTransactionId`, else
+  `ORDER-FUND-{orderId}`.
 - **Identity & idempotency**: `escrowId = "escrow-order-{orderId}"` and
   `createdAt = order.paymentVerifiedAt` — a deterministic (PK, SK) pair, so retries
   and races collapse onto one conditional put.
@@ -1232,10 +1235,173 @@ required is audited as `webhook_payer_unbound` and rejected.
 
 ---
 
+## Additions in 1.5.0 (live order payments, ESC-01)
+
+Before 1.5.0 only the mock auto-fund could move an order to `funded`, so with the live
+gateway no order could ever be paid. An order is now paid through a hosted Telebirr
+checkout that the server opens for it, and the webhook funds the order.
+
+> **Deploy gate:** do not enable live money until live release and refund stop reporting
+> fake success (ESC-02). Otherwise a funded order that is later rejected refunds nothing.
+
+### POST /escrow/order-checkout
+
+The order's buyer opens (or gets back) the live Telebirr checkout for a `payment_submitted`
+order. The payment gates (KYC and step-up) already ran when the order moved to
+`payment_submitted` (`order-lifecycle.md` §Payment gates); the checkout only binds a Telebirr
+payment to the order.
+
+Request body:
+
+```json
+{ "orderId": "b1c2d3e4-f5a6-7890-bcde-f12345678901" }
+```
+
+Success (`200`):
+
+```json
+{
+  "orderId": "b1c2d3e4-f5a6-7890-bcde-f12345678901",
+  "amount": 15000.00,
+  "currency": "ETB",
+  "toPayUrl": "https://.../checkout?appid=...&prepay_id=...&sign=...",
+  "openUntil": "2026-09-30T10:00:00.0000000Z",
+  "isExisting": false
+}
+```
+
+- `amount` is the order's server-side `orderTotal` (rounded to 2 decimals). The client sends
+  no amount, no reference and no idempotency key.
+- The server generates the Telebirr `merch_order_id`: `WCO` + the first 24 upper-case hex
+  characters of SHA-256 over the order id (UTF-8) + a 3-digit attempt number. It is 30 ASCII
+  letters and digits, and two different order ids never share one.
+- **One open checkout per order.** While a checkout is open, a new request returns the same
+  payment with a freshly signed URL and `isExisting: true`. It never creates a second payable
+  preOrder. `openUntil` is 130 minutes after Telebirr answered: the preOrder's 120-minute
+  `timeout_express` plus a 10-minute margin for clock skew and a payment accepted in the last
+  minute.
+- **Payment time.** No Telebirr payment is started more than 20 hours after the order
+  entered `payment_submitted` (`paymentSubmittedAt`, `order-lifecycle.md`; `createdAt` for
+  orders from before it was stamped, as the order cron does). This is checked right before
+  every Telebirr call, also when an interrupted attempt is finished late. A checkout that is
+  already payable is returned as usual. The order cron marks the order `payment_failed` 24
+  hours after the same clock start, so no checkout can still be open when that happens.
+- **Bound to the payment attempt.** Each checkout records the order's `paymentSubmittedAt`
+  in its mapping. After `payment_failed` and a new `payment_submitted`, a payment made in an
+  earlier checkout never funds the order (see the webhook table below).
+- `toPayUrl` is transient: it is never persisted and appears in no other response. The
+  `prepay_id` behind it is stored server-side only (the checkout slot row) so the URL can be
+  signed again.
+- Mock payments fund orders at `payment_submitted`, so there is nothing to open:
+  `409 ESCROW_031`.
+
+| Status | Error Code | Description |
+|--------|-----------|-------------|
+| `401` | `ESCROW_005` | Not authenticated |
+| `403` | `ESCROW_025` | Caller's role claim is not `buyer` |
+| `403` | `ESCROW_026` | Caller is not the order's buyer |
+| `400` | `ESCROW_033` | `orderId` missing, or the body is not valid JSON |
+| `404` | `ESCROW_033` | Order not found |
+| `409` | `ESCROW_024` | The order is already funded |
+| `409` | `ESCROW_030` | The order is not waiting for payment (status other than `payment_submitted`), or its payment time ran out (20 hours after `paymentSubmittedAt`) |
+| `422` | `ESCROW_030` | The order cannot be paid online (missing farmer, or buyer and farmer are the same account) |
+| `400` | `ESCROW_001` | `orderTotal` is outside what Telebirr takes in one payment (100 to 500,000 ETB) |
+| `409` | `ESCROW_031` | No hosted checkout in this environment (mock payments) |
+| `409` | `ESCROW_032` | A checkout for this order is already open but cannot be returned (Telebirr's answer was lost, or another request is opening it); retry after `openUntil` or in a moment |
+| `429` | `ESCROW_011` | Payment rate limit exceeded (same velocity check as initiate). Every attempt that reaches Telebirr counts (a new checkout, or `ESCROW_013`); a returned open checkout does not |
+| `502` | `ESCROW_013` | Telebirr refused the payment (retry now), or did not answer (the checkout stays blocked until its window ends) |
+| `503` | `ESCROW_012` | Payments are temporarily unavailable |
+
+### How a checkout is recorded
+
+Rows in the escrow idempotency table. Slot and mapping rows keep a 400-day TTL, far past any
+checkout window, so a late notification still finds its order and a merch_order_id is never
+reused:
+
+| Key | Kind | Holds |
+|---|---|---|
+| `order-checkout:{orderId}` | slot | attempt, merch_order_id, amount, buyer, `outcome`, `openUntil`, `prepayId` |
+| the merch_order_id | mapping | `escrowId = escrow-order-{orderId}`, orderId, buyerId, amount, `paymentSubmittedAt` (the order's payment attempt; absent for orders from before it was stamped), `status` |
+| `webhook-inbox:{merchOrderId}:{paymentOrderId}:{tradeStatus}` | inbox | one verified notification and what became of it (30-day TTL) |
+
+Slot outcomes: `opening` (written, Telebirr not answered yet), `url_issued`, `unknown`
+(timeout, network error, or a non-success HTTP status: the payment may exist), `failed`
+(Telebirr refused to create the payment), `paid`. A slot is open while its outcome is
+`opening`, `url_issued` or `unknown` and `openUntil` has not passed. `openUntil` is written
+with the slot and moved to 130 minutes after Telebirr's answer once it arrives.
+
+The mapping is written **before** Telebirr is called and is never deleted, so a payment that
+Telebirr confirms late still reaches its order. When Telebirr's answer is lost, the checkout
+stays blocked until `openUntil` rather than risk a second payable payment.
+
+### Webhook: order payments
+
+A verified notification (signature, timestamp, merchant) whose merch_order_id has an order
+checkout mapping takes the order path; any other merch_order_id keeps the `/escrow/initiate`
+behaviour above.
+
+1. The notification is written to its inbox row first. If the mapping lookup itself fails,
+   or the mapping row is missing its order, buyer or amount, the notification is not
+   dropped: `ORDER_PAYMENT_UNPROCESSED` is logged with the merch_order_id and
+   payment_order_id, and it never falls through to the escrow path. That log line is then
+   its only record. When processing fails after the mapping was read, the same token is
+   logged and a best-effort `order_payment_unprocessed` escrow-audit row is written.
+   A redelivery of a notification whose inbox row already says `unmatched:*` or `duplicate`
+   keeps that verdict and is not applied again: the payment may already be refunded by hand.
+2. Only `Completed` can fund. `Failed` is only audited (`order_payment_failed`): the checkout
+   stays open until `openUntil`, because Telebirr may still accept the same payment (a wrong
+   PIN or a low balance can be retried), and the buyer keeps getting the same URL back. The
+   order stays `payment_submitted`, and a late `Failed` after the order was paid changes
+   nothing. Other statuses are audited as `order_payment_status_ignored`.
+3. `Completed` must carry a `payment_order_id`.
+4. The order is then classified by payment reference first, in any status:
+
+| Order state | Result | Inbox outcome |
+|---|---|---|
+| Order missing | `ORDER_PAYMENT_UNMATCHED`; audited as `order_payment_unmatched` | `unmatched:order_missing` |
+| Already records this `payment_order_id` | Redelivery: stock and escrow are repaired if an earlier delivery did not finish them (both idempotent per order); nothing is funded twice, and the payment is not judged again (the buyer may have changed phone since). A closed order (`rejected`, `cancelled`, `payment_failed`, `disbursing`, `settled`, `dispute_resolved`) gets no repair: no new escrow, no second stock decrement | `applied_again` |
+| Records a different `payment_order_id` | `ORDER_PAYMENT_DUPLICATE`: a second payment; audited as `order_payment_duplicate`, no state change | `duplicate` |
+| No reference and not `payment_submitted` | `ORDER_PAYMENT_UNMATCHED` (for example a cancelled order); audited as `order_payment_unmatched` | `unmatched:status_{status}` |
+| `payment_submitted`, but the payment does not fit | `ORDER_PAYMENT_UNMATCHED`: `trans_currency` is not `ETB`, `total_amount` differs from the checkout amount (also audited as `webhook_amount_mismatch`), the payer check (§Webhook hardening) against the checkout's buyer refuses it, the order's buyer or `orderTotal` no longer match the checkout, or the checkout was opened in an earlier payment attempt (its `paymentSubmittedAt` differs from the order's) | `unmatched:currency`, `:amount`, `:payer`, `:order_changed`, `:stale_checkout` |
+| `payment_submitted` and the payment fits | Funded: one write conditioned on `status = payment_submitted` sets `funded`, `paymentVerifiedAt` and the server-only `telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`; then the listing stock is taken (idempotent per order), the order escrow is created with the Telebirr payment as its hold reference, a transaction-audit `payment_verified` row is written (actor `telebirr`), and the checkout is closed as `paid` | `applied` |
+
+If the conditional write loses a race, the order is read again (strongly consistent) and
+classified once more; a conflict is never treated as done. A payment that is not applied
+stays with the platform for a manual refund (automatic duplicate refunds are ESC-20). Every
+such case logs an alarmable token (`ORDER_PAYMENT_UNMATCHED`, `ORDER_PAYMENT_DUPLICATE`,
+`ORDER_PAYMENT_UNPROCESSED`, plus `ORDER_ESCROW_CREATE_FAILED` and
+`ORDER_STOCK_DECREMENT_FAILED` from the funding steps), watched by the
+`{prefix}-order-payment-problems` alarm on the webhook log group. The two funding-step
+tokens mean the order is funded and needs repair, never a refund. Before refunding any
+payment, read the order: if its `telebirrPaymentOrderId` is that payment, the payment funded
+the order. Do not refund an `ORDER_PAYMENT_UNPROCESSED` payment while its order is still
+`payment_submitted` in the same attempt (the mapping's `paymentSubmittedAt` equals the
+order's): a redelivery can still apply it. Wait until the order is funded by it, funded by
+another payment, or out of that attempt.
+
+`/escrow/initiate` also answers `409 ESCROW_024` when the delivery's order is in a funded
+status (`funded` through `dispute_resolved`) or records a `telebirrPaymentOrderId`, even if
+the order's escrow record is missing, so a buyer can never pay twice for one order.
+
+Once the order is funded, a failure in the follow-up bookkeeping (the transaction-audit row,
+closing the slot, marking the mapping, updating the inbox row) logs
+`ORDER_PAYMENT_BOOKKEEPING_FAILED` instead. It is outside the alarm on purpose: refunding a
+funded order would be wrong. A redelivery finishes the stock and escrow steps.
+
+The webhook still answers `200` to every request. Telebirr's redelivery rules (retry policy,
+whether a retry keeps the original timestamp, a query API) are not confirmed yet (ESC-45).
+Until they are, the lasting record of a payment that was not applied is its escrow-audit row
+(`order_payment_unmatched`, `order_payment_duplicate`, `order_payment_unprocessed`); the
+inbox row expires after 30 days, and a payment whose mapping could not be read has only its
+log line.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |
 | 1.4.0 | 2026-09-29 | Tiered step-up on initiate: a fresh password up to 10,000 ETB (`AUTH_040`, now for every amount), a fresh Fayda login above it (`AUTH_041`), `503 ESCROW_012` when the buyer profile cannot be read for the Fayda check; clients keep the server's step-up code; dispute step-up unchanged |
 | 1.3.1 | 2026-09-26 | Double-charge precedence (SIM-24): an initiate on a delivery whose order-funded escrow is already linked to it returns `ESCROW_024` (field `orderId`), not `ESCROW_009`; clients read the `ESCROW_*` code from the error envelope and show `ESCROW_024` its own message |
 | 1.3.0 | 2026-09-26 | Settlement authority and identity gates: `/escrow/release` and `/escrow/refund` on the admin authorizer (admin group), `dispute_resolved` settled by the hourly sweep, `AUTH_040` step-up on initiate and dispute, payouts resolved to the party's registered phone with `ESCROW_029` when unverified, webhook `merch_code`, fail-closed timestamp and payer binding (`webhook_payer_mismatch`, `webhook_payer_unbound`) |
@@ -1250,6 +1416,6 @@ required is audited as `webhook_payer_unbound` and rejected.
 
 ---
 
-**Last Updated**: 2026-09-29
-**Version**: 1.4.0
+**Last Updated**: 2026-09-30
+**Version**: 1.5.0
 **Status**: Draft (Phase R4)

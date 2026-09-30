@@ -59,6 +59,9 @@ public partial class SyncFunction
     // escrow). Needs both ESCROWS_TABLE and ESCROW_AUDIT_TABLE; absent → null
     // (orders still fund; the escrow record simply isn't materialized here).
     private readonly EscrowService? _orderEscrowService;
+    // ESC-01: the funding side effects (stock + order escrow) shared with the live
+    // Telebirr webhook, so mock and live funding can never drift apart.
+    private readonly OrderFundingService _orderFunding;
     // Optional: when the ratings table is provisioned, buyers can rate
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
@@ -91,6 +94,10 @@ public partial class SyncFunction
     /// trip capacity are quintals and trip prices are per quintal (order-lifecycle.md).
     /// </summary>
     private const double KgPerQuintal = 100.0;
+
+    /// <summary>ESC-01: what one live Telebirr payment can take (escrow-protocol.md §Amount Validation).</summary>
+    private const decimal LiveMinPaymentEtb = 100m;
+    private const decimal LiveMaxPaymentEtb = 500_000m;
 
     /// <summary>Client-echoed money must match the server's computation to the santim.</summary>
     private const double MoneyTolerance = 0.01;
@@ -223,7 +230,11 @@ public partial class SyncFunction
     private static readonly HashSet<string> OrderServerOnlyFields = new()
     {
         "cropCost", "commissionRate", "commissionAmount", "orderTotal",
-        "paymentVerifiedAt", "respondedAt", "cancelledAt"
+        "paymentVerifiedAt", "respondedAt", "cancelledAt",
+        // ESC-01: the live Telebirr payment behind a funding; only the webhook writes them.
+        // paymentSubmittedAt starts the payment clock and is stamped by the server.
+        OrderFundingService.MerchOrderIdField, OrderFundingService.PaymentOrderIdField,
+        OrderFundingService.TransIdField, "paymentSubmittedAt"
     };
 
     /// <summary>
@@ -437,6 +448,7 @@ public partial class SyncFunction
                 orderRepo: _orderRepo,
                 deliveryRepo: new DeliveryRepository(_dynamoDb, _deliveriesTable))
             : null;
+        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
 
         // Ratings are optional in the same way: the rating sync handler is only
         // reachable once the ratings table is provisioned.
@@ -501,6 +513,7 @@ public partial class SyncFunction
         _qrSecretRepo = qrSecretRepo;
         _messageRepo = messageRepo;
         _orderEscrowService = orderEscrowService;
+        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -5306,6 +5319,18 @@ public partial class SyncFunction
                         Message = stepUpError
                     };
                 }
+
+                // ESC-01: with the live gateway an order is paid by one Telebirr checkout, which
+                // takes 100 to 500,000 ETB. Refuse up front rather than leave the order waiting
+                // for a payment that can never be made (bank transfers are ESC-46).
+                var roundedTotal = Math.Round(orderTotal, 2, MidpointRounding.AwayFromZero);
+                if (!IsMockPaymentsEnabled()
+                    && (roundedTotal < LiveMinPaymentEtb || roundedTotal > LiveMaxPaymentEtb))
+                {
+                    return OrderValidationError(operation,
+                        $"This order total ({roundedTotal} ETB) is outside what one Telebirr payment can take "
+                        + $"({LiveMinPaymentEtb} to {LiveMaxPaymentEtb} ETB).");
+                }
             }
 
             // SIM-11: the order becomes "delivered" only once its delivery is confirmed.
@@ -5341,6 +5366,11 @@ public partial class SyncFunction
                     break;
                 case "funded":
                     operation.Data["paymentVerifiedAt"] = now;
+                    break;
+                case "payment_submitted":
+                    // ESC-01: starts the payment clock. The checkout refuses new attempts
+                    // after 20 hours and the order cron marks the order payment_failed after 24.
+                    operation.Data["paymentSubmittedAt"] = now;
                     break;
             }
         }
@@ -5591,65 +5621,14 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// When an order becomes "funded", decrease the crop listing's available quantity
-    /// by the order quantity. If quantity reaches 0, transition listing to "reserved".
-    /// Best-effort — failures are logged but do not block the order update.
+    /// When an order becomes "funded", take the ordered quantity off the crop listing
+    /// (the listing becomes "reserved" at 0). Idempotent per order and best-effort: a
+    /// failure logs the alarmable ORDER_STOCK_DECREMENT_FAILED token and never blocks
+    /// the order update (ESC-01, <see cref="OrderFundingService.DecrementStockAsync"/>).
     /// </summary>
-    private async Task TryDecreaseListingQuantityAsync(
+    private Task TryDecreaseListingQuantityAsync(
         Dictionary<string, object> order, ILambdaContext context)
-    {
-        try
-        {
-            var listingId = order.TryGetValue("listingId", out var lid) ? lid?.ToString() : null;
-            if (string.IsNullOrEmpty(listingId))
-            {
-                return;
-            }
-
-            // SIM-07: order.quantity is kilograms on the wire; listing stock is quintals.
-            var orderQuintals = ParseDouble(order, "quantity") / KgPerQuintal;
-            if (orderQuintals <= 0)
-            {
-                return;
-            }
-
-            var listing = await _cropRepo.GetByIdAsync(listingId);
-            if (listing == null)
-            {
-                return;
-            }
-
-            var currentQuantity = ParseDouble(listing, "quantity");
-            var listingVersion = 1;
-            if (listing.TryGetValue("version", out var lvObj))
-            {
-                int.TryParse(lvObj?.ToString(), out listingVersion);
-            }
-
-            var newQuantity = Math.Max(0, currentQuantity - orderQuintals);
-            var updateData = new Dictionary<string, object>
-            {
-                // Stored as a number (it used to be a formatted string, which broke arithmetic
-                // on the attribute and mixed types across listings).
-                { "quantity", Math.Round(newQuantity, 2) }
-            };
-
-            if (newQuantity <= 0)
-            {
-                updateData["status"] = "reserved";
-            }
-
-            await _cropRepo.UpdateAsync(listingId, updateData, listingVersion);
-            context.Logger.LogInformation(
-                $"Listing {listingId}: quantity {currentQuantity} -> {newQuantity} (order funded)");
-        }
-        catch (Exception ex)
-        {
-            // Best-effort: don't fail the order update if listing update fails
-            context.Logger.LogWarning(
-                $"Failed to decrease listing quantity: [{ex.GetType().Name}] {ex.Message}");
-        }
-    }
+        => _orderFunding.DecrementStockAsync(order, context);
 
     /// <summary>
     /// Whether the environment runs mocked payments (no real Telebirr gateway).
@@ -5689,8 +5668,9 @@ public partial class SyncFunction
                 return null;
             }
 
-            await TryDecreaseListingQuantityAsync(existingOrder, context);
-            await TryCreateOrderEscrowAsync(result.Value, orderId, context);
+            // Same side effects as a live Telebirr payment (ESC-01): stock off the listing
+            // and the order escrow, both idempotent per order.
+            await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
             context.Logger.LogInformation($"Order {orderId} auto-funded (mock payments).");
             return result.Value;
         }
@@ -5699,40 +5679,6 @@ public partial class SyncFunction
             context.Logger.LogWarning(
                 $"Mock auto-fund failed for order {orderId}: [{ex.GetType().Name}]");
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Materialize the escrow record for a just-funded order — the money is verified
-    /// held, so the escrow subsystem must reflect it (escrow-protocol.md §Order-funded
-    /// escrow). Best-effort: order funding never rolls back because of this, but a
-    /// failure is a money-visibility gap, so it logs the alarmable
-    /// ORDER_ESCROW_CREATE_FAILED token (delivery-time linkage self-heals it later).
-    /// Call this from every path that applies "funded" (mock auto-fund today; the
-    /// live gateway leg must reuse it).
-    /// </summary>
-    private async Task TryCreateOrderEscrowAsync(
-        Dictionary<string, object>? fundedOrder, string orderId, ILambdaContext context)
-    {
-        if (_orderEscrowService == null || fundedOrder == null)
-        {
-            return;
-        }
-
-        try
-        {
-            var created = await _orderEscrowService.CreateFromFundedOrderAsync(
-                fundedOrder, "system", _batchAudit);
-            if (!created)
-            {
-                context.Logger.LogError(
-                    $"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=validation");
-            }
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogError(
-                $"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=[{ex.GetType().Name}]");
         }
     }
 
@@ -5935,8 +5881,10 @@ public partial class SyncFunction
         string currentStatus, string newStatus,
         string? authenticatedUserId, string? buyerId, string? farmerId)
     {
-        // System-only transitions: block from client sync
-        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved")
+        // System-only transitions: block from client sync. payment_failed joined them in
+        // ESC-01: a participant setting it while a Telebirr payment was in flight let the
+        // buyer resubmit and pay twice (order-lifecycle.md says only the system sets it).
+        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved" or "payment_failed")
         {
             return $"ORDER_UNAUTHORIZED: '{newStatus}' is a system-managed transition.";
         }

@@ -30,6 +30,24 @@ public interface IOrderRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string orderId);
 
     /// <summary>
+    /// Get an order by ID with a strongly consistent read when
+    /// <paramref name="consistentRead"/> is true. Money paths that classify a payment
+    /// against the order's current state use it so they never act on a stale copy.
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdAsync(string orderId, bool consistentRead);
+
+    /// <summary>
+    /// ESC-01: fund an order in one conditional write. The write only succeeds while the
+    /// order is still <c>payment_submitted</c>; it sets <c>status = funded</c> plus
+    /// <paramref name="fields"/> and increments the version. Unlike
+    /// <see cref="UpdateAsync"/> it does not depend on the caller's version, so an
+    /// unrelated buyer update (payment method, reference) cannot make a verified payment
+    /// fail. Returns the updated order, or null when the order is missing or no longer
+    /// <c>payment_submitted</c> (the caller re-reads and classifies).
+    /// </summary>
+    Task<Dictionary<string, object>?> TryMarkFundedAsync(string orderId, Dictionary<string, object> fields);
+
+    /// <summary>
     /// SIM-09: atomically record <paramref name="deliveryId"/> as the order's single active
     /// delivery. True when the slot was free or already held by this delivery (idempotent
     /// retry); false when another delivery holds it or the order does not exist.

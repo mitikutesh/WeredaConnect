@@ -2371,6 +2371,34 @@ public class EscrowServiceTests
         await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
     }
 
+    [Theory]
+    [InlineData("funded", null)]
+    [InlineData("accepted", null)]
+    [InlineData("cancelled", "TB-PAID-1")]
+    public async Task InitiateAsync_LinkedOrderAlreadyPaid_Returns409Escrow024(string status, string? telebirrPaymentOrderId)
+    {
+        // ESC-01: the order's own state says the money is held even when its escrow record is
+        // missing (the funding-time create and the delivery-link self-heal both failed).
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.GetByIdAsync(DeliveryId).Returns(MakeBoundDelivery(orderId: "order-1"));
+        var order = MakeBoundOrder();
+        order["status"] = status;
+        if (telebirrPaymentOrderId != null)
+        {
+            order["telebirrPaymentOrderId"] = telebirrPaymentOrderId;
+        }
+
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1").Returns(order);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .InitiateAsync(MakeInitiateRequest(), BuyerId);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("ESCROW_024", result.Error.Code);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
     [Fact]
     public async Task InitiateAsync_LinkedOrderMissing_Returns422()
     {

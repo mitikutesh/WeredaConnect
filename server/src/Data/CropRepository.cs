@@ -18,6 +18,9 @@ namespace WeredaConnect.Server.Data;
 /// </summary>
 public sealed class CropRepository : ICropRepository
 {
+    /// <summary>ESC-01: tries for the funding stock decrement before it reports Failed.</summary>
+    private const int DecrementAttempts = 4;
+
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
 
@@ -231,7 +234,7 @@ public sealed class CropRepository : ICropRepository
     /// Query for an item by cropId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string cropId)
+    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string cropId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -241,7 +244,8 @@ public sealed class CropRepository : ICropRepository
             {
                 { ":id", new AttributeValue { S = cropId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);
@@ -359,6 +363,100 @@ public sealed class CropRepository : ICropRepository
         }
 
         return false;
+    }
+
+    /// <inheritdoc />
+    public async Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals)
+    {
+        if (quintals <= 0)
+        {
+            return StockDecrementResult.Failed;
+        }
+
+        for (var attempt = 0; attempt < DecrementAttempts; attempt++)
+        {
+            if (attempt > 0)
+            {
+                // Concurrent fundings of one listing: back off a little, with jitter, before
+                // re-reading, so retries do not collide again immediately.
+                await Task.Delay(Random.Shared.Next(25, 75) * attempt);
+            }
+
+            // Strongly consistent: the version and the order set must be current, or the CAS
+            // keeps failing on a stale copy.
+            var existing = await GetItemAsync(cropId, consistentRead: true);
+            if (existing == null)
+            {
+                return StockDecrementResult.ListingNotFound;
+            }
+
+            if (existing.TryGetValue("stockDecrementedFor", out var decremented)
+                && decremented.SS != null
+                && decremented.SS.Contains(orderId))
+            {
+                return StockDecrementResult.AlreadyApplied;
+            }
+
+            var current = existing.TryGetValue("quantity", out var q)
+                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
+                ? parsedQuantity
+                : 0.0;
+            var version = existing.TryGetValue("version", out var v)
+                && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
+            var newQuantity = Math.Round(Math.Max(0, current - quintals), 2);
+
+            var attrNames = new Dictionary<string, string>
+            {
+                { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
+                { "#decremented", "stockDecrementedFor" }
+            };
+            var attrValues = new Dictionary<string, AttributeValue>
+            {
+                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
+                { ":expectedVersion", new AttributeValue { N = version.ToString() } },
+                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":orderIdSet", new AttributeValue { SS = new List<string> { orderId } } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            };
+            var setExpression = "SET #q = :q, #v = :newVersion, #updated = :updated";
+            if (newQuantity <= 0)
+            {
+                // Same rule as the funding decrement always had: a listing sold out by
+                // funded orders leaves the market.
+                attrNames["#status"] = "status";
+                attrValues[":reserved"] = new AttributeValue { S = "reserved" };
+                setExpression += ", #status = :reserved";
+            }
+
+            var request = new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "cropId", new AttributeValue { S = cropId } },
+                    { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+                },
+                UpdateExpression = setExpression + " ADD #decremented :orderIdSet",
+                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))",
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues
+            };
+
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return StockDecrementResult.Decremented;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                // Another write moved the version, or this order's decrement landed
+                // concurrently: re-read and decide again.
+            }
+        }
+
+        return StockDecrementResult.Failed;
     }
 
     /// <inheritdoc />

@@ -135,4 +135,94 @@ public class OrderRepositoryTests
                 r.ExpressionAttributeValues[":val"].S == "delivered"),
             Arg.Any<CancellationToken>());
     }
+
+    // --- ESC-01: live payment funding ---
+
+    private void StubStoredOrder(string status)
+        => _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "orderId", new AttributeValue { S = "order-1" } },
+                        { "createdAt", new AttributeValue { S = "2026-09-30T08:00:00.0000000Z" } },
+                        { "status", new AttributeValue { S = status } },
+                        { "version", new AttributeValue { N = "3" } }
+                    }
+                }
+            });
+
+    [Fact]
+    public async Task TryMarkFundedAsync_WritesFundedOnlyWhilePaymentSubmitted()
+    {
+        StubStoredOrder("payment_submitted");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>
+                {
+                    { "orderId", new AttributeValue { S = "order-1" } },
+                    { "status", new AttributeValue { S = "funded" } },
+                    { "telebirrPaymentOrderId", new AttributeValue { S = "TB-1" } }
+                }
+            });
+
+        var funded = await _repository.TryMarkFundedAsync("order-1", new Dictionary<string, object>
+        {
+            { "telebirrPaymentOrderId", "TB-1" },
+            { "status", "cancelled" }
+        });
+
+        Assert.NotNull(funded);
+        Assert.Equal("funded", funded!["status"]);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.ConsistentRead == true), Arg.Any<CancellationToken>());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ConditionExpression == "#status = :submitted"
+                && r.ExpressionAttributeValues[":submitted"].S == "payment_submitted"
+                && r.ExpressionAttributeValues[":funded"].S == "funded"
+                && r.UpdateExpression.Contains("ADD #v :one")
+                && r.ExpressionAttributeValues.Values.Any(v => v.S == "TB-1")
+                && !r.ExpressionAttributeValues.Values.Any(v => v.S == "cancelled")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryMarkFundedAsync_OrderNoLongerPaymentSubmitted_ReturnsNull()
+    {
+        StubStoredOrder("cancelled");
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("status moved"));
+
+        var funded = await _repository.TryMarkFundedAsync("order-1", new Dictionary<string, object>
+        {
+            { "telebirrPaymentOrderId", "TB-1" }
+        });
+
+        Assert.Null(funded);
+    }
+
+    [Fact]
+    public async Task TryMarkFundedAsync_MissingOrder_ReturnsNullWithoutWriting()
+    {
+        var funded = await _repository.TryMarkFundedAsync("order-1", new Dictionary<string, object>());
+
+        Assert.Null(funded);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_ConsistentRead_QueriesConsistently()
+    {
+        StubStoredOrder("payment_submitted");
+
+        var order = await _repository.GetByIdAsync("order-1", consistentRead: true);
+
+        Assert.NotNull(order);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.ConsistentRead == true), Arg.Any<CancellationToken>());
+    }
 }

@@ -77,6 +77,35 @@ public sealed record InitiateEscrowResponse
 }
 
 /// <summary>
+/// ESC-01: POST /escrow/order-checkout request body. The server derives everything else
+/// (amount, buyer, merch_order_id) from its own order record.
+/// </summary>
+public sealed record OrderCheckoutRequest
+{
+    public required string OrderId { get; init; }
+}
+
+/// <summary>
+/// ESC-01: POST /escrow/order-checkout response. <see cref="ToPayUrl"/> is transient: it is
+/// never persisted and never appears in any other response.
+/// </summary>
+public sealed record OrderCheckoutResponse
+{
+    public required string OrderId { get; init; }
+    public required decimal Amount { get; init; }
+    public required string Currency { get; init; }
+
+    /// <summary>The Telebirr checkout page the buyer opens to pay.</summary>
+    public required string ToPayUrl { get; init; }
+
+    /// <summary>When the checkout stops being payable (ISO 8601, UTC).</summary>
+    public required string OpenUntil { get; init; }
+
+    /// <summary>True when this is the same open checkout returned again (not a new payment).</summary>
+    public bool IsExisting { get; init; }
+}
+
+/// <summary>
 /// POST /escrow/release request body.
 /// Triggers release of escrowed funds to the farmer.
 /// </summary>
@@ -368,6 +397,13 @@ public sealed record HoldFundsResponse
     /// Null for the synchronous mock gateway (behavior unchanged).
     /// </summary>
     public string? ToPayUrl { get; init; }
+
+    /// <summary>
+    /// ESC-01: Telebirr's prepay_id behind <see cref="ToPayUrl"/>. The order checkout keeps it
+    /// server-side so a retry can get a freshly signed URL for the same payment. Never
+    /// returned to clients. Null for the synchronous mock gateway.
+    /// </summary>
+    public string? PrepayId { get; init; }
 }
 
 /// <summary>

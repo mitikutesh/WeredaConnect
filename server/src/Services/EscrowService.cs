@@ -21,6 +21,7 @@ public sealed class EscrowService
     private readonly IUserRepository? _userRepo;
     private readonly IOrderRepository? _orderRepo;
     private readonly IDeliveryRepository? _deliveryRepo;
+    private readonly IOrderCheckoutRepository? _orderCheckoutRepo;
 
     // Money-moving entry points (initiate/release/dispute/refund) require the
     // Telebirr + idempotency wiring. The order-funded escrow paths
@@ -62,6 +63,42 @@ public sealed class EscrowService
     private const int MaxDisputeDescriptionLength = 1000;
     private const int MaxEvidenceRefs = 5;
     private const int MaxEvidenceRefLength = 200;
+
+    /// <summary>
+    /// ESC-01: how long an order checkout stays payable; matches the preOrder's
+    /// timeout_express (120 minutes) in TelebirrSandboxGateway.
+    /// </summary>
+    private static readonly TimeSpan OrderCheckoutWindow = TimeSpan.FromMinutes(120);
+
+    /// <summary>
+    /// ESC-01: extra time a checkout blocks a new attempt after its window, for clock skew and
+    /// a payment Telebirr accepts in the last minute.
+    /// </summary>
+    private static readonly TimeSpan OrderCheckoutSafetyMargin = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// ESC-01: new checkout attempts are refused this long after the order entered
+    /// <c>payment_submitted</c>. The order cron marks such orders <c>payment_failed</c> after
+    /// 24 hours, so no checkout can still be open (window + margin) when that happens.
+    /// </summary>
+    private static readonly TimeSpan OrderPaymentAcceptWindow = TimeSpan.FromHours(20);
+
+    /// <summary>ESC-01: order statuses in which the buyer's money is already held.</summary>
+    private static readonly HashSet<string> FundedOrderStatuses = new()
+    {
+        "funded", "accepted", "pickup_confirmed", "in_transit", "delivered",
+        "disbursing", "settled", "disputed", "dispute_resolved"
+    };
+
+    /// <summary>
+    /// ESC-01: gateway failures after which Telebirr may still have created the payment
+    /// (the request timed out, or the answer was lost or unreadable). Anything else is a
+    /// definite refusal.
+    /// </summary>
+    private static readonly HashSet<string> UncertainGatewayErrors = new()
+    {
+        "TELEBIRR_TIMEOUT", "TELEBIRR_NETWORK", "TELEBIRR_PREORDER"
+    };
 
     /// <summary>
     /// System actor ID used by cron jobs and automated operations.
@@ -109,7 +146,8 @@ public sealed class EscrowService
         ITelebirrGateway? telebirrGateway,
         IUserRepository? userRepo = null,
         IOrderRepository? orderRepo = null,
-        IDeliveryRepository? deliveryRepo = null)
+        IDeliveryRepository? deliveryRepo = null,
+        IOrderCheckoutRepository? orderCheckoutRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
@@ -118,6 +156,7 @@ public sealed class EscrowService
         _userRepo = userRepo;
         _orderRepo = orderRepo;
         _deliveryRepo = deliveryRepo;
+        _orderCheckoutRepo = orderCheckoutRepo;
     }
 
     // ──────────────────────────────────────────────
@@ -349,6 +388,18 @@ public sealed class EscrowService
             {
                 return EscrowResult<InitiateEscrowResponse>.Failure(
                     400, "ESCROW_VALIDATION", "Referenced order is for a different delivery.", "orderId");
+            }
+
+            // ESC-01: the order itself says its money is held (funded, or paid by a live
+            // Telebirr checkout) even when its escrow record could not be written. Never take
+            // a second payment for it.
+            if (FundedOrderStatuses.Contains(GetString(linkedOrder, "status"))
+                || !string.IsNullOrEmpty(GetStringOrNull(linkedOrder, OrderFundingService.PaymentOrderIdField)))
+            {
+                return EscrowResult<InitiateEscrowResponse>.Failure(
+                    409, "ESCROW_024",
+                    "Funds for this order are already held in escrow.",
+                    "orderId");
             }
 
             var orderTotal = RoundMoney(GetDecimal(linkedOrder, "orderTotal"));
@@ -728,7 +779,11 @@ public sealed class EscrowService
                 ? createdAtUtc
                 : DateTime.UtcNow)
             .AddDays(EscrowExpiryDays).ToString("o");
-        var paymentRef = GetStringOrNull(order, "cbeTransactionId") ?? $"ORDER-FUND-{orderId}";
+        // A live Telebirr payment records its reference in a server-only field (ESC-01); it
+        // wins over cbeTransactionId, which the buyer's client can still write.
+        var paymentRef = GetStringOrNull(order, OrderFundingService.PaymentOrderIdField)
+            ?? GetStringOrNull(order, "cbeTransactionId")
+            ?? $"ORDER-FUND-{orderId}";
         var escrowId = $"escrow-order-{orderId}";
 
         var record = new Dictionary<string, object>
@@ -791,6 +846,323 @@ public sealed class EscrowService
             telebirrRef: paymentRef, metadata: $"orderId={orderId}");
 
         return true;
+    }
+
+    /// <summary>
+    /// ESC-01: open the live Telebirr checkout for a <c>payment_submitted</c> order and return
+    /// its checkout URL. The payment gates (KYC, step-up) already ran when the order moved to
+    /// <c>payment_submitted</c>; this only binds a Telebirr payment to the order.
+    ///
+    /// Money safety:
+    /// - The amount, buyer and merch_order_id come from the server, never the client.
+    /// - An order has at most one open checkout. A retry while it is open gets the same payment
+    ///   back (a freshly signed URL for the stored prepay_id), never a second payable one.
+    /// - The merch_order_id mapping is written before Telebirr is called and is never deleted,
+    ///   so a payment Telebirr confirms late still reaches its order. When Telebirr's answer is
+    ///   lost, the checkout stays blocked until its window ends.
+    /// </summary>
+    public async Task<EscrowResult<OrderCheckoutResponse>> CreateOrderCheckoutAsync(
+        string orderId, string authenticatedUserId, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (_orderRepo == null || _orderCheckoutRepo == null
+            || _telebirrGatewayOrNull == null || _idempotencyRepoOrNull == null)
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                503, "ESCROW_012", "Payment is temporarily unavailable. Please try again.");
+        }
+
+        // Mock payments fund an order at payment submit, so there is no checkout to open.
+        // Decided before any write so nothing is left behind.
+        if (!_telebirrGatewayOrNull.SupportsHostedCheckout)
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                409, "ESCROW_031",
+                "Payments are confirmed automatically in this environment; there is no Telebirr checkout to open.");
+        }
+
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(400, "ESCROW_033", "orderId is required.", "orderId");
+        }
+
+        var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        if (order == null)
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(404, "ESCROW_033", "Order not found.", "orderId");
+        }
+
+        var validation = ValidateOrderForCheckout(order, authenticatedUserId);
+        if (validation != null)
+        {
+            return validation;
+        }
+
+        var now = DateTime.UtcNow;
+        var cycle = PaymentCycle.Of(order);
+        var slot = await _orderCheckoutRepo.GetSlotAsync(orderId);
+        if (slot != null && slot.IsOpen(now))
+        {
+            return await ResumeOpenCheckoutAsync(slot, cycle);
+        }
+
+        // No new payment once the order has waited too long: the order cron is about to mark
+        // it payment_failed, and a checkout opened now could outlive that.
+        if (cycle.HasRunOut(now))
+        {
+            return PaymentTimeRunOut();
+        }
+
+        var attempt = (slot?.Attempt ?? 0) + 1;
+        var newSlot = new OrderCheckoutSlot
+        {
+            OrderId = orderId,
+            BuyerId = authenticatedUserId,
+            Attempt = attempt,
+            MerchOrderId = BuildOrderMerchOrderId(orderId, attempt),
+            Amount = RoundMoney(GetDecimal(order, "orderTotal")),
+            Outcome = OrderCheckoutOutcome.Opening,
+            OpenedAtUtc = now,
+            OpenUntilUtc = now.Add(OrderCheckoutWindow).Add(OrderCheckoutSafetyMargin)
+        };
+        if (!await _orderCheckoutRepo.TryOpenSlotAsync(newSlot, slot?.Attempt))
+        {
+            return CheckoutBusy();
+        }
+
+        return await StartCheckoutAttemptAsync(newSlot, cycle);
+    }
+
+    /// <summary>
+    /// ESC-01: the order's current payment attempt, from its entry into <c>payment_submitted</c>
+    /// (<c>paymentSubmittedAt</c>; <c>createdAt</c> for orders from before it was stamped, as
+    /// the order cron does). A checkout is bound to it, so a payment opened in an earlier
+    /// attempt can never fund a later one.
+    /// </summary>
+    private readonly record struct PaymentCycle(string? SubmittedAt, DateTime? ClockStartUtc)
+    {
+        public static PaymentCycle Of(Dictionary<string, object> order)
+        {
+            var submittedAt = GetStringOrNull(order, "paymentSubmittedAt");
+            return new PaymentCycle(submittedAt, ParseUtcOrNull(submittedAt) ?? ParseUtcOrNull(GetStringOrNull(order, "createdAt")));
+        }
+
+        /// <summary>True once no new Telebirr payment may start for this attempt.</summary>
+        public bool HasRunOut(DateTime nowUtc)
+            => ClockStartUtc != null && nowUtc > ClockStartUtc.Value.Add(OrderPaymentAcceptWindow);
+
+        private static DateTime? ParseUtcOrNull(string? value)
+            => DateTime.TryParse(value, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed)
+                ? parsed
+                : null;
+    }
+
+    private static EscrowResult<OrderCheckoutResponse> PaymentTimeRunOut()
+        => EscrowResult<OrderCheckoutResponse>.Failure(
+            409, "ESCROW_030",
+            "The payment time for this order has run out. It will be marked as failed; then submit the payment again.",
+            "orderId");
+
+    /// <summary>
+    /// ESC-01: order-level preconditions for a checkout. Mirrors what
+    /// <see cref="CreateFromFundedOrderAsync"/> needs, so money is never captured for an order
+    /// whose escrow could not then be created. Null when the order may be paid.
+    /// </summary>
+    private static EscrowResult<OrderCheckoutResponse>? ValidateOrderForCheckout(
+        Dictionary<string, object> order, string authenticatedUserId)
+    {
+        var buyerId = GetString(order, "buyerId");
+        if (!string.Equals(buyerId, authenticatedUserId, StringComparison.Ordinal))
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                403, "ESCROW_026", "Only the order's buyer can pay for it.", "orderId");
+        }
+
+        var status = GetString(order, "status");
+        if (FundedOrderStatuses.Contains(status))
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                409, "ESCROW_024", "Funds for this order are already held in escrow.", "orderId");
+        }
+
+        if (status != "payment_submitted")
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                409, "ESCROW_030", $"The order is not waiting for payment (status: {status}).", "orderId");
+        }
+
+        var farmerId = GetString(order, "farmerId");
+        if (farmerId.Length == 0 || string.Equals(farmerId, buyerId, StringComparison.Ordinal))
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                422, "ESCROW_030", "This order cannot be paid online.", "orderId");
+        }
+
+        var amount = RoundMoney(GetDecimal(order, "orderTotal"));
+        if (amount < MinAmount || amount > MaxAmount)
+        {
+            return EscrowResult<OrderCheckoutResponse>.Failure(
+                400, "ESCROW_001",
+                $"Invalid amount. Telebirr takes between {MinAmount} and {MaxAmount} ETB in one payment.",
+                "amount");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// ESC-01: answer a checkout request while the order's checkout is still open. Returns the
+    /// same payment when its prepay_id is known, finishes an attempt whose earlier request
+    /// died before Telebirr was called, and otherwise refuses until the window ends.
+    /// </summary>
+    private async Task<EscrowResult<OrderCheckoutResponse>> ResumeOpenCheckoutAsync(
+        OrderCheckoutSlot slot, PaymentCycle cycle)
+    {
+        if (slot.Outcome == OrderCheckoutOutcome.UrlIssued && !string.IsNullOrEmpty(slot.PrepayId))
+        {
+            var url = _telebirrGateway.BuildCheckoutUrl(slot.PrepayId);
+            if (!string.IsNullOrEmpty(url))
+            {
+                return EscrowResult<OrderCheckoutResponse>.Success(BuildCheckoutResponse(slot, url, isExisting: true));
+            }
+        }
+
+        // No mapping means the earlier request stopped before calling Telebirr, so no payment
+        // exists for this attempt yet: it is safe to run it now.
+        if (slot.Outcome == OrderCheckoutOutcome.Opening
+            && await _orderCheckoutRepo!.GetMappingAsync(slot.MerchOrderId) == null)
+        {
+            return await StartCheckoutAttemptAsync(slot, cycle);
+        }
+
+        return EscrowResult<OrderCheckoutResponse>.Failure(
+            409, "ESCROW_032",
+            $"A Telebirr payment for this order is already open until {slot.OpenUntilUtc:o}. "
+            + "Finish it in Telebirr, or try again after that time.",
+            "orderId");
+    }
+
+    /// <summary>
+    /// ESC-01: run one checkout attempt: write the merch_order_id mapping, create the Telebirr
+    /// payment, then record the outcome on the slot. The mapping carries the order's payment
+    /// attempt (<paramref name="cycle"/>), which the webhook checks before funding.
+    /// </summary>
+    private async Task<EscrowResult<OrderCheckoutResponse>> StartCheckoutAttemptAsync(
+        OrderCheckoutSlot slot, PaymentCycle cycle)
+    {
+        var escrowId = $"escrow-order-{slot.OrderId}";
+
+        // Checked before every Telebirr call, including an attempt resumed late, so no payment
+        // can still be open when the order cron fails the order.
+        if (cycle.HasRunOut(DateTime.UtcNow))
+        {
+            return PaymentTimeRunOut();
+        }
+
+        // Everything that can fail without Telebirr runs before the mapping is written, so a
+        // failure here leaves the slot "opening" with no mapping, which a retry finishes.
+        var buyerPhone = await ResolveRefundPhoneAsync(slot.BuyerId);
+
+        if (!await _orderCheckoutRepo!.StoreMappingAsync(
+                slot.MerchOrderId, slot.OrderId, slot.BuyerId, slot.Amount, cycle.SubmittedAt))
+        {
+            // A concurrent request is running this same attempt.
+            return CheckoutBusy();
+        }
+
+        HoldFundsResponse hold;
+        try
+        {
+            hold = await _telebirrGateway.HoldFundsAsync(new HoldFundsRequest
+            {
+                TransactionRef = slot.MerchOrderId,
+                BuyerPhone = buyerPhone,
+                Amount = slot.Amount,
+                Description = $"WeredaConnect order {ShortSafeId(slot.OrderId)}"
+            });
+        }
+        catch (Exception ex)
+        {
+            hold = new HoldFundsResponse
+            {
+                Success = false,
+                ErrorCode = "TELEBIRR_NETWORK",
+                ErrorMessage = $"[{ex.GetType().Name}]"
+            };
+        }
+
+        // The payment's life starts when Telebirr answers, so the window (plus margin) is
+        // measured from now, not from when the slot was written.
+        var openUntil = DateTime.UtcNow.Add(OrderCheckoutWindow).Add(OrderCheckoutSafetyMargin);
+
+        if (hold.Success && !string.IsNullOrEmpty(hold.ToPayUrl) && !string.IsNullOrEmpty(hold.PrepayId))
+        {
+            await _orderCheckoutRepo.UpdateSlotOutcomeAsync(
+                slot.OrderId, slot.Attempt, OrderCheckoutOutcome.UrlIssued, hold.PrepayId, openUntil);
+            await AppendAuditAsync(escrowId, "order_checkout_opened", "", "", slot.BuyerId,
+                metadata: $"orderId={slot.OrderId},merchOrderId={slot.MerchOrderId},attempt={slot.Attempt}");
+            return EscrowResult<OrderCheckoutResponse>.Success(
+                BuildCheckoutResponse(slot with { OpenUntilUtc = openUntil }, hold.ToPayUrl, isExisting: false));
+        }
+
+        // Without a URL the buyer cannot pay; whether Telebirr kept a payment is unknown unless
+        // it explicitly refused.
+        var definite = !hold.Success && !string.IsNullOrEmpty(hold.ErrorCode)
+            && !UncertainGatewayErrors.Contains(hold.ErrorCode);
+        var outcome = definite ? OrderCheckoutOutcome.Failed : OrderCheckoutOutcome.Unknown;
+        await _orderCheckoutRepo.UpdateSlotOutcomeAsync(
+            slot.OrderId, slot.Attempt, outcome, openUntilUtc: definite ? null : openUntil);
+        if (definite)
+        {
+            await _idempotencyRepo.UpdateAsync(slot.MerchOrderId, "failed");
+        }
+
+        await AppendAuditAsync(escrowId, definite ? "order_checkout_failed" : "order_checkout_unknown", "", "", SystemActor,
+            metadata: $"orderId={slot.OrderId},merchOrderId={slot.MerchOrderId},error={hold.ErrorCode}");
+
+        return EscrowResult<OrderCheckoutResponse>.Failure(
+            502, "ESCROW_013",
+            definite
+                ? "Telebirr could not start the payment. Please try again."
+                : $"Telebirr did not answer. If you already paid, the payment will be applied; otherwise try again after {openUntil:o}.");
+    }
+
+    private static EscrowResult<OrderCheckoutResponse> CheckoutBusy()
+        => EscrowResult<OrderCheckoutResponse>.Failure(
+            409, "ESCROW_032", "A Telebirr payment for this order is being opened. Try again in a moment.", "orderId");
+
+    private static OrderCheckoutResponse BuildCheckoutResponse(OrderCheckoutSlot slot, string toPayUrl, bool isExisting)
+        => new()
+        {
+            OrderId = slot.OrderId,
+            Amount = slot.Amount,
+            Currency = "ETB",
+            ToPayUrl = toPayUrl,
+            OpenUntil = slot.OpenUntilUtc.ToString("o", CultureInfo.InvariantCulture),
+            IsExisting = isExisting
+        };
+
+    /// <summary>
+    /// ESC-01: a compact, server-generated Telebirr merch_order_id for an order checkout
+    /// attempt: "WCO", 24 upper-case hex characters of SHA-256 over the exact order id (so
+    /// distinct ids never collapse onto one, whatever characters they contain), then the attempt
+    /// number (3 digits). ASCII letters and digits only, 30 characters.
+    /// </summary>
+    public static string BuildOrderMerchOrderId(string orderId, int attempt)
+    {
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(orderId)))[..24];
+        return $"WCO{hash}{attempt.ToString("D3", CultureInfo.InvariantCulture)}";
+    }
+
+    /// <summary>An order id reduced to ASCII letters, digits and dashes (at most 36) for text sent to Telebirr.</summary>
+    private static string ShortSafeId(string id)
+    {
+        var safe = new string(id.Where(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '-')
+            .ToArray());
+        return safe.Length > 36 ? safe[..36] : safe;
     }
 
     /// <summary>
@@ -2108,7 +2480,10 @@ public sealed class EscrowService
         return EscrowResult<string>.Success(user.PhoneNumber);
     }
 
-    /// <summary>Refunds go back to the buyer's registered phone (no KYC gate: it is their own money).</summary>
+    /// <summary>
+    /// Refunds go back to the buyer's registered phone (no KYC gate: it is their own money).
+    /// The order checkout uses the same phone for the Telebirr payment (ESC-01).
+    /// </summary>
     private async Task<string> ResolveRefundPhoneAsync(string buyerId)
     {
         if (_userRepo == null || string.IsNullOrEmpty(buyerId))

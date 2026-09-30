@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon.DynamoDBv2;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
@@ -120,14 +121,21 @@ public class OrderCronFunction
         // Cancel expired "pending_payment" orders
         cancelledCount += await CancelExpiredByStatusAsync("pending_payment", cutoff, now, context);
 
+        // ESC-01: a submitted payment that was never confirmed (abandoned or refused checkout,
+        // or a mock auto-fund that failed) fails after 24 hours, so the buyer can pay again or
+        // cancel. No checkout is still open then: they stop opening 20 hours after submission.
+        var paymentFailedCount = await FailStalePaymentsAsync(now, context);
+
         var summary = new Dictionary<string, string>
         {
             { "action", "auto_cancel_expired" },
             { "cancelled", cancelledCount.ToString() },
+            { "paymentFailed", paymentFailedCount.ToString() },
             { "completedAt", now.ToString("o") }
         };
 
-        context.Logger.LogInformation($"Order auto-cancel complete: {cancelledCount} orders cancelled.");
+        context.Logger.LogInformation(
+            $"Order auto-cancel complete: {cancelledCount} orders cancelled, {paymentFailedCount} payments failed.");
 
         return new APIGatewayProxyResponse
         {
@@ -176,6 +184,53 @@ public class OrderCronFunction
         }
 
         return cancelledCount;
+    }
+
+    /// <summary>
+    /// ESC-01: move <c>payment_submitted</c> orders whose payment clock (<c>paymentSubmittedAt</c>,
+    /// or <c>createdAt</c> for orders from before it was stamped) passed 24 hours to
+    /// <c>payment_failed</c>, version-checked so a concurrent funding wins.
+    /// </summary>
+    private async Task<int> FailStalePaymentsAsync(DateTime now, ILambdaContext context)
+    {
+        var threshold = now.AddHours(-ExpirationHours);
+
+        // createdAt is never later than paymentSubmittedAt, so it is a safe pre-filter.
+        var orders = await _orderRepo.QueryByStatusForCronAsync("payment_submitted", threshold.ToString("o"))
+            ?? new List<Dictionary<string, object>>();
+        var failedCount = 0;
+
+        foreach (var order in orders)
+        {
+            if (DateTime.TryParse(GetString(order, "paymentSubmittedAt"), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var submittedAt)
+                && submittedAt > threshold)
+            {
+                continue;
+            }
+
+            var orderId = GetString(order, "orderId");
+            var result = await _orderRepo.UpdateAsync(
+                orderId, new Dictionary<string, object> { { "status", "payment_failed" } }, GetInt(order, "version"));
+
+            if (result.IsSuccess)
+            {
+                failedCount++;
+                await TransactionAuditWriter.EmitAsync(
+                    _transactionAuditRepo, context, orderId, "order", orderId,
+                    "order_updated", "payment_submitted", "payment_failed",
+                    AuditContext.ForSystem(),
+                    metadata: $"No confirmed payment within {ExpirationHours}h.");
+            }
+            else
+            {
+                // Most often a funding that landed in the meantime (version moved): nothing to do.
+                context.Logger.LogWarning(
+                    $"Payment-failed sweep skipped order {orderId}: {result.Error?.Code} - {result.Error?.Message}");
+            }
+        }
+
+        return failedCount;
     }
 
     private static string GetString(Dictionary<string, object> item, string key)
