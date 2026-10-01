@@ -72,6 +72,9 @@ public class TripFunction
     /// - Trucker: can only see own trips (truckerId forced to authenticated userId)
     /// - Buyer / Admin: can browse all trips
     /// - Farmer / unknown role / unauthenticated: 403 TRIP_FORBIDDEN
+    ///
+    /// SIM-31: cancelled or soft-deleted trips (the ones GET /trips/{id} answers with 404)
+    /// are never listed, for any role; status=cancelled returns an empty page.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,
@@ -136,7 +139,14 @@ public class TripFunction
             List<Dictionary<string, object>> items;
             Dictionary<string, AttributeValue>? lastEvaluatedKey;
 
-            if (!string.IsNullOrEmpty(truckerId))
+            if (string.Equals(status, "cancelled", StringComparison.Ordinal))
+            {
+                // SIM-31: cancelled trips are never listed, so do not read the cancelled
+                // partition at all. The post-filter validation below still runs.
+                items = new List<Dictionary<string, object>>();
+                lastEvaluatedKey = null;
+            }
+            else if (!string.IsNullOrEmpty(truckerId))
             {
                 // Query by trucker using TruckerIdCreatedAtIndex GSI
                 var queryResult = await _tripRepo.QueryTripsByTruckerAsync(
@@ -152,6 +162,11 @@ public class TripFunction
                 items = queryResult.Items;
                 lastEvaluatedKey = queryResult.LastEvaluatedKey;
             }
+
+            // SIM-31: drop every trip the detail endpoint hides (404), so list and detail agree.
+            // The repository only excludes deletedAt; a trip cancelled through a status update
+            // has no deletedAt and would otherwise still be listed.
+            items = items.Where(i => !IsCancelledOrDeleted(i)).ToList();
 
             // Apply client-side filters that DynamoDB FilterExpression doesn't handle efficiently
             queryParams.TryGetValue("minCapacity", out var minCapacityStr);
@@ -250,15 +265,9 @@ public class TripFunction
                 return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing not found.");
             }
 
-            // Check if deleted
-            if (trip.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
-            {
-                return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
-            }
-
-            // F-SEC-03: Check if cancelled via status update path (which doesn't set deletedAt)
-            if (trip.TryGetValue("status", out var statusVal)
-                && statusVal?.ToString() == "cancelled")
+            // Soft-deleted, or (F-SEC-03) cancelled via the status update path, which does
+            // not set deletedAt. Same predicate as the list (SIM-31).
+            if (IsCancelledOrDeleted(trip))
             {
                 return LambdaResponse.Error(404, "TRIP_NOT_FOUND", "Trip listing has been cancelled.");
             }
@@ -294,6 +303,14 @@ public class TripFunction
             return LambdaResponse.Error(500, "TRIP_SERVER_ERROR", "Failed to retrieve trip listing.");
         }
     }
+
+    /// <summary>
+    /// SIM-31: a trip is hidden from every read (detail 404, list omitted) when it is
+    /// soft-deleted (deletedAt set) or cancelled through a status update (no deletedAt).
+    /// </summary>
+    internal static bool IsCancelledOrDeleted(Dictionary<string, object> item)
+        => (item.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+           || (item.TryGetValue("status", out var status) && status?.ToString() == "cancelled");
 
     /// <summary>
     /// Map a DynamoDB item dictionary to a TripDto.

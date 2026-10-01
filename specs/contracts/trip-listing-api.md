@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-1.0.0
+1.2.1
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -18,7 +18,7 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 - **Woreda-to-woreda routing**: Ethiopian districts, not GPS routes
 - **Capacity in quintals**: Standard Ethiopian bulk measurement (100kg)
 - **Pricing in ETB per quintal**: Transport cost transparency for farmers
-- **Soft deletes**: Cancelled trips marked with `deletedAt`, not physically removed
+- **Soft deletes**: Cancelled trips stay in the table (soft delete: `status: cancelled`, plus `deletedAt` when cancelled through the `delete` action) and are hidden from both read endpoints
 
 ---
 
@@ -111,13 +111,16 @@ The Trip Listing API enables transport providers (truckers) to post available tr
 ### 2. Browse Trips
 **Method**: GET /trips
 **Authentication**: Required — browse-all is restricted to Buyer and Admin (F-36). Truckers see only their own trips; farmers, other roles, and unauthenticated callers receive 403.
+
+Cancelled trips are never listed, for any role: a trip with `status: cancelled` (status update) or with `deletedAt` (soft delete) is omitted, the same trips `GET /trips/{id}` answers with `404`. `status=cancelled` returns an empty page (`trips: []`, `hasMore: false`). These trips are dropped after DynamoDB applies `limit`, so a page can hold fewer than `limit` trips while `hasMore` is `true`.
+
 **Query Parameters**:
 
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
 | `fromWoreda` | string | No | Filter by origin woreda | `fromWoreda=Bishoftu` |
 | `toWoreda` | string | No | Filter by destination woreda | `toWoreda=Addis Ababa` |
-| `status` | string | No | Filter by status (default: open) | `status=open` |
+| `status` | string | No | Filter by status (default: open). `cancelled` always returns an empty page. | `status=open` |
 | `minCapacity` | number | No | Minimum available capacity (quintals) | `minCapacity=50` |
 | `maxPrice` | number | No | Maximum price per quintal (ETB) | `maxPrice=150` |
 | `departureDateFrom` | string | No | Earliest departure date (ISO 8601) | `departureDateFrom=2026-02-17T00:00:00Z` |
@@ -423,9 +426,10 @@ Common route patterns:
 | 1.0.0 | 2026-02-16 | Initial contract: Create/browse/get endpoints, data model, validation rules, status transitions, Ethiopian context |
 | 1.1.0 | 2026-09-25 | Update: `truckerId`/`truckerName`/`truckerPhone` are immutable after create (SIM-03); a changed value is rejected with `TRIP_VALIDATION`, an echoed value is stripped |
 | 1.2.0 | 2026-09-28 | Create: `truckerName`/`truckerPhone` come from the trucker's profile, client values ignored (SIM-40) |
+| 1.2.1 | 2026-10-01 | Browse: cancelled trips (status update or soft delete) are never listed, matching the detail 404; `status=cancelled` returns an empty page (SIM-31) |
 
 ---
 
-**Last Updated**: 2026-09-28
-**Version**: 1.2.0
+**Last Updated**: 2026-10-01
+**Version**: 1.2.1
 **Status**: Draft (Phase R4.1)
