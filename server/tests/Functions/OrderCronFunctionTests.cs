@@ -17,6 +17,8 @@ public class OrderCronFunctionTests
     public OrderCronFunctionTests()
     {
         _mockOrderRepo = Substitute.For<IOrderRepository>();
+        _mockOrderRepo.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(_ => new List<Dictionary<string, object>>());
         _function = new OrderCronFunction(_mockOrderRepo);
         _context = new TestLambdaContext();
     }
@@ -103,6 +105,110 @@ public class OrderCronFunctionTests
 
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("\"cancelled\":\"1\"", response.Body);
+    }
+
+    private static Dictionary<string, object> SubmittedOrder(
+        string orderId, DateTime createdAt, DateTime? paymentSubmittedAt, string version = "3")
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", orderId },
+            { "status", "payment_submitted" },
+            { "version", version },
+            { "createdAt", createdAt.ToString("o") }
+        };
+        if (paymentSubmittedAt != null)
+        {
+            order["paymentSubmittedAt"] = paymentSubmittedAt.Value.ToString("o");
+        }
+
+        return order;
+    }
+
+    private void StubSubmittedOrders(params Dictionary<string, object>[] orders)
+        => _mockOrderRepo.QueryByStatusForCronAsync("payment_submitted", Arg.Any<string?>())
+            .Returns(orders.ToList());
+
+    private void StubUpdateSucceeds(string orderId, int version)
+        => _mockOrderRepo.UpdateAsync(orderId, Arg.Any<Dictionary<string, object>>(), version)
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", orderId },
+                { "status", "payment_failed" }
+            }));
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_PaymentSubmittedOver24HoursAgo_FailsThePayment()
+    {
+        var txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+        var sut = new OrderCronFunction(_mockOrderRepo, txAuditRepo);
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-stale", now.AddHours(-30), now.AddHours(-25)));
+        StubUpdateSucceeds("order-stale", 3);
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-stale",
+            Arg.Is<Dictionary<string, object>>(d => d.Count == 1 && (string)d["status"] == "payment_failed"), 3);
+        await txAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            (string)e["entityId"] == "order-stale" && (string)e["fromState"] == "payment_submitted"
+            && (string)e["toState"] == "payment_failed"));
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OldOrderWithARecentPaymentSubmission_IsLeftWaiting()
+    {
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-retried", now.AddHours(-30), now.AddHours(-2)));
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(
+            "order-retried", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OrderFromBeforeThePaymentClock_UsesItsCreationTime()
+    {
+        StubSubmittedOrders(SubmittedOrder("order-legacy", DateTime.UtcNow.AddHours(-25), paymentSubmittedAt: null));
+        StubUpdateSucceeds("order-legacy", 3);
+
+        var actual = await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Contains("\"paymentFailed\":\"1\"", actual.Body);
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_OrderFundedMeanwhile_IsNotFailed()
+    {
+        var txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+        var sut = new OrderCronFunction(_mockOrderRepo, txAuditRepo);
+        var now = DateTime.UtcNow;
+        StubSubmittedOrders(SubmittedOrder("order-funded", now.AddHours(-30), now.AddHours(-25)));
+        _mockOrderRepo.UpdateAsync("order-funded", Arg.Any<Dictionary<string, object>>(), 3)
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "VERSION_CONFLICT", "Version mismatch."));
+
+        var actual = await sut.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        Assert.Equal(200, actual.StatusCode);
+        Assert.Contains("\"paymentFailed\":\"0\"", actual.Body);
+        await txAuditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task HandleAutoCancelExpired_QueriesSubmittedPaymentsCreatedBeforeTheThreshold()
+    {
+        var before = DateTime.UtcNow;
+
+        await _function.FunctionHandler(MakeRequest("auto_cancel_expired"), _context);
+
+        var after = DateTime.UtcNow;
+        await _mockOrderRepo.Received(1).QueryByStatusForCronAsync("payment_submitted", Arg.Is<string?>(s =>
+            DateTime.Parse(s!, null, System.Globalization.DateTimeStyles.RoundtripKind) >= before.AddHours(-24)
+            && DateTime.Parse(s!, null, System.Globalization.DateTimeStyles.RoundtripKind) <= after.AddHours(-24)));
     }
 
     [Fact]

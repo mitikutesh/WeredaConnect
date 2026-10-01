@@ -3156,15 +3156,75 @@ public class SyncFunctionTests
 
             Assert.Equal(200, response.StatusCode);
             Assert.Contains("success", response.Body);
-            await _mockCropRepo.Received(1).UpdateAsync(
-                "listing-001",
-                Arg.Is<Dictionary<string, object>>(d => (double)d["quantity"] == 55.0 && !d.ContainsKey("status")),
-                1);
+            // ESC-01: the stock step is the idempotent per-order decrement (the 60 -> 55
+            // quintal arithmetic is covered in CropRepositoryTests).
+            await _mockCropRepo.Received(1).TryDecrementStockAsync("listing-001", "order-001", 5.0);
+            await _mockCropRepo.DidNotReceive().UpdateAsync(
+                "listing-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         }
         finally
         {
             Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
         }
+    }
+
+    [Theory]
+    [InlineData("buyer-001")]
+    [InlineData("farmer-001")]
+    public async Task OrderUpdate_PaymentFailed_IsSystemOnly(string caller)
+    {
+        // ESC-01: a participant marking payment_failed while a Telebirr payment is in flight
+        // let the buyer resubmit and pay twice; only the system may set it now.
+        SetupExistingOrder(status: "payment_submitted");
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-payment-failed",
+            IdempotencyKey = $"{caller}:order:order-001:update:12345",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object> { { "status", "payment_failed" }, { "version", 1 } }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), caller, caller == "buyer-001" ? "buyer" : "farmer"), _context);
+
+        Assert.Contains("ORDER_UNAUTHORIZED", response.Body);
+        Assert.Contains("system-managed", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_TelebirrPaymentFields_AreStrippedFromClientData()
+    {
+        // ESC-01: the Telebirr references behind a funding are server-only; a client cannot
+        // plant one to make a later payment look like a redelivery.
+        SetupExistingOrder(status: "created");
+        SetupOrderUpdateSucceeds();
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-plant-ref",
+            IdempotencyKey = "buyer-001:order:order-001:update:12345",
+            EntityType = "order",
+            EntityId = "order-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "cancelReason", "changed my mind" },
+                { "telebirrPaymentOrderId", "TB-PLANTED" },
+                { "telebirrMerchOrderId", "WCO-PLANTED" },
+                { "telebirrTransId", "TXN-PLANTED" },
+                { "version", 1 }
+            }
+        };
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
+
+        Assert.NotNull(_updatedOrderData);
+        Assert.Equal("changed my mind", _updatedOrderData!["cancelReason"].ToString());
+        Assert.False(_updatedOrderData.ContainsKey("telebirrPaymentOrderId"));
+        Assert.False(_updatedOrderData.ContainsKey("telebirrMerchOrderId"));
+        Assert.False(_updatedOrderData.ContainsKey("telebirrTransId"));
     }
 
     // --- SIM-06: order update allow-list and immutability ---
@@ -3486,6 +3546,7 @@ public class SyncFunctionTests
             { "buyerId", "buyer-001" },
             { "farmerId", "farmer-001" },
             { "status", "created" },
+            { "orderTotal", "500.00" },
             { "version", "1" }
         });
         orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
@@ -4938,6 +4999,97 @@ public class SyncFunctionTests
                 authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
 
         Assert.Contains("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveTotalBelowTelebirrMinimum_IsRefused()
+    {
+        var function = PaymentFunction(99.99m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.Contains("ORDER_VALIDATION", response.Body);
+        Assert.Contains("100 to 500000 ETB", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_LiveTotalAboveTelebirrMaximum_IsRefused()
+    {
+        var buyer = WithFaydaLogin(PaymentParty("buyer-001", faydaVerified: true), DateTime.UtcNow.AddMinutes(-1));
+        var function = PaymentFunction(500_000.01m, buyer, PaymentParty("farmer-001", faydaVerified: true));
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer"), _context);
+
+        Assert.Contains("ORDER_VALIDATION", response.Body);
+        Assert.DoesNotContain("\"status\":\"success\"", response.Body);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_MockPayments_SkipTheTelebirrLimits()
+    {
+        Environment.SetEnvironmentVariable("TELEBIRR_MOCK", "true");
+        try
+        {
+            var function = PaymentFunction(50m, PaymentParty("buyer-001"), PaymentParty("farmer-001"));
+
+            var response = await function.FunctionHandler(
+                MakeAuthenticatedRequest(MakeSyncRequest(PaymentOp()), "buyer-001", "buyer",
+                    authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+            Assert.DoesNotContain("ORDER_VALIDATION", response.Body);
+            Assert.Contains("\"status\":\"success\"", response.Body);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEBIRR_MOCK", null);
+        }
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_StampsThePaymentClockOnTheServer()
+    {
+        // ESC-01: paymentSubmittedAt drives the 20h checkout cut-off and the 24h payment_failed
+        // sweep, so the client's own value is dropped and the server's time is stored.
+        SetupExistingOrder(status: "created");
+        SetupOrderUpdateSucceeds();
+        var op = MakeOrderUpdateOp(new Dictionary<string, object>
+        {
+            { "status", "payment_submitted" },
+            { "paymentMethod", "telebirr" },
+            { "paymentSubmittedAt", "2020-01-01T00:00:00.0000000Z" },
+            { "version", 1 }
+        });
+        var before = DateTime.UtcNow;
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer",
+                authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+        Assert.NotNull(_updatedOrderData);
+        var stamped = DateTime.Parse(_updatedOrderData!["paymentSubmittedAt"].ToString()!, null,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+        Assert.True(stamped >= before && stamped <= DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PaymentSubmittedAt_IsStrippedOutsideAPaymentSubmit()
+    {
+        SetupExistingOrder(status: "created");
+        SetupOrderUpdateSucceeds();
+
+        await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "cancelReason", "changed my mind" },
+            { "paymentSubmittedAt", "2020-01-01T00:00:00.0000000Z" },
+            { "version", 1 }
+        });
+
+        Assert.NotNull(_updatedOrderData);
+        Assert.False(_updatedOrderData!.ContainsKey("paymentSubmittedAt"));
     }
 
     [Fact]

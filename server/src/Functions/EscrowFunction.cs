@@ -69,8 +69,12 @@ public class EscrowFunction
             deliveryRepo = new DeliveryRepository(dynamoDb, deliveriesTable);
         }
 
+        // ESC-01: live order checkouts share the idempotency table (slot + merch_order_id rows).
+        var orderCheckoutRepo = new OrderCheckoutRepository(dynamoDb, idempotencyTable);
+
         _escrowService = new EscrowService(
-            escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo);
+            escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo,
+            orderCheckoutRepo);
         _userRepo = userRepo;
 
         // Fraud detection (F-14)
@@ -107,6 +111,7 @@ public class EscrowFunction
         return (request.HttpMethod, action) switch
         {
             ("POST", "initiate") => await HandleInitiateAsync(request, context),
+            ("POST", "order-checkout") => await HandleOrderCheckoutAsync(request, context),
             ("POST", "release") => await HandleReleaseAsync(request, context),
             ("POST", "dispute") => await HandleDisputeAsync(request, context),
             ("POST", "refund") => await HandleRefundAsync(request, context),
@@ -266,6 +271,94 @@ public class EscrowFunction
             AuditLogger.LogAudit("ESCROW", "INITIATE",
                 userId: userId, correlationId: correlationId,
                 entityType: "escrow",
+                outcome: "error", errorCode: "ESCROW_012");
+            return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
+        }
+    }
+
+    /// <summary>
+    /// ESC-01: POST /escrow/order-checkout. The order's buyer opens (or gets back) the live
+    /// Telebirr checkout for a payment_submitted order. The body carries only the orderId;
+    /// the amount and the Telebirr reference come from the server.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleOrderCheckoutAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!IsAuthenticated(request))
+        {
+            return LambdaResponse.Error(401, "ESCROW_005", "Authentication required.");
+        }
+
+        var userId = GetAuthenticatedUserId(request);
+        if (string.IsNullOrEmpty(userId))
+        {
+            return LambdaResponse.Error(401, "ESCROW_005", "Unable to determine authenticated user.");
+        }
+
+        var correlationId = AuditLogger.GetCorrelationId(request);
+        if (!string.Equals(GetAuthenticatedUserRole(request), "buyer", StringComparison.OrdinalIgnoreCase))
+        {
+            AuditLogger.LogAudit("ESCROW", "ORDER_CHECKOUT",
+                userId: userId, correlationId: correlationId,
+                entityType: "order", outcome: "failure", errorCode: "ESCROW_025");
+            return LambdaResponse.Error(403, "ESCROW_025", "Only buyers can pay for orders.");
+        }
+
+        OrderCheckoutRequest? body;
+        try
+        {
+            body = JsonSerializer.Deserialize(request.Body ?? "", AppJsonContext.Default.OrderCheckoutRequest);
+        }
+        catch (JsonException)
+        {
+            return LambdaResponse.Error(400, "ESCROW_033", "Invalid JSON in request body.");
+        }
+
+        if (body == null || string.IsNullOrWhiteSpace(body.OrderId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_033", "orderId is required.", "orderId");
+        }
+
+        // Same payment velocity limit as /escrow/initiate: each new checkout is a Telebirr
+        // preOrder, so a flood of them must not reach the merchant account.
+        if (_fraudService != null)
+        {
+            var fraudCheck = await _fraudService.CheckPaymentVelocityAsync(userId);
+            if (!fraudCheck.IsAllowed)
+            {
+                return LambdaResponse.Error(429, "ESCROW_011",
+                    fraudCheck.Message ?? "Payment rate limit exceeded. Please try again later.");
+            }
+        }
+
+        try
+        {
+            var result = await _escrowService.CreateOrderCheckoutAsync(
+                body.OrderId, userId, AuditContext.From(request, userId));
+
+            // Every attempt that reached Telebirr counts toward the velocity limit, including
+            // refused ones; a returned open checkout does not.
+            var reachedTelebirr = (result.IsSuccess && result.Value?.IsExisting == false)
+                || result.Error?.Code == "ESCROW_013";
+            if (_fraudService != null && reachedTelebirr)
+            {
+                await _fraudService.RecordPaymentInitiatedAsync(userId);
+            }
+
+            AuditLogger.LogAudit("ESCROW", "ORDER_CHECKOUT",
+                userId: userId, correlationId: correlationId,
+                entityType: "order", entityId: body.OrderId,
+                outcome: result.IsSuccess ? "success" : "failure", errorCode: result.Error?.Code);
+
+            return MapResult(result, value => LambdaResponse.Ok(value, AppJsonContext.Default.OrderCheckoutResponse));
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error opening order checkout: [{ex.GetType().Name}]");
+            AuditLogger.LogAudit("ESCROW", "ORDER_CHECKOUT",
+                userId: userId, correlationId: correlationId,
+                entityType: "order", entityId: body.OrderId,
                 outcome: "error", errorCode: "ESCROW_012");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }

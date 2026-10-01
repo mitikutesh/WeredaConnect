@@ -955,4 +955,167 @@ public class EscrowFunctionTests
         Assert.NotEqual(200, response.StatusCode);
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
     }
+
+    // ──────────────────────────────────────────────
+    // ESC-01: POST /escrow/order-checkout
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task OrderCheckout_Buyer_RoutesToTheService()
+    {
+        // The test service has no order-checkout wiring, so reaching it answers 503 ESCROW_012.
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", """{"orderId":"order-1"}""", BuyerId), _context);
+
+        Assert.Equal(503, response.StatusCode);
+        Assert.Contains("ESCROW_012", response.Body);
+    }
+
+    [Theory]
+    [InlineData("farmer")]
+    [InlineData("trucker")]
+    [InlineData(null)]
+    public async Task OrderCheckout_NonBuyer_Returns403Escrow025(string? role)
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", """{"orderId":"order-1"}""", BuyerId, role), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("ESCROW_025", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"orderId":""}""")]
+    [InlineData("{{bad json")]
+    public async Task OrderCheckout_WithoutAnOrderId_Returns400Escrow033(string body)
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", body, BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("ESCROW_033", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCheckout_Unauthenticated_Returns401()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", """{"orderId":"order-1"}""", userId: null), _context);
+
+        Assert.Equal(401, response.StatusCode);
+    }
+
+    private readonly IOrderRepository _checkoutOrderRepo = Substitute.For<IOrderRepository>();
+    private readonly IOrderCheckoutRepository _checkoutRepo = Substitute.For<IOrderCheckoutRepository>();
+    private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+
+    /// <summary>An EscrowFunction whose service can open live order checkouts, with a fraud service.</summary>
+    private EscrowFunction CheckoutFunction(string orderStatus = "payment_submitted")
+    {
+        _checkoutOrderRepo.GetByIdAsync("order-1", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-1" }, { "buyerId", BuyerId }, { "farmerId", FarmerId },
+            { "orderTotal", "1500" }, { "status", orderStatus }, { "version", "2" }
+        });
+        _checkoutRepo.TryOpenSlotAsync(Arg.Any<OrderCheckoutSlot>(), Arg.Any<int?>()).Returns(true);
+        _checkoutRepo.StoreMappingAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string?>())
+            .Returns(true);
+        _mockTelebirrGateway.SupportsHostedCheckout.Returns(true);
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>()).Returns(new HoldFundsResponse
+        {
+            Success = true,
+            TelebirrRef = "PENDING-WEBHOOK-1",
+            ToPayUrl = "https://telebirr.example/checkout?prepay_id=prepay-1",
+            PrepayId = "prepay-1"
+        });
+        _fraud.CheckPaymentVelocityAsync(BuyerId).Returns(new FraudCheckResult { IsAllowed = true });
+
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            orderRepo: _checkoutOrderRepo, orderCheckoutRepo: _checkoutRepo);
+        return new EscrowFunction(service, _fraud);
+    }
+
+    private static APIGatewayProxyRequest CheckoutRequest()
+        => MakePostRequest("/escrow/order-checkout", """{"orderId":"order-1"}""", BuyerId);
+
+    [Fact]
+    public async Task OrderCheckout_NewCheckout_CountsTowardThePaymentVelocity()
+    {
+        var sut = CheckoutFunction();
+
+        var response = await sut.FunctionHandler(CheckoutRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("prepay_id=prepay-1", response.Body);
+        await _fraud.Received(1).RecordPaymentInitiatedAsync(BuyerId);
+    }
+
+    [Fact]
+    public async Task OrderCheckout_ReturnedOpenCheckout_DoesNotCountAgain()
+    {
+        var sut = CheckoutFunction();
+        _checkoutRepo.GetSlotAsync("order-1").Returns(new OrderCheckoutSlot
+        {
+            OrderId = "order-1",
+            BuyerId = BuyerId,
+            Attempt = 1,
+            MerchOrderId = EscrowService.BuildOrderMerchOrderId("order-1", 1),
+            Amount = 1500m,
+            Outcome = OrderCheckoutOutcome.UrlIssued,
+            OpenedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+            OpenUntilUtc = DateTime.UtcNow.AddMinutes(100),
+            PrepayId = "prepay-1"
+        });
+        _mockTelebirrGateway.BuildCheckoutUrl("prepay-1").Returns("https://telebirr.example/checkout?prepay_id=prepay-1");
+
+        var response = await sut.FunctionHandler(CheckoutRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+        await _fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task OrderCheckout_TelebirrFailure_StillCountsTowardThePaymentVelocity()
+    {
+        var sut = CheckoutFunction();
+        _mockTelebirrGateway.HoldFundsAsync(Arg.Any<HoldFundsRequest>())
+            .Returns(new HoldFundsResponse { Success = false, ErrorCode = "TELEBIRR_TIMEOUT" });
+
+        var response = await sut.FunctionHandler(CheckoutRequest(), _context);
+
+        Assert.Equal(502, response.StatusCode);
+        Assert.Contains("ESCROW_013", response.Body);
+        await _fraud.Received(1).RecordPaymentInitiatedAsync(BuyerId);
+    }
+
+    [Fact]
+    public async Task OrderCheckout_VelocityLimitReached_Returns429WithoutCallingTelebirr()
+    {
+        var sut = CheckoutFunction();
+        _fraud.CheckPaymentVelocityAsync(BuyerId)
+            .Returns(new FraudCheckResult { IsAllowed = false, Message = "Too many payments." });
+
+        var response = await sut.FunctionHandler(CheckoutRequest(), _context);
+
+        Assert.Equal(429, response.StatusCode);
+        Assert.Contains("ESCROW_011", response.Body);
+        await _mockTelebirrGateway.DidNotReceive().HoldFundsAsync(Arg.Any<HoldFundsRequest>());
+        await _checkoutRepo.DidNotReceive().TryOpenSlotAsync(Arg.Any<OrderCheckoutSlot>(), Arg.Any<int?>());
+    }
+
+    [Fact]
+    public async Task OrderCheckout_RefusedBeforeTelebirr_DoesNotCount()
+    {
+        var sut = CheckoutFunction(orderStatus: "funded");
+
+        var response = await sut.FunctionHandler(CheckoutRequest(), _context);
+
+        Assert.Equal(409, response.StatusCode);
+        Assert.Contains("ESCROW_024", response.Body);
+        await _fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
+    }
 }

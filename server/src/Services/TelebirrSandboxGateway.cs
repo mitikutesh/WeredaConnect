@@ -131,6 +131,7 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
                 Success = true,
                 TelebirrRef = $"PENDING-WEBHOOK-{ShortHash(request.TransactionRef)}",
                 ToPayUrl = toPayUrl,
+                PrepayId = prepayId,
             };
         }
         catch (HttpRequestException ex)
@@ -168,6 +169,18 @@ public sealed class TelebirrSandboxGateway : ITelebirrGateway
             Amount = 0,
             UpdatedAt = DateTime.UtcNow.ToString("o"),
         });
+
+    /// <summary>H5 C2B is a hosted checkout: the webhook confirms the payment later.</summary>
+    public bool SupportsHostedCheckout => true;
+
+    /// <summary>
+    /// Sign a fresh H5 checkout URL for an existing prepay_id (same payment, new nonce and
+    /// timestamp). Built locally like the original URL; no Telebirr call is made.
+    /// </summary>
+    public string? BuildCheckoutUrl(string prepayId)
+        => string.IsNullOrEmpty(prepayId)
+            ? null
+            : BuildH5Url(GenerateNonce(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(), prepayId);
 
     // ── Internals ──────────────────────────────────────────────────────────
 

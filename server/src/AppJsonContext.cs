@@ -73,6 +73,8 @@ namespace WeredaConnect.Server;
 // Escrow endpoint DTOs
 [JsonSerializable(typeof(InitiateEscrowRequest))]
 [JsonSerializable(typeof(InitiateEscrowResponse))]
+[JsonSerializable(typeof(OrderCheckoutRequest))]
+[JsonSerializable(typeof(OrderCheckoutResponse))]
 [JsonSerializable(typeof(ReleaseEscrowRequest))]
 [JsonSerializable(typeof(ReleaseEscrowResponse))]
 [JsonSerializable(typeof(DisputeEscrowRequest))]

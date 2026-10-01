@@ -172,6 +172,78 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdAsync(string orderId, bool consistentRead)
+    {
+        var item = await GetItemAsync(orderId, consistentRead);
+        return item != null ? DynamoDbHelper.FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> TryMarkFundedAsync(
+        string orderId, Dictionary<string, object> fields)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return null;
+        }
+
+        var setParts = new List<string> { "#status = :funded", "#updated = :updated" };
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#status", "status" },
+            { "#updated", "updatedAt" },
+            { "#v", "version" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":funded", new AttributeValue { S = "funded" } },
+            { ":submitted", new AttributeValue { S = "payment_submitted" } },
+            { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+
+        var i = 0;
+        foreach (var kvp in fields)
+        {
+            if (kvp.Key is "orderId" or "createdAt" or "updatedAt" or "version" or "status")
+            {
+                continue;
+            }
+
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            setParts.Add($"#f{i} = :f{i}");
+            i++;
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "orderId", new AttributeValue { S = orderId } },
+                { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
+            },
+            UpdateExpression = "SET " + string.Join(", ", setParts) + " ADD #v :one",
+            ConditionExpression = "#status = :submitted",
+            ExpressionAttributeNames = attrNames,
+            ExpressionAttributeValues = attrValues,
+            ReturnValues = ReturnValue.ALL_NEW
+        };
+
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(request);
+            return DynamoDbHelper.FromItem(response.Attributes);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOrdersAsync(
         string? buyerId = null,
         string? farmerId = null,
@@ -355,7 +427,7 @@ public sealed class OrderRepository : IOrderRepository
     /// Query for an item by orderId (partition key). Since sort key is createdAt,
     /// we query with limit 1 to get the single matching item.
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string orderId)
+    private async Task<Dictionary<string, AttributeValue>?> GetItemAsync(string orderId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -365,7 +437,8 @@ public sealed class OrderRepository : IOrderRepository
             {
                 { ":id", new AttributeValue { S = orderId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);

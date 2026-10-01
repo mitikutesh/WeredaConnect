@@ -117,4 +117,10 @@ public sealed class MockTelebirrGateway : ITelebirrGateway
             UpdatedAt = DateTime.UtcNow.ToString("o")
         };
     }
+
+    /// <summary>The mock holds synchronously; mock orders are funded at payment submit.</summary>
+    public bool SupportsHostedCheckout => false;
+
+    /// <summary>No hosted checkout, so no URL to rebuild.</summary>
+    public string? BuildCheckoutUrl(string prepayId) => null;
 }

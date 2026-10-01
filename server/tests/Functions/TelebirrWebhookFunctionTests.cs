@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
@@ -57,7 +58,8 @@ public class TelebirrWebhookFunctionTests
             merchantCode: merchantCode, userRepo: userRepo, requirePayerMatch: requirePayerMatch);
 
     private static string SignedBody(string tradeStatus, string totalAmount = "15000.00", bool tamper = false,
-        long? timestampMs = null, string? rawTimestamp = null, string? msisdn = null)
+        long? timestampMs = null, string? rawTimestamp = null, string? msisdn = null,
+        string merchOrderId = MerchOrderId, string paymentOrderId = "TB123", string transCurrency = "ETB")
     {
         var ts = rawTimestamp ?? (timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
         var signable = new Dictionary<string, object?>
@@ -69,10 +71,10 @@ public class TelebirrWebhookFunctionTests
             ["sign_type"] = "SHA256WithRSA",
             ["biz_content"] = new Dictionary<string, object?>
             {
-                ["merch_order_id"] = MerchOrderId,
-                ["payment_order_id"] = "TB123",
+                ["merch_order_id"] = merchOrderId,
+                ["payment_order_id"] = paymentOrderId,
                 ["total_amount"] = totalAmount,
-                ["trans_currency"] = "ETB",
+                ["trans_currency"] = transCurrency,
                 ["trade_status"] = tradeStatus,
                 ["merch_code"] = "220100",
                 ["trans_id"] = "TXN9",
@@ -88,10 +90,10 @@ public class TelebirrWebhookFunctionTests
 
         var bizContent = new Dictionary<string, object?>
         {
-            ["merch_order_id"] = MerchOrderId,
-            ["payment_order_id"] = "TB123",
+            ["merch_order_id"] = merchOrderId,
+            ["payment_order_id"] = paymentOrderId,
             ["total_amount"] = totalAmount,
-            ["trans_currency"] = "ETB",
+            ["trans_currency"] = transCurrency,
             ["trade_status"] = tradeStatus,
             ["merch_code"] = "220100",
             ["trans_id"] = "TXN9",
@@ -309,5 +311,500 @@ public class TelebirrWebhookFunctionTests
             .FunctionHandler(Req(SignedBody("Completed")), _ctx);
         await _escrowRepo.Received(1).UpdateStatusAsync(
             EscrowId, Arg.Any<string>(), "escrowed", "initiated", Arg.Any<Dictionary<string, object>?>());
+    }
+
+    // ===== ESC-01: live order payments =====
+
+    private const string OrderId = "order-1";
+    private const string OrderMerchOrderId = "WCOORDER101";
+    private const string OrderPaymentId = "TB-ORD-1";
+    private const string OrderEscrowId = "escrow-order-order-1";
+
+    private readonly IOrderCheckoutRepository _checkoutRepo = Substitute.For<IOrderCheckoutRepository>();
+    private readonly IOrderRepository _orderRepo = Substitute.For<IOrderRepository>();
+    private readonly ICropRepository _cropRepo = Substitute.For<ICropRepository>();
+    private readonly ITransactionAuditRepository _txAuditRepo = Substitute.For<ITransactionAuditRepository>();
+
+    private TelebirrWebhookFunction NewOrderFunction(
+        bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false)
+    {
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
+            .Returns(new OrderCheckoutMapping(OrderMerchOrderId, OrderId, "buyer-1", 15000m));
+        var escrowService = new EscrowService(_escrowRepo, _auditRepo, null, null, orderRepo: _orderRepo);
+        return new TelebirrWebhookFunction(_escrowRepo, _auditRepo, _idemRepo,
+            new TelebirrSignatureService(null, PublicKeyPem, TelebirrSignaturePadding.Pkcs1),
+            userRepo: userRepo, requirePayerMatch: requirePayerMatch,
+            orderCheckoutRepo: _checkoutRepo,
+            orderRepo: wireOrders ? _orderRepo : null,
+            orderFunding: wireOrders ? new OrderFundingService(_orderRepo, _cropRepo, escrowService) : null,
+            txAuditRepo: _txAuditRepo);
+    }
+
+    private static Dictionary<string, object> StoredOrder(string status, string? paymentOrderId = null)
+    {
+        var order = new Dictionary<string, object>
+        {
+            { "orderId", OrderId }, { "buyerId", "buyer-1" }, { "farmerId", "farmer-1" },
+            { "listingId", "listing-1" }, { "quantity", "500" }, { "orderTotal", "15000" },
+            { "cropCost", "14000" }, { "transportCost", "300" }, { "status", status }, { "version", "4" }
+        };
+        if (paymentOrderId != null)
+        {
+            order["telebirrPaymentOrderId"] = paymentOrderId;
+            order["paymentVerifiedAt"] = "2026-09-30T09:00:00.0000000Z";
+        }
+
+        return order;
+    }
+
+    private static string OrderBody(string tradeStatus = "Completed", string totalAmount = "15000.00",
+        string paymentOrderId = OrderPaymentId, string transCurrency = "ETB", string? msisdn = null)
+        => SignedBody(tradeStatus, totalAmount, msisdn: msisdn,
+            merchOrderId: OrderMerchOrderId, paymentOrderId: paymentOrderId, transCurrency: transCurrency);
+
+    private Task AuditRecorded(string action)
+        => _auditRepo.Received().AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => e.Values.Any(v => v != null && v.ToString() == action)));
+
+    private const string OrderInboxKey = $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed";
+
+    private string Logs => ((TestLambdaLogger)_ctx.Logger).Buffer.ToString();
+
+    [Fact]
+    public async Task Order_payment_funds_the_order_once_with_its_side_effects()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+        _cropRepo.TryDecrementStockAsync("listing-1", OrderId, 5.0).Returns(StockDecrementResult.Decremented);
+
+        var resp = await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Is<Dictionary<string, object>>(f =>
+            (string)f["telebirrPaymentOrderId"] == OrderPaymentId
+            && (string)f["telebirrMerchOrderId"] == OrderMerchOrderId
+            && (string)f["telebirrTransId"] == "TXN9"
+            && f.ContainsKey("paymentVerifiedAt")));
+        await _cropRepo.Received(1).TryDecrementStockAsync("listing-1", OrderId, 5.0);
+        await _escrowRepo.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(r =>
+            (string)r["escrowId"] == OrderEscrowId && (string)r["telebirrRef"] == OrderPaymentId));
+        await _txAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(
+            e => (string)e["action"] == "payment_verified"));
+        await _checkoutRepo.Received(1).CloseSlotForMerchOrderAsync(OrderId, OrderMerchOrderId, OrderCheckoutOutcome.Paid);
+        await _idemRepo.Received(1).UpdateAsync(OrderMerchOrderId, "completed", Arg.Any<string?>());
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_is_recorded_in_the_inbox_before_it_is_applied()
+    {
+        var calls = new List<string>();
+        var inboxKey = $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed";
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _idemRepo.StoreAsync(inboxKey, OrderEscrowId, "received", OrderMerchOrderId)
+            .Returns(_ => { calls.Add("inbox"); return true; });
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => { calls.Add("fund"); return StoredOrder("funded", OrderPaymentId); });
+        _idemRepo.When(r => r.UpdateAsync(inboxKey, "applied", Arg.Any<string?>()))
+            .Do(_ => calls.Add("applied"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        calls.Should().Equal("inbox", "fund", "applied");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_repairs_without_funding_again()
+    {
+        // The farmer already accepted: a redelivery of the same payment is not "unmatched".
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("accepted", OrderPaymentId));
+        _cropRepo.TryDecrementStockAsync("listing-1", OrderId, 5.0).Returns(StockDecrementResult.AlreadyApplied);
+        _escrowRepo.GetByIdAsync(OrderEscrowId).Returns(new Dictionary<string, object>
+        {
+            { "escrowId", OrderEscrowId }, { "status", "escrowed" }, { "createdAt", "2026-09-30T09:00:00.0000000Z" }
+        });
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _cropRepo.Received(1).TryDecrementStockAsync("listing-1", OrderId, 5.0);
+        await _escrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_creates_a_missing_escrow()
+    {
+        // A crash after the funding write left no escrow; the redelivery finishes the job.
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _escrowRepo.Received(1).CreateAsync(Arg.Is<Dictionary<string, object>>(r =>
+            (string)r["escrowId"] == OrderEscrowId && (string)r["telebirrRef"] == OrderPaymentId));
+    }
+
+    [Fact]
+    public async Task Order_payment_on_an_order_paid_by_another_payment_is_a_duplicate()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", "TB-EARLIER"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("order_payment_duplicate");
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "duplicate", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_for_an_order_no_longer_waiting_is_unmatched()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("cancelled"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("order_payment_unmatched");
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "unmatched:status_cancelled", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_with_a_different_amount_does_not_fund()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(totalAmount: "14000.00")), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("webhook_amount_mismatch");
+        await AuditRecorded("order_payment_unmatched");
+    }
+
+    [Fact]
+    public async Task Order_payment_in_another_currency_does_not_fund()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(transCurrency: "USD")), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("order_payment_unmatched");
+    }
+
+    [Fact]
+    public async Task Order_payment_from_another_wallet_is_rejected_when_required()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        var fn = NewOrderFunction(userRepo: BuyerWithPhone("+251911000001"), requirePayerMatch: true);
+
+        await fn.FunctionHandler(Req(OrderBody(msisdn: "+251922000002")), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("webhook_payer_mismatch");
+    }
+
+    [Fact]
+    public async Task Order_payment_that_loses_a_race_is_classified_again()
+    {
+        // The funding write found the order changed; the re-read shows this same payment
+        // already applied, so it is repaired, never treated as done or funded twice.
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(
+            StoredOrder("payment_submitted"), StoredOrder("funded", OrderPaymentId));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns((Dictionary<string, object>?)null);
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "applied_again", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Failed_order_payment_is_only_recorded_and_keeps_the_checkout_open()
+    {
+        // Telebirr may still accept the same payment (a wrong PIN or a low balance can be
+        // retried), so a Failed try neither closes the checkout nor touches the order.
+        var resp = await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Failed")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await AuditRecorded("order_payment_failed");
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Failed", "payment_failed", Arg.Any<string?>());
+        await _checkoutRepo.DidNotReceive().CloseSlotForMerchOrderAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _idemRepo.DidNotReceive().UpdateAsync(OrderMerchOrderId, Arg.Any<string>(), Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _orderRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Failed_notification_after_the_order_was_paid_changes_nothing()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Failed", paymentOrderId: "TB-LATE-FAIL")), _ctx);
+
+        await _checkoutRepo.DidNotReceive().CloseSlotForMerchOrderAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _idemRepo.DidNotReceive().UpdateAsync(OrderMerchOrderId, Arg.Any<string>(), Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        Logs.Should().NotContain("ORDER_PAYMENT_");
+    }
+
+    [Fact]
+    public async Task Order_payment_with_an_unknown_status_is_only_recorded()
+    {
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(tradeStatus: "Pending")), _ctx);
+
+        await AuditRecorded("order_payment_status_ignored");
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Pending", "ignored", Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_mapping_lookup_failure_is_alarmed_not_dropped()
+    {
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        var resp = await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        Logs.Should().Contain($"ORDER_PAYMENT_UNPROCESSED merchOrderId={OrderMerchOrderId} paymentOrderId={OrderPaymentId}");
+        await _idemRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_for_a_missing_order_is_unmatched()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns((Dictionary<string, object>?)null);
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_UNMATCHED");
+        await AuditRecorded("order_payment_unmatched");
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:order_missing", Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_for_an_order_whose_total_changed_is_unmatched()
+    {
+        var order = StoredOrder("payment_submitted");
+        order["orderTotal"] = "16000";
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(order);
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:order_changed", Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_without_a_payment_order_id_is_unmatched()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody(paymentOrderId: "")), _ctx);
+
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}::Completed", "unmatched:no_payment_order_id", Arg.Any<string?>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_from_another_wallet_funds_but_is_recorded_when_not_required()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+        var fn = NewOrderFunction(userRepo: BuyerWithPhone("+251911000001"));
+
+        await fn.FunctionHandler(Req(OrderBody(msisdn: "+251922000002")), _ctx);
+
+        await AuditRecorded("webhook_payer_mismatch");
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+    }
+
+    [Theory]
+    [InlineData("rejected")]
+    [InlineData("cancelled")]
+    [InlineData("payment_failed")]
+    [InlineData("disbursing")]
+    [InlineData("settled")]
+    [InlineData("dispute_resolved")]
+    public async Task Order_payment_redelivery_for_a_closed_order_repairs_nothing(string status)
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder(status, OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _cropRepo.DidNotReceive().TryDecrementStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        await _escrowRepo.DidNotReceive().CreateAsync(Arg.Any<Dictionary<string, object>>());
+        await _checkoutRepo.DidNotReceive().CloseSlotForMerchOrderAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied_again", Arg.Any<string?>());
+        Logs.Should().NotContain("ORDER_PAYMENT_UNMATCHED").And.NotContain("ORDER_PAYMENT_DUPLICATE");
+    }
+
+    [Fact]
+    public async Task Order_payment_bookkeeping_failure_after_funding_is_not_a_refund_alarm()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+        _checkoutRepo.CloseSlotForMerchOrderAsync(OrderId, OrderMerchOrderId, OrderCheckoutOutcome.Paid)
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED").And.Contain("step=after_funding");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_inbox_update_failure_is_not_a_refund_alarm()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+        _idemRepo.UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>())
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED").And.Contain("step=inbox");
+        Logs.Should().NotContain("ORDER_PAYMENT_UNPROCESSED");
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_without_order_tables_is_left_unprocessed()
+    {
+        var resp = await NewOrderFunction(wireOrders: false).FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.Received(1).UpdateAsync(
+            $"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "unprocessed", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Escrow_payments_still_take_the_escrow_path_when_order_checkouts_are_wired()
+    {
+        // A merch_order_id that is not an order checkout keeps the /escrow/initiate behaviour.
+        var resp = await NewOrderFunction().FunctionHandler(Req(SignedBody("Completed")), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _escrowRepo.Received(1).UpdateStatusAsync(
+            EscrowId, "2026-07-07T10:00:00.0000000Z", "escrowed", "initiated",
+            Arg.Any<Dictionary<string, object>>());
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    private void InboxAlreadyHolds(string status)
+    {
+        _idemRepo.StoreAsync(OrderInboxKey, OrderEscrowId, "received", OrderMerchOrderId).Returns(false);
+        _idemRepo.GetAsync(OrderInboxKey).Returns(new Dictionary<string, object>
+        {
+            { "idempotencyKey", OrderInboxKey }, { "escrowId", OrderEscrowId }, { "status", status }
+        });
+    }
+
+    [Theory]
+    [InlineData("unmatched:status_payment_failed")]
+    [InlineData("unmatched:payer")]
+    [InlineData("duplicate")]
+    public async Task Order_payment_redelivery_keeps_an_earlier_refusal(string earlierOutcome)
+    {
+        // The refused payment may already be refunded by hand: even though the order waits for
+        // payment again, the redelivered payment must not fund it.
+        InboxAlreadyHolds(earlierOutcome);
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.DidNotReceive().UpdateAsync(OrderInboxKey, Arg.Any<string>(), Arg.Any<string?>());
+        Logs.Should().Contain("verdict kept");
+    }
+
+    [Theory]
+    [InlineData("received")]
+    [InlineData("unprocessed")]
+    public async Task Order_payment_redelivery_after_an_unfinished_try_is_applied(string earlierOutcome)
+    {
+        InboxAlreadyHolds(earlierOutcome);
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "applied", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_from_an_earlier_payment_attempt_never_funds()
+    {
+        // Checkout opened at the first payment_submitted; the order failed and was submitted again.
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).Returns(new OrderCheckoutMapping(
+            OrderMerchOrderId, OrderId, "buyer-1", 15000m, "2026-09-28T08:00:00.0000000Z"));
+        var order = StoredOrder("payment_submitted");
+        order["paymentSubmittedAt"] = "2026-09-29T09:30:00.0000000Z";
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(order);
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+        await AuditRecorded("order_payment_unmatched");
+        await _idemRepo.Received(1).UpdateAsync(OrderInboxKey, "unmatched:stale_checkout", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Order_payment_in_the_attempt_it_was_opened_in_funds()
+    {
+        var fn = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId).Returns(new OrderCheckoutMapping(
+            OrderMerchOrderId, OrderId, "buyer-1", 15000m, "2026-09-29T09:30:00.0000000Z"));
+        var order = StoredOrder("payment_submitted");
+        order["paymentSubmittedAt"] = "2026-09-29T09:30:00.0000000Z";
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(order);
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+
+        await fn.FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _orderRepo.Received(1).TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Order_payment_that_cannot_be_processed_leaves_an_audit_row()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_UNPROCESSED");
+        await AuditRecorded("order_payment_unprocessed");
+        await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 }

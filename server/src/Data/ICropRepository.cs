@@ -44,6 +44,14 @@ public interface ICropRepository
     Task<bool> TryRestoreStockAsync(string cropId, string orderId, double quintals);
 
     /// <summary>
+    /// ESC-01: take a funded order's stock off the listing (clamped at 0; the listing
+    /// becomes <c>reserved</c> at 0). Idempotent per <paramref name="orderId"/> through the
+    /// listing's <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so
+    /// a payment redelivery can safely repeat it.
+    /// </summary>
+    Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals);
+
+    /// <summary>
     /// Query crop listings with optional filters.
     /// </summary>
     /// <param name="farmerId">Filter by farmer ID.</param>
@@ -67,4 +75,23 @@ public interface ICropRepository
         int limit = 20,
         Dictionary<string, AttributeValue>? exclusiveStartKey = null,
         double? maxPricePerKg = null);
+}
+
+/// <summary>
+/// Outcome of <see cref="ICropRepository.TryDecrementStockAsync"/>. <see cref="Failed"/> is the
+/// zero value so an unset result never reads as success.
+/// </summary>
+public enum StockDecrementResult
+{
+    /// <summary>The quantity was not positive, or the write kept conflicting.</summary>
+    Failed = 0,
+
+    /// <summary>This call took the stock off the listing.</summary>
+    Decremented,
+
+    /// <summary>The stock was already taken for this order; nothing changed.</summary>
+    AlreadyApplied,
+
+    /// <summary>The listing does not exist.</summary>
+    ListingNotFound,
 }

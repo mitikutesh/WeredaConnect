@@ -272,6 +272,111 @@ public class CropRepositoryTests
             Arg.Any<CancellationToken>());
     }
 
+    // --- ESC-01: idempotent stock decrement at funding ---
+
+    [Fact]
+    public async Task TryDecrementStockAsync_TakesQuintalsAndRecordsTheOrder()
+    {
+        // SIM-07: a 500 kg order (5 quintals) on a 60-quintal listing leaves 55.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("60", "available", 1)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.Decremented, result);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "55.00"
+                && r.ExpressionAttributeValues[":expectedVersion"].N == "1"
+                && r.ExpressionAttributeValues[":orderIdSet"].SS.Contains("order-9")
+                && !r.ExpressionAttributeValues.ContainsKey(":reserved")
+                && r.ConditionExpression.Contains("NOT contains(#decremented, :orderId)")
+                && r.UpdateExpression.Contains("ADD #decremented :orderIdSet")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryDecrementStockAsync_SellingOut_ReservesTheListing()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("5", "available", 3)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.Decremented, result);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "0.00"
+                && r.ExpressionAttributeValues[":reserved"].S == "reserved"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryDecrementStockAsync_AlreadyTakenForThatOrder_IsANoOp()
+    {
+        // A payment redelivery repeats the funding side effects; the stock must not drop twice.
+        var item = ListingItem("55", "available", 2);
+        item["stockDecrementedFor"] = new AttributeValue { SS = ["order-9"] };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [item] });
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.AlreadyApplied, result);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryDecrementStockAsync_VersionConflict_ReReadsAndRetries()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse { Items = [ListingItem("60", "available", 1)] },
+                new QueryResponse { Items = [ListingItem("58", "available", 2)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => throw new ConditionalCheckFailedException("version moved"),
+                _ => new UpdateItemResponse());
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.Decremented, result);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeValues[":q"].N == "53.00"
+                && r.ExpressionAttributeValues[":expectedVersion"].N == "2"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryDecrementStockAsync_ListingMissing_ReturnsListingNotFound()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [] });
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.ListingNotFound, result);
+    }
+
+    [Fact]
+    public async Task TryDecrementStockAsync_KeepsConflicting_ReturnsFailed()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [ListingItem("60", "available", 1)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<UpdateItemResponse>(_ => throw new ConditionalCheckFailedException("version moved"));
+
+        var result = await _repository.TryDecrementStockAsync("crop-001", "order-9", 5);
+
+        Assert.Equal(StockDecrementResult.Failed, result);
+        await _mockDynamoDb.Received(4).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task UpdateAsync_VersionConflict_Returns409()
     {

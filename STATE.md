@@ -7,6 +7,36 @@
 **Status:** R4 COMPLETE. **HS-1 (encryption foundation) COMPLETE** — AAD, prefix + fail-closed, key-integrity HMAC, legacy-flag CI guardrail all live in main. HS-2 (repository wiring) is the next sprint. May security review's 7-sprint roadmap continues — see `specs/features/isar-hardening/`.
 **Latest Commit:** 016652a - Merge pull request #22 from mitikutesh/hs1/s1-04-legacy-plaintext-guardrail
 
+### Next up: Three-party escrow, commitments and reputation (design approved 2026-09-30, P0 in progress)
+
+**Where things are**
+- **Design:** `specs/features/three-party-escrow-commitments-reputation.md` (APPROVED; decisions D1 to D9 in §14).
+- **Code survey:** `specs/reports/escrow-flow-survey-2026-09-29.md`, with every finding, its file:line and its owning task.
+- **Tasks:** EPIC ESC in `TASK.md` (ESC-00 to ESC-47).
+
+**Product rules set by the user**
+- **Fund first:** the buyer's money is held before the farmer and the trucker confirm.
+- **The trucker must accept** the order explicitly.
+- **A failed trucker gives the buyer a choice.** If only the trucker fails, the buyer chooses another truck, self-pickup, or cancel. That is the only case in which a buyer can cancel a paid order.
+- **Penalties:** a farmer or trucker who declines or cancels a paid order gets penalty points and a lower rating, and can be tagged "Low reputation".
+
+**Resume here**
+1. **ESC-00:** done 2026-09-30 (the D4 reading, commission covers a pricier truck, is to be confirmed when ESC-19 starts).
+2. **ESC-01:** implemented and review-fixed 2026-09-30, committed on `fix/payment-fayda-stepup-pickup-qr` (so it ships with the payment-fix PR), not deployed.
+   - Adds the order checkout endpoint, webhook order funding and the shared `OrderFundingService`.
+   - Also makes `payment_failed` system-only, and adds a payment clock: `paymentSubmittedAt`, no new checkout after 20h, the order cron fails the payment after 24h.
+   - A blind review found 1 high, 3 medium and 7 low issues; all but one low one are fixed (the leftover and a retry gap are ESC-47).
+   - A second blind review of the fixes found 1 medium and 4 low issues, all fixed: each checkout is bound to the order's payment attempt, a refused payment keeps its verdict on redelivery, the 20h limit is checked before every Telebirr call, and `/escrow/initiate` refuses an already paid order.
+   - Server 1562 tests and infra 59 tests (5 suites) green; `cdk synth` green with and without `enableTelebirrLive`.
+   - Needs ESC-44 (client UI) before a buyer can use it.
+3. **Rest of P0 (ESC-02 to ESC-13), through `/implement`.** These are verified blockers before any live Telebirr money:
+   - fake-success live payouts (ESC-02; the deploy gate for ESC-01)
+   - dispute verdicts that can't settle
+   - an unpaid trucker leg that is never retried
+   - accepted orders that hold money forever
+
+**Git note.** ESC-01 (code, tests, infra, contracts, the spec, the survey and these ESC notes) is committed on `fix/payment-fayda-stepup-pickup-qr`, as the user decided on 2026-09-30. Still uncommitted on purpose, because they belong to other work: the EPIC FRD (2026-09-26), in-app account deletion and SIM-38..SIM-61 (2026-09-28) sections of `TASK.md` plus its F-14 status change, and the untracked `.claude/workflows/wc-full-audit-loop.js`. Commit those separately.
+
 ### Active work: Auth and authorization hardening (2026-09-26, branch `feat/auth-hardening`)
 
 Worktree `.claude/worktrees/auth-hardening`, branched from `e2ec41e` (after SIM-19). Implements
