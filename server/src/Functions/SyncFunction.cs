@@ -18,10 +18,11 @@ namespace WeredaConnect.Server.Functions;
 /// Processes a batch of offline-first sync operations from the mobile client.
 ///
 /// Flow per operation:
-/// 1. Check idempotency key — if exists, return duplicate
+/// 1. Check the idempotency key, scoped to the authenticated caller
+///    (SyncIdempotencyKey): if the caller already sent it, return duplicate
 /// 2. Route to entity handler based on entityType (crop_listing, etc.)
 /// 3. Apply operation (create/update/delete) with version checking
-/// 4. Store idempotency key with 7-day TTL
+/// 4. Store the caller-scoped idempotency key with 7-day TTL
 /// 5. Return per-operation result (success/conflict/error)
 ///
 /// Error codes:
@@ -643,6 +644,20 @@ public partial class SyncFunction
             };
         }
 
+        // Idempotency keys are scoped to the caller (SIM-48, ESC-11): another user's
+        // key must never mark this caller's operation as already processed. Fail
+        // closed when the caller id cannot scope a key (unreachable with Cognito subs).
+        var scopedIdempotencyKey = SyncIdempotencyKey.ForCaller(authenticatedUserId, operation.IdempotencyKey);
+        if (scopedIdempotencyKey == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "SYNC_VALIDATION: caller identity cannot scope the idempotency key."
+            };
+        }
+
         // Strip server-controlled fields from client data to prevent spoofing
         if (operation.Data != null)
         {
@@ -654,8 +669,8 @@ public partial class SyncFunction
 
         try
         {
-            // 1. Check idempotency — already processed?
-            var isDuplicate = await _syncMetadataRepo.IdempotencyKeyExistsAsync(operation.IdempotencyKey);
+            // 1. Check idempotency: did this caller already send this key?
+            var isDuplicate = await _syncMetadataRepo.IdempotencyKeyExistsAsync(scopedIdempotencyKey);
             if (isDuplicate)
             {
                 context.Logger.LogInformation(
@@ -688,11 +703,11 @@ public partial class SyncFunction
                 }
             };
 
-            // 3. Store idempotency key (for successful or conflict results)
+            // 3. Store the caller-scoped idempotency key (for successful or conflict results)
             if (result.Status is "success" or "conflict" or "duplicate")
             {
                 await _syncMetadataRepo.StoreIdempotencyKeyAsync(
-                    operation.IdempotencyKey,
+                    scopedIdempotencyKey,
                     operation.OperationId,
                     operation.EntityType,
                     result.Status);

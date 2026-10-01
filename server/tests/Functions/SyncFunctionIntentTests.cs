@@ -255,4 +255,33 @@ public class SyncFunctionIntentTests
         await _intents.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<Dictionary<string, object>>());
     }
+
+    // SIM-48 / ESC-11: another buyer sending buyer-1's key must not pre-claim it.
+    [Fact]
+    public async Task DuplicateKeyFromAnotherBuyer_DoesNotDropCallersIntent()
+    {
+        var stored = new HashSet<string>(StringComparer.Ordinal);
+        _meta.IdempotencyKeyExistsAsync(Arg.Any<string>())
+            .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
+        _meta.When(x => x.StoreIdempotencyKeyAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+            .Do(ci => stored.Add(ci.ArgAt<string>(0)));
+
+        var victimOp = IntentOp();
+        var attackerOp = IntentOp(intentId: "intent-9", buyerId: "buyer-2") with
+        {
+            IdempotencyKey = victimOp.IdempotencyKey
+        };
+
+        var attackerResponse = await _fn.FunctionHandler(Req(attackerOp, "buyer-2", "buyer"), _ctx);
+        Assert.Contains("\"status\":\"success\"", attackerResponse.Body);
+
+        var response = await _fn.FunctionHandler(Req(victimOp, "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.DoesNotContain("duplicate", response.Body);
+        await _intents.Received(1).CreateAsync("intent-1", "buyer-1",
+            Arg.Any<Dictionary<string, object>>());
+    }
 }
