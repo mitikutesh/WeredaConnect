@@ -8,7 +8,8 @@ namespace WeredaConnect.Server.Data;
 /// Uses low-level API for AOT compatibility.
 ///
 /// Table schema (SyncMetadata):
-///   PK: idempotencyKey (STRING)
+///   PK: idempotencyKey (STRING), caller-scoped by SyncFunction via
+///       Helpers.SyncIdempotencyKey.ForCaller (always starts with "{sub}:")
 ///   SK: timestamp (STRING)
 ///   TTL: expiresAt (NUMBER) — auto-deletes after 7 days
 ///

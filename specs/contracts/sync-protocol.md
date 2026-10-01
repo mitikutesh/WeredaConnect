@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.5.0
+1.7.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -33,7 +33,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
   "operations": [
     {
       "operationId": "uuid-v4",
-      "idempotencyKey": "uuid-v4",
+      "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
       "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
@@ -47,7 +47,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 
 **Field Rules:**
 - `syncBatchId` — unique per sync attempt; used for batch-level idempotency
-- `idempotencyKey` — **composite key format**: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` (prevents duplicate processing on retry)
+- `idempotencyKey`: **composite key format** `{userId}:{entityType}:{entityId}:{action}:{timestamp}` (prevents duplicate processing on retry). The server scopes it to the authenticated caller (1.7.0, see Idempotency Key Conventions rule 5).
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
@@ -59,7 +59,7 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 Example: `farmer-123:crop_listing:crop-456:create:1707998400000`
 
 This format ensures:
-- **User isolation**: Different users can create entities with the same ID
+- **User isolation**: Different users can create entities with the same ID. Since 1.7.0 the server enforces this itself: every key is scoped to the authenticated caller, and the `{userId}` segment is not trusted (Idempotency Key Conventions rule 5).
 - **Action uniqueness**: Create vs. update vs. delete are distinct operations
 - **Timestamp precision**: Millisecond-level granularity prevents collisions
 
@@ -131,18 +131,19 @@ When the client receives `status: "conflict"`:
 2. **Keys are composite strings.** Format: `{userId}:{entityType}:{entityId}:{action}:{timestamp}`. Generated client-side at the time of the user action, NOT at sync time.
 3. **Server checks before processing.** On receiving an operation, the server looks up the idempotency key in the `SyncMetadata` DynamoDB table. If found, return the stored result without re-processing.
 4. **Keys expire after 7 days.** DynamoDB TTL automatically deletes idempotency records after 7 days. Clients should not retry operations older than 7 days.
+5. **Keys are scoped to the caller (1.7.0, SIM-48/ESC-11/SEC-03).** The server never trusts the `{userId}` segment. It stores and looks up a key as sent when the key starts with the caller's Cognito `sub` followed by `:` (the documented format), and as `{sub}:{key}` otherwise (web keys such as `web_create_{id}`, keys carrying another user's id, any other string). So the same key sent by two users is two different operations, and `duplicate` only means the caller itself already sent that key: another user can no longer pre-claim your key and get your operation dropped. Any non-empty key string is accepted; the documented format is still the recommended one. If the caller id cannot scope a key (it contains `:`, which a Cognito `sub` never does) the operation is answered `error` with `SYNC_VALIDATION: caller identity cannot scope the idempotency key.` and nothing is processed. No client change is needed.
 
 ### SyncMetadata Table Schema (DynamoDB)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `idempotencyKey` | String (PK) | Composite key: `{userId}:{entityType}:{entityId}:{action}:{timestamp}` |
+| `idempotencyKey` | String (PK) | Caller-scoped key (rule 5): the client key as sent when it starts with `{sub}:` (documented format `{userId}:{entityType}:{entityId}:{action}:{timestamp}`), otherwise `{sub}:{clientKey}` |
 | `timestamp` | Number (SK) | Unix timestamp (milliseconds) when operation was processed |
 | `operationId` | String | Client-generated UUID for the sync operation |
 | `result` | String | JSON-encoded sync result (for returning on duplicate requests) |
 | `expiresAt` | Number (TTL) | Unix timestamp when this record should be deleted (7 days from creation) |
 
-**Performance**: With composite keys including userId, the table naturally partitions across users, preventing hot partition issues.
+**Performance**: Every stored key starts with the caller's `sub`, so the table naturally partitions across users, preventing hot partition issues.
 
 ---
 
@@ -165,7 +166,7 @@ When the client receives `status: "conflict"`:
 These rules must always hold:
 
 1. **No data loss.** An operation in the client's local queue is never silently dropped. It either succeeds, conflicts (with resolution), or errors (with retry).
-2. **Idempotent retries.** Sending the same `idempotencyKey` twice produces the same result.
+2. **Idempotent retries.** Sending the same `idempotencyKey` twice from the same caller produces the same result. Another user's key never affects your operations.
 3. **Monotonic versions.** Entity versions only increase. A version number is never reused or decremented.
 4. **Offline queue persistence.** The client's sync queue survives app restarts and device reboots (Isar database).
 5. **Order independence.** Operations within a batch may be processed in any order. If ordering matters, use separate batches.
@@ -275,6 +276,7 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.0 | 2026-10-01 | Idempotency keys are scoped to the authenticated caller (SIM-48, ESC-11, SEC-03): another user's key can no longer pre-claim yours; documented-format keys are stored unchanged, other keys as `{sub}:{key}`; no client change |
 | 1.6.0 | 2026-09-29 | Payment step-up tiers: `AUTH_040` on every `payment_submitted` up to 10,000 ETB without a fresh password; `AUTH_041` above 10,000 ETB without a fresh Fayda login (the password does not count) |
 | 1.5.0 | 2026-09-29 | `ORDER_KYC_REQUIRED` carries a reason token (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`, `unavailable`); the prefix is unchanged |
 | 1.4.0 | 2026-09-26 | Create-conflict echo is party-scoped (an existing crop, trip, order or delivery is returned in `serverData` only to its owner or a party); `AUTH_040` and `ORDER_KYC_REQUIRED` operation errors |
@@ -285,5 +287,5 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 ---
 
-**Last Updated**: 2026-09-29
-**Version**: 1.6.0
+**Last Updated**: 2026-10-01
+**Version**: 1.7.0
