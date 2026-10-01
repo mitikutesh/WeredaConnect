@@ -219,6 +219,29 @@ void main() {
       );
     });
 
+    test('estimated total charges commission on the crop only (SIM-53)',
+        () async {
+      // 5 quintals at 100 ETB/kg on a 100 ETB/quintal trip: crop 50000,
+      // transport 500, commission 5% of the crop (2500). The server total is
+      // 53000; commission on crop plus transport would give 53025.
+      await putCrop(id: 'crop-1'); // 100 ETB/kg in 'Assosa'
+      await putTrip(id: 'trip-1', fromWoreda: 'Assosa', pricePerQuintal: 100);
+
+      final results = await service.matchListingsForIntent(buildIntent());
+
+      expect(results.single.suggestedTrips, hasLength(1));
+      expect(results.single.estimatedTotalMin, 53000);
+
+      final listing = results.single.listing;
+      final trip = results.single.suggestedTrips.single;
+      expect(service.computeEstimatedTotal(listing, trip, 5), 53000);
+      expect(
+        service.computeEstimatedTotal(listing, null, 5),
+        52500,
+        reason: 'no trip: crop plus 5% of the crop',
+      );
+    });
+
     test('refreshMatchCounts persists exactly the match-list length', () async {
       // The badge count must never drift from what matchListingsForIntent
       // returns. Seed 2 candidates + 1 non-candidate (over-budget).

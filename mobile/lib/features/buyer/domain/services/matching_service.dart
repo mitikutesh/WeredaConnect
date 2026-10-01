@@ -2,6 +2,7 @@ import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
@@ -16,11 +17,9 @@ import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart'
 /// Ethiopian context:
 /// - Works 100% offline on cached Isar data
 /// - Trip matching uses exact woreda name comparison (case-insensitive)
-/// - Commission rate is 5% (platform fee)
+/// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing])
 class MatchingService extends BaseMatchingService {
   final Isar _isar;
-
-  static const double commissionRate = 0.05;
 
   /// Shared, platform-agnostic relevance scorer (identical math on web).
   static const MatchScorer _scorer = MatchScorer();
@@ -154,8 +153,10 @@ class MatchingService extends BaseMatchingService {
 
   /// Compute estimated total cost for a crop purchase with optional transport.
   ///
-  /// Formula: (quantity_kg * pricePerKg) + (quantity_quintals * pricePerQuintal) + 5% commission
-  /// If no trip is selected, only crop cost + commission.
+  /// Formula: crop (quantity_kg * pricePerKg) + transport (quantity_quintals *
+  /// pricePerQuintal) + 5% commission on the crop cost only, as the server
+  /// charges ([OrderPricing], SIM-53). With no trip the total is the crop
+  /// cost plus commission.
   double computeEstimatedTotal(
     CropListing listing,
     Trip? trip,
@@ -165,9 +166,8 @@ class MatchingService extends BaseMatchingService {
     final cropCost = quantityKg * listing.pricePerKg;
     final transportCost =
         trip != null ? quantityQuintals * trip.pricePerQuintal : 0.0;
-    final subtotal = cropCost + transportCost;
-    final commission = subtotal * commissionRate;
-    return subtotal + commission;
+    return OrderPricing(cropCost: cropCost, transportCost: transportCost)
+        .orderTotal;
   }
 
   /// Refresh match counts for all active intents of a buyer.

@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
@@ -25,12 +26,11 @@ import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart'
 /// Ethiopian context:
 /// - Buyers see ALL farmers' crops (role visibility), so candidate generation
 ///   fetches every active listing, not just the buyer's own.
-/// - Commission rate is 5% (platform fee), same as mobile.
+/// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing]),
+///   same as mobile.
 /// - Trip matching uses case-insensitive woreda name contains-matching.
 class WebMatchingService extends BaseMatchingService {
   final ApiClient _api;
-
-  static const double commissionRate = 0.05;
 
   /// Shared, platform-agnostic relevance scorer — identical math to the mobile
   /// [MatchingService], so online and offline rankings agree.
@@ -75,14 +75,16 @@ class WebMatchingService extends BaseMatchingService {
           neededByDate: intent.neededByDate,
         );
 
-        // Compute estimated total with the cheapest trip if available.
+        // Compute estimated total with the cheapest trip if available, with
+        // the server's formula: commission on the crop cost only (SIM-53).
         final quantityKg = intent.quantityNeeded * 100;
         final cropCost = quantityKg * listing.pricePerKg;
         final transportCost = trips.isNotEmpty
             ? intent.quantityNeeded * trips.first.pricePerQuintal
             : 0.0;
-        final subtotal = cropCost + transportCost;
-        final estimatedTotal = subtotal + subtotal * commissionRate;
+        final estimatedTotal =
+            OrderPricing(cropCost: cropCost, transportCost: transportCost)
+                .orderTotal;
 
         results.add(
           CropMatchResult(

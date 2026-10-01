@@ -178,4 +178,42 @@ void main() {
     final persisted = await repo.getIntentById(created.intentId);
     expect(persisted?.matchCount, 2);
   });
+
+  test('estimated total charges commission on the crop only (SIM-53)',
+      () async {
+    // 5 quintals at 100 ETB/kg on a 100 ETB/quintal trip: crop 50000,
+    // transport 500, commission 5% of the crop (2500). The server total is
+    // 53000; commission on crop plus transport would give 53025.
+    stubCrops([cropDto(cropId: 'wheat-1')]);
+    when(
+      () => api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer(
+      (_) async => {
+        'trips': [
+          {
+            'tripId': 't1',
+            'truckerId': 'tr1',
+            'fromWoreda': 'Adama',
+            'toWoreda': 'Adama',
+            'departureDate': DateTime.now()
+                .toUtc()
+                .add(const Duration(days: 2))
+                .toIso8601String(),
+            'capacity': 10,
+            'pricePerQuintal': 100,
+            'status': 'open',
+          },
+        ],
+      },
+    );
+
+    final results = await service.matchListingsForIntent(intent());
+
+    expect(results, hasLength(1));
+    expect(results.single.suggestedTrips, hasLength(1));
+    expect(results.single.estimatedTotalMin, 53000);
+  });
 }

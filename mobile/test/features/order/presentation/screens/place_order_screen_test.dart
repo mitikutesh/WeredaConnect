@@ -6,6 +6,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -56,15 +57,27 @@ void main() {
     when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
   });
 
-  CropListing listing({required double quintals}) => CropListing()
-    ..listingId = 'listing-001'
-    ..farmerId = 'farmer-001'
-    ..cropType = 'lentils'
-    ..quantity = quintals
-    ..pricePerKg = 1000
-    ..locationName = 'Bahir Dar';
+  CropListing listing({required double quintals, double pricePerKg = 1000}) =>
+      CropListing()
+        ..listingId = 'listing-001'
+        ..farmerId = 'farmer-001'
+        ..cropType = 'lentils'
+        ..quantity = quintals
+        ..pricePerKg = pricePerKg
+        ..locationName = 'Bahir Dar';
 
-  Future<void> open(WidgetTester tester, {required double quintals}) async {
+  Trip trip({required double pricePerQuintal}) => Trip()
+    ..tripId = 'trip-001'
+    ..truckerId = 'trucker-001'
+    ..truckerName = 'Abebe'
+    ..pricePerQuintal = pricePerQuintal;
+
+  Future<void> open(
+    WidgetTester tester, {
+    required double quintals,
+    double pricePerKg = 1000,
+    Trip? selectedTrip,
+  }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
         providers: [
@@ -76,8 +89,9 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
           home: PlaceOrderScreen(
-            listing: listing(quintals: quintals),
+            listing: listing(quintals: quintals, pricePerKg: pricePerKg),
             farmerName: 'Kedir',
+            selectedTrip: selectedTrip,
           ),
         ),
       ),
@@ -126,5 +140,35 @@ void main() {
     expect(find.text('1234'), findsOneWidget);
     expect(find.textContaining('kg available'), findsNothing);
     expect(placeOrderButton(tester).onPressed, isNotNull);
+  });
+
+  testWidgets('price breakdown matches the server total with a trip (SIM-53)',
+      (tester) async {
+    // 5 quintals (500 kg) at 34 ETB/kg on a 100 ETB/quintal trip. The server
+    // charges 17000 + 500 + 5% of the crop (850) = 18350. Commission on crop
+    // plus transport would show 18375, more than the buyer is asked to pay.
+    await open(
+      tester,
+      quintals: 5,
+      pricePerKg: 34,
+      selectedTrip: trip(pricePerQuintal: 100),
+    );
+
+    expect(find.text('500'), findsOneWidget);
+    expect(find.text('17000.00 ETB'), findsOneWidget);
+    expect(find.text('500.00 ETB'), findsOneWidget);
+    expect(find.text('850.00 ETB'), findsOneWidget);
+    expect(find.text('18350.00 ETB'), findsOneWidget);
+    expect(find.text('18375.00 ETB'), findsNothing);
+
+    await tester.ensureVisible(find.byType(FilledButton));
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(created, hasLength(1));
+    expect(created.single.quantity, 500);
+    expect(created.single.tripId, 'trip-001');
+    expect(created.single.transportCost, 500);
+    expect(created.single.commissionRate, 0.05);
   });
 }
