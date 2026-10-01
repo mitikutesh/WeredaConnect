@@ -154,6 +154,28 @@ StatusKind orderStatusKind(OrderStatus status) {
   };
 }
 
+/// Localized display label for an order status, shared by the status chip
+/// and the Home recent-activity feed.
+String orderStatusLabel(OrderStatus status, AppLocalizations l10n) {
+  return switch (status) {
+    OrderStatus.created => l10n.statusCreated,
+    OrderStatus.pendingPayment => l10n.statusPendingPayment,
+    OrderStatus.paymentSubmitted => l10n.statusPaymentSubmitted,
+    OrderStatus.funded => l10n.statusFunded,
+    OrderStatus.accepted => l10n.orderAccepted,
+    OrderStatus.rejected => l10n.orderRejected,
+    OrderStatus.cancelled => l10n.orderCancelled,
+    OrderStatus.pickupConfirmed => l10n.statusPickupConfirmed,
+    OrderStatus.inTransit => l10n.statusInTransit,
+    OrderStatus.delivered => l10n.statusDelivered,
+    OrderStatus.disbursing => l10n.statusDisbursing,
+    OrderStatus.settled => l10n.statusSettled,
+    OrderStatus.paymentFailed => l10n.statusPaymentFailed,
+    OrderStatus.disputed => l10n.statusDisputed,
+    OrderStatus.disputeResolved => l10n.statusDisputeResolved,
+  };
+}
+
 class _OrderStatusChip extends StatelessWidget {
   final OrderStatus status;
   final AppLocalizations l10n;
@@ -162,24 +184,9 @@ class _OrderStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = switch (status) {
-      OrderStatus.created => l10n.statusCreated,
-      OrderStatus.pendingPayment => l10n.statusPendingPayment,
-      OrderStatus.paymentSubmitted => l10n.statusPaymentSubmitted,
-      OrderStatus.funded => l10n.statusFunded,
-      OrderStatus.accepted => l10n.orderAccepted,
-      OrderStatus.rejected => l10n.orderRejected,
-      OrderStatus.cancelled => l10n.orderCancelled,
-      OrderStatus.pickupConfirmed => l10n.statusPickupConfirmed,
-      OrderStatus.inTransit => l10n.statusInTransit,
-      OrderStatus.delivered => l10n.statusDelivered,
-      OrderStatus.disbursing => l10n.statusDisbursing,
-      OrderStatus.settled => l10n.statusSettled,
-      OrderStatus.paymentFailed => l10n.statusPaymentFailed,
-      OrderStatus.disputed => l10n.statusDisputed,
-      OrderStatus.disputeResolved => l10n.statusDisputeResolved,
-    };
-
-    return StatusChip(label: label, kind: orderStatusKind(status));
+    return StatusChip(
+      label: orderStatusLabel(status, l10n),
+      kind: orderStatusKind(status),
+    );
   }
 }
