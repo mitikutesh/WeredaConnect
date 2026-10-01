@@ -153,6 +153,50 @@ void main() {
       await bloc.close();
     });
 
+    test('LoadActiveListings forwards searchQuery (SIM-51)', () async {
+      await repository.createListing(
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe Kebede',
+        cropType: 'teff',
+        quantity: 50.0,
+        pricePerKg: 45.0,
+        latitude: 9.0,
+        longitude: 38.0,
+        locationName: 'Bishoftu',
+        description: 'Teff',
+      );
+      await repository.createListing(
+        farmerId: 'farmer-002',
+        farmerName: 'Almaz Tesfaye',
+        cropType: 'wheat',
+        quantity: 30.0,
+        pricePerKg: 35.0,
+        latitude: 9.0,
+        longitude: 38.0,
+        locationName: 'Adama',
+        description: 'Wheat',
+      );
+
+      final bloc = CropListingBloc(repository: repository);
+      final expectation = expectLater(
+        bloc.stream,
+        emitsInOrder([
+          isA<CropListingLoading>(),
+          isA<CropListingsLoaded>()
+              .having((s) => s.listings.length, 'listings.length', 1)
+              .having(
+                (s) => s.listings.single.farmerName,
+                'farmerName',
+                'Abebe Kebede',
+              ),
+        ]),
+      );
+
+      bloc.add(const LoadActiveListings(searchQuery: 'abebe'));
+      await expectation;
+      await bloc.close();
+    });
+
     test('emits [Loading, Loaded] on DeleteCropListing', () async {
       // Create a listing first
       final listing = await repository.createListing(

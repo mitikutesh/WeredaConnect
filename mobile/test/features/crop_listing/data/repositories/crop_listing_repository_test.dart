@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
 
@@ -12,6 +13,7 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 void main() {
   group('CropListingRepository', () {
@@ -211,6 +213,98 @@ void main() {
           await repository.getActiveListings(cropTypeFilter: 'teff');
       expect(teffOnly.length, 1);
       expect(teffOnly.first.cropType, 'teff');
+    });
+
+    test(
+        'getActiveListings searchQuery matches crop, farmer and place (SIM-51)',
+        () async {
+      Future<String> seed({
+        required String cropType,
+        required String farmerName,
+        required String place,
+        required double price,
+      }) async {
+        final listing = await repository.createListing(
+          farmerId: 'farmer-${farmerName.hashCode}',
+          farmerName: farmerName,
+          cropType: cropType,
+          quantity: 10.0,
+          pricePerKg: price,
+          latitude: 9.0,
+          longitude: 38.0,
+          locationName: place,
+          description: '',
+        );
+        return listing.listingId;
+      }
+
+      await seed(
+        cropType: 'teff',
+        farmerName: 'Abebe Kebede',
+        place: 'Bishoftu',
+        price: 45,
+      );
+      await seed(
+        cropType: 'wheat',
+        farmerName: 'Almaz Tesfaye',
+        place: 'Adama',
+        price: 35,
+      );
+      await seed(cropType: 'maize', farmerName: '', place: 'Arsi', price: 30);
+      // An expired teff listing must never show up in the marketplace.
+      final expiredId = await seed(
+        cropType: 'teff',
+        farmerName: 'Old Seller',
+        place: 'Bishoftu',
+        price: 40,
+      );
+      await repository.deleteListing(
+        listingId: expiredId,
+        farmerId: 'farmer-${'Old Seller'.hashCode}',
+      );
+
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+      final om = await AppLocalizations.delegate.load(const Locale('om'));
+
+      Future<List<String>> crops(String? query) async =>
+          (await repository.getActiveListings(searchQuery: query))
+              .map((l) => l.cropType)
+              .toList();
+
+      // Crop: stored key, English, Amharic and Afan Oromo names.
+      expect(await crops('teff'), ['teff']);
+      expect(await crops('Teff'), ['teff']);
+      expect(await crops(am.cropTypeTeff), ['teff']);
+      expect(await crops(om.cropTypeTeff), ['teff']);
+      // Farmer name, any part, any case.
+      expect(await crops('abebe'), ['teff']);
+      expect(await crops('KEBEDE'), ['teff']);
+      // Place.
+      expect(await crops('adama'), ['wheat']);
+      // Every word must match some field.
+      expect(await crops('teff bishoftu'), ['teff']);
+      expect(await crops('teff adama'), isEmpty);
+      // Blank or no search returns every active listing.
+      expect((await crops('   ')).length, 3);
+      expect((await crops(null)).length, 3);
+
+      // Search combines with the crop chip and the price range.
+      expect(
+        await repository.getActiveListings(
+          cropTypeFilter: 'wheat',
+          searchQuery: 'abebe',
+        ),
+        isEmpty,
+      );
+      expect(
+        await repository.getActiveListings(searchQuery: 'adama', priceMax: 30),
+        isEmpty,
+      );
+      expect(
+        (await repository.getActiveListings(searchQuery: 'adama', priceMax: 40))
+            .length,
+        1,
+      );
     });
 
     test('deleteListing marks as expired and enqueues sync', () async {

@@ -1752,6 +1752,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get searchListings => 'Search crops, farmers...';
 
   @override
+  String get noListingsMatchFilters => 'No listings match your search';
+
+  @override
+  String get noListingsMatchFiltersHint =>
+      'Try another crop, farmer or place, or clear the filters';
+
+  @override
+  String get clearFilters => 'Clear filters';
+
+  @override
   String get trackTradesEscrow => 'Track trades & escrow';
 
   @override

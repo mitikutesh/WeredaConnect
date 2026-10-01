@@ -62,7 +62,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
       await _refreshMarketplace();
       final listings = await _repository.getActiveListings(
         cropTypeFilter: event.cropTypeFilter,
-        weredaFilter: event.weredaFilter,
+        searchQuery: event.searchQuery,
         priceMin: event.priceMin,
         priceMax: event.priceMax,
       );

@@ -85,22 +85,25 @@ class DeleteCropListing extends CropListingEvent {
   List<Object?> get props => [listingId, farmerId];
 }
 
-/// Event to load all active listings (browse mode for truckers/buyers).
+/// Event to load all active listings (browse mode for buyers).
+///
+/// [searchQuery] is the search box text, matched against the crop, the
+/// farmer's name and the place (SIM-51).
 class LoadActiveListings extends CropListingEvent {
   final String? cropTypeFilter;
-  final String? weredaFilter;
+  final String? searchQuery;
   final double? priceMin;
   final double? priceMax;
 
   const LoadActiveListings({
     this.cropTypeFilter,
-    this.weredaFilter,
+    this.searchQuery,
     this.priceMin,
     this.priceMax,
   });
 
   @override
-  List<Object?> get props => [cropTypeFilter, weredaFilter, priceMin, priceMax];
+  List<Object?> get props => [cropTypeFilter, searchQuery, priceMin, priceMax];
 }
 
 /// Event to filter crop listings by crop type and/or status.

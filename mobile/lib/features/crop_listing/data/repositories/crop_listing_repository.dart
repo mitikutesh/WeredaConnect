@@ -152,13 +152,18 @@ class CropListingRepository extends BaseCropListingRepository {
 
   /// Get all active listings with optional filters.
   ///
-  /// [cropTypeFilter] — exact match on crop type key.
-  /// [weredaFilter] — case-insensitive substring match on locationName.
-  /// [priceMin] / [priceMax] — price per kg range in ETB.
+  /// [cropTypeFilter]: exact match on the crop type key.
+  /// [searchQuery]: the Buyer's search box, matched against crop, farmer and
+  /// place by [BaseCropListingRepository.filterBySearch] (SIM-51).
+  /// [priceMin] / [priceMax]: price per kg range in ETB.
+  ///
+  /// The search runs in memory after the Isar query so its rules (any field
+  /// per word, every word required, crop names in all three languages) stay
+  /// identical to the web repository.
   @override
   Future<List<CropListing>> getActiveListings({
     String? cropTypeFilter,
-    String? weredaFilter,
+    String? searchQuery,
     double? priceMin,
     double? priceMax,
   }) async {
@@ -166,10 +171,6 @@ class CropListingRepository extends BaseCropListingRepository {
 
     if (cropTypeFilter != null) {
       query = query.cropTypeEqualTo(cropTypeFilter);
-    }
-
-    if (weredaFilter != null && weredaFilter.isNotEmpty) {
-      query = query.locationNameContains(weredaFilter, caseSensitive: false);
     }
 
     if (priceMin != null) {
@@ -180,7 +181,8 @@ class CropListingRepository extends BaseCropListingRepository {
       query = query.pricePerKgLessThan(priceMax, include: true);
     }
 
-    return query.sortByCreatedAtDesc().findAll();
+    final results = await query.sortByCreatedAtDesc().findAll();
+    return BaseCropListingRepository.filterBySearch(results, searchQuery);
   }
 
   /// Mark a listing as expired (soft delete).

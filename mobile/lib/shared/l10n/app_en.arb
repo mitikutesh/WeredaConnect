@@ -2348,6 +2348,18 @@
   "@searchListings": {
     "description": "Placeholder text for marketplace search bar"
   },
+  "noListingsMatchFilters": "No listings match your search",
+  "@noListingsMatchFilters": {
+    "description": "Crop browse empty state when a search or filter returns no listings (SIM-51)"
+  },
+  "noListingsMatchFiltersHint": "Try another crop, farmer or place, or clear the filters",
+  "@noListingsMatchFiltersHint": {
+    "description": "Hint under noListingsMatchFilters"
+  },
+  "clearFilters": "Clear filters",
+  "@clearFilters": {
+    "description": "Button that clears the crop browse search, crop chip and price filters"
+  },
   "trackTradesEscrow": "Track trades & escrow",
   "@trackTradesEscrow": {
     "description": "Subtitle for orders screen header"

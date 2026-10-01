@@ -3310,6 +3310,24 @@ abstract class AppLocalizations {
   /// **'Search crops, farmers...'**
   String get searchListings;
 
+  /// Crop browse empty state when a search or filter returns no listings (SIM-51)
+  ///
+  /// In en, this message translates to:
+  /// **'No listings match your search'**
+  String get noListingsMatchFilters;
+
+  /// Hint under noListingsMatchFilters
+  ///
+  /// In en, this message translates to:
+  /// **'Try another crop, farmer or place, or clear the filters'**
+  String get noListingsMatchFiltersHint;
+
+  /// Button that clears the crop browse search, crop chip and price filters
+  ///
+  /// In en, this message translates to:
+  /// **'Clear filters'**
+  String get clearFilters;
+
   /// Subtitle for orders screen header
   ///
   /// In en, this message translates to:

@@ -339,4 +339,150 @@ void main() {
       expect(find.text('Search crops, farmers...'), findsNothing);
     });
   });
+
+  group('BrowseListingsScreen search (SIM-51)', () {
+    late AppLocalizations l10n;
+
+    setUp(() async {
+      l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+        ),
+      );
+    });
+
+    void emptyLoaded() {
+      const state = CropListingsLoaded(listings: []);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+    }
+
+    /// Types into the search box and lets the 300 ms debounce fire.
+    Future<void> search(WidgetTester tester, String text) async {
+      await tester.enterText(find.byType(TextField).first, text);
+      await tester.pump(const Duration(milliseconds: 350));
+    }
+
+    testWidgets('the header search box sends the text as searchQuery',
+        (tester) async {
+      emptyLoaded();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await search(tester, 'Abebe');
+
+      verify(
+        () =>
+            cropListingBloc.add(const LoadActiveListings(searchQuery: 'Abebe')),
+      ).called(1);
+    });
+
+    testWidgets('the compact search box sends the text as searchQuery',
+        (tester) async {
+      emptyLoaded();
+      await tester.pumpWidget(
+        buildTestWidget(showHeader: false, embedded: true),
+      );
+      await tester.pumpAndSettle();
+
+      await search(tester, 'teff');
+
+      verify(
+        () =>
+            cropListingBloc.add(const LoadActiveListings(searchQuery: 'teff')),
+      ).called(1);
+    });
+
+    testWidgets('a search with no hits says so, not that we are offline',
+        (tester) async {
+      emptyLoaded();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await search(tester, 'Abebe');
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
+      expect(find.text(l10n.noListingsMatchFiltersHint), findsOneWidget);
+      expect(find.text(l10n.clearFilters), findsOneWidget);
+      expect(find.text(l10n.dataWillSyncWhenOnline), findsNothing);
+      expect(find.text(l10n.noCropListings), findsNothing);
+    });
+
+    testWidgets('Clear filters empties the box and reloads everything',
+        (tester) async {
+      emptyLoaded();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await search(tester, 'Abebe');
+      await tester.pumpAndSettle();
+      clearInteractions(cropListingBloc);
+
+      await tester.tap(find.text(l10n.clearFilters));
+      await tester.pumpAndSettle();
+
+      final box = tester.widget<TextField>(find.byType(TextField).first);
+      expect(box.controller!.text, isEmpty);
+      verify(() => cropListingBloc.add(const LoadActiveListings())).called(1);
+      expect(find.text(l10n.noCropListings), findsOneWidget);
+      expect(find.text(l10n.clearFilters), findsNothing);
+    });
+
+    testWidgets('an empty list with no filter keeps the original empty state',
+        (tester) async {
+      emptyLoaded();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.noCropListings), findsOneWidget);
+      expect(find.text(l10n.noListingsMatchFilters), findsNothing);
+      expect(find.text(l10n.clearFilters), findsNothing);
+    });
+
+    testWidgets('owner mode: a crop chip with no hits shows the no-match state',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _testTokens,
+          role: UserRole.farmer,
+        ),
+      );
+      emptyLoaded();
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Teff'));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => cropListingBloc.add(
+          const FilterCropListings(farmerId: 'farmer-001', cropType: 'teff'),
+        ),
+      ).called(1);
+      expect(find.text(l10n.noListingsMatchFilters), findsOneWidget);
+      expect(find.text(l10n.clearFilters), findsOneWidget);
+    });
+
+    testWidgets('Retry keeps the visible search', (tester) async {
+      const state = CropListingError(message: 'x', code: AppErrorCode.network);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await search(tester, 'abebe');
+      clearInteractions(cropListingBloc);
+
+      await tester.tap(find.text(l10n.retry));
+      await tester.pump();
+
+      verify(
+        () =>
+            cropListingBloc.add(const LoadActiveListings(searchQuery: 'abebe')),
+      ).called(1);
+    });
+  });
 }
