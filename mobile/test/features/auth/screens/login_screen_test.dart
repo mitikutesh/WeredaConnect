@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -12,6 +14,7 @@ import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart
 import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -40,6 +43,7 @@ void main() {
 
   Widget buildTestWidget({
     Stream<AuthState>? stream,
+    Locale? locale,
   }) {
     if (stream != null) {
       when(() => authBloc.stream).thenAnswer((_) => stream);
@@ -47,21 +51,30 @@ void main() {
 
     return BlocProvider<AuthBloc>.value(
       value: authBloc,
-      child: const MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+      child: MaterialApp(
+        locale: locale,
+        // Same delegates as main.dart / main_web.dart, so Afan Oromo (no
+        // Material localizations of its own) renders too.
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          FallbackMaterialLocalizationsDelegate(),
+          GlobalWidgetsLocalizations.delegate,
+          FallbackCupertinoLocalizationsDelegate(),
+        ],
         supportedLocales: AppLocalizations.supportedLocales,
-        home: LoginScreen(),
+        home: const LoginScreen(),
       ),
     );
   }
 
   /// Set the test surface to mobile dimensions so the LoginScreen uses
-  /// its mobile layout (not tablet/desktop which causes overflow).
+  /// its mobile layout (not tablet/desktop which causes overflow). Pass
+  /// [size] to render another layout.
   ///
   /// Also suppresses RenderFlex overflow errors from the register link Row,
   /// which is a known layout issue on narrow screens.
-  void setMobileSize(WidgetTester tester) {
-    tester.view.physicalSize = const Size(500, 900);
+  void setMobileSize(WidgetTester tester, {Size size = const Size(500, 900)}) {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
       tester.view.resetPhysicalSize();
@@ -469,6 +482,223 @@ void main() {
 
       // Unmount so the OTP countdown timer is cancelled.
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  // SIM-32: errors clear once a field is fixed, long errors wrap, and the
+  // auth error banner reaches screen readers (Android and web).
+  group('LoginScreen validation feedback', () {
+    const invalidPhone =
+        'Invalid phone number. Use +251XXXXXXXXX, 00251XXXXXXXXX, or 0XXXXXXXXX';
+    const phoneRequired = 'Phone number is required';
+    const passwordRequired = 'This field is required';
+
+    final phoneField = find.byType(TextFormField).first;
+    final passwordField = find.byType(TextFormField).at(1);
+
+    Future<void> tapLogin(WidgetTester tester) async {
+      final loginButton = find.byType(ElevatedButton);
+      await tester.ensureVisible(loginButton);
+      await tester.pumpAndSettle();
+      await tester.tap(loginButton);
+      await tester.pumpAndSettle();
+    }
+
+    // Reads SemanticsData directly: containsSemantics is deprecated on the
+    // local SDK and its replacement does not exist on the CI SDK (3.38.9).
+    SemanticsData phoneSemantics(WidgetTester tester) {
+      final data = tester
+          .getSemantics(find.bySemanticsLabel('Phone Number'))
+          .getSemanticsData();
+      expect(data.flagsCollection.isTextField, isTrue);
+      return data;
+    }
+
+    testWidgets('phone format error clears once the phone is corrected',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(phoneField, '+25191');
+      await tester.enterText(passwordField, 'password1');
+      await tester.pumpAndSettle();
+      await tapLogin(tester);
+
+      expect(find.text(invalidPhone), findsOneWidget);
+      expect(
+        phoneSemantics(tester).validationResult,
+        SemanticsValidationResult.invalid,
+      );
+      verifyNever(() => authBloc.add(any(that: isA<AuthLoginRequested>())));
+
+      // Fixing the field clears its error without another submit.
+      await tester.enterText(phoneField, '+251911234567');
+      await tester.pump();
+
+      expect(find.text(invalidPhone), findsNothing);
+      expect(
+        phoneSemantics(tester).validationResult,
+        SemanticsValidationResult.valid,
+      );
+      verifyNever(() => authBloc.add(any(that: isA<AuthLoginRequested>())));
+
+      await tapLogin(tester);
+      verify(
+        () => authBloc.add(
+          const AuthLoginRequested(
+            phoneNumber: '+251911234567',
+            password: 'password1',
+          ),
+        ),
+      ).called(1);
+      semantics.dispose();
+    });
+
+    testWidgets('required errors clear field by field after an empty submit',
+        (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tapLogin(tester);
+      expect(find.text(phoneRequired), findsOneWidget);
+      expect(find.text(passwordRequired), findsOneWidget);
+
+      // Editing only the password clears only the password error; the
+      // untouched phone field keeps its error.
+      await tester.enterText(passwordField, 'x');
+      await tester.pump();
+      expect(find.text(passwordRequired), findsNothing);
+      expect(find.text(phoneRequired), findsOneWidget);
+
+      await tester.enterText(phoneField, '0911234567');
+      await tester.pump();
+      expect(find.text(phoneRequired), findsNothing);
+      expect(find.text(invalidPhone), findsNothing);
+    });
+
+    testWidgets('does not validate while typing before the first submit',
+        (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(phoneField, '+25191');
+      await tester.pump();
+      await tester.enterText(passwordField, 'x');
+      await tester.pump();
+      await tester.enterText(passwordField, '');
+      await tester.pump();
+
+      expect(find.text(invalidPhone), findsNothing);
+      expect(find.text(passwordRequired), findsNothing);
+    });
+
+    // Phone and desktop web layouts in all 3 languages, plus Oromo (the
+    // longest message) at a large text scale.
+    for (final (lang, size, scale) in const [
+      ('en', Size(360, 800), 1.0),
+      ('am', Size(360, 800), 1.0),
+      ('om', Size(360, 800), 1.0),
+      ('om', Size(360, 800), 1.3),
+      ('en', Size(1440, 900), 1.0),
+      ('am', Size(1440, 900), 1.0),
+      ('om', Size(1440, 900), 1.0),
+    ]) {
+      testWidgets(
+          'long phone error wraps instead of being truncated '
+          '($lang, ${size.width.toInt()}x${size.height.toInt()}, ${scale}x)',
+          (tester) async {
+        setMobileSize(tester, size: size);
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final locale = Locale(lang);
+        await tester.pumpWidget(buildTestWidget(locale: locale));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(phoneField, '+25191');
+        await tester.enterText(passwordField, 'password1');
+        await tester.pumpAndSettle();
+        await tapLogin(tester);
+
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(lookupAppLocalizations(locale).invalidPhoneFormat),
+        );
+        expect(paragraph.textScaler.scale(12), closeTo(12 * scale, 0.01));
+        expect(paragraph.maxLines, greaterThan(1));
+        expect(paragraph.didExceedMaxLines, isFalse);
+      });
+    }
+
+    testWidgets('auth error banner is an announced live region',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      setMobileSize(tester);
+      final controller = StreamController<AuthState>.broadcast();
+      addTearDown(controller.close);
+
+      await tester.pumpWidget(buildTestWidget(stream: controller.stream));
+      await tester.pumpAndSettle();
+
+      controller.add(
+        const AuthError(
+          errorCode: 'AUTH_007',
+          errorMessage: 'Server error. Please try again later.',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final banner = tester
+          .getSemantics(find.byKey(const Key('login_error_banner')))
+          .getSemanticsData();
+      expect(banner.label, 'Server error. Please try again later.');
+      expect(banner.flagsCollection.isLiveRegion, isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('a repeated identical auth error is announced again',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      setMobileSize(tester);
+      final controller = StreamController<AuthState>.broadcast();
+      addTearDown(controller.close);
+      const error = AuthError(
+        errorCode: 'AUTH_007',
+        errorMessage: 'Server error. Please try again later.',
+      );
+      final banner = find.byKey(const Key('login_error_banner'));
+
+      await tester.pumpWidget(buildTestWidget(stream: controller.stream));
+      await tester.pumpAndSettle();
+      await tester.enterText(phoneField, '+251911234567');
+      await tester.enterText(passwordField, 'password1');
+      await tester.pumpAndSettle();
+
+      controller.add(error);
+      await tester.pump();
+      await tester.pump();
+      final firstNodeId = tester.getSemantics(banner).id;
+
+      // Retrying removes the banner, so the same message comes back as a
+      // new live-region node, which TalkBack and the web engine announce
+      // (they skip a live region whose label did not change).
+      await tapLogin(tester);
+      expect(banner, findsNothing);
+
+      controller.add(error);
+      await tester.pump();
+      await tester.pump();
+      final again = tester.getSemantics(banner);
+      expect(again.id, isNot(firstNodeId));
+      expect(
+        again.getSemanticsData().label,
+        'Server error. Please try again later.',
+      );
+      expect(again.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+      semantics.dispose();
     });
   });
 }
