@@ -125,10 +125,31 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Maestro CLI
+      # Maestro CLI comes from a pinned GitHub release and is checked against a
+      # hard-coded SHA-256 before anything in it runs (CI-01). The vendor
+      # installer script is not used: it pulls "latest" and runs unverified code
+      # on a runner in a repo whose deploy jobs hold AWS credentials.
+      # To upgrade, set both values together. Get the digest with
+      #   gh api repos/mobile-dev-inc/maestro/releases/tags/cli-<version> \
+      #     --jq '.assets[] | select(.name=="maestro.zip") | .digest'
+      # and confirm it against a local download (sha256sum maestro.zip).
+      - name: Install Maestro CLI (pinned, SHA-256 verified)
+        env:
+          MAESTRO_VERSION: '2.10.0'
+          MAESTRO_SHA256: '29b675e10cc12080e445e9bfb2e2b4e4dfb9c0f2e30d5884120d258b5e1cd991'
         run: |
-          curl -Ls "https://get.maestro.mobile.dev" | bash
-          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          zip="$RUNNER_TEMP/maestro.zip"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$zip" \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          echo "${MAESTRO_SHA256}  ${zip}" | sha256sum --check --strict -
+          rm -rf "$HOME/.maestro" "$RUNNER_TEMP/maestro"
+          unzip -q "$zip" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/maestro" "$HOME/.maestro"
+          rm -f "$zip"
+          "$HOME/.maestro/bin/maestro" --version
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Wait for LocalStack
         run: |
@@ -210,6 +231,12 @@ jobs:
 
       - name: Lint — self-test fixtures
         run: bash scripts/check_legacy_plaintext_flag.sh --self-test
+
+      - name: "Lint: no pipe-to-shell installs in CI (CI-01)"
+        run: bash scripts/check_no_pipe_to_shell.sh
+
+      - name: "Lint: pipe-to-shell guard self-test"
+        run: bash scripts/check_no_pipe_to_shell.sh --self-test
 
   # Final validation check
   pr-validation-complete:

@@ -335,7 +335,7 @@
     {id:"INFRA-02", sev:"High", title:"TELEBIRR_MOCK=true on staging; guard fires only for isProd", comp:"infra", loc:"api-stack.ts:636", conf:"Live"},
     {id:"MOB-01", sev:"High", title:"FieldEncryptor implemented but never invoked → PII plaintext in Isar", comp:"mobile", loc:"field_encryptor.dart", conf:"Confirmed"},
     {id:"MOB-02", sev:"High", title:"refreshDio bypasses cert pinning → refresh-token theft on MITM", comp:"mobile", loc:"main.dart:73-80", conf:"Confirmed"},
-    {id:"CI-01", sev:"High", title:"Maestro CLI piped curl-to-bash in CI (supply chain)", comp:"ci", loc:"pr-validation.yml:114", conf:"Confirmed"},
+    {id:"CI-01", sev:"High", title:"Maestro CLI piped curl-to-bash in CI (supply chain)", comp:"ci", loc:"pr-validation.yml:114", conf:"Confirmed", fixed:true},
     {id:"SCA-01", sev:"High", title:"react-router 7.13.1 multiple high CVEs in admin panel", comp:"admin", loc:"admin/package.json", conf:"Confirmed"},
     {id:"SCA-02", sev:"High", title:"Astro 5.x / Vite high CVEs in website", comp:"website", loc:"website/package.json", conf:"Likely"},
     {id:"INFRA-09", sev:"Medium", title:"Cognito MFA OPTIONAL (not REQUIRED) for prod mobile users", comp:"infra", loc:"api-stack.ts:68", conf:"Confirmed"},
