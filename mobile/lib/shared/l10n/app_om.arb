@@ -2383,7 +2383,7 @@
   "cropCostLabel": "Gatii Midhaan",
   "transportCostLabel": "Gatii Geejjibaa",
   "commissionLabel": "Komishinii (5%)",
-  "syncedAgo": "{time} dura walsiме",
+  "syncedAgo": "{time} dura walsimame",
   "@syncedAgo": { "placeholders": { "time": { "type": "String" } } },
   "browseAllListings": "Tarree Hunda Ilaali",
   "browseAllTrips": "Imala Hunda Ilaali",
