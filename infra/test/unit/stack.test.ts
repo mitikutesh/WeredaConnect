@@ -257,6 +257,31 @@ describe('ApiStack', () => {
     expect(policies).toContain('parameter/wereda-connect-dev/fayda/client-private-key');
     expect(policies).toContain('parameter/wereda-connect-dev/fayda/signing-secret');
   });
+
+  test('escrow Lambda can update the order and delivery a dispute mirrors onto (SIM-47)', () => {
+    // POST /escrow/dispute marks the order and delivery disputed. With read-only grants
+    // the UpdateItem was denied and both stayed delivered (ratings still allowed).
+    const policies = template.findResources('AWS::IAM::Policy');
+    const escrowPolicyId = Object.keys(policies).find((id) =>
+      id.startsWith('EscrowFunctionServiceRole'),
+    );
+    expect(escrowPolicyId).toBeDefined();
+    const statements: Array<{ Action: string | string[]; Resource: unknown }> =
+      policies[escrowPolicyId!].Properties.PolicyDocument.Statement;
+    const actionsOn = (tableId: string) =>
+      statements
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+
+    for (const tableId of ['OrdersTable', 'DeliveriesTable']) {
+      const actions = actionsOn(tableId);
+      expect(actions).toContain('dynamodb:UpdateItem');
+      // Least privilege: the mirror is a conditional update, never a put or delete.
+      expect(actions).not.toContain('dynamodb:PutItem');
+      expect(actions).not.toContain('dynamodb:DeleteItem');
+      expect(actions).not.toContain('dynamodb:BatchWriteItem');
+    }
+  });
 });
 
 describe('ApiStack (Telebirr live gateway, gated)', () => {

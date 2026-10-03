@@ -1,4 +1,5 @@
 using System.Globalization;
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -698,6 +699,27 @@ public class EscrowServiceTests
         IdempotencyKey = $"{disputedBy}:escrow-001:dispute:1708171200000"
     };
 
+    private static Dictionary<string, object> MakeOrder(string orderId, string status, int version) => new()
+    {
+        { "orderId", orderId }, { "status", status }, { "version", version.ToString(CultureInfo.InvariantCulture) }
+    };
+
+    private static AuthResult<Dictionary<string, object>> OrderWriteOk(string orderId) =>
+        AuthResult<Dictionary<string, object>>.Success(MakeOrder(orderId, "disputed", 0));
+
+    private static AuthResult<Dictionary<string, object>> OrderWriteConflict() =>
+        AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+
+    private Task AssertPropagationFailureAudited(string expectedLeg) =>
+        _mockAuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_propagation_failed"
+            && e.ContainsKey("metadata")
+            && e["metadata"].ToString()!.Contains(expectedLeg)));
+
+    private Task AssertNoPropagationFailureAudited() =>
+        _mockAuditRepo.DidNotReceive().AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+            e["action"].ToString() == "dispute_propagation_failed"));
+
     [Fact]
     public async Task DisputeAsync_PropagatesToOrderAndDelivery()
     {
@@ -709,10 +731,8 @@ public class EscrowServiceTests
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
         deliveryRepo.TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods").Returns(true);
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
-        {
-            { "orderId", "order-1" }, { "status", "delivered" }, { "version", "2" }
-        });
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteOk("order-1"));
 
         var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
             .DisputeAsync(MakeDisputeRequest(), BuyerId);
@@ -721,6 +741,7 @@ public class EscrowServiceTests
         await deliveryRepo.Received(1).TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods");
         await orderRepo.Received(1).UpdateAsync("order-1",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+        await AssertNoPropagationFailureAudited();
     }
 
     [Fact]
@@ -731,16 +752,14 @@ public class EscrowServiceTests
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
         var deliveryRepo = Substitute.For<IDeliveryRepository>();
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-1").Returns(new Dictionary<string, object>
-        {
-            { "orderId", "order-1" }, { "status", "in_transit" }, { "version", "2" }
-        });
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "in_transit", 2));
 
         var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
             .DisputeAsync(MakeDisputeRequest(), BuyerId);
 
         Assert.True(result.IsSuccess);
         await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoPropagationFailureAudited();
     }
 
     [Fact]
@@ -754,10 +773,8 @@ public class EscrowServiceTests
             { "deliveryId", DeliveryId }, { "orderId", "order-9" }, { "status", "delivered" }
         });
         var orderRepo = Substitute.For<IOrderRepository>();
-        orderRepo.GetByIdAsync("order-9").Returns(new Dictionary<string, object>
-        {
-            { "orderId", "order-9" }, { "status", "delivered" }, { "version", "3" }
-        });
+        orderRepo.GetByIdAsync("order-9", true).Returns(MakeOrder("order-9", "delivered", 3));
+        orderRepo.UpdateAsync("order-9", Arg.Any<Dictionary<string, object>>(), 3).Returns(OrderWriteOk("order-9"));
 
         var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
             .DisputeAsync(MakeDisputeRequest(), BuyerId);
@@ -770,6 +787,8 @@ public class EscrowServiceTests
     [Fact]
     public async Task DisputeAsync_PropagationFailure_DoesNotFailTheDispute()
     {
+        // SIM-47: the delivery leg failing must not skip the order leg, and the failure
+        // must name the leg instead of vanishing.
         var escrowItem = MakeEscrowItem(status: "escrowed");
         escrowItem["orderId"] = "order-1";
         _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
@@ -777,12 +796,155 @@ public class EscrowServiceTests
         deliveryRepo.TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .ThrowsAsync(new InvalidOperationException("deliveries table unavailable"));
         var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteOk("order-1"));
 
         var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
             .DisputeAsync(MakeDisputeRequest(), BuyerId);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("disputed", result.Value!.Status);
+        await orderRepo.Received(1).UpdateAsync("order-1",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 2);
+        await AssertPropagationFailureAudited("delivery:[InvalidOperationException]");
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderWriteDenied_IsAuditedWithLeg()
+    {
+        // SIM-47 production failure: the escrow Lambda had read-only grants on orders, so
+        // the UpdateItem was denied and the error was swallowed without a trace.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        deliveryRepo.TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods").Returns(true);
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2)
+            .ThrowsAsync(new AmazonDynamoDBException("not authorized to perform: dynamodb:UpdateItem")
+            {
+                ErrorCode = "AccessDeniedException"
+            });
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("disputed", result.Value!.Status);
+        await deliveryRepo.Received(1).TryMarkDisputedAsync(DeliveryId, BuyerId, "damaged_goods");
+        await AssertPropagationFailureAudited("order:[AmazonDynamoDBException]");
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderVersionConflict_RetriesWithFreshVersion()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(
+            MakeOrder("order-1", "delivered", 2),
+            MakeOrder("order-1", "delivered", 3));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteConflict());
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 3).Returns(OrderWriteOk("order-1"));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.Received(1).UpdateAsync("order-1",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "disputed"), 3);
+        await orderRepo.Received(2).UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoPropagationFailureAudited();
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderConflictPersists_IsAuditedAfterThreeAttempts()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(OrderWriteConflict());
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.Received(3).UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertPropagationFailureAudited("order:conflict");
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderWriteRejected_IsAuditedWithCode()
+    {
+        // A non-conflict failure (order vanished between the reads) is not retried.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(404, "SYNC_VALIDATION", "Order not found."));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.Received(1).UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertPropagationFailureAudited("order:SYNC_VALIDATION");
+    }
+
+    [Fact]
+    public async Task DisputeAsync_OrderMovedOnDuringRetry_StopsWithoutFailure()
+    {
+        // A concurrent writer already disputed the order: the re-read ends the leg cleanly.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(
+            MakeOrder("order-1", "delivered", 2),
+            MakeOrder("order-1", "disputed", 3));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), 2).Returns(OrderWriteConflict());
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        await orderRepo.Received(1).UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+        await AssertNoPropagationFailureAudited();
+    }
+
+    [Fact]
+    public async Task DisputeAsync_PropagationAuditWriteFails_StillSucceeds()
+    {
+        // Losing the failure row must not turn a recorded dispute into a 500.
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveryRepo = Substitute.For<IDeliveryRepository>();
+        var orderRepo = Substitute.For<IOrderRepository>();
+        orderRepo.GetByIdAsync("order-1", true).Returns(MakeOrder("order-1", "delivered", 2));
+        orderRepo.UpdateAsync("order-1", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .ThrowsAsync(new AmazonDynamoDBException("denied"));
+        _mockAuditRepo.AppendAsync(Arg.Is<Dictionary<string, object>>(e =>
+                e["action"].ToString() == "dispute_propagation_failed"))
+            .ThrowsAsync(new AmazonDynamoDBException("audit table unavailable"));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveryRepo, orderRepo)
+            .DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("disputed", result.Value!.Status);
+        await _mockIdempotencyRepo.Received(1).UpdateAsync(MakeDisputeRequest().IdempotencyKey, "completed");
     }
 
     [Fact]

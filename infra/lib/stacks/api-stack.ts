@@ -1027,6 +1027,10 @@ export class ApiStack extends cdk.Stack {
     props.escrowIdempotencyTable.grantReadWriteData(escrowFn.function);
     props.deliveriesTable.grantReadData(escrowFn.function);
     props.ordersTable.grantReadData(escrowFn.function);
+    // A dispute mirrors onto the delivery and order (SIM-12/SIM-47). UpdateItem only:
+    // the escrow Lambda never puts or deletes rows in these tables.
+    props.deliveriesTable.grant(escrowFn.function, "dynamodb:UpdateItem");
+    props.ordersTable.grant(escrowFn.function, "dynamodb:UpdateItem");
     props.usersTable.grantReadData(escrowFn.function);
     props.cropsTable.grantReadData(escrowFn.function);
     props.rateLimitsTable.grantReadWriteData(escrowFn.function);
