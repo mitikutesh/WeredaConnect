@@ -1,7 +1,7 @@
 # Push Alerts API Contract
 
 ## Version
-1.1.0
+1.2.0
 
 ## Parties
 - **Mobile** (client) — registers device tokens, syncs buyer intents, receives push
@@ -29,6 +29,10 @@ authenticated user. Any authenticated role may register; only buyers receive mat
 { "token": "<FCM registration token>", "platform": "android" }
 ```
 
+`platform` is optional and defaults to `android`, the only allowed value (compared after
+trim and lower-case; 1.2.0). The SNS platform application is configured for FCM, so a
+token for any other platform could never be delivered to; it is refused instead of stored.
+
 **Response (200)**:
 ```json
 { "success": true }
@@ -39,7 +43,7 @@ authenticated user. Any authenticated role may register; only buyers receive mat
 same token is idempotent. The client should register on login and on FCM token refresh.
 
 **Error Codes**:
-- `400 DEVICE_TOKEN_VALIDATION` — missing/empty `token`, or malformed body
+- `400 DEVICE_TOKEN_VALIDATION`: missing/empty `token`, malformed body, or a `platform` other than `android` (1.2.0)
 - `401 DEVICE_TOKEN_UNAUTHORIZED` — no authenticated user
 - `500 DEVICE_TOKEN_SERVER_ERROR` — SNS/storage failure
 
@@ -48,8 +52,10 @@ same token is idempotent. The client should register on login and on FCM token r
 ## 2. Sync Buyer Intents
 
 **Method**: POST /sync (existing sync protocol; new `entityType`)
-**Authentication**: Required. **Buyer role only**; the payload `buyerId` must equal the
-authenticated user.
+**Authentication**: Required. **Buyer role only**. On `create` the payload `buyerId` is
+required and must equal the authenticated user. On `update` it is optional (the row is
+keyed by the caller) and, when sent, must still equal the authenticated user (1.2.0).
+`delete` is keyed by the caller and ignores it.
 
 **Operation** (`entityType: "buyer_intent"`, actions `create` / `update` / `delete`):
 ```json
@@ -142,10 +148,11 @@ receive the previous user's alerts.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.2.0 | 2026-10-06 | `POST /device-tokens`: `platform` is an allow-list (`android`, the default); anything else is `400 DEVICE_TOKEN_VALIDATION`. `buyer_intent` update no longer requires an echoed `buyerId`; a mismatching one is still refused (SIM-60). |
 | 1.1.0 | 2026-09-26 | `DELETE /device-tokens` unregisters the caller's push endpoint (logout on shared phones). |
 | 1.0.0 | 2026-06-19 | Initial: device-token registration, buyer_intent sync, match-on-insert push. |
 
 ---
 
-**Last Updated**: 2026-09-26
+**Last Updated**: 2026-10-06
 **Status**: Draft

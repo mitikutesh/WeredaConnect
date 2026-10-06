@@ -17,12 +17,20 @@ namespace WeredaConnect.Server.Functions;
 /// specs/architecture/push-notifications-architecture.md.
 ///
 /// Error codes:
-/// - 400: DEVICE_TOKEN_VALIDATION — missing/empty token or bad body
-/// - 401: DEVICE_TOKEN_UNAUTHORIZED — no authenticated user
-/// - 500: DEVICE_TOKEN_SERVER_ERROR — unexpected failure
+/// - 400: DEVICE_TOKEN_VALIDATION, missing/empty token, bad body, or a platform the
+///   push pipeline cannot deliver to (SIM-60: only "android" today)
+/// - 401: DEVICE_TOKEN_UNAUTHORIZED, no authenticated user
+/// - 500: DEVICE_TOKEN_SERVER_ERROR, unexpected failure
 /// </summary>
 public class DeviceTokenFunction
 {
+    /// <summary>
+    /// Platforms the SNS platform application can deliver to. It is configured with the
+    /// FCM credential, so only Android tokens are accepted; add "ios" here once an APNs
+    /// application exists. Compared after trim + lower-case.
+    /// </summary>
+    private static readonly HashSet<string> AllowedPlatforms = new(StringComparer.Ordinal) { "android" };
+
     private readonly IAmazonSimpleNotificationService _sns;
     private readonly IDeviceTokenRepository _repo;
     private readonly string _platformAppArn;
@@ -148,7 +156,14 @@ public class DeviceTokenFunction
             return LambdaResponse.Error(400, "DEVICE_TOKEN_VALIDATION", "token is required.");
         }
 
-        var platform = string.IsNullOrWhiteSpace(body.Platform) ? "android" : body.Platform!;
+        // SIM-60: the platform used to be stored verbatim (any string, any length).
+        var platform = string.IsNullOrWhiteSpace(body.Platform)
+            ? "android"
+            : body.Platform!.Trim().ToLowerInvariant();
+        if (!AllowedPlatforms.Contains(platform))
+        {
+            return LambdaResponse.Error(400, "DEVICE_TOKEN_VALIDATION", "platform must be 'android'.", "platform");
+        }
 
         try
         {
