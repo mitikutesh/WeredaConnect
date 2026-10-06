@@ -58,9 +58,10 @@ Each contract file follows this structure:
 |----------|------|---------|---------|
 | Sync Protocol | `sync-protocol.md` | 1.7.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
-| User Entity | `user-entity.md` | 1.0.0 | Mobile, Backend, Infrastructure |
+| User Entity | `user-entity.md` | 1.1.0 | Mobile, Backend, Infrastructure |
 | Rating API | `rating-api.md` | 1.0.0 | Mobile, Backend, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 1.0.0 | Mobile, Backend, Admin |
+| Account Deletion | `account-deletion.md` | 1.0.0 | Mobile, Backend, Infrastructure, Admin |
 
 ---
 
@@ -73,5 +74,5 @@ Each contract file follows this structure:
 
 ---
 
-**Last Updated**: 2026-02-12
+**Last Updated**: 2026-10-06
 **Version**: 1.0.0
