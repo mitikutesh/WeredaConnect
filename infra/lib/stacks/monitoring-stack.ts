@@ -38,7 +38,8 @@ interface DynamoTableDef {
  *
  * S2-04 Phase 2: Audit Logging — compliance observability layer.
  *
- * Cost: ~$4/month (1 dashboard @ $3 + 6 alarms @ $0.10 each + metric filters free).
+ * Cost: ~$7/month (1 dashboard @ $3 + 12 alarms @ $0.10 + 9 custom metrics from the log
+ * filters @ $0.30; the live gateway adds 1 alarm and 1 metric). Metric filters are free.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -103,6 +104,14 @@ export class MonitoringStack extends cdk.Stack {
       this,
       'EscrowLogGroup',
       escrowLogGroupName,
+    );
+
+    // Escrow cron log group (the hourly money sweeps). api-stack creates it through
+    // logRetention, so a filter on it is safe on a fresh deploy.
+    const escrowCronLogGroup = logs.LogGroup.fromLogGroupName(
+      this,
+      'EscrowCronLogGroup',
+      `/aws/lambda/${prefix}-escrow-cron`,
     );
 
     const metricNamespace = `WeredaConnect/${envConfig.name}`;
@@ -173,19 +182,66 @@ export class MonitoringStack extends cdk.Stack {
       defaultValue: 0,
     });
 
-    // ESCROW: Order-funded escrow record creation failed (sync Lambda). A funded
-    // order without an escrow record is invisible money — the delivery-time
-    // linkage self-heals it, but a spike means the leg is broken.
+    // ESCROW: order-funded escrow problems in the sync Lambda (ESC-13 widened the
+    // create-failed filter). Each token is a funded order whose money the escrow
+    // subsystem cannot see or settle:
+    //   ORDER_ESCROW_CREATE_FAILED: no escrow record (delivery-time linkage self-heals);
+    //   ORDER_ESCROW_LINK_FAILED: the delivery is not tied to the escrow, so delivery
+    //     confirmation may never reach it and the refund-safety check cannot see it;
+    //   ORDER_ESCROW_REFUND_SCHEDULE_FAILED: a cancelled order's money stays held.
     const syncLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'SyncLogGroup',
       `/aws/lambda/${prefix}-sync`,
     );
-    new logs.MetricFilter(this, 'OrderEscrowCreateFailedFilter', {
+    new logs.MetricFilter(this, 'OrderEscrowProblemsFilter', {
       logGroup: syncLogGroup,
-      filterPattern: logs.FilterPattern.literal('"ORDER_ESCROW_CREATE_FAILED"'),
+      filterPattern: logs.FilterPattern.anyTerm(
+        'ORDER_ESCROW_CREATE_FAILED',
+        'ORDER_ESCROW_LINK_FAILED',
+        'ORDER_ESCROW_REFUND_SCHEDULE_FAILED',
+      ),
       metricNamespace,
-      metricName: 'OrderEscrowCreateFailed',
+      metricName: 'OrderEscrowProblems',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+
+    // ESC-13: settlement failures. EscrowService logs one ESCROW_SETTLEMENT_FAILED line
+    // per failed release, refund or trucker leg (from the escrow Lambda on the admin
+    // routes, from escrow-cron on the sweeps); the cron and the admin routes add one per
+    // exception mid-settlement. Plain-text tokens, so the Lambda runtime's line prefix
+    // does not matter. Two filters publish one metric. Line formats:
+    // server/src/Helpers/MoneyAlarmLog.cs.
+    const countSettlementFailures = (id: string, logGroup: logs.ILogGroup) =>
+      new logs.MetricFilter(this, id, {
+        logGroup,
+        filterPattern: logs.FilterPattern.literal('"ESCROW_SETTLEMENT_FAILED"'),
+        metricNamespace,
+        metricName: 'EscrowSettlementFailures',
+        metricValue: '1',
+        defaultValue: 0,
+      });
+    countSettlementFailures('EscrowSettlementFailuresFilter', escrowLogGroup);
+    countSettlementFailures('EscrowCronSettlementFailuresFilter', escrowCronLogGroup);
+
+    // ESC-13: queue age. The hourly escrow-cron run logs one line per manual payout
+    // (ESC-02) or admin stuck-order queue entry (ESC-06) older than 24 hours. The
+    // producers land with those tasks; until then these metrics stay at zero and the
+    // alarms below are already wired.
+    new logs.MetricFilter(this, 'ManualPayoutsOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"MANUAL_PAYOUT_OVERDUE"'),
+      metricNamespace,
+      metricName: 'ManualPayoutsOverdue',
+      metricValue: '1',
+      defaultValue: 0,
+    });
+    new logs.MetricFilter(this, 'AdminQueueOverdueFilter', {
+      logGroup: escrowCronLogGroup,
+      filterPattern: logs.FilterPattern.literal('"ADMIN_QUEUE_OVERDUE"'),
+      metricNamespace,
+      metricName: 'AdminQueueOverdue',
       metricValue: '1',
       defaultValue: 0,
     });
@@ -203,7 +259,7 @@ export class MonitoringStack extends cdk.Stack {
           '',
           `**API URL:** ${props.apiUrl}`,
           '',
-          `**Region:** ${envConfig.region} | **Cost:** ~$4/month | **Updated:** S2-04 Phase 2`,
+          `**Region:** ${envConfig.region} | **Cost:** ~$7/month | **Updated:** ESC-13 money alarms`,
         ].join('\n'),
         width: 24,
         height: 3,
@@ -664,24 +720,30 @@ export class MonitoringStack extends cdk.Stack {
     authBruteForceAlarm.addAlarmAction(snsAction);
     authBruteForceAlarm.addOkAction(snsAction);
 
-    // Alarm: Order-funded escrow creation failures — any occurrence means a
-    // funded order's money is not reflected in the escrow subsystem.
-    const orderEscrowCreateFailedAlarm = new cloudwatch.Alarm(
+    // Alarm: order-funded escrow problems. Any occurrence means a funded order's
+    // money is not reflected, not linked or not scheduled for refund in the escrow
+    // subsystem (replaces the ESC-01 create-failed alarm, ESC-13).
+    const orderEscrowProblemsAlarm = new cloudwatch.Alarm(
       this,
-      'OrderEscrowCreateFailed',
+      'OrderEscrowProblems',
       {
-        alarmName: `${prefix}-order-escrow-create-failed`,
+        alarmName: `${prefix}-order-escrow-problems`,
         alarmDescription:
-          'A funded order failed to materialize its escrow record ' +
-          '(ORDER_ESCROW_CREATE_FAILED in the sync Lambda). The buyer\'s money ' +
-          'is held but invisible to /escrow/history and refund scheduling. ' +
-          'Delivery-time linkage self-heals; verify via the OrderIndex GSI.',
+          'The sync Lambda logged ORDER_ESCROW_CREATE_FAILED, ORDER_ESCROW_LINK_FAILED or ' +
+          'ORDER_ESCROW_REFUND_SCHEDULE_FAILED (the line carries the orderId). CREATE: a ' +
+          'funded order has no escrow record; the buyer\'s money is held but invisible to ' +
+          '/escrow/history and refund scheduling; delivery-time linkage self-heals it, ' +
+          'verify via the OrderIndex GSI. LINK: the delivery is not tied to the order ' +
+          'escrow, so delivery confirmation may never reach it and the refund-safety check ' +
+          'cannot see the delivery; link them by hand. REFUND_SCHEDULE: a rejected or ' +
+          'cancelled order\'s money stays in escrow; set the escrow expiry by hand so the ' +
+          'hourly sweep refunds the buyer.',
         metric: new cloudwatch.Metric({
           namespace: metricNamespace,
-          metricName: 'OrderEscrowCreateFailed',
+          metricName: 'OrderEscrowProblems',
           statistic: 'Sum',
           period: cdk.Duration.minutes(15),
-          label: 'Order Escrow Create Failures',
+          label: 'Order Escrow Problems',
         }),
         threshold: 0,
         evaluationPeriods: 1,
@@ -690,8 +752,82 @@ export class MonitoringStack extends cdk.Stack {
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       },
     );
-    orderEscrowCreateFailedAlarm.addAlarmAction(snsAction);
-    orderEscrowCreateFailedAlarm.addOkAction(snsAction);
+    orderEscrowProblemsAlarm.addAlarmAction(snsAction);
+    orderEscrowProblemsAlarm.addOkAction(snsAction);
+
+    // ESC-13 money alarms on the log tokens. 15 minute periods, 4 evaluation periods,
+    // 1 datapoint to alarm: an hourly sweep that keeps failing holds the alarm in ALARM
+    // (one notification per episode) and it clears by itself about an hour after the
+    // last line. A synthetic line fires it within about 15 minutes
+    // (scripts/money_alarms_synthetic.sh).
+    const moneyLogAlarm = (
+      id: string,
+      nameSuffix: string,
+      metricName: string,
+      label: string,
+      description: string,
+    ): cloudwatch.Alarm => {
+      const alarm = new cloudwatch.Alarm(this, id, {
+        alarmName: `${prefix}-${nameSuffix}`,
+        alarmDescription: description,
+        metric: new cloudwatch.Metric({
+          namespace: metricNamespace,
+          metricName,
+          statistic: 'Sum',
+          period: cdk.Duration.minutes(15),
+          label,
+        }),
+        threshold: 0,
+        evaluationPeriods: 4,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      alarm.addAlarmAction(snsAction);
+      alarm.addOkAction(snsAction);
+      return alarm;
+    };
+
+    const escrowSettlementFailuresAlarm = moneyLogAlarm(
+      'EscrowSettlementFailures',
+      'escrow-settlement-failures',
+      'EscrowSettlementFailures',
+      'Escrow Settlement Failures',
+      'A release, refund or trucker leg did not complete, or a money sweep hit an ' +
+        'exception (ESCROW_SETTLEMENT_FAILED in the escrow or escrow-cron log group; the ' +
+        'line carries escrowId, action, outcome and code; the escrow-audit row has the same ' +
+        'action). outcome=unknown means Telebirr may already have paid: check the merchant ' +
+        'portal before any manual release or refund. The hourly sweep retries a failed leg ' +
+        'until ESC-05 stops blind retries. A trucker_release_failed with code - is an ' +
+        'unverified trucker whose leg nobody retries yet (ESC-04).',
+    );
+
+    const manualPayoutsOverdueAlarm = moneyLogAlarm(
+      'ManualPayoutsOverdue',
+      'manual-payouts-overdue',
+      'ManualPayoutsOverdue',
+      'Manual Payouts Overdue',
+      'A manual payout (a release or refund the live gateway could not pay out, queued ' +
+        'for an admin, ESC-02) has waited more than 24 hours (MANUAL_PAYOUT_OVERDUE in the ' +
+        'escrow-cron log group, one line per overdue item per hourly run, with escrowId, ' +
+        'ref and ageHours). A farmer or buyer is still waiting for their money: pay it out ' +
+        'from the admin manual payout queue and mark the item paid so the next sweep ' +
+        'stops counting it.',
+    );
+
+    const adminQueueOverdueAlarm = moneyLogAlarm(
+      'AdminQueueOverdue',
+      'admin-queue-overdue',
+      'AdminQueueOverdue',
+      'Admin Queue Overdue',
+      'A stuck order in the admin queue (funded but not delivered or settled after its ' +
+        'window, ESC-06) has waited more than 24 hours for an admin decision ' +
+        '(ADMIN_QUEUE_OVERDUE in the escrow-cron log group, one line per overdue entry per ' +
+        'hourly run, with orderId, reason and ageHours). The buyer\'s money is held while ' +
+        'nobody decides: open the admin stuck-order queue and release, refund or extend ' +
+        'the order.',
+    );
 
     // ESC-01: live order payments. The Telebirr webhook (and its log group) only
     // exists when the live gateway is on, same flag as api-stack. Any payment the
@@ -700,6 +836,7 @@ export class MonitoringStack extends cdk.Stack {
     const telebirrLive =
       (envConfig.enableTelebirrLive ?? false) ||
       this.node.tryGetContext('enableTelebirrLive') === 'true';
+    let orderPaymentProblemsAlarm: cloudwatch.Alarm | undefined;
     if (telebirrLive) {
       const webhookLogGroup = logs.LogGroup.fromLogGroupName(
         this,
@@ -721,7 +858,7 @@ export class MonitoringStack extends cdk.Stack {
         defaultValue: 0,
       });
 
-      const orderPaymentProblemsAlarm = new cloudwatch.Alarm(
+      orderPaymentProblemsAlarm = new cloudwatch.Alarm(
         this,
         'OrderPaymentProblems',
         {
@@ -756,8 +893,9 @@ export class MonitoringStack extends cdk.Stack {
     }
 
     // Alarm 7: Order Cron Errors — the scheduled unpaid-order auto-cancel must never
-    // fail silently (mirrors escrow-cron). It gets a dedicated alarm rather than
-    // joining the aggregate LambdaErrors alarm, which is capped at 10 metrics.
+    // fail silently (escrow-cron has the same dedicated alarm right below, ESC-13).
+    // It gets a dedicated alarm rather than joining the aggregate LambdaErrors alarm,
+    // which is capped at 10 metrics.
     const orderCronErrorsAlarm = new cloudwatch.Alarm(
       this,
       'OrderCronErrors',
@@ -784,6 +922,41 @@ export class MonitoringStack extends cdk.Stack {
     orderCronErrorsAlarm.addAlarmAction(snsAction);
     orderCronErrorsAlarm.addOkAction(snsAction);
 
+    // ESC-13: escrow-cron killed or crashed. The handler's top-level catch answers 500
+    // and logs a settlement token, so ordinary exceptions never reach this metric; only
+    // the 5 minute timeout, an out-of-memory kill, a runtime crash or an event the typed
+    // serializer cannot read does. A run killed after a gateway call logs nothing, so this
+    // alarm is the only signal for it. The aggregate LambdaErrors alarm (> 3 in 5 minutes)
+    // never sees a single crash, and the scheduled retries land in separate periods.
+    const escrowCronErrorsAlarm = new cloudwatch.Alarm(this, 'EscrowCronErrors', {
+      alarmName: `${prefix}-escrow-cron-errors`,
+      alarmDescription:
+        'escrow-cron (hourly auto-release, auto-refund and dispute settlement; 6-hourly ' +
+        'reconciliation) was killed or crashed: 5 minute timeout, out of memory or runtime ' +
+        'crash. A run killed after a Telebirr call logs no ESCROW_SETTLEMENT_FAILED line and ' +
+        'the money may have moved. Find the failed RequestId in the escrow-cron log group ' +
+        '(REPORT line, "Task timed out"), the last escrowId it logged and any escrow still ' +
+        'holding its settlement lock; check the escrow-audit rows and the Telebirr merchant ' +
+        'portal before any manual release or refund. The lock stays held until ESC-05 adds ' +
+        'recovery. Lambda retries a failed scheduled run twice, so one crash can show up to ' +
+        'three errors.',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/Lambda',
+        metricName: 'Errors',
+        dimensionsMap: { FunctionName: `${prefix}-escrow-cron` },
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(5),
+        label: 'Escrow Cron Errors',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    escrowCronErrorsAlarm.addAlarmAction(snsAction);
+    escrowCronErrorsAlarm.addOkAction(snsAction);
+
     // ─── Alarm Status Widget (summary at bottom of dashboard) ────────
     dashboard.addWidgets(
       new cloudwatch.AlarmStatusWidget({
@@ -796,6 +969,13 @@ export class MonitoringStack extends cdk.Stack {
           escrowDisputeAlarm,
           authBruteForceAlarm,
           orderCronErrorsAlarm,
+          // ESC-13 money alarms
+          escrowSettlementFailuresAlarm,
+          escrowCronErrorsAlarm,
+          orderEscrowProblemsAlarm,
+          manualPayoutsOverdueAlarm,
+          adminQueueOverdueAlarm,
+          ...(orderPaymentProblemsAlarm ? [orderPaymentProblemsAlarm] : []),
         ],
         width: 24,
         height: 3,

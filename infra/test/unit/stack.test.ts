@@ -686,6 +686,206 @@ describe('MonitoringStack', () => {
     const filters = template.findResources('AWS::Logs::MetricFilter');
     expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
   });
+
+  // ─── ESC-13 money alarms ─────────────────────────────────────────────
+  const ESCROW_LG = '/aws/lambda/wereda-connect-dev-escrow';
+  const ESCROW_CRON_LG = '/aws/lambda/wereda-connect-dev-escrow-cron';
+  const SYNC_LG = '/aws/lambda/wereda-connect-dev-sync';
+  const MONEY_ALARMS = [
+    'wereda-connect-dev-escrow-settlement-failures',
+    'wereda-connect-dev-escrow-cron-errors',
+    'wereda-connect-dev-order-escrow-problems',
+    'wereda-connect-dev-manual-payouts-overdue',
+    'wereda-connect-dev-admin-queue-overdue',
+  ];
+
+  // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
+  // SyncFunction), once bare and once with the Lambda runtime's line prefix.
+  const SETTLEMENT_LINE =
+    'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=unknown code=TELEBIRR_TIMEOUT';
+  const PREFIXED_SETTLEMENT_LINE = `2026-10-06T10:00:00.000Z 4f1c7a2e-req error ${SETTLEMENT_LINE}`;
+  const CREATE_LINE = 'ORDER_ESCROW_CREATE_FAILED orderId=ord-1 reason=validation';
+  const LINK_LINE =
+    'ORDER_ESCROW_LINK_FAILED orderId=ord-1 deliveryId=del-1 reason=[ProvisionedThroughputExceededException]';
+  const REFUND_SCHEDULE_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=[TimeoutException]';
+  const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-1 ref=release:escrow-1 ageHours=26';
+  const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
+
+  type MetricFilterResource = {
+    Properties: {
+      LogGroupName: string;
+      FilterPattern: string;
+      MetricTransformations: Array<{ MetricName: string; MetricValue: string; DefaultValue?: number }>;
+    };
+  };
+
+  function metricFilter(template: Template, logGroupName: string, metricName: string): MetricFilterResource {
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[];
+    const hit = filters.find(
+      (f) =>
+        f.Properties.LogGroupName === logGroupName &&
+        f.Properties.MetricTransformations[0].MetricName === metricName,
+    );
+    if (!hit) {
+      throw new Error(`no metric filter publishing ${metricName} on ${logGroupName}`);
+    }
+    return hit;
+  }
+
+  // Minimal model of CloudWatch Logs term matching for the plain-text patterns this stack
+  // uses: a bare or quoted term matches a log event that contains it as a whole token, and
+  // a `?` prefix turns the terms into alternatives instead of all being required. This is
+  // the synthetic check of the filter pattern against sample lines; the deployed pattern is
+  // checked against the real service by scripts/money_alarms_synthetic.sh.
+  function cloudWatchTermsMatch(pattern: string, line: string): boolean {
+    const tokens = pattern.match(/\??"[^"]*"|\??\S+/g) ?? [];
+    const words = new Set(line.split(/[^A-Za-z0-9_]+/));
+    const anyOf = tokens.some((t) => t.startsWith('?'));
+    const hits = tokens.map((t) => words.has(t.replace(/^\?/, '').replace(/^"|"$/g, '')));
+    return anyOf ? hits.some(Boolean) : hits.every(Boolean);
+  }
+
+  // An alarm whose metric carries a label renders as a MetricDataQuery (Metrics[0].MetricStat),
+  // not as flat MetricName/Namespace/Period keys.
+  function customMetric(metricName: string, periodSeconds: number) {
+    return Match.objectLike({
+      MetricStat: Match.objectLike({
+        Metric: Match.objectLike({ MetricName: metricName, Namespace: 'WeredaConnect/dev' }),
+        Period: periodSeconds,
+        Stat: 'Sum',
+      }),
+    });
+  }
+
+  test('ESC-13: settlement failures are counted on the escrow and escrow-cron log groups', () => {
+    const template = monitoringTemplate(false);
+    for (const lg of [ESCROW_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'EscrowSettlementFailures');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, SETTLEMENT_LINE)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, PREFIXED_SETTLEMENT_LINE)).toBe(true);
+    }
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-settlement-failures',
+      Metrics: [customMetric('EscrowSettlementFailures', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 4,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-13: a single killed or crashed escrow-cron run alarms', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-cron-errors',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              Namespace: 'AWS/Lambda',
+              MetricName: 'Errors',
+              Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-escrow-cron' }],
+            }),
+            Period: 300,
+            Stat: 'Sum',
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-13: order escrow problems cover create, link and refund-schedule failures', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, SYNC_LG, 'OrderEscrowProblems');
+    for (const line of [CREATE_LINE, LINK_LINE, REFUND_SCHEDULE_LINE]) {
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
+    }
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-escrow-problems',
+      Metrics: [customMetric('OrderEscrowProblems', 900)],
+      Threshold: 0,
+      EvaluationPeriods: 1,
+    });
+    // Replaced, not duplicated.
+    const alarms = JSON.stringify(template.findResources('AWS::CloudWatch::Alarm'));
+    expect(alarms).not.toContain('order-escrow-create-failed');
+    expect(alarms).not.toContain('"OrderEscrowCreateFailed"');
+  });
+
+  test('ESC-13: queue alarms count overdue manual payouts and admin-queue entries on escrow-cron', () => {
+    const template = monitoringTemplate(false);
+    const payouts = metricFilter(template, ESCROW_CRON_LG, 'ManualPayoutsOverdue');
+    expect(cloudWatchTermsMatch(payouts.Properties.FilterPattern, PAYOUT_LINE)).toBe(true);
+    const queue = metricFilter(template, ESCROW_CRON_LG, 'AdminQueueOverdue');
+    expect(cloudWatchTermsMatch(queue.Properties.FilterPattern, QUEUE_LINE)).toBe(true);
+    for (const [alarmName, metricName] of [
+      ['wereda-connect-dev-manual-payouts-overdue', 'ManualPayoutsOverdue'],
+      ['wereda-connect-dev-admin-queue-overdue', 'AdminQueueOverdue'],
+    ]) {
+      template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+        AlarmName: alarmName,
+        Metrics: [customMetric(metricName, 900)],
+        Threshold: 0,
+        EvaluationPeriods: 4,
+        DatapointsToAlarm: 1,
+      });
+    }
+  });
+
+  test('ESC-13: filter patterns do not count unrelated escrow log lines', () => {
+    const template = monitoringTemplate(false);
+    const settlement = metricFilter(template, ESCROW_CRON_LG, 'EscrowSettlementFailures').Properties.FilterPattern;
+    const orderProblems = metricFilter(template, SYNC_LG, 'OrderEscrowProblems').Properties.FilterPattern;
+    const payouts = metricFilter(template, ESCROW_CRON_LG, 'ManualPayoutsOverdue').Properties.FilterPattern;
+    // The cron's own failure-result line (the service already logged the token for it).
+    expect(cloudWatchTermsMatch(settlement, 'Auto-release failed for escrow-1: ESCROW_013 - Telebirr gateway error')).toBe(false);
+    // Tokens of the other filters.
+    expect(cloudWatchTermsMatch(settlement, CREATE_LINE)).toBe(false);
+    expect(cloudWatchTermsMatch(settlement, PAYOUT_LINE)).toBe(false);
+    expect(cloudWatchTermsMatch(orderProblems, SETTLEMENT_LINE)).toBe(false);
+    expect(cloudWatchTermsMatch(payouts, QUEUE_LINE)).toBe(false);
+    // A sanitized field value cannot forge a token (MoneyAlarmLog drops spaces and newlines).
+    expect(cloudWatchTermsMatch(payouts, 'ESCROW_SETTLEMENT_FAILED escrowId=xMANUAL_PAYOUT_OVERDUEx action=a outcome=failed code=-')).toBe(false);
+  });
+
+  test.each([false, true])('ESC-13: money alarms exist with the live gateway %s and notify the alarm topic', (live) => {
+    const template = monitoringTemplate(live);
+    const notifiesTopic = Match.arrayWith([Match.objectLike({ Ref: Match.stringLikeRegexp('^AlarmTopic') })]);
+    for (const alarmName of MONEY_ALARMS) {
+      template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+        AlarmName: alarmName,
+        AlarmActions: notifiesTopic,
+        OKActions: notifiesTopic,
+      });
+    }
+  });
+
+  test('ESC-13: the dashboard alarm status widget lists the money alarms (webhook alarm only when live)', () => {
+    for (const live of [false, true]) {
+      const body = JSON.stringify(monitoringTemplate(live).findResources('AWS::CloudWatch::Dashboard'));
+      for (const logicalId of [
+        'EscrowSettlementFailures',
+        'EscrowCronErrors',
+        'OrderEscrowProblems',
+        'ManualPayoutsOverdue',
+        'AdminQueueOverdue',
+      ]) {
+        expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
+      }
+      const webhookAlarmRef = /"Fn::GetAtt":\["OrderPaymentProblems[0-9A-F]+","Arn"\]/;
+      if (live) {
+        expect(body).toMatch(webhookAlarmRef);
+      } else {
+        expect(body).not.toMatch(webhookAlarmRef);
+      }
+    }
+  });
 });
 
 describe('GithubActionsStack', () => {

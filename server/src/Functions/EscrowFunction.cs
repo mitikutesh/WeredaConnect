@@ -422,6 +422,9 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error releasing escrow: [{ex.GetType().Name}]");
+            // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                body.EscrowId, "release_exception", MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             AuditLogger.LogAudit("ESCROW", "RELEASE",
                 userId: userId, correlationId: releaseCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,
@@ -562,6 +565,9 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error refunding escrow: [{ex.GetType().Name}]");
+            // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                body.EscrowId, "refund_exception", MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             AuditLogger.LogAudit("ESCROW", "REFUND",
                 userId: userId, correlationId: refundCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,

@@ -201,6 +201,9 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"EscrowCronFunction error for action '{safeAction}': [{ex.GetType().Name}]");
+            // ESC-13: a sweep that died mid-run is an unknown outcome for whatever it was settling.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeUnknown, $"{safeAction}:{ex.GetType().Name}"));
             return LambdaResponse.Error(500, "ESCROW_CRON_ERROR",
                 $"Cron job '{safeAction}' failed unexpectedly.");
         }
@@ -266,6 +269,9 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Dispute settlement: query failed [{ex.GetType().Name}]; skipping this run.");
+            // ESC-13: no gateway call happened, so the outcome is a definite failure (verdicts wait).
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"dispute_query:{ex.GetType().Name}"));
             return (0, 0);
         }
 
@@ -345,6 +351,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Dispute settlement: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "dispute_settlement_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 
@@ -423,6 +433,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Auto-release: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "auto_release_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 
@@ -578,6 +592,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Auto-refund: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "auto_refund_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 

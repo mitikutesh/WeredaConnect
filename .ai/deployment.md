@@ -562,11 +562,34 @@ aws logs filter-log-events \
   --start-time $(date -u -v-1H +%s)000
 ```
 
-Key alarms (CloudWatch):
-- Lambda error rate > 1%
-- API Gateway 5xx rate > 0.5%
-- Lambda p99 duration > 5s
-- DynamoDB throttles > 0
+Key alarms (CloudWatch). Every alarm notifies the `wereda-connect-<env>-alarms` SNS topic;
+the stack only outputs the ARN, so subscribe an email or phone to it or the alarms fire into
+nothing.
+
+- Platform: Lambda errors across the critical functions, API Gateway 5xx rate, DynamoDB
+  throttles, cold start duration, order-cron errors, auth brute force, escrow dispute rate.
+- Money (ESC-13; token formats and sources in `specs/contracts/escrow-protocol.md`,
+  "Additions in 1.8.1"):
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group) | find the line by escrowId; `outcome=unknown` means check the Telebirr merchant portal before any manual release or refund; `trucker_release_failed code=-` is an unverified trucker (ESC-04) |
+| `<prefix>-escrow-cron-errors` | escrow-cron was killed (5 minute timeout, out of memory) or crashed; a run killed mid-settlement logs no token | find the failed RequestId (REPORT line, "Task timed out"), the last escrowId it logged and any escrow still holding its settlement lock; treat them as unknown outcomes |
+| `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |
+| `<prefix>-manual-payouts-overdue` | a manual payout (ESC-02) has waited more than 24 hours | pay it from the admin manual payout queue and mark it paid |
+| `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours | decide it in the admin stuck-order queue (release, refund or extend) |
+
+Synthetic test of the money alarms (after a deploy; needs AWS credentials, see the script
+header for the exact permissions):
+
+```bash
+# Read-only: deployed filter patterns match the server's exact lines, alarm shapes, current states
+scripts/money_alarms_synthetic.sh --env dev
+
+# Fire every money alarm once from synthetic log lines plus one failed escrow-cron invocation
+# (no money moves; subscribers get one ALARM and later one OK per alarm), then wait for them to clear
+scripts/money_alarms_synthetic.sh --env dev --fire --wait-clear
+```
 
 ---
 

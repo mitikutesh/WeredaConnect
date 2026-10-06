@@ -139,6 +139,13 @@ public sealed class EscrowService
         "rejected", "cancelled", "settled", "payment_failed", "dispute_resolved"
     };
 
+    /// <summary>
+    /// Sink for the money alarm lines (ESC-13). Defaults to stdout, which Lambda ships to
+    /// the function's CloudWatch log group where the settlement-failure metric filter
+    /// counts them. Tests replace it to capture the lines.
+    /// </summary>
+    public Action<string> AlarmLog { get; init; } = Console.WriteLine;
+
     public EscrowService(
         IEscrowRepository escrowRepo,
         IEscrowAuditRepository auditRepo,
@@ -3232,6 +3239,17 @@ public sealed class EscrowService
         string escrowId, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
+        // ESC-13: a failed settlement leg is logged before the audit write, so the money
+        // alarm fires even when the audit write itself fails. The gateway code decides the
+        // outcome: after a timeout or a lost answer Telebirr may still have paid.
+        if (MoneyAlarmLog.IsSettlementFailureAuditAction(action))
+        {
+            var outcome = metadata != null && UncertainGatewayErrors.Contains(metadata)
+                ? MoneyAlarmLog.OutcomeUnknown
+                : MoneyAlarmLog.OutcomeFailed;
+            AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, action, outcome, metadata));
+        }
+
         await _auditRepo.AppendAsync(BuildAuditEntry(
             $"audit-{Guid.NewGuid():N}", DateTime.UtcNow.ToString("o"),
             escrowId, action, fromState, toState, actor, telebirrRef, metadata));

@@ -1118,4 +1118,52 @@ public class EscrowFunctionTests
         Assert.Contains("ESCROW_024", response.Body);
         await _fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
     }
+
+    // ──────────────────────────────────────────────
+    // ESC-13: money alarm lines from the admin settlement routes
+    // ──────────────────────────────────────────────
+
+    private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    [Fact]
+    public async Task HandleRelease_Exception_LogsSettlementFailedUnknown()
+    {
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
+            .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
+        var body = JsonSerializer.Serialize(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = "del-001",
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        }, AppJsonContext.Default.ReleaseEscrowRequest);
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_exception outcome=unknown code=Exception", Logs);
+        Assert.DoesNotContain("secret-info", Logs);
+    }
+
+    [Fact]
+    public async Task HandleRefund_Exception_LogsSettlementFailedUnknown()
+    {
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
+            .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
+        var body = JsonSerializer.Serialize(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-002",
+            Trigger = "delivery_timeout",
+            Reason = "No delivery within 7 days.",
+            IdempotencyKey = "system:escrow-002:refund:1708171200000"
+        }, AppJsonContext.Default.RefundEscrowRequest);
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/refund", body, "system"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-002 action=refund_exception outcome=unknown code=Exception", Logs);
+        Assert.DoesNotContain("secret-info", Logs);
+    }
 }
