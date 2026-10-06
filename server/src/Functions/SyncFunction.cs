@@ -3197,6 +3197,55 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// SIM-46: stamp one delivery party's name and phone from the users table, as
+    /// SIM-40 does for listings. The name falls back to the order row (its farmerName
+    /// and truckerName are themselves server-stamped) because the creator cannot fix
+    /// another party's profile; the phone has no fallback since orders carry none.
+    /// Returns an error message when the profile cannot be read or no name is known.
+    /// </summary>
+    private async Task<string?> StampDeliveryPartyContactAsync(
+        Dictionary<string, object> data,
+        string partyLabel,
+        string? partyId,
+        string nameKey,
+        string phoneKey,
+        Dictionary<string, object> order,
+        UserDto? preloaded,
+        ILambdaContext context)
+    {
+        if (string.IsNullOrWhiteSpace(partyId))
+        {
+            return $"{partyLabel}Id is required.";
+        }
+
+        if (_userRepo == null)
+        {
+            context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
+            return $"The {partyLabel} profile could not be read. Please try again later.";
+        }
+
+        var party = preloaded ?? await _userRepo.GetUserByIdAsync(partyId);
+        if (party == null)
+        {
+            return $"The {partyLabel} profile could not be read. Please try again later.";
+        }
+
+        var orderName = order.TryGetValue(nameKey, out var on) ? on?.ToString() : null;
+        var name = !string.IsNullOrWhiteSpace(party.DisplayName) ? party.DisplayName
+            : !string.IsNullOrWhiteSpace(party.FullName) ? party.FullName
+            : !string.IsNullOrWhiteSpace(orderName) ? orderName
+            : null;
+        if (name == null)
+        {
+            return $"The {partyLabel} has no name on their profile. Ask them to add one before creating a delivery.";
+        }
+
+        data[nameKey] = name.Trim();
+        data[phoneKey] = party.PhoneNumber;
+        return null;
+    }
+
+    /// <summary>
     /// Process a delivery sync operation (create, update, delete).
     /// Uses version-based conflict detection.
     /// Operates directly on DynamoDB (deliveries don't use the full CRUD repo pattern).
@@ -3328,7 +3377,9 @@ public partial class SyncFunction
                         }
                     }
 
-                    // SEC-VULN-002: Validate buyerId references a real buyer
+                    // SEC-VULN-002: Validate buyerId references a real buyer. The row is
+                    // kept for the contact stamping below (SIM-46).
+                    UserDto? createBuyer = null;
                     if (operation.Data.TryGetValue("buyerId", out var bidVal))
                     {
                         var buyerId = bidVal?.ToString();
@@ -3354,6 +3405,8 @@ public partial class SyncFunction
                                     Message = "DELIVERY_PARTICIPANT_MISMATCH: buyerId must reference a buyer."
                                 };
                             }
+
+                            createBuyer = buyer;
                         }
                     }
 
@@ -3561,6 +3614,43 @@ public partial class SyncFunction
                                 Message = "DELIVERY_PARTICIPANT_MISMATCH: Only the order's matched trucker can create this delivery."
                             };
                         }
+                    }
+
+                    // SIM-46: each party sees the others' name and phone on the delivery, so
+                    // they come from the users table (name falling back to the order row),
+                    // never from the client. The ids were bound to the order above.
+                    var createBuyerId = operation.Data.TryGetValue("buyerId", out var cbObj)
+                        ? cbObj?.ToString() : null;
+                    var createFarmerId = operation.Data.TryGetValue("farmerId", out var cfObj)
+                        ? cfObj?.ToString() : null;
+                    var partyContactError = await StampDeliveryPartyContactAsync(
+                        operation.Data, "buyer", createBuyerId, "buyerName", "buyerPhone",
+                        createOrder, createBuyer, context);
+                    partyContactError ??= await StampDeliveryPartyContactAsync(
+                        operation.Data, "farmer", createFarmerId, "farmerName", "farmerPhone",
+                        createOrder, null, context);
+                    if (partyContactError == null && !isSelfPickupCreate)
+                    {
+                        partyContactError = await StampDeliveryPartyContactAsync(
+                            operation.Data, "trucker", authenticatedUserId, "truckerName", "truckerPhone",
+                            createOrder, null, context);
+                    }
+
+                    if (partyContactError != null)
+                    {
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = $"DELIVERY_VALIDATION: {partyContactError}"
+                        };
+                    }
+
+                    if (isSelfPickupCreate)
+                    {
+                        // No trucker: nothing client-authored may pose as one.
+                        operation.Data.Remove("truckerName");
+                        operation.Data.Remove("truckerPhone");
                     }
 
                     // Field whitelist — reject unknown fields
