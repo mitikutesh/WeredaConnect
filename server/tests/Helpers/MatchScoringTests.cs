@@ -119,6 +119,23 @@ public class MatchScoringTests
     }
 
     [Fact]
+    public void GeoScore_WoredaProxy_NormalisesSpelling()
+    {
+        // SIM-52: picker spelling ("Ādama") vs typed "Adama, Oromia" is the
+        // same place. Mirrors the Dart scorer test of the same name.
+        Assert.Equal(1.0,
+            MatchScoring.GeoScore(Criteria(woreda: "Ādama"), Crop(loc: "Adama, Oromia")));
+        Assert.Equal(1.0,
+            MatchScoring.GeoScore(Criteria(woreda: "adama "), Crop(loc: "ADAMA")));
+        // Whole-word overlap keeps the partial score.
+        Assert.Equal(MatchScoring.GeoPartial,
+            MatchScoring.GeoScore(Criteria(woreda: "Adama"), Crop(loc: "Adama Zone")));
+        // Raw-substring false positive is gone: "Ambo" is not "Gambo".
+        Assert.Equal(MatchScoring.GeoNeutral,
+            MatchScoring.GeoScore(Criteria(woreda: "Ambo"), Crop(loc: "Gambo")));
+    }
+
+    [Fact]
     public void GeoScore_Haversine_NearBeatsFar()
     {
         // Buyer delivering to Adama centroid; crop on Adama vs crop on Mekelle.

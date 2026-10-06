@@ -74,6 +74,39 @@ void main() {
     ).thenAnswer((_) async => {'trips': <dynamic>[]});
   }
 
+  Map<String, dynamic> tripDto({
+    required String tripId,
+    required String fromWoreda,
+    String toWoreda = 'Addis Ababa',
+    double capacity = 100,
+    double pricePerQuintal = 10,
+  }) =>
+      {
+        'tripId': tripId,
+        'truckerId': 't1',
+        'truckerName': 'Trucker',
+        'truckerPhone': '+251900000000',
+        'fromWoreda': fromWoreda,
+        'toWoreda': toWoreda,
+        'departureDate': DateTime.now()
+            .toUtc()
+            .add(const Duration(days: 2))
+            .toIso8601String(),
+        'capacity': capacity,
+        'pricePerQuintal': pricePerQuintal,
+        'status': 'open',
+        'createdAt': '2026-06-15T08:00:00Z',
+      };
+
+  void stubTrips(List<Map<String, dynamic>> trips) {
+    when(
+      () => api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer((_) async => {'trips': trips});
+  }
+
   Map<String, dynamic> capturedCropParams() {
     return verify(
       () => api.get<Map<String, dynamic>>(
@@ -152,6 +185,33 @@ void main() {
         '/trips',
         queryParameters: any(named: 'queryParameters'),
       ),
+    );
+  });
+
+  test('suggests trips across spelling variants of a woreda (SIM-52)',
+      () async {
+    // Same scenario as the Isar MatchingService test: picker spelling on the
+    // crop and intent, typed route with a region suffix on the trip.
+    stubCrops([cropDto(cropId: 'wheat-1', woreda: 'Ādama')]);
+    stubTrips([
+      tripDto(
+        tripId: 'trip-typed',
+        fromWoreda: 'Adama, Oromia',
+        toWoreda: 'addis ababa, Addis Ababa',
+      ),
+      tripDto(tripId: 'trip-other', fromWoreda: 'Mekelle'),
+      tripDto(tripId: 'trip-substring', fromWoreda: 'Gadama'),
+    ]);
+
+    final results = await service.matchListingsForIntent(
+      intent(deliveryWoreda: 'Addis Ababa'),
+    );
+
+    expect(results, hasLength(1));
+    expect(
+      results.single.suggestedTrips.map((t) => t.tripId),
+      ['trip-typed'],
+      reason: 'same place across spellings; raw substring is not a match',
     );
   });
 

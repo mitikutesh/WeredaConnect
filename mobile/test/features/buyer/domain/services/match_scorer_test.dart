@@ -153,6 +153,40 @@ void main() {
       expect(far, MatchScorer.geoNeutral);
     });
 
+    test('geo proxy normalises spelling (SIM-52, server parity)', () {
+      // Picker spelling "Ādama" vs typed "Adama, Oromia" is the same place.
+      // Mirrors MatchScoringTests.GeoScore_WoredaProxy_NormalisesSpelling.
+      // 'Ādama' is not in the centroid table, so this exercises the proxy.
+      expect(
+        scorer.geoScore(
+          intent(deliveryWoreda: 'Ādama Zone, Oromia'),
+          listing(locationName: 'adama zone'),
+        ),
+        1.0,
+      );
+      expect(
+        scorer.geoScore(
+          intent(deliveryWoreda: 'Debre Mark’os'),
+          listing(locationName: 'Debre Markos, Amhara'),
+        ),
+        1.0,
+      );
+      // Whole-word overlap keeps the partial score (listing defaults to
+      // 'Adama').
+      expect(
+        scorer.geoScore(intent(deliveryWoreda: 'Adama Zone'), listing()),
+        MatchScorer.geoPartial,
+      );
+      // Raw-substring false positive is gone: "Ambo" is not "Gambo".
+      expect(
+        scorer.geoScore(
+          intent(deliveryWoreda: 'Ambo'),
+          listing(locationName: 'Gambo'),
+        ),
+        MatchScorer.geoNeutral,
+      );
+    });
+
     test('freshness decays from full to floor with age', () {
       final fresh = scorer.freshnessScore(
         listing(createdAt: now.subtract(const Duration(days: 1))),
@@ -193,6 +227,24 @@ void main() {
       );
       // 'Gimbo' is not in the centroid table; crop name 'Adama' != 'Gimbo'.
       expect(s, MatchScorer.geoNeutral);
+    });
+
+    test('delivery woreda with a region suffix or diacritics still resolves',
+        () {
+      // Centroid lookup goes through the shared woreda normaliser, so the
+      // haversine path (not the string proxy) is used for these spellings:
+      // a crop at the Adama centroid scores 1.0 even though the raw strings
+      // would never be equal.
+      final crop = listing(lat: 8.54, lon: 39.27, locationName: 'Elsewhere');
+      expect(
+        scorer.geoScore(intent(deliveryWoreda: 'Adama, Oromia'), crop),
+        1.0,
+      );
+      expect(scorer.geoScore(intent(deliveryWoreda: 'Ādama'), crop), 1.0);
+      expect(
+        scorer.geoScore(intent(deliveryWoreda: 'Dirē Dawa'), crop),
+        lessThan(0.2),
+      );
     });
   });
 
