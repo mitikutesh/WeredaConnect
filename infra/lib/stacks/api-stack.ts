@@ -389,12 +389,16 @@ export class ApiStack extends cdk.Stack {
 
     const logoutFn = new WeredaLambda(this, "LogoutFunction", {
       functionName: `${prefix}-auth-logout`,
-      description: "POST /auth/logout — global sign-out (protected)",
+      description:
+        "POST /auth/logout: revoke the caller's own refresh token (protected)",
       handlerName: "LogoutFunction",
       environment: cognitoOnlyEnv,
       reservedConcurrentExecutions: 20,
     });
+    // SIM-60: logout resolves the refresh token's owner with InitiateAuth
+    // (REFRESH_TOKEN_AUTH) before revoking it, like refreshFn above.
     this.grantCognito(logoutFn.function, [
+      "cognito-idp:InitiateAuth",
       "cognito-idp:RevokeToken",
       "cognito-idp:GlobalSignOut",
       "cognito-idp:AdminUserGlobalSignOut",
@@ -1450,6 +1454,11 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration(
         "LogoutInt",
         logoutFn.function,
+        {
+          // SIM-60: payload 1.0 like every other route, so the handler sees the
+          // JWT claims under authorizer.claims and can bind the token to the caller.
+          payloadFormatVersion: apigateway.PayloadFormatVersion.VERSION_1_0,
+        },
       ),
     });
 

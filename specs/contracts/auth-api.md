@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.6.0
+2.7.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -289,9 +289,11 @@ Refresh an expired access token using a valid refresh token.
 
 ### 5. POST /auth/logout
 
-Invalidate the user's refresh token. The access token remains valid until its 15-minute TTL expires (stateless JWT).
+Revoke the caller's own refresh token. The access token remains valid until its 15-minute TTL expires (stateless JWT).
 
 **Authentication**: Required (Bearer access token)
+
+Since 2.7.0 the refresh token in the body must belong to the signed-in user. The server resolves its owner with Cognito `InitiateAuth` (`REFRESH_TOKEN_AUTH`) and compares the minted id token's `sub` with the bearer's `sub`; the minted tokens are discarded, never returned or logged. A token that is unknown, expired or already revoked is reported as logged out (`200`, nothing revoked), so logout stays idempotent. Before 2.7.0 any authenticated user could revoke any refresh token of the app client.
 
 #### Request Headers
 
@@ -327,9 +329,13 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6...
 | Status | Error Code | Description |
 |--------|-----------|-------------|
 | `400` | `AUTH_017` | Missing refresh token |
-| `401` | `AUTH_020` | Invalid or expired access token |
-| `429` | `AUTH_006` | Rate limit exceeded |
+| `401` | `AUTH_020` | Invalid or expired access token, or no caller identity in the request |
+| `403` | `AUTH_026` | The refresh token belongs to another user; nothing revoked (2.7.0) |
+| `429` | `AUTH_006` | Rate limit exceeded (API), or Cognito throttled the owner lookup or the revoke; nothing is revoked when the lookup is throttled |
 | `500` | `AUTH_007` | Internal server error |
+| `503` | `AUTH_008` | Cognito unavailable during the owner lookup or the revoke; nothing is revoked when the lookup fails (2.7.0) |
+
+Clients treat every logout error as non-fatal and clear the local session anyway (the token expires on its own).
 
 ---
 
@@ -523,6 +529,7 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_020` | 401 | Invalid access token | Attempt token refresh, then redirect to login |
 | `AUTH_021` | 400 | Missing Fayda verification token on register (required since 2.2.0) | Send the user back to the Fayda step |
 | `AUTH_025` | 403 | Account suspended (login, verify-otp, refresh) | Show "contact support", clear the session |
+| `AUTH_026` | 403 | Refresh token belongs to another user (logout, 2.7.0) | Clear the local session anyway |
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
@@ -610,7 +617,7 @@ Do **not** use: `Microsoft.AspNetCore.Authentication.JwtBearer` (banned per `AOT
 - No SMS OTP step — Cognito UserPool has `autoVerify: { phone: false }` to prevent SMS on SignUp
 - Login uses Cognito `AdminInitiateAuth` with the `ADMIN_USER_PASSWORD_AUTH` flow (2.1.0); the public mobile client has `USER_PASSWORD_AUTH` disabled. The separate admin web client keeps `USER_PASSWORD_AUTH` (it drives the TOTP challenge itself)
 - Token refresh uses Cognito `InitiateAuth` with `REFRESH_TOKEN_AUTH` flow
-- Logout uses Cognito `RevokeToken` API
+- Logout resolves the token's owner with `InitiateAuth` (`REFRESH_TOKEN_AUTH`), then revokes it with `RevokeToken` (2.7.0)
 
 ### JSON Serialization
 
@@ -878,6 +885,7 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.7.0 | 2026-10-06 | Logout is bound to the caller (SIM-60): the refresh token's owner is resolved with `InitiateAuth REFRESH_TOKEN_AUTH` and must equal the bearer's `sub`, else `403 AUTH_026` and nothing is revoked; an inactive token answers `200` without a revoke; `503 AUTH_008` when Cognito is unavailable. The `/auth/logout` integration moved to payload 1.0 so the handler sees the claims |
 | 2.6.0 | 2026-10-06 | Risk tier step-up (planned FRD-04): `AUTH_040` at any amount for MEDIUM, `AUTH_041` then `AUTH_040` at any amount for HIGH, new `FRAUD_ACCOUNT_HELD` (403) for CRITICAL on payments and on crop, trip and order create; `AUTH_041` text amount-neutral; header version corrected (it read 2.3.0 while the footer read 2.4.0) |
 | 2.4.0 | 2026-09-29 | Payment step-up is tiered: up to 10,000 ETB a fresh password (`AUTH_040`, now on every payment, not only large ones); above 10,000 ETB a fresh Fayda login instead (`AUTH_041`), recorded by each successful `POST /user/fayda-link`. Disputes unchanged |
 | 2.3.0 | 2026-09-29 | `POST /user/fayda-link` binds only the account owner's identity: same Fayda ID as on file, else a Fayda phone equal to the account phone; `FAYDA_005` (different Fayda ID), `FAYDA_006` (phone mismatch), `FAYDA_007` (no phone claim, nothing to compare), all `403` with no write |
@@ -887,4 +895,4 @@ so a failed or refused verification leaves the payment blocked.
 ---
 
 **Last Updated**: 2026-10-06
-**Version**: 2.6.0
+**Version**: 2.7.0
