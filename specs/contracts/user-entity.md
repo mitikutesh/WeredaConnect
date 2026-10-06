@@ -1,7 +1,7 @@
 # User Entity Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client) -- stores user profile in Isar for offline access, displays user info
@@ -296,7 +296,7 @@ User profiles sync using the standard sync protocol defined in `sync-protocol.md
 | Profile update (offline) | Mobile updates Isar, enqueues sync operation. |
 | Profile update (sync) | Sync engine sends update with `clientVersion`. Server applies if version matches. |
 | Profile conflict | Server version wins. Mobile accepts server data and updates Isar. |
-| Deletion | Not supported in v1. Users cannot delete accounts. (Regulatory and data integrity reasons.) |
+| Deletion | Self-service via `DELETE /user/account` (see `account-deletion.md`). Online only, never through `/sync`. Refused while the user has an active order, unreleased escrow, open delivery or open dispute. The row becomes a tombstone with no personal data and is never synced back to a client. |
 
 ### Sync Operation for User Updates
 
@@ -317,6 +317,16 @@ User profiles sync using the standard sync protocol defined in `sync-protocol.md
 ```
 
 **Note**: Only mutable fields can be included in the `data` payload. Attempts to change `userId`, `phoneNumber`, or `role` via sync are rejected with `SYNC_VALIDATION`.
+
+### Deletion fields (server only, 1.1.0)
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `deletionState` | String | `in_progress`, `cognito_pending` or `completed`. Absent on a live account. Set by `DELETE /user/account`; every write endpoint returns `410 ACCOUNT_004` while it is present. |
+| `deletionRequestedAt` | String (ISO-8601) | When the deletion started. The completion sweep uses it to bound retention to 24 hours. |
+| `deletedAt` | String (ISO-8601) | When personal data was erased. Present only on a tombstone. |
+
+A tombstone keeps only `userId`, `role`, these three fields, `createdAt`, `updatedAt` and `version`. `phoneNumber`, `faydaId` and `woreda` are removed, so the row drops out of `PhoneIndex`, `FaydaIdIndex` and `RoleWaredaIndex`. These fields are never accepted from a client and never appear in `UserDto`. Full rules: `account-deletion.md`.
 
 ---
 
@@ -396,8 +406,9 @@ Given Ethiopian mobile data costs:
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial entity definition: fields, DynamoDB schema, Isar schema, sync rules |
+| 1.1.0 | 2026-10-06 | Deletion is now supported through `DELETE /user/account` (`account-deletion.md`); server-only `deletionState`, `deletionRequestedAt`, `deletedAt` and the tombstone shape documented (ACC-01) |
 
 ---
 
-**Last Updated**: 2026-02-12
-**Version**: 1.0.0
+**Last Updated**: 2026-10-06
+**Version**: 1.1.0
