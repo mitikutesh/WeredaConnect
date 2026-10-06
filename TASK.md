@@ -244,7 +244,7 @@ F-08 (sync engine), F-10 (crop listings), F-17 (least-privilege IAM)
 - F-11 Trip Listings
 - F-12 Delivery Verification (QR + GPS + photo)
 - F-13 Telebirr Escrow (mock gateway + cron)
-- F-14 Fraud Detection (5 rules engine)
+- F-14 Fraud Detection (4 rules writing weighted signals; risk scoring not built, EPIC FRD)
 - F-15 Conflict Resolution UI
 - F-18 S3 Access Logging + Versioning
 

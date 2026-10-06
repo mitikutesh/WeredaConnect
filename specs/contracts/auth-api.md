@@ -1,7 +1,7 @@
 # Authentication API Contract
 
 ## Version
-2.3.0
+2.6.0
 
 ## Parties
 - **Mobile** (client) -- registers users, authenticates online/offline, manages cached tokens
@@ -526,8 +526,9 @@ After a successful online login or registration, the mobile client stores the fo
 | `AUTH_009` | 400 | OTP code missing (2.1.0) | Show validation error on the code field |
 | `AUTH_011` | 400 | OTP code format invalid, not 6 digits (2.1.0) | Show validation error on the code field |
 | `AUTH_012` | 400 | OTP code invalid, expired or attempts exhausted (2.1.0) | Offer resend |
-| `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0) | Ask for the password, log in again, retry |
-| `AUTH_041` | 403 | Fayda step-up required: a payment above 10,000 ETB needs a Fayda login within the step-up window; a password does not count (2.4.0) | Open the Fayda flow (`/user/fayda-start`, `/user/fayda-link`), retry |
+| `AUTH_040` | 403 | Step-up required: password older than the step-up window for this amount (2.1.0), or at any amount when the account's risk tier is MEDIUM or HIGH (2.6.0, planned FRD-04) | Ask for the password, log in again, retry |
+| `AUTH_041` | 403 | Fayda step-up required: a payment above 10,000 ETB needs a Fayda login within the step-up window; a password does not count (2.4.0). Also at any amount when the account's risk tier is HIGH, followed by `AUTH_040` on the retry (2.6.0, planned FRD-04) | Open the Fayda flow (`/user/fayda-start`, `/user/fayda-link`), retry |
+| `FRAUD_ACCOUNT_HELD` | 403 | The account is under fraud review (risk tier CRITICAL): the money or create action is refused and nothing is written (2.6.0, planned FRD-04). Owner: `specs/architecture/fraud-detection-architecture.md` section 17 | Show the message, do not retry, point to support |
 | `FAYDA_001` | 400 | Invalid or expired authorization code | Show error, offer retry |
 | `FAYDA_002` | 400 | State unknown, expired, reused or foreign; redirect or nonce mismatch (2.1.0) | Show error, restart Fayda flow |
 | `FAYDA_003` | 503 | Fayda service unavailable | Show "Fayda unavailable", suggest retry later |
@@ -797,6 +798,22 @@ tokens as a normal login, retry. On `AUTH_041` run the Fayda link flow as the ac
 (same rules as KYC, `FAYDA_005/006/007` on a different identity), then retry. A queued sync
 operation stays pending until then.
 
+**Risk tier** (2.6.0, planned FRD-04). The account's risk tier (`specs/architecture/fraud-detection-architecture.md`
+sections 14 to 17) raises the payment requirement at any amount:
+
+| Tier | Payment requirement | Codes |
+|------|---------------------|-------|
+| LOW | the amount tiers above | `AUTH_040` or `AUTH_041` as today |
+| MEDIUM | a fresh password at any amount, plus the Fayda login above 10,000 ETB | `AUTH_040`; above 10,000 ETB `AUTH_041` first, `AUTH_040` on the retry |
+| HIGH | a fresh Fayda login, then a fresh password, at any amount | `AUTH_041` first, `AUTH_040` on the retry |
+| CRITICAL | the payment is refused | `FRAUD_ACCOUNT_HELD` |
+
+Fayda is asked before the password because its round trip takes minutes and the password seconds,
+so both proofs stay inside the step-up window. The `AUTH_041` message becomes amount-neutral;
+clients key on the code only and never see the tier or the score. Disputes keep the `AUTH_040`
+rule above and are not tier-gated. `FRAUD_ACCOUNT_HELD` also refuses crop, trip and order create
+through `/sync` (`sync-protocol.md` 1.9.0).
+
 ### Server-driven Fayda OIDC
 
 | Endpoint | Auth | Body | Response |
@@ -861,6 +878,7 @@ so a failed or refused verification leaves the payment blocked.
 |---------|------|--------|
 | 1.0.0 | 2026-02-12 | Initial contract: registration, OTP, login, refresh, logout, offline auth, rate limits |
 | 2.0.0 | 2026-03-02 | Replace SMS OTP with Fayda OIDC: add `POST /auth/fayda-verify`, remove `POST /auth/verify-otp`, registration returns tokens directly, add FAYDA_001-004 error codes, remove AUTH_009-012 |
+| 2.6.0 | 2026-10-06 | Risk tier step-up (planned FRD-04): `AUTH_040` at any amount for MEDIUM, `AUTH_041` then `AUTH_040` at any amount for HIGH, new `FRAUD_ACCOUNT_HELD` (403) for CRITICAL on payments and on crop, trip and order create; `AUTH_041` text amount-neutral; header version corrected (it read 2.3.0 while the footer read 2.4.0) |
 | 2.4.0 | 2026-09-29 | Payment step-up is tiered: up to 10,000 ETB a fresh password (`AUTH_040`, now on every payment, not only large ones); above 10,000 ETB a fresh Fayda login instead (`AUTH_041`), recorded by each successful `POST /user/fayda-link`. Disputes unchanged |
 | 2.3.0 | 2026-09-29 | `POST /user/fayda-link` binds only the account owner's identity: same Fayda ID as on file, else a Fayda phone equal to the account phone; `FAYDA_005` (different Fayda ID), `FAYDA_006` (phone mismatch), `FAYDA_007` (no phone claim, nothing to compare), all `403` with no write |
 | 2.2.0 | 2026-09-28 | Registration requires Fayda: `POST /auth/register` without a `faydaVerificationToken` returns `400 AUTH_021`; the app has no skip on the Fayda step and retries transient Fayda failures before showing an error; the server retries Fayda's token endpoint while the code cannot have been used (connection refused, 502/503/504) and reports any Fayda 5xx as `FAYDA_003` instead of `FAYDA_001`; a Fayda ID held only by an abandoned sign-up (profile phone unverified and Cognito user unconfirmed or gone) no longer blocks `fayda-verify` or `register` with `FAYDA_004`: register replaces it |
@@ -868,5 +886,5 @@ so a failed or refused verification leaves the payment blocked.
 
 ---
 
-**Last Updated**: 2026-09-29
-**Version**: 2.4.0
+**Last Updated**: 2026-10-06
+**Version**: 2.6.0

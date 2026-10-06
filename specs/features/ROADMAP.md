@@ -12,7 +12,7 @@
 | **R3: Sync + First Feature** | ✅ COMPLETE | Feb 15, 2026 (2 weeks early) |
 | **R4: Complete Transaction Flow** | ⚙️ IN PROGRESS (~95%) | Target: Apr-May 2026 |
 
-**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution UI, browse listings from server, trip listings (create/browse/filter with offline sync), full delivery verification (QR + GPS + photo upload), Telebirr escrow payments (initiate, status, history, disputes), fraud detection (5 rules engine), role-based navigation, voice note recording/playback, data isolation, profile management, 3 languages, 611 server tests passing, ~345 mobile tests passing.
+**What works today**: Register/login (online+offline), create crop listings offline, auto-sync when online, conflict resolution UI, browse listings from server, trip listings (create/browse/filter with offline sync), full delivery verification (QR + GPS + photo upload), Telebirr escrow payments (initiate, status, history, disputes), fraud detection (4 rules writing weighted signals; risk scoring not built, EPIC FRD), role-based navigation, voice note recording/playback, data isolation, profile management, 3 languages, 611 server tests passing, ~345 mobile tests passing.
 
 **Full feature scoring for all 31 features**: see [BACKLOG.md](BACKLOG.md)
 
@@ -38,7 +38,7 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 | R4.1 | F-11: Trip listing flow | 13 | ✅ COMPLETE | Transport marketplace |
 | R4.2 | F-12: Delivery verification (QR + GPS) | 16 | ✅ COMPLETE (server + mobile + photo upload endpoint) | Trust mechanism |
 | R4.3 | F-13: Telebirr escrow integration | 19 | ✅ COMPLETE (server + 20 integration tests, mobile UI & unit tests) | Revenue |
-| R4.4 | F-14: Fraud detection checks | 13 | ✅ COMPLETE (server 5-rules engine + mobile error handling) | Platform safety |
+| R4.4 | F-14: Fraud detection checks | 13 | ⚠️ PARTIAL (4 rules writing weighted signals + mobile error handling; risk scoring, tiers and holds not built, EPIC FRD) | Platform safety |
 | R4.5 | F-15: Conflict resolution UI | 10 | ✅ COMPLETE (resolver + notification service + UI + 49 tests) | User experience |
 | R4.6 | F-18: S3 access logging + versioning | 3 | ✅ COMPLETE | Audit trail |
 
@@ -47,7 +47,7 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 - ⚠️ System suggests matching crop listings for a trip route (basic — same woreda matching)
 - ✅ QR code generated at pickup, scanned at delivery, GPS captured at both
 - ✅ Telebirr escrow holds funds on buyer confirmation, releases on verified delivery
-- ✅ Fraud detection flags suspicious activity (5 rules: duplicate detection, price anomaly, velocity limits, GPS consistency, risk scoring)
+- ⚠️ Fraud detection flags suspicious activity (4 rules: duplicate detection, price anomaly, velocity limits, GPS consistency); risk scoring is designed in fraud-detection-architecture.md v3, not built (EPIC FRD)
 - ✅ Sync conflicts show user-friendly resolution UI
 - ✅ S3 uploads bucket has access logging and versioning enabled
 
@@ -109,5 +109,5 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 **Document Version**: 2.4.0
 **Created**: 2026-02-11
-**Last Updated**: 2026-02-24 (R4 ~95% — all 6 features complete, merge + deploy remaining)
+**Last Updated**: 2026-10-06 (F-14 status corrected: risk scoring not built, EPIC FRD); 2026-02-24 (R4 ~95%, all 6 features complete, merge + deploy remaining)
 **Completed task history**: See `docs/archive/completed-tasks.md`
