@@ -290,6 +290,74 @@ void main() {
     });
   });
 
+  // SIM-60: a local file path never travels in the sync op (the server accepts
+  // only its own upload key and refuses the whole op otherwise); same rule as
+  // the mobile repository.
+  group('photo refs in the sync op', () {
+    setUp(() {
+      // The version read-back falls back to 1 when the GET fails.
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .thenThrow(Exception('offline'));
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+    });
+
+    Map<String, dynamic> sentData() => sentOp()['data'] as Map<String, dynamic>;
+
+    test('confirmPickup omits a local photo path', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        photoRef:
+            '/data/user/0/app/files/photos/del-1/pickup-1700000000000.webp',
+      );
+
+      expect(sentData()['status'], 'pickedUp');
+      expect(sentData().containsKey('pickupPhotoRef'), isFalse);
+    });
+
+    test('confirmPickup sends a server photo key', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        photoRef: 'uploads/photos/del-1/pickup-1700000000000.webp',
+      );
+
+      expect(
+        sentData()['pickupPhotoRef'],
+        'uploads/photos/del-1/pickup-1700000000000.webp',
+      );
+    });
+
+    test('confirmDelivery omits a local photo path', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef:
+            '/data/user/0/app/files/photos/del-1/dropoff-1700000000000.webp',
+      );
+
+      expect(sentData()['status'], 'delivered');
+      expect(sentData().containsKey('dropoffPhotoRef'), isFalse);
+    });
+
+    test('confirmDelivery sends a server photo key', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.webp',
+      );
+
+      expect(
+        sentData()['dropoffPhotoRef'],
+        'uploads/photos/del-1/dropoff-1700000000000.webp',
+      );
+    });
+  });
+
   test('a deferred pickup throws instead of reporting success', () async {
     // The version read-back falls back to 1 when the GET fails.
     when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))

@@ -1239,6 +1239,32 @@ public class DeliveryFunctionTests
     }
 
     [Fact]
+    public async Task HandleUploadPhoto_ResponseMatchesContract()
+    {
+        // delivery-verification-api.md section 4 (1.7.0): JSON {type} in, a pre-signed PUT
+        // out, and the photoRef is the key the sync photo-ref guard accepts.
+        var delivery = CreateDeliveryItem("del-001");
+        _mockDeliveryRepo.GetByIdAsync("del-001").Returns(delivery);
+        _mockS3.GetPreSignedURL(Arg.Any<GetPreSignedUrlRequest>())
+            .Returns("https://s3.amazonaws.com/test-bucket/presigned-url");
+
+        var request = MakePhotoUploadRequest("farmer-123", "del-001", "{\"type\":\"pickup\"}");
+        var response = await _functionWithS3.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(response.Body);
+        var root = doc.RootElement;
+        Assert.Equal(
+            new[] { "expiresInSeconds", "issuedAt", "photoRef", "uploadUrl" },
+            root.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal("https://s3.amazonaws.com/test-bucket/presigned-url", root.GetProperty("uploadUrl").GetString());
+        Assert.Matches(@"^uploads/photos/del-001/pickup-\d+\.webp$", root.GetProperty("photoRef").GetString());
+        Assert.True(DateTime.TryParse(root.GetProperty("issuedAt").GetString(), null,
+            System.Globalization.DateTimeStyles.RoundtripKind, out _));
+        Assert.Equal(900, root.GetProperty("expiresInSeconds").GetInt32());
+    }
+
+    [Fact]
     public async Task HandleUploadPhoto_DropoffType_ReturnsPresignedUrl()
     {
         var delivery = CreateDeliveryItem("del-001");

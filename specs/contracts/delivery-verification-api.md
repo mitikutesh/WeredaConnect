@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.6.1
+1.7.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -115,7 +115,7 @@ moves a `delivered` order to `disputed` and freezes the escrow behind the delive
           "latitude": 9.6778,
           "longitude": 39.5318
         },
-        "pickupPhotoRef": "photos/del-101/pickup-1708084900000.webp",
+        "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
         "pickedUpAt": "2026-02-18T08:15:00Z"
       },
       "timestamp": "2026-02-18T08:15:00Z"
@@ -142,7 +142,7 @@ moves a `delivered` order to `disputed` and freezes the escrow behind the delive
           "latitude": 9.0054,
           "longitude": 38.7636
         },
-        "dropoffPhotoRef": "photos/del-101/dropoff-1708171200000.webp",
+        "dropoffPhotoRef": "uploads/photos/del-101/dropoff-1708171200000.webp",
         "confirmedAt": "2026-02-19T08:00:00Z"
       },
       "timestamp": "2026-02-19T08:00:00Z"
@@ -298,7 +298,7 @@ GET /deliveries/del-101
     "longitude": 39.5318
   },
   "gpsDropoff": null,
-  "pickupPhotoRef": "photos/del-101/pickup-1708084900000.webp",
+  "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
   "dropoffPhotoRef": null,
   "pickedUpAt": "2026-02-18T08:15:00Z",
   "confirmedAt": null,
@@ -322,38 +322,55 @@ GET /deliveries/del-101
 ### 4. Upload Photo Evidence
 **Method**: POST /deliveries/{id}/photos
 **Authentication**: Required (only delivery participants)
-**Content-Type**: multipart/form-data
+**Content-Type**: application/json
+
+The server does not receive the file. It issues a pre-signed S3 `PUT` URL and the key the
+photo will live at; the client uploads the WebP straight to S3 and then sends the key as
+`pickupPhotoRef` / `dropoffPhotoRef` in a delivery sync operation (section 1). This was
+documented as `multipart/form-data` with a `photo` file before 1.7.0; the server never
+worked that way.
 
 **Request Body**:
+```json
+{ "type": "pickup" }
+```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `photo` | file (WebP) | Yes | Photo evidence file |
 | `type` | string | Yes | `pickup` or `dropoff` |
 
-**Constraints**:
-- Format: WebP only (best compression for 3G)
+**Response (200)**:
+```json
+{
+  "uploadUrl": "https://<uploads-bucket>.s3.<region>.amazonaws.com/uploads/photos/del-101/pickup-1708084900000.webp?X-Amz-...",
+  "photoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
+  "issuedAt": "2026-02-18T08:15:30Z",
+  "expiresInSeconds": 900
+}
+```
+
+**Upload**: `PUT uploadUrl` with `Content-Type: image/webp` and the file as the body, within
+`expiresInSeconds` (15 minutes). Then include `photoRef` in the next delivery update op.
+
+**Constraints** (client-side; the server does not inspect the object):
+- Format: WebP only (best compression for 3G); the pre-signed URL is bound to `image/webp`
 - Max width: 800px (auto-resized client-side)
 - Max file size: 200KB
 - Max photos per delivery: 3 per type (pickup/dropoff)
 
-**Response**:
-```json
-{
-  "photoRef": "photos/del-101/pickup-1708084900000.webp",
-  "uploadedAt": "2026-02-18T08:15:30Z"
-}
-```
-
-**Offline Behavior**: Photos are stored locally in Isar as base64 blobs (or filesystem reference). When connectivity is available, they are uploaded via this endpoint. The `photoRef` in the delivery record is updated via the next sync operation.
+**Client status (1.7.0)**: the shipped mobile and web apps do not call this endpoint yet
+(upload is FRD-12). The camera screen keeps the captured photo's local path on the device
+(`{appDir}/photos/{deliveryId}/{type}-{ms}.webp`) and the delivery repositories send a
+photo ref only when it is a server key for that delivery, so attaching a photo never
+blocks a pickup or delivery confirmation. Before 1.7.0 the local path was sent and the
+server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 
 **Error Codes**:
-- `400 Bad Request` -- Invalid format, file too large, wrong content type
-- `401 Unauthorized` -- Authentication required
-- `403 Forbidden` -- User is not a participant in this delivery
-- `413 Payload Too Large` -- File exceeds 200KB
-- `429 Too Many Requests` -- Rate limit exceeded
-- `500 Internal Server Error` -- Server-side failure
+- `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`
+- `401 DELIVERY_UNAUTHORIZED` -- authentication required
+- `403 DELIVERY_UNAUTHORIZED` -- user is not a participant in this delivery
+- `404 DELIVERY_NOT_FOUND` -- delivery not found or cancelled
+- `500 DELIVERY_SERVER_ERROR` -- upload bucket not configured or S3 failure
 
 ---
 
@@ -380,8 +397,8 @@ GET /deliveries/del-101
 | `status` | enum | Yes | See Status Types | Delivery lifecycle status |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
 | `gpsDropoff` | LatLng | No | -- | GPS coordinates at dropoff (null until delivered) |
-| `pickupPhotoRef` | string | No | S3 key | Photo evidence at pickup |
-| `dropoffPhotoRef` | string | No | S3 key | Photo evidence at dropoff |
+| `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.webp`, the key from section 4 | Photo evidence at pickup; any other value fails the op (1.7.0) |
+| `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.webp`, the key from section 4 | Photo evidence at dropoff; any other value fails the op (1.7.0) |
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
@@ -566,6 +583,8 @@ Deliveries without GPS evidence are flagged as `requires_review` in server metad
 
 Photo evidence is **optional but encouraged**. It provides visual proof of crop condition at pickup and delivery, critical for dispute resolution.
 
+These are client-side rules. The server enforces only the key shape (section 4 and Validation Rules, item 8), not the size, width or count.
+
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
 | Format | WebP | Best compression ratio for 3G upload |
@@ -579,19 +598,17 @@ Photo evidence is **optional but encouraged**. It provides visual proof of crop 
 1. Camera captures JPEG on device
 2. Client resizes to max 800px width
 3. Client converts to WebP at 75% quality
-4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp`
-5. Isar delivery record updated with local file path
-6. Photo added to upload queue (separate from sync queue)
+4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp` (`-fb` suffix for the fallback quality)
+5. Isar delivery record keeps the local file path in `pickupPhotoRef` / `dropoffPhotoRef`; it is never sent to the server (1.7.0)
+6. Upload queue: planned (FRD-12), not shipped. A later server pull of the delivery overwrites the Isar field with the server value, so FRD-12 needs its own queue entry rather than this field
 
-### Upload Flow
+### Upload Flow (FRD-12, planned)
 
 When connectivity is available:
-1. Upload photo via `POST /deliveries/{id}/photos`
-2. Server stores in S3: `uploads/photos/{deliveryId}/{type}-{timestamp}.webp`
-3. Server returns `photoRef` (S3 key)
-4. Client updates local Isar record with server `photoRef`
-5. Client deletes local file after successful upload
-6. Next sync operation includes the `photoRef` in delivery data
+1. `POST /deliveries/{id}/photos` with `{ "type": ... }` (section 4) returns `uploadUrl` + `photoRef`
+2. `PUT` the WebP to `uploadUrl` with `Content-Type: image/webp` within 15 minutes
+3. Next delivery sync update op carries `pickupPhotoRef` / `dropoffPhotoRef` = `photoRef`
+4. Client deletes the local file once the sync op is applied
 
 ### S3 Storage
 
@@ -634,9 +651,9 @@ When connectivity is available:
    - Only valid transitions allowed (see Status Transitions above)
    - Invalid transitions return `422 Unprocessable Entity`
    - Dispute must be raised within 48 hours of `confirmedAt`
-8. **Photo References**:
-   - If provided, must reference an existing S3 object
-   - Max 3 photos per type (pickup/dropoff)
+8. **Photo References** (sync, create and update):
+   - `pickupPhotoRef` / `dropoffPhotoRef` must be exactly `uploads/photos/{deliveryId}/(pickup|dropoff)-{ms}.webp` for the operation's own delivery (the key section 4 issued). Anything else, including a local file path, another delivery's key or the pre-1.7.0 `photos/...` shape, fails the whole operation with `DELIVERY_INVALID_FIELD: <field> has invalid format.` (FIX-011, path traversal)
+   - The server does not check that the S3 object exists, its size, or the count per type (client-side rules)
 9. **Participant Authorization**:
    - Only the order's matched trucker can create a delivery and confirm pickup; the buyer creates self-pickup deliveries (v1.3.0)
    - Only the buyer can confirm delivery
@@ -652,7 +669,7 @@ When connectivity is available:
 - Show localized error messages in user's preferred language (Amharic, Afan Oromo, English)
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
 - Display GPS proximity result immediately after capture (green check if within 5km, red warning if outside)
-- Compress photos to WebP <200KB before adding to upload queue
+- Compress photos to WebP <200KB before uploading (FRD-12)
 
 ---
 
@@ -892,9 +909,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.6.0 | 2026-09-29 | Nonce-only farmer update: secret stored, delivery record not written, version unchanged; web clients register the nonce when the QR opens. |
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
+| 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
 
 ---
 
 **Last Updated**: 2026-10-06
-**Version**: 1.6.1
+**Version**: 1.7.0
 **Status**: Draft (Phase R4.2)
