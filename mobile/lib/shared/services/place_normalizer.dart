@@ -1,4 +1,4 @@
-/// Text normalization for place search.
+/// Text normalization for place search and place matching.
 ///
 /// Latin input is lowercased and stripped of common accents/diacritics so that
 /// e.g. "Ādīs" matches "adis". Non-Latin scripts — notably Ge'ez (Amharic) and
@@ -54,4 +54,68 @@ Map<int, String> _buildFold() {
     }
   });
   return map;
+}
+
+/// Canonical comparison key for free-text woreda / place names.
+///
+/// Place strings reach the matcher from sources that never agree on spelling:
+/// the place picker writes the GeoNames form ("Ādama"), quick-fill chips and
+/// manual typing write whatever the user entered ("Adama", "Adama, Oromia",
+/// "adama "), and synced records carry all of the above. This is the ONE rule
+/// every woreda comparison goes through (trip suggestions, the geo proxy in
+/// `MatchScorer`, centroid lookup). The server mirrors it in
+/// `server/src/Helpers/WoredaNames.cs`; keep the two in lockstep.
+///
+/// 1. keep only the place segment before a `, Region` / `(Region)` suffix
+///    (Latin or Ethiopic comma, round or square bracket);
+/// 2. lowercase, fold Latin diacritics and collapse whitespace
+///    ([normalizeForSearch]);
+/// 3. drop apostrophes (GeoNames "Debre Mark’os") and treat hyphens, slashes
+///    and underscores as spaces.
+///
+/// Ge'ez passes through verbatim, so Amharic input still matches Amharic data.
+String normalizeWoreda(String input) {
+  var s = input;
+  final cut = s.indexOf(_woredaSuffixStart);
+  if (cut >= 0) s = s.substring(0, cut);
+  s = normalizeForSearch(s);
+  s = s.replaceAll(_woredaApostrophes, '').replaceAll(_woredaSeparators, ' ');
+  return s.replaceAll(_whitespace, ' ').trim();
+}
+
+/// Start of a disambiguating suffix: `,` or `፣` (Ethiopic comma), `(`, `[`.
+final RegExp _woredaSuffixStart = RegExp(r'[,፣(\[]');
+
+/// Straight and typographic apostrophes, the modifier letter apostrophe used
+/// by GeoNames transliterations, and the backtick.
+final RegExp _woredaApostrophes = RegExp("['‘’ʼ`]");
+
+final RegExp _woredaSeparators = RegExp(r'[-_/]');
+
+/// How two free-text woreda names relate once normalised.
+enum WoredaMatch { none, partial, exact }
+
+/// Compares two raw woreda names after [normalizeWoreda].
+///
+/// `exact` when the keys are equal; `partial` when every word of the shorter
+/// name appears as a whole word in the longer one ("Adama" vs "Adama Zone",
+/// "Sodo" vs "Wolaita Sodo"); `none` otherwise, including when either side
+/// is blank. Whole-word containment replaces the raw substring rule, which
+/// matched "Ambo" inside "Gambo".
+WoredaMatch compareWoredas(String a, String b) =>
+    compareWoredaKeys(normalizeWoreda(a), normalizeWoreda(b));
+
+/// [compareWoredas] for keys that were already passed through
+/// [normalizeWoreda]. Lets a caller normalise a fixed side once when
+/// comparing it against many candidates.
+WoredaMatch compareWoredaKeys(String keyA, String keyB) {
+  if (keyA.isEmpty || keyB.isEmpty) return WoredaMatch.none;
+  if (keyA == keyB) return WoredaMatch.exact;
+  final wordsA = keyA.split(' ');
+  final wordsB = keyB.split(' ');
+  final (shorter, longer) =
+      wordsA.length <= wordsB.length ? (wordsA, wordsB) : (wordsB, wordsA);
+  return shorter.every(longer.contains)
+      ? WoredaMatch.partial
+      : WoredaMatch.none;
 }

@@ -67,6 +67,9 @@ public static class MatchScoring
     public const int FreshFloorDays = 30;
     public const double FreshFloor = 0.3;
     public const double GeoNeutral = 0.3;
+
+    /// <summary>Geo score for a whole-word partial match of the two woreda names.</summary>
+    public const double GeoPartial = 0.6;
     public const double GeoHalfScoreKm = 50.0;
 
     /// <summary>Reliability assumed for a farmer with no track record.</summary>
@@ -231,27 +234,18 @@ public static class MatchScoring
         return Math.Abs(la) <= 90 && Math.Abs(lo) <= 180;
     }
 
+    /// <summary>
+    /// Woreda-string proximity proxy. Both names go through the shared
+    /// <see cref="WoredaNames"/> rule, so "Ādama", "Adama, Oromia" and "adama"
+    /// are the same place; the Dart MatchScorer applies the identical rule.
+    /// </summary>
     private static double WoredaProxyScore(string? deliveryWoreda, string? cropLocationName)
-    {
-        var crop = (cropLocationName ?? string.Empty).Trim().ToLowerInvariant();
-        var dest = (deliveryWoreda ?? string.Empty).Trim().ToLowerInvariant();
-        if (crop.Length == 0 || dest.Length == 0)
+        => WoredaNames.Compare(deliveryWoreda, cropLocationName) switch
         {
-            return GeoNeutral;
-        }
-
-        if (crop == dest)
-        {
-            return 1.0;
-        }
-
-        if (crop.Contains(dest) || dest.Contains(crop))
-        {
-            return 0.6;
-        }
-
-        return GeoNeutral;
-    }
+            WoredaMatch.Exact => 1.0,
+            WoredaMatch.Partial => GeoPartial,
+            _ => GeoNeutral,
+        };
 
     /// <summary>Great-circle distance in kilometres (Haversine, WGS-84 mean radius).</summary>
     private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)

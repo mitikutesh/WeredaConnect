@@ -2,6 +2,7 @@ import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_distance_service.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 
 /// Pure, platform-agnostic relevance scoring for buyer intent matching.
 ///
@@ -64,10 +65,14 @@ class MatchScorer {
   static const double freshFloor = 0.3;
 
   /// Geo score floor returned when either location name is unknown/empty, or
-  /// when the two woreda strings share no substring. Closer textual matches
-  /// score higher (exact = 1.0, partial overlap = 0.6); transport handles the
-  /// distance, so a fully-different woreda is a floor, not a hard reject.
+  /// when the two woreda names share no whole word after [normalizeWoreda].
+  /// Closer textual matches score higher (same place = 1.0, whole-word
+  /// overlap = 0.6); transport handles the distance, so a fully-different
+  /// woreda is a floor, not a hard reject.
   static const double geoNeutral = 0.3;
+
+  /// Geo score for a whole-word partial match of the two woreda names.
+  static const double geoPartial = 0.6;
 
   /// Distance (km) at which the haversine geo score decays to 0.5
   /// (`score = 1 / (1 + km / geoHalfScoreKm)`). Tuned for Ethiopian
@@ -173,13 +178,18 @@ class MatchScorer {
     return coord.latitude.abs() <= 90 && coord.longitude.abs() <= 180;
   }
 
+  /// Woreda-string proximity proxy. Both names go through the shared
+  /// [normalizeWoreda] rule, so "Ādama", "Adama, Oromia" and "adama" are the
+  /// same place; the server's MatchScoring applies the identical rule.
   double _woredaProxyScore(BuyerIntent intent, CropListing listing) {
-    final crop = listing.locationName.trim().toLowerCase();
-    final dest = intent.deliveryWoreda.trim().toLowerCase();
-    if (crop.isEmpty || dest.isEmpty) return geoNeutral;
-    if (crop == dest) return 1.0;
-    if (crop.contains(dest) || dest.contains(crop)) return 0.6;
-    return geoNeutral;
+    switch (compareWoredas(intent.deliveryWoreda, listing.locationName)) {
+      case WoredaMatch.exact:
+        return 1.0;
+      case WoredaMatch.partial:
+        return geoPartial;
+      case WoredaMatch.none:
+        return geoNeutral;
+    }
   }
 
   double freshnessScore(CropListing listing, DateTime now) {
