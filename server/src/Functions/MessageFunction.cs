@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
@@ -13,7 +15,10 @@ namespace WeredaConnect.Server.Functions;
 /// Endpoints:
 /// - GET /messages?conversationId=X - a conversation thread (newest first)
 /// - GET /messages?since=T          - sync-down pull of messages to/from the
-///                                    caller with createdAt &gt; T (oldest first)
+///                                    caller with createdAt &gt; T (oldest first).
+///                                    T is empty (full pull), yyyy-MM-dd, or a UTC
+///                                    yyyy-MM-ddTHH:mm:ss[.fraction]Z timestamp.
+///                                    T is ignored when conversationId is present.
 /// - GET /messages/{id}             - a single message by id
 ///
 /// Authorization: a caller may only see messages they sent or received. The
@@ -21,15 +26,22 @@ namespace WeredaConnect.Server.Functions;
 /// another pair's conversationId yields nothing.
 ///
 /// Error codes:
-/// - 400: MESSAGE_VALIDATION - Invalid/missing parameters
+/// - 400: MESSAGE_VALIDATION - Invalid/missing parameters (including a since
+///                             value that is not one of the accepted forms)
 /// - 401: UNAUTHORIZED       - Not authenticated
 /// - 403: MESSAGE_FORBIDDEN  - Message not addressed to / from the caller
 /// - 404: MESSAGE_NOT_FOUND  - Message does not exist
 /// - 500: MESSAGE_SERVER_ERROR - Unexpected server failure
 /// </summary>
-public class MessageFunction
+public partial class MessageFunction
 {
     private readonly IMessageRepository _messageRepo;
+
+    // Whole-string match: `\z` (not `$`) so a trailing newline is rejected.
+    // Only UTC `Z` timestamps, because the cursor is compared as text against
+    // stored UTC `Z` createdAt values.
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z)?\z")]
+    private static partial Regex SinceCursorRegex();
 
     /// <summary>Default constructor for the Lambda runtime.</summary>
     public MessageFunction()
@@ -91,6 +103,13 @@ public class MessageFunction
 
             if (hasSince || queryParams.ContainsKey("since"))
             {
+                if (!IsValidSinceCursor(since))
+                {
+                    return LambdaResponse.Error(400, "MESSAGE_VALIDATION",
+                        "since must be an ISO 8601 UTC timestamp (e.g. 2026-07-09T10:00:00.000Z), " +
+                        "a yyyy-MM-dd date, or empty for a full pull.");
+                }
+
                 return await HandlePullAsync(authenticatedUserId, since);
             }
 
@@ -146,6 +165,28 @@ public class MessageFunction
             NextToken = lastKey != null ? PaginationTokenHelper.EncodeNextToken(lastKey) : null
         };
         return LambdaResponse.Ok(response, AppJsonContext.Default.GetMessagesResponse);
+    }
+
+    /// <summary>
+    /// True when <paramref name="since"/> is a usable pull cursor: null or empty
+    /// (full pull), a yyyy-MM-dd date, or a UTC yyyy-MM-ddTHH:mm:ss[.f{1,7}]Z
+    /// timestamp that is also a real instant (rejects 2026-02-30, 25:00:00).
+    /// The value is passed to the repository unchanged, so it stays
+    /// byte-identical to what the client sent.
+    /// </summary>
+    internal static bool IsValidSinceCursor(string? since)
+    {
+        if (string.IsNullOrEmpty(since))
+        {
+            return true;
+        }
+
+        return SinceCursorRegex().IsMatch(since)
+               && DateTime.TryParse(
+                   since,
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                   out _);
     }
 
     /// <summary>Return everything to/from the caller since a timestamp (sync-down pull).</summary>

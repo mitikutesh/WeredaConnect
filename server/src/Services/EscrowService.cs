@@ -1795,19 +1795,28 @@ public sealed class EscrowService
     /// <summary>
     /// SIM-12: mirror an escrow dispute onto the linked delivery (delivered -> disputed)
     /// and order (delivered -> disputed). Best-effort: the dispute itself is already
-    /// recorded and audited; a propagation failure is written to the escrow audit ledger
-    /// as <c>dispute_propagation_failed</c> so the admin timeline shows it, and never
-    /// surfaces as a failed dispute. The order id comes from the escrow record, or from
-    /// the delivery when an older escrow carries none.
+    /// recorded and audited, so a propagation failure never surfaces as a failed dispute.
+    /// The order id comes from the escrow record, or from the delivery when an older
+    /// escrow carries none.
+    /// SIM-47: the delivery and order legs run independently, so one failing leg never
+    /// skips the other. The order write uses a consistent read and retries a version
+    /// conflict (3 attempts in all); a missing order or one that is no longer
+    /// <c>delivered</c> is nothing to do. A failed leg is logged as
+    /// <c>DISPUTE_PROPAGATION_FAILED</c> and written to the escrow audit ledger as
+    /// <c>dispute_propagation_failed</c> with <c>metadata = legs=&lt;leg&gt;:&lt;reason&gt;</c>
+    /// so the admin timeline shows which leg failed and why.
     /// </summary>
     private async Task TryPropagateDisputeAsync(
         Dictionary<string, object> escrowItem, string escrowId, string disputedBy, string reason)
     {
         var deliveryId = GetStringOrNull(escrowItem, "deliveryId");
         var orderId = GetStringOrNull(escrowItem, "orderId");
-        try
+        var failures = new List<string>();
+        const int maxOrderAttempts = 3;
+
+        if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
         {
-            if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
+            try
             {
                 if (string.IsNullOrEmpty(orderId))
                 {
@@ -1815,29 +1824,75 @@ public sealed class EscrowService
                     orderId = delivery != null ? GetStringOrNull(delivery, "orderId") : null;
                 }
 
+                // False means the delivery is missing or not delivered: nothing to mirror.
                 await _deliveryRepo.TryMarkDisputedAsync(deliveryId, disputedBy, reason);
             }
-
-            if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
+            catch (Exception ex)
             {
-                var order = await _orderRepo.GetByIdAsync(orderId);
-                if (order != null && GetString(order, "status") == "delivered")
-                {
-                    await _orderRepo.UpdateAsync(
-                        orderId, new Dictionary<string, object> { { "status", "disputed" } }, GetInt(order, "version"));
-                }
+                failures.Add($"delivery:[{ex.GetType().Name}]");
             }
         }
-        catch (Exception)
+
+        if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
         {
             try
             {
-                await AppendAuditAsync(escrowId, "dispute_propagation_failed", "disputed", "disputed", disputedBy);
+                string? orderFailure = "conflict";
+                for (var attempt = 0; attempt < maxOrderAttempts; attempt++)
+                {
+                    var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                    if (order == null || GetString(order, "status") != "delivered")
+                    {
+                        // Missing, not delivered yet, or already moved on (for example a
+                        // concurrent writer marked it disputed): nothing to mirror.
+                        orderFailure = null;
+                        break;
+                    }
+
+                    var update = await _orderRepo.UpdateAsync(
+                        orderId, new Dictionary<string, object> { { "status", "disputed" } }, GetInt(order, "version"));
+                    if (update.IsSuccess)
+                    {
+                        orderFailure = null;
+                        break;
+                    }
+
+                    if (update.Error?.HttpStatus != 409)
+                    {
+                        orderFailure = update.Error?.Code ?? "unknown";
+                        break;
+                    }
+                }
+
+                if (orderFailure != null)
+                {
+                    failures.Add($"order:{orderFailure}");
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // The ledger write itself failed; the dispute is still recorded on the escrow.
+                failures.Add($"order:[{ex.GetType().Name}]");
             }
+        }
+
+        if (failures.Count == 0)
+        {
+            return;
+        }
+
+        var legs = string.Join(",", failures);
+        Console.WriteLine(
+            $"DISPUTE_PROPAGATION_FAILED escrowId={escrowId} orderId={orderId} deliveryId={deliveryId} legs={legs}");
+        try
+        {
+            await AppendAuditAsync(
+                escrowId, "dispute_propagation_failed", "disputed", "disputed", disputedBy, metadata: $"legs={legs}");
+        }
+        catch (Exception ex)
+        {
+            // The ledger write itself failed; the dispute is still recorded on the escrow.
+            Console.WriteLine(
+                $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={escrowId} reason=[{ex.GetType().Name}]");
         }
     }
 

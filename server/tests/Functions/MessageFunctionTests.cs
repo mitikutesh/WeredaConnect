@@ -126,6 +126,103 @@ public class MessageFunctionTests
         Assert.Contains("MESSAGE_VALIDATION", response.Body);
     }
 
+    private void StubEmptyPull()
+    {
+        _messages.QueryByRecipientSinceAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _messages.QueryBySenderSinceAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+    }
+
+    // SIM-34: a non-ISO (or non-UTC) since cursor used to answer 200 with the
+    // wrong window, because DynamoDB compares it as plain text.
+    [Theory]
+    [InlineData("not-a-date")]
+    [InlineData("yesterday")]
+    [InlineData("1727740800")]
+    [InlineData("10/01/2026")]
+    [InlineData(" ")]
+    [InlineData("2026-13-45T00:00:00Z")]
+    [InlineData("2026-02-30")]
+    [InlineData("2026-07-09T25:00:00Z")]
+    [InlineData("2026-07-09T10:00:00")]
+    [InlineData("2026-07-09T10:00:00+03:00")]
+    [InlineData("2026-07-09T10:00Z")]
+    [InlineData("2026-07-09T10:00:00Z\n")]
+    [InlineData("2026-07-09\n")]
+    [InlineData("٢٠٢٦-07-09")]
+    public async Task Pull_InvalidSince_Returns400AndDoesNotQuery(string since)
+    {
+        var response = await _fn.FunctionHandler(
+            Get(query: new Dictionary<string, string> { { "since", since } }),
+            _ctx);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("MESSAGE_VALIDATION", response.Body);
+        await _messages.DidNotReceive().QueryByRecipientSinceAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>());
+        await _messages.DidNotReceive().QueryBySenderSinceAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("2026-07-09T00:00:00Z")]
+    [InlineData("2026-07-09T10:00:00.000Z")]
+    [InlineData("2026-07-09T10:00:00.123456Z")]
+    [InlineData("2026-07-09")]
+    public async Task Pull_ValidSince_PassesCursorThroughUnchanged(string since)
+    {
+        StubEmptyPull();
+
+        var response = await _fn.FunctionHandler(
+            Get(query: new Dictionary<string, string> { { "since", since } }),
+            _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        await _messages.Received(1).QueryByRecipientSinceAsync("buyer-1", since, Arg.Any<int>());
+        await _messages.Received(1).QueryBySenderSinceAsync("buyer-1", since, Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Pull_EmptySince_IsFullPull()
+    {
+        // Recipient bootstrap: an empty cursor means no lower bound.
+        StubEmptyPull();
+
+        var response = await _fn.FunctionHandler(
+            Get(query: new Dictionary<string, string> { { "since", "" } }),
+            _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        await _messages.Received(1).QueryByRecipientSinceAsync("buyer-1", "", Arg.Any<int>());
+        await _messages.Received(1).QueryBySenderSinceAsync("buyer-1", "", Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Thread_IgnoresSince()
+    {
+        _messages.QueryByConversationAsync(Arg.Any<string>(),
+                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { Item() },
+                (Dictionary<string, AttributeValue>?)null));
+
+        var response = await _fn.FunctionHandler(
+            Get(query: new Dictionary<string, string>
+            {
+                { "conversationId", "c" },
+                { "since", "garbage" },
+            }),
+            _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        await _messages.Received(1).QueryByConversationAsync(
+            "c", Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _messages.DidNotReceive().QueryByRecipientSinceAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>());
+        await _messages.DidNotReceive().QueryBySenderSinceAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task Unauthenticated_Returns401()
     {

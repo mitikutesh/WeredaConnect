@@ -36,6 +36,8 @@ public sealed record SyncOperationRequest
     /// <summary>
     /// Idempotency key to prevent duplicate processing on retry.
     /// Format: {userId}:{entityType}:{entityId}:{action}:{timestamp}
+    /// The server scopes it to the authenticated caller before lookup and storage
+    /// (Helpers.SyncIdempotencyKey), so the {userId} segment is not trusted.
     /// </summary>
     public required string IdempotencyKey { get; init; }
 

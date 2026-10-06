@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -20,8 +21,11 @@ class FakeOrderEvent extends Fake implements OrderEvent {}
 /// Payment above 10,000 ETB blocked by the KYC gate or the Fayda step-up
 /// (web path: the error comes straight back from /sync). Verifying as the
 /// account's owner must send the same payment again; anything else must
-/// leave it unsent.
+/// leave it unsent. Also: the transfer reference is the full order id
+/// (SIM-54).
 void main() {
+  const defaultOrderId = '24d367a5-0000-0000-0000-000000000000';
+
   late MockOrderBloc bloc;
   late StreamController<OrderState> states;
   late List<SubmitPayment> submitted;
@@ -42,8 +46,8 @@ void main() {
 
   tearDown(() => unawaited(states.close()));
 
-  Order order() => Order()
-    ..orderId = '24d367a5-0000-0000-0000-000000000000'
+  Order order({String id = defaultOrderId}) => Order()
+    ..orderId = id
     ..listingId = 'listing-1'
     ..buyerId = 'buyer-1'
     ..farmerId = 'farmer-1'
@@ -55,7 +59,11 @@ void main() {
     ..createdAt = DateTime(2026, 9, 28)
     ..version = 1;
 
-  Future<void> open(WidgetTester tester, {required bool verifies}) async {
+  Future<void> open(
+    WidgetTester tester, {
+    bool verifies = true,
+    String orderId = defaultOrderId,
+  }) async {
     await tester.pumpWidget(
       BlocProvider<OrderBloc>.value(
         value: bloc,
@@ -64,7 +72,7 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
           home: PaymentInstructionsScreen(
-            order: order(),
+            order: order(id: orderId),
             kycVerificationScreen: (context) => Scaffold(
               body: TextButton(
                 onPressed: () => Navigator.of(context).pop(verifies),
@@ -93,7 +101,7 @@ void main() {
 
   testWidgets('above 10,000 ETB: a Fayda login resubmits the same payment',
       (tester) async {
-    await open(tester, verifies: true);
+    await open(tester);
     await payAndGetRejected(
       tester,
       "SyncRejectedException: AUTH_041: Confirm it's you with Fayda",
@@ -131,7 +139,7 @@ void main() {
 
   testWidgets('verified as the owner: the same payment is submitted again',
       (tester) async {
-    await open(tester, verifies: true);
+    await open(tester);
     await payAndGetRejected(
       tester,
       'SyncRejectedException: ORDER_KYC_REQUIRED: buyer_fayda: Verify',
@@ -169,7 +177,7 @@ void main() {
   });
 
   testWidgets('cancelled: nothing is resubmitted', (tester) async {
-    await open(tester, verifies: true);
+    await open(tester);
     await payAndGetRejected(
       tester,
       'ORDER_KYC_REQUIRED: buyer_phone: Verify your phone',
@@ -183,7 +191,7 @@ void main() {
 
   testWidgets('farmer not verified: no Fayda for the buyer, nothing resent',
       (tester) async {
-    await open(tester, verifies: true);
+    await open(tester);
     await payAndGetRejected(
       tester,
       'ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify',
@@ -198,5 +206,130 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(submitted, hasLength(1));
+  });
+
+  group('payment reference (SIM-54)', () {
+    Future<void> submit(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Submit Payment'));
+      await tester.tap(find.text('Submit Payment'));
+      await tester.pump();
+    }
+
+    Future<void> chooseTelebirr(WidgetTester tester) async {
+      await tester.tap(find.text('Telebirr'));
+      await tester.pumpAndSettle();
+      expect(find.text('Telebirr Payment'), findsOneWidget);
+    }
+
+    /// The copy button on the detail row that shows [value].
+    Finder copyButtonFor(String value) => find.descendant(
+          of: find
+              .ancestor(of: find.text(value), matching: find.byType(Row))
+              .first,
+          matching: find.byIcon(Icons.copy),
+        );
+
+    testWidgets('CBE card shows the full order id, not its first 8 chars',
+        (tester) async {
+      await open(tester);
+
+      expect(find.text(defaultOrderId), findsOneWidget);
+      expect(find.text('24D367A5'), findsNothing);
+    });
+
+    testWidgets('Telebirr card shows the same full reference', (tester) async {
+      await open(tester);
+      await chooseTelebirr(tester);
+
+      expect(find.text(defaultOrderId), findsOneWidget);
+      expect(find.text('24D367A5'), findsNothing);
+    });
+
+    testWidgets('orders that share the first 8 chars get different references',
+        (tester) async {
+      const first = '24d367a5-0000-0000-0000-000000000001';
+      const second = '24d367a5-0000-0000-0000-000000000002';
+
+      await open(tester, orderId: first);
+      expect(find.text(first), findsOneWidget);
+      await submit(tester);
+
+      await open(tester, orderId: second);
+      expect(find.text(second), findsOneWidget);
+      expect(find.text(first), findsNothing);
+      await submit(tester);
+
+      expect(submitted, hasLength(2));
+      expect(submitted[0].cbeTransactionId, 'MOCK-CBE-$first');
+      expect(submitted[1].cbeTransactionId, 'MOCK-CBE-$second');
+    });
+
+    testWidgets('a legacy web order id is shown whole and unchanged',
+        (tester) async {
+      const legacy = 'ord_1790123456789_ab12cd';
+      await open(tester, orderId: legacy);
+
+      expect(find.text(legacy), findsOneWidget);
+      expect(find.text('ORD_1790'), findsNothing);
+    });
+
+    testWidgets('a blank transaction id sends MOCK-CBE-{orderId}',
+        (tester) async {
+      await open(tester);
+      await submit(tester);
+
+      final payment = submitted.single;
+      expect(payment.orderId, defaultOrderId);
+      expect(payment.paymentMethod, 'cbe_transfer');
+      expect(payment.cbeTransactionId, 'MOCK-CBE-$defaultOrderId');
+      // The server refuses a cbeTransactionId above 100 characters.
+      expect(payment.cbeTransactionId.length, lessThanOrEqualTo(100));
+    });
+
+    testWidgets('Telebirr with no reference sends MOCK-TBR-{orderId}',
+        (tester) async {
+      await open(tester);
+      await chooseTelebirr(tester);
+      await submit(tester);
+
+      final payment = submitted.single;
+      expect(payment.paymentMethod, 'telebirr');
+      expect(payment.cbeTransactionId, 'MOCK-TBR-$defaultOrderId');
+      expect(payment.cbeTransactionId.length, lessThanOrEqualTo(100));
+    });
+
+    testWidgets('an entered transaction id is sent trimmed, as typed',
+        (tester) async {
+      await open(tester);
+      await tester.enterText(find.byType(TextField), '  FT26274ABC9  ');
+      await submit(tester);
+
+      expect(submitted.single.cbeTransactionId, 'FT26274ABC9');
+    });
+
+    testWidgets('Copy copies the full reference', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied =
+                (call.arguments as Map<Object?, Object?>)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+
+      await open(tester);
+      await tester.tap(copyButtonFor(defaultOrderId));
+      await tester.pump();
+
+      expect(copied, defaultOrderId);
+      expect(find.text('Copied to clipboard'), findsOneWidget);
+    });
   });
 }
