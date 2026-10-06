@@ -242,6 +242,49 @@ void main() {
       );
     });
 
+    test('trips are suggested across spelling variants of a woreda (SIM-52)',
+        () async {
+      // Crop and intent carry the picker spelling; the trucker typed the
+      // route with a region suffix and a different case.
+      await putCrop(id: 'crop-adama', locationName: 'Ādama');
+      await putTrip(
+        id: 'trip-typed',
+        fromWoreda: 'Adama, Oromia',
+        toWoreda: 'addis ababa, Addis Ababa',
+      );
+      await putTrip(id: 'trip-other', fromWoreda: 'Mekelle');
+
+      final results = await service.matchListingsForIntent(
+        buildIntent(deliveryWoreda: 'Addis Ababa'),
+      );
+
+      expect(results, hasLength(1));
+      expect(
+        results.single.suggestedTrips.map((t) => t.tripId),
+        ['trip-typed'],
+        reason: '"Adama, Oromia" names the same place as "Ādama"',
+      );
+    });
+
+    test('a trip whose woreda merely contains the crop woreda is not suggested',
+        () async {
+      await putCrop(id: 'crop-ambo', locationName: 'Ambo');
+      await putTrip(id: 'trip-gambo', fromWoreda: 'Gambo');
+      await putTrip(id: 'trip-ambo-zone', fromWoreda: 'Ambo Zone');
+
+      final trips = await service.findTripsForListing(
+        (await isar.cropListings.getByListingId('crop-ambo'))!,
+        'AddisAbeba',
+        5,
+      );
+
+      expect(
+        trips.map((t) => t.tripId),
+        ['trip-ambo-zone'],
+        reason: 'whole-word overlap matches, a raw substring does not',
+      );
+    });
+
     test('refreshMatchCounts persists exactly the match-list length', () async {
       // The badge count must never drift from what matchListingsForIntent
       // returns. Seed 2 candidates + 1 non-candidate (over-budget).

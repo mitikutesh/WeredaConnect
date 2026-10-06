@@ -75,6 +75,19 @@ class DeliveryCard extends StatelessWidget {
   }
 }
 
+/// Localized display label for a delivery status, shared by the status chip,
+/// the Home recent-activity feed and the Home notifications sheet.
+String deliveryStatusLabel(DeliveryStatus status, AppLocalizations l10n) {
+  return switch (status) {
+    DeliveryStatus.pending => l10n.deliveryStatusPending,
+    DeliveryStatus.pickedUp => l10n.deliveryStatusPickedUp,
+    DeliveryStatus.inTransit => l10n.deliveryStatusInTransit,
+    DeliveryStatus.delivered => l10n.deliveryStatusDelivered,
+    DeliveryStatus.disputed => l10n.deliveryStatusDisputed,
+    DeliveryStatus.cancelled => l10n.deliveryStatusCancelled,
+  };
+}
+
 class _DeliveryStatusChip extends StatelessWidget {
   final DeliveryStatus status;
 
@@ -83,31 +96,14 @@ class _DeliveryStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (color, label) = switch (status) {
-      DeliveryStatus.pending => (
-          AppTheme.statusWarning,
-          l10n.deliveryStatusPending
-        ),
-      DeliveryStatus.pickedUp => (
-          AppTheme.statusInfo,
-          l10n.deliveryStatusPickedUp
-        ),
-      DeliveryStatus.inTransit => (
-          AppTheme.statusTransit,
-          l10n.deliveryStatusInTransit
-        ),
-      DeliveryStatus.delivered => (
-          AppTheme.statusSuccess,
-          l10n.deliveryStatusDelivered
-        ),
-      DeliveryStatus.disputed => (
-          AppTheme.statusError,
-          l10n.deliveryStatusDisputed
-        ),
-      DeliveryStatus.cancelled => (
-          AppTheme.textMuted,
-          l10n.deliveryStatusCancelled
-        ),
+    final label = deliveryStatusLabel(status, l10n);
+    final color = switch (status) {
+      DeliveryStatus.pending => AppTheme.statusWarning,
+      DeliveryStatus.pickedUp => AppTheme.statusInfo,
+      DeliveryStatus.inTransit => AppTheme.statusTransit,
+      DeliveryStatus.delivered => AppTheme.statusSuccess,
+      DeliveryStatus.disputed => AppTheme.statusError,
+      DeliveryStatus.cancelled => AppTheme.textMuted,
     };
 
     return Container(

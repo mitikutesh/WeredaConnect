@@ -3,6 +3,9 @@
 **Status**: Implemented (2026-07-09). Requires deploy + the manual SNS Platform
 Application step (see `.ai/push-notifications-setup.md`) for push delivery.
 
+## Version
+1.1.0
+
 Offline-first, asynchronous chat between the two legitimate parties of a
 marketplace context. There is **no real-time transport**: messages are created
 locally, queued, and synced over `/sync`; the recipient sees them on their next
@@ -68,8 +71,22 @@ caller sent or received.
 ## Read API (`MessageFunction`, authenticated)
 
 - `GET /messages?conversationId=X` — a thread, newest-first, `nextToken` paginated. Results filtered to the caller's own messages.
-- `GET /messages?since=T` — sync-down pull: all messages to/from the caller with `createdAt > T` (oldest-first), merged inbound ∪ outbound.
+- `GET /messages?since=T`: sync-down pull, all messages to/from the caller with `createdAt > T` (oldest-first), merged inbound ∪ outbound.
+  - `T` must be one of: empty (no lower bound, the bootstrap full pull), a `yyyy-MM-dd` date, or a UTC `yyyy-MM-ddTHH:mm:ss[.fraction]Z` timestamp (seconds required, 1 to 7 fraction digits, uppercase `T` and `Z`). Nothing may come before or after it (no whitespace, no trailing newline), and it must be a real instant (`2026-02-30` is rejected).
+  - The compare is a strict string `>` on the stored UTC `createdAt`, so the server passes `T` through unchanged. Offsets such as `+03:00` and zone-less date-times are rejected rather than silently shifting the window.
+  - Any other value (epoch numbers, `10/01/2026`, `yesterday`, ...) gets `400 MESSAGE_VALIDATION`, and no query runs.
+  - `since` is ignored when `conversationId` is present.
 - `GET /messages/{id}` — a single message (403 if caller is not a party).
+
+### Read API errors
+
+| Status | Code | When |
+|--------|------|------|
+| 400 | `MESSAGE_VALIDATION` | neither `conversationId` nor `since` given, bad `limit`, bad `nextToken`, or an invalid `since` |
+| 401 | `UNAUTHORIZED` | not authenticated |
+| 403 | `MESSAGE_FORBIDDEN` | `GET /messages/{id}` for a message the caller did not send or receive |
+| 404 | `MESSAGE_NOT_FOUND` | message does not exist |
+| 500 | `MESSAGE_SERVER_ERROR` | unexpected server failure |
 
 Mobile pulls incrementally using its newest local message time as the cursor
 (stateless). Web hydrates a session-scoped in-memory cache on first load, then
@@ -148,3 +165,7 @@ available" snackbar. Order/delivery tags stay label-only.
 - Cross-device / web sent-message history relies on the `SenderIdCreatedAtIndex` pull.
 - Tap-to-thread deep-linking from a push is deferred (no global navigator key yet); the notification still delivers and the inbox badge updates.
 - Order/delivery-scoped chat is reachable from the inbox once started; dedicated "Message" buttons on the order/delivery detail screens are a follow-up (crop→farmer and trip→trucker entry points ship now).
+
+## Changelog
+- **1.1.0** (2026-10-01): `GET /messages?since=` is validated. A value that is not empty, a `yyyy-MM-dd` date or a UTC `...Z` timestamp now gets `400 MESSAGE_VALIDATION` instead of a 200 with the wrong window (SIM-34). Both shipped clients already send `toUtc().toIso8601String()` or an empty cursor, so their pulls are unchanged.
+- **1.0.0** (2026-07-09): Initial contract: create-only `message` entity over `/sync`, `GET /messages` reads, FCM push.

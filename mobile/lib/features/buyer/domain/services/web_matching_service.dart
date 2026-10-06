@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 
 /// Web / online matching service — client-side matching over API data.
 ///
@@ -28,7 +29,8 @@ import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart'
 ///   fetches every active listing, not just the buyer's own.
 /// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing]),
 ///   same as mobile.
-/// - Trip matching uses case-insensitive woreda name contains-matching.
+/// - Trip matching compares woreda names through the shared
+///   [normalizeWoreda] rule, identical to the mobile [MatchingService].
 class WebMatchingService extends BaseMatchingService {
   final ApiClient _api;
 
@@ -208,8 +210,9 @@ class WebMatchingService extends BaseMatchingService {
   /// Filter trips matching origin → destination route.
   ///
   /// Approximates mobile MatchingService trip filtering:
-  /// - fromWoreda contains listing location (case-insensitive)
-  /// - toWoreda contains delivery woreda (case-insensitive)
+  /// - fromWoreda names the listing location ([compareWoredas] exact or
+  ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
+  /// - toWoreda names the delivery woreda (same rule)
   /// - departureDate in the future
   /// - capacity >= quantityNeeded
   /// - departureDate on/before the buyer's deadline when one is set
@@ -228,13 +231,12 @@ class WebMatchingService extends BaseMatchingService {
     DateTime? neededByDate,
   }) {
     final now = DateTime.now().toUtc();
-    final fromLower = fromLocation.toLowerCase();
-    final toLower = toLocation.toLowerCase();
+    final fromKey = normalizeWoreda(fromLocation);
+    final toKey = normalizeWoreda(toLocation);
     final deadline = neededByDate?.toUtc();
 
-    // Guard against empty needles: String.contains('') is always true, which
-    // would drop the woreda filter and match every open trip.
-    if (fromLower.isEmpty || toLower.isEmpty) return const <Trip>[];
+    // A blank origin or destination can never name a route.
+    if (fromKey.isEmpty || toKey.isEmpty) return const <Trip>[];
 
     final matched = trips.where((trip) {
       if (trip.departureDate.isBefore(now)) return false;
@@ -243,8 +245,10 @@ class WebMatchingService extends BaseMatchingService {
       if (deadline != null && trip.departureDate.isAfter(deadline)) {
         return false;
       }
-      return trip.fromWoreda.toLowerCase().contains(fromLower) &&
-          trip.toWoreda.toLowerCase().contains(toLower);
+      return compareWoredaKeys(normalizeWoreda(trip.fromWoreda), fromKey) !=
+              WoredaMatch.none &&
+          compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
+              WoredaMatch.none;
     }).toList();
 
     matched.sort(

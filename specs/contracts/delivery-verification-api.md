@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-1.4.2
+1.6.1
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -368,11 +368,14 @@ GET /deliveries/del-101
 | `orderId` | string (UUID) | No | -- | The order this delivery fulfils (required on create since 1.2.0; returned on list and detail since 1.4.2, SIM-14; absent only for pre-1.2.0 deliveries) |
 | `listingId` | string (UUID) | Yes | -- | Associated crop listing (links to CropListing.listingId) |
 | `farmerId` | string (UUID) | Yes | -- | Farmer who posted the crop |
-| `farmerName` | string | Yes | 1-100 chars | Farmer's display name |
+| `farmerName` | string | Yes | 1-100 chars | Farmer's display name. Server-stamped on create from the farmer's profile (order row as fallback); client value ignored (v1.6.1, SIM-46) |
+| `farmerPhone` | string | Server | E.164 | Farmer's phone, server-stamped on create from the users table (v1.6.1); returned on detail to participants only, never on list |
 | `truckerId` | string (UUID) | Yes | -- | Trucker transporting the crop |
-| `truckerName` | string | Yes | 1-100 chars | Trucker's display name |
+| `truckerName` | string | Yes | 1-100 chars | Trucker's display name. Server-stamped on create from the caller's profile; absent on self-pickup (v1.6.1) |
+| `truckerPhone` | string | Server | E.164 | Trucker's phone, server-stamped on create; absent on self-pickup; detail only, participants only (v1.6.1) |
 | `buyerId` | string (UUID) | Yes | -- | Buyer receiving the crop |
-| `buyerName` | string | Yes | 1-100 chars | Buyer's display name |
+| `buyerName` | string | Yes | 1-100 chars | Buyer's display name. Server-stamped on create from the buyer's profile (order row as fallback); client value ignored (v1.6.1) |
+| `buyerPhone` | string | Server | E.164 | Buyer's phone, server-stamped on create from the users table (v1.6.1); detail only, participants only |
 | `qrToken` | string | Yes | Base64-encoded, <500 bytes | HMAC-signed QR verification token |
 | `status` | enum | Yes | See Status Types | Delivery lifecycle status |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
@@ -615,6 +618,7 @@ When connectivity is available:
 4. **Farmer ID / Trucker ID / Buyer ID**:
    - Must reference existing users
    - Farmer must own the listing, trucker must own the trip
+   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
 5. **QR Token**:
    - Must be valid Base64url encoding
    - Decoded payload must contain all required fields
@@ -887,9 +891,10 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.5.0 | 2026-09-25 | Default list scoping (SIM-16): an unfiltered `GET /deliveries` is scoped to the caller by role (farmer/trucker/buyer index, `status` as a filter); new sparse `TruckerIdCreatedAtIndex` GSI with `truckerId=` (must be the caller); `role=` overrides the claim; `mine=true` now honours `status` server-side; a token without a role claim keeps the legacy `status` query. |
 | 1.6.0 | 2026-09-29 | Nonce-only farmer update: secret stored, delivery record not written, version unchanged; web clients register the nonce when the QR opens. |
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
+| 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 
 ---
 
-**Last Updated**: 2026-09-29
-**Version**: 1.6.0
+**Last Updated**: 2026-10-06
+**Version**: 1.6.1
 **Status**: Draft (Phase R4.2)

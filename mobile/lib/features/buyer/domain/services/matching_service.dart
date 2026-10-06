@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_int
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 
 /// On-device matching service for buyer intents.
 ///
@@ -16,7 +17,8 @@ import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart'
 ///
 /// Ethiopian context:
 /// - Works 100% offline on cached Isar data
-/// - Trip matching uses exact woreda name comparison (case-insensitive)
+/// - Trip matching compares woreda names through the shared
+///   [normalizeWoreda] rule (spelling, diacritics and region suffix agnostic)
 /// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing])
 class MatchingService extends BaseMatchingService {
   final Isar _isar;
@@ -107,8 +109,9 @@ class MatchingService extends BaseMatchingService {
   ///
   /// Matches trips where:
   /// - status is open
-  /// - fromWoreda contains listing's locationName (case-insensitive)
-  /// - toWoreda contains buyer's deliveryWoreda (case-insensitive)
+  /// - fromWoreda names the listing's woreda ([compareWoredas] exact or
+  ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
+  /// - toWoreda names the buyer's delivery woreda (same rule)
   /// - departureDate is in the future
   /// - departureDate is on/before [neededByDate] when the buyer set a deadline
   /// - capacity >= quantityNeeded
@@ -121,13 +124,17 @@ class MatchingService extends BaseMatchingService {
     DateTime? neededByDate,
   }) async {
     final now = DateTime.now().toUtc();
-    final fromLower = listing.locationName.toLowerCase();
-    final toLower = deliveryWoreda.toLowerCase();
+    final fromKey = normalizeWoreda(listing.locationName);
+    final toKey = normalizeWoreda(deliveryWoreda);
     final deadline = neededByDate?.toUtc();
 
-    // Isar string filter is case-sensitive, so we query all open trips
-    // with future departure and sufficient capacity, then filter in memory
-    // for case-insensitive woreda matching.
+    // A blank origin or destination can never name a route; bail out before
+    // touching Isar (compareWoredaKeys would reject every trip anyway).
+    if (fromKey.isEmpty || toKey.isEmpty) return const <Trip>[];
+
+    // Isar string filters are case-sensitive and know nothing about the
+    // woreda normalisation, so query all open trips with future departure and
+    // sufficient capacity, then match the route in memory.
     final candidates = await _isar.trips
         .filter()
         .statusEqualTo(TripStatus.open)
@@ -137,17 +144,16 @@ class MatchingService extends BaseMatchingService {
         .findAll();
 
     return candidates.where((trip) {
-      // Guard against empty needles: String.contains('') is always true,
-      // which would drop the woreda filter and match every open trip.
-      if (fromLower.isEmpty || toLower.isEmpty) return false;
       // Date-fit: drop trips departing after the buyer's deadline. This
       // compares DEPARTURE (not arrival) to the deadline — a proxy, since
       // trips carry no transit-time estimate; refine if one is added.
       if (deadline != null && trip.departureDate.isAfter(deadline)) {
         return false;
       }
-      return trip.fromWoreda.toLowerCase().contains(fromLower) &&
-          trip.toWoreda.toLowerCase().contains(toLower);
+      return compareWoredaKeys(normalizeWoreda(trip.fromWoreda), fromKey) !=
+              WoredaMatch.none &&
+          compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
+              WoredaMatch.none;
     }).toList();
   }
 

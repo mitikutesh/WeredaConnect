@@ -134,7 +134,7 @@ jobs:
   build-apk:
     name: Build APK (Debug)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     needs: [unit-tests]
 
     steps:
@@ -155,15 +155,11 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Cache Android SDK
-        uses: actions/cache@v6
-        with:
-          path: |
-            /usr/local/lib/android/sdk/platforms
-            /usr/local/lib/android/sdk/build-tools
-          key: android-sdk-${{ runner.os }}-${{ hashFiles('mobile/android/app/build.gradle') }}
-          restore-keys: |
-            android-sdk-${{ runner.os }}-
+      # No Android SDK cache step here on purpose. The SDK is preinstalled on
+      # ubuntu-latest, a cache saved by a pull_request run is scoped to that PR
+      # and is never restored by any other PR, and saving the multi-GB SDK dirs
+      # in the post-job step took 5 to 10 minutes, which pushed this job past its
+      # timeout on most mobile PRs. Gradle caching comes from setup-java above.
 
       - name: Get dependencies
         working-directory: mobile

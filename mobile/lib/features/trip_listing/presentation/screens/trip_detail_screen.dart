@@ -485,16 +485,9 @@ class _TripDetailStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final label = switch (status) {
-      TripStatus.open => l10n.tripStatusOpen,
-      TripStatus.matched => l10n.tripStatusMatched,
-      TripStatus.inTransit => l10n.tripStatusInTransit,
-      TripStatus.delivered => l10n.tripStatusDelivered,
-      TripStatus.cancelled => l10n.tripStatusCancelled,
-    };
 
     return StatusChip(
-      label: label,
+      label: tripStatusLabel(status, l10n),
       kind: tripStatusKind(status),
       large: true,
     );

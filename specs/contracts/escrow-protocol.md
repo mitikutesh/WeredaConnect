@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-1.5.0
+1.5.1
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -358,6 +358,18 @@ disputed through `POST /sync` freezes its `escrowed` escrow the same way (reason
 `other`, the delivery's free-text reason as the description, the same audit entry, no
 extra idempotency record), so the 48-hour auto-release can never pay out a disputed
 handoff.
+
+Propagation fix (1.5.1, SIM-47): the escrow Lambda holds `dynamodb:UpdateItem` on the
+orders and deliveries tables (before this every mirror write was denied, so order and
+delivery stayed `delivered` and ratings stayed open). The delivery leg and the order leg
+run independently, so one failing leg never skips the other. The order write reads the
+order with a consistent read and retries a version conflict (3 attempts in all); a
+missing order, or one that is no longer `delivered`, is nothing to do. A failed leg is
+logged as `DISPUTE_PROPAGATION_FAILED` and audited as `dispute_propagation_failed` with
+`metadata` `legs=<leg>:<reason>` (for example `order:[AmazonDynamoDBException]`,
+`order:conflict`, `delivery:[InvalidOperationException]`). The dispute still answers
+`200`: the escrow is already `disputed` and audited (money frozen) before propagation
+runs, and failing the request would make the client retry into `ESCROW_020`.
 
 #### Request Body
 
@@ -1401,6 +1413,7 @@ log line.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.5.1 | 2026-10-01 | Dispute propagation fixed (SIM-47): the escrow Lambda can write the order and delivery it mirrors a dispute onto (UpdateItem only); legs independent, order conflicts retried, failures logged as `DISPUTE_PROPAGATION_FAILED` and audited with the failed leg; response unchanged |
 | 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |
 | 1.4.0 | 2026-09-29 | Tiered step-up on initiate: a fresh password up to 10,000 ETB (`AUTH_040`, now for every amount), a fresh Fayda login above it (`AUTH_041`), `503 ESCROW_012` when the buyer profile cannot be read for the Fayda check; clients keep the server's step-up code; dispute step-up unchanged |
 | 1.3.1 | 2026-09-26 | Double-charge precedence (SIM-24): an initiate on a delivery whose order-funded escrow is already linked to it returns `ESCROW_024` (field `orderId`), not `ESCROW_009`; clients read the `ESCROW_*` code from the error envelope and show `ESCROW_024` its own message |
@@ -1416,6 +1429,6 @@ log line.
 
 ---
 
-**Last Updated**: 2026-09-30
-**Version**: 1.5.0
+**Last Updated**: 2026-10-01
+**Version**: 1.5.1
 **Status**: Draft (Phase R4)

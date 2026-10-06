@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -38,8 +38,11 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
@@ -1686,7 +1689,9 @@ class _RecentActivityListState extends State<_RecentActivityList> {
         items.add(
           _ActivityItem(
             dest: _HomeDest.deliveries,
-            description: l10n.deliveryStatusActivity(d.status.name),
+            description: l10n.deliveryStatusActivity(
+              deliveryStatusLabel(d.status, l10n),
+            ),
             timestamp: d.createdAt,
             type: d.status == DeliveryStatus.delivered
                 ? _ActivityType.success
@@ -1708,14 +1713,16 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             .limit(3)
             .findAll();
         for (final o in orders) {
-          final status = o.status.name;
           items.add(
             _ActivityItem(
               dest: _HomeDest.orders,
-              description:
-                  '${l10n.orders}: ${CropType.labelFor(o.cropType, l10n)} ($status)',
+              description: orderActivityDescription(
+                l10n,
+                CropType.labelFor(o.cropType, l10n),
+                o.status,
+              ),
               timestamp: o.createdAt,
-              type: status == 'delivered'
+              type: o.status == OrderStatus.delivered
                   ? _ActivityType.success
                   : _ActivityType.pending,
             ),
@@ -1730,14 +1737,17 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             .limit(3)
             .findAll();
         for (final t in trips) {
-          final status = t.status.name;
           items.add(
             _ActivityItem(
               dest: _HomeDest.myTrips,
-              description:
-                  '${l10n.myTrips}: ${t.fromWoreda} → ${t.toWoreda} ($status)',
+              description: tripActivityDescription(
+                l10n,
+                t.fromWoreda,
+                t.toWoreda,
+                t.status,
+              ),
               timestamp: t.createdAt,
-              type: status == 'delivered'
+              type: t.status == TripStatus.delivered
                   ? _ActivityType.success
                   : _ActivityType.info,
             ),
@@ -1811,7 +1821,7 @@ class _RecentActivityListState extends State<_RecentActivityList> {
             [];
         for (final o in orders.take(3)) {
           final m = o as Map<String, dynamic>;
-          final status = m['status'] as String? ?? 'created';
+          final status = orderStatusFromApi(m['status'] as String?);
           final cropType = CropType.labelFor(
             m['cropType'] as String? ?? '',
             l10n,
@@ -1819,10 +1829,10 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           items.add(
             _ActivityItem(
               dest: _HomeDest.orders,
-              description: '${l10n.orders}: $cropType ($status)',
+              description: orderActivityDescription(l10n, cropType, status),
               timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                   DateTime.now(),
-              type: status == 'delivered'
+              type: status == OrderStatus.delivered
                   ? _ActivityType.success
                   : _ActivityType.pending,
             ),
@@ -1836,14 +1846,16 @@ class _RecentActivityListState extends State<_RecentActivityList> {
           [];
       for (final d in deliveries.take(3)) {
         final m = d as Map<String, dynamic>;
-        final status = m['status'] as String? ?? '';
+        final status = deliveryStatusFromApi(m['status'] as String?);
         items.add(
           _ActivityItem(
             dest: _HomeDest.deliveries,
-            description: l10n.deliveryStatusActivity(status),
+            description: l10n.deliveryStatusActivity(
+              deliveryStatusLabel(status, l10n),
+            ),
             timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                 DateTime.now(),
-            type: status == 'delivered'
+            type: status == DeliveryStatus.delivered
                 ? _ActivityType.success
                 : _ActivityType.pending,
           ),
@@ -1858,16 +1870,16 @@ class _RecentActivityListState extends State<_RecentActivityList> {
               [];
           for (final t in trips.take(3)) {
             final m = t as Map<String, dynamic>;
-            final status = m['status'] as String? ?? 'open';
+            final status = tripStatusFromApi(m['status'] as String?);
             final from = m['fromWoreda'] as String? ?? '';
             final to = m['toWoreda'] as String? ?? '';
             items.add(
               _ActivityItem(
                 dest: _HomeDest.myTrips,
-                description: '${l10n.myTrips}: $from → $to ($status)',
+                description: tripActivityDescription(l10n, from, to, status),
                 timestamp: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
                     DateTime.now(),
-                type: status == 'delivered'
+                type: status == TripStatus.delivered
                     ? _ActivityType.success
                     : _ActivityType.info,
               ),
@@ -1922,6 +1934,58 @@ class _RecentActivityListState extends State<_RecentActivityList> {
     }
   }
 }
+
+/// Parses an order status from an API response. The server sends order
+/// statuses in snake_case (`payment_submitted`), so the token goes through
+/// [orderStatusFromWire] first; dropping that step makes every multi-word
+/// status read as [OrderStatus.created].
+@visibleForTesting
+OrderStatus orderStatusFromApi(String? raw) {
+  final name = raw == null ? null : orderStatusFromWire(raw);
+  return OrderStatus.values.firstWhere(
+    (e) => e.name == name,
+    orElse: () => OrderStatus.created,
+  );
+}
+
+/// Parses a camelCase trip status from an API response, falling back to
+/// [TripStatus.open] for a missing or unknown value.
+@visibleForTesting
+TripStatus tripStatusFromApi(String? raw) {
+  return TripStatus.values.firstWhere(
+    (e) => e.name == raw,
+    orElse: () => TripStatus.open,
+  );
+}
+
+/// Parses a camelCase delivery status from an API response, falling back to
+/// [DeliveryStatus.pending] for a missing or unknown value.
+@visibleForTesting
+DeliveryStatus deliveryStatusFromApi(String? raw) {
+  return DeliveryStatus.values.firstWhere(
+    (e) => e.name == raw,
+    orElse: () => DeliveryStatus.pending,
+  );
+}
+
+/// Recent-activity line for an order, with the status in the user's language.
+@visibleForTesting
+String orderActivityDescription(
+  AppLocalizations l10n,
+  String cropLabel,
+  OrderStatus status,
+) =>
+    '${l10n.orders}: $cropLabel (${orderStatusLabel(status, l10n)})';
+
+/// Recent-activity line for a trip, with the status in the user's language.
+@visibleForTesting
+String tripActivityDescription(
+  AppLocalizations l10n,
+  String from,
+  String to,
+  TripStatus status,
+) =>
+    '${l10n.myTrips}: $from → $to (${tripStatusLabel(status, l10n)})';
 
 enum _ActivityType { info, success, pending }
 
@@ -2600,7 +2664,9 @@ class _NotificationIconState extends State<_NotificationIcon> {
             icon: d.status == DeliveryStatus.delivered
                 ? Icons.check_circle_outline
                 : Icons.local_shipping_outlined,
-            title: widget.l10n.deliveryStatusActivity(d.status.name),
+            title: widget.l10n.deliveryStatusActivity(
+              deliveryStatusLabel(d.status, widget.l10n),
+            ),
             subtitle: d.farmerName,
             color: d.status == DeliveryStatus.delivered
                 ? AppTheme.statusSuccess

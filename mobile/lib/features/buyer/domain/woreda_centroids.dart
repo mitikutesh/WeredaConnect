@@ -1,4 +1,5 @@
 import 'package:wereda_connect/core/models/crop_listing.dart' show LatLng;
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
 
 /// Approximate centroids (decimal degrees) for major Ethiopian woredas, towns,
 /// and market cities.
@@ -63,11 +64,14 @@ class WoredaCentroids {
     'gambela': _ll(8.25, 34.58),
   };
 
-  /// Normalise a free-text woreda/town name to a lookup key: lowercase and
-  /// strip everything except `a`–`z` (spaces, hyphens, digits, punctuation,
-  /// and non-Latin scripts collapse away).
+  /// Normalise a free-text woreda/town name to a lookup key: apply the shared
+  /// [normalizeWoreda] rule (drops a ", Region" suffix, folds "Ādama" to
+  /// "adama"), then strip everything except `a`-`z` so spaces, hyphens,
+  /// digits, punctuation and non-Latin scripts collapse away.
   static String normalize(String name) =>
-      name.toLowerCase().replaceAll(RegExp('[^a-z]'), '');
+      normalizeWoreda(name).replaceAll(_nonLetters, '');
+
+  static final RegExp _nonLetters = RegExp('[^a-z]');
 
   /// Centroid for [woreda], or `null` if it is not in the curated table.
   static LatLng? lookup(String woreda) => _byName[normalize(woreda)];

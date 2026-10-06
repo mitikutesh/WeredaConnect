@@ -3604,7 +3604,7 @@ abstract class AppLocalizations {
   /// **'{cropType} listing created'**
   String listingCreatedActivity(String cropType);
 
-  /// Activity feed description for delivery status
+  /// Activity feed description for delivery status. {status} is the localized delivery status label, not the enum name
   ///
   /// In en, this message translates to:
   /// **'Delivery {status}'**

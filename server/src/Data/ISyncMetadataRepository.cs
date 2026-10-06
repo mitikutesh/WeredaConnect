@@ -10,7 +10,7 @@ public interface ISyncMetadataRepository
     /// <summary>
     /// Check if an idempotency key has already been processed.
     /// </summary>
-    /// <param name="idempotencyKey">The operation's idempotency key.</param>
+    /// <param name="idempotencyKey">The idempotency key after Helpers.SyncIdempotencyKey.ForCaller scoped it to the caller.</param>
     /// <returns>True if the key exists (already processed).</returns>
     Task<bool> IdempotencyKeyExistsAsync(string idempotencyKey);
 
@@ -18,7 +18,7 @@ public interface ISyncMetadataRepository
     /// Store an idempotency key after successful processing.
     /// The key auto-expires after 7 days via DynamoDB TTL.
     /// </summary>
-    /// <param name="idempotencyKey">The operation's idempotency key.</param>
+    /// <param name="idempotencyKey">The idempotency key after Helpers.SyncIdempotencyKey.ForCaller scoped it to the caller.</param>
     /// <param name="operationId">The operation ID for audit trail.</param>
     /// <param name="entityType">The entity type processed.</param>
     /// <param name="result">The processing result (success, conflict, error).</param>

@@ -222,8 +222,10 @@ public class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         await _function.FunctionHandler(request, _context);
 
+        // The fixture key does not start with the caller's id, so it is stored
+        // scoped to the caller (SIM-48).
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
-            op.IdempotencyKey,
+            "farmer-001:" + op.IdempotencyKey,
             op.OperationId,
             "crop_listing",
             "success");
@@ -241,6 +243,150 @@ public class SyncFunctionTests
         Assert.Contains("duplicate", response.Body);
 
         // Should NOT call crop repo
+        await _mockCropRepo.DidNotReceive()
+            .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ===== Caller-scoped idempotency keys (SIM-48, ESC-11, SEC-03) =====
+
+    /// <summary>
+    /// Makes the idempotency store behave like the real table: a key exists once
+    /// it was stored. Returns the set of stored keys.
+    /// </summary>
+    private HashSet<string> UseStatefulIdempotencyStore()
+    {
+        var stored = new HashSet<string>(StringComparer.Ordinal);
+        _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Any<string>())
+            .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
+        _mockSyncMeta
+            .When(x => x.StoreIdempotencyKeyAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+            .Do(ci => stored.Add(ci.ArgAt<string>(0)));
+        return stored;
+    }
+
+    private void StubCropCreateSuccess() =>
+        _mockCropRepo.CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>())
+            .Returns(ci => AuthResult<Dictionary<string, object>>.Success(
+                new Dictionary<string, object> { { "cropId", ci.ArgAt<string>(0) }, { "version", "1" } }));
+
+    [Fact]
+    public async Task Idempotency_KeyPreClaimedByAnotherFarmer_StillProcessesCallersCreate()
+    {
+        var stored = UseStatefulIdempotencyStore();
+        StubCropCreateSuccess();
+        const string victimKey = "farmer-001:crop_listing:crop-001:create:12345";
+
+        // farmer-002 creates its own crop but sends farmer-001's key.
+        var attackerOp = MakeCropCreateOp("op-attacker", "crop-attacker", "farmer-002") with
+        {
+            IdempotencyKey = victimKey
+        };
+        var attackerResponse = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(attackerOp), "farmer-002", "farmer"), _context);
+        Assert.Contains("\"status\":\"success\"", attackerResponse.Body);
+
+        // farmer-001 then syncs its own create with that key: it must be processed.
+        var victimOp = MakeCropCreateOp() with { IdempotencyKey = victimKey };
+        var victimResponse = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(victimOp), "farmer-001", "farmer"), _context);
+
+        Assert.Equal(200, victimResponse.StatusCode);
+        Assert.Contains("\"status\":\"success\"", victimResponse.Body);
+        Assert.DoesNotContain("duplicate", victimResponse.Body);
+        await _mockCropRepo.Received(1).CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>());
+        Assert.Contains(victimKey, stored);
+        Assert.Contains("farmer-002:" + victimKey, stored);
+    }
+
+    [Fact]
+    public async Task Idempotency_KeyPreClaimedByAnotherTrucker_StillProcessesCallersTripCreate()
+    {
+        UseStatefulIdempotencyStore();
+        const string victimKey = "trucker-001:trip:trip-001:create:12345";
+
+        var attackerOp = MakeTripCreateOp("trucker-002", "op-attacker", "trip-attacker") with
+        {
+            IdempotencyKey = victimKey
+        };
+        var attackerResponse = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(attackerOp), "trucker-002", "trucker"), _context);
+        Assert.Contains("\"status\":\"success\"", attackerResponse.Body);
+
+        var victimOp = MakeTripCreateOp() with { IdempotencyKey = victimKey };
+        var victimResponse = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(victimOp), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("\"status\":\"success\"", victimResponse.Body);
+        Assert.DoesNotContain("duplicate", victimResponse.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item.ContainsKey("tripId") && r.Item["tripId"].S == "trip-001"));
+    }
+
+    [Theory]
+    [InlineData("farmer-001:crop_listing:crop-001:create:12345")] // mobile sync queue format
+    [InlineData("web_create_crop-001")] // web repository format
+    public async Task Idempotency_SameCallerRetry_ReturnsDuplicateAndDoesNotReprocess(string key)
+    {
+        UseStatefulIdempotencyStore();
+        StubCropCreateSuccess();
+        var op = MakeCropCreateOp() with { IdempotencyKey = key };
+
+        var first = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
+        var retry = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
+
+        Assert.Contains("\"status\":\"success\"", first.Body);
+        Assert.Contains("\"status\":\"duplicate\"", retry.Body);
+        await _mockCropRepo.Received(1).CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Idempotency_DocumentedFormatKey_LookedUpAndStoredUnchanged()
+    {
+        // Records written before the fix used the raw key; a documented-format key
+        // must map to the same stored value so a straddling retry stays a duplicate.
+        StubCropCreateSuccess();
+        const string key = "farmer-001:crop_listing:crop-001:create:12345";
+        var op = MakeCropCreateOp() with { IdempotencyKey = key };
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
+
+        await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync(key);
+        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success");
+    }
+
+    [Fact]
+    public async Task Idempotency_UnprefixedKey_LookedUpAndStoredWithCallerPrefix()
+    {
+        StubCropCreateSuccess();
+        var op = MakeCropCreateOp() with { IdempotencyKey = "web_create_crop-001" };
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
+
+        await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync("farmer-001:web_create_crop-001");
+        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
+            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success");
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync("web_create_crop-001");
+    }
+
+    [Fact]
+    public async Task Idempotency_CallerIdWithColon_ReturnsErrorWithoutProcessing()
+    {
+        StubCropCreateSuccess();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "bad:id", "farmer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"status\":\"error\"", response.Body);
+        Assert.Contains("SYNC_VALIDATION", response.Body);
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
+        await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
         await _mockCropRepo.DidNotReceive()
             .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
@@ -413,8 +559,8 @@ public class SyncFunctionTests
             .Returns(AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "cropId", "crop-A" }, { "version", "1" } }));
 
-        // Op 2: duplicate
-        _mockSyncMeta.IdempotencyKeyExistsAsync("dup-key").Returns(true);
+        // Op 2: duplicate (the server looks the key up scoped to the caller)
+        _mockSyncMeta.IdempotencyKeyExistsAsync("farmer-001:dup-key").Returns(true);
 
         var op1 = MakeCropCreateOp("op-A", "crop-A");
         var op2 = new SyncOperationRequest
@@ -3926,6 +4072,204 @@ public class SyncFunctionTests
         Assert.Contains("success", response.Body);
         await _mockOrderRepo.Received(1).TryClaimDeliverySlotAsync(TestOrderId, "del-001");
         await _mockDynamoDb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    private static UserDto PartyProfile(
+        string userId, string role, string phone, string? displayName, string? fullName = null) => new()
+        {
+            UserId = userId,
+            PhoneNumber = phone,
+            DisplayName = displayName,
+            FullName = fullName,
+            Role = role,
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        };
+
+    private const string TestSelfPickupDeliveryId = "00000000-0000-0000-0000-000000000046";
+
+    /// <summary>SIM-46: the three delivery parties as the users table knows them.</summary>
+    private void SetupDeliveryPartyProfiles(string? farmerDisplayName = "Abebe Kebede")
+    {
+        _mockUserRepo.GetUserByIdAsync(TestBuyerId)
+            .Returns(PartyProfile(TestBuyerId, "buyer", "+251900100003", "Mekonnen Haile"));
+        _mockUserRepo.GetUserByIdAsync(TestFarmerId)
+            .Returns(PartyProfile(TestFarmerId, "farmer", "+251900100001", farmerDisplayName));
+        _mockUserRepo.GetUserByIdAsync(TestTruckerId)
+            .Returns(PartyProfile(TestTruckerId, "trucker", "+251900100002", "Chaltu Tolosa"));
+    }
+
+    // SIM-46: the delivery shows each party the others' contact, so a create takes
+    // every name and phone from the users table and ignores what the client sent.
+    [Fact]
+    public async Task DeliveryCreate_ClientPartyContact_IsReplacedFromProfiles()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["buyerName"] = "Spoofed Buyer";
+        op.Data["buyerPhone"] = "+251911000001";
+        op.Data["farmerName"] = "Spoofed Farmer";
+        op.Data["farmerPhone"] = "+251911000002";
+        op.Data["truckerName"] = "Spoofed Trucker";
+        op.Data["truckerPhone"] = "+251911000003";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["buyerName"].S == "Mekonnen Haile"
+            && r.Item["buyerPhone"].S == "+251900100003"
+            && r.Item["farmerName"].S == "Abebe Kebede"
+            && r.Item["farmerPhone"].S == "+251900100001"
+            && r.Item["truckerName"].S == "Chaltu Tolosa"
+            && r.Item["truckerPhone"].S == "+251900100002"));
+    }
+
+    // SIM-46: a client that sends no phones at all (the shipped mobile and web
+    // clients) still gets every phone stamped.
+    [Fact]
+    public async Task DeliveryCreate_NoClientPhones_StampsAllPhones()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!.Remove("buyerPhone");
+        op.Data.Remove("farmerPhone");
+        op.Data.Remove("truckerPhone");
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["buyerPhone"].S == "+251900100003"
+            && r.Item["farmerPhone"].S == "+251900100001"
+            && r.Item["truckerPhone"].S == "+251900100002"));
+    }
+
+    // SIM-46: the trucker cannot fix the farmer's profile, so a party with no name on
+    // file keeps the order row's (server-stamped) name; the phone is still the profile's.
+    [Fact]
+    public async Task DeliveryCreate_PartyWithoutProfileName_UsesOrderName()
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "farmerName", "Abebe From Order" }, { "truckerId", TestTruckerId },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        SetupDeliveryPartyProfiles(farmerDisplayName: null);
+        var op = MakeDeliveryCreateOp();
+        op.Data!["farmerName"] = "Spoofed Farmer";
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["farmerName"].S == "Abebe From Order"
+            && r.Item["farmerPhone"].S == "+251900100001"));
+    }
+
+    // SIM-46: with no display name the legal name received from Fayda is used
+    // before the order row's name.
+    [Fact]
+    public async Task DeliveryCreate_PartyWithoutDisplayName_UsesFaydaName()
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "farmerName", "Abebe From Order" }, { "truckerId", TestTruckerId },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        SetupDeliveryPartyProfiles(farmerDisplayName: null);
+        _mockUserRepo.GetUserByIdAsync(TestFarmerId).Returns(
+            PartyProfile(TestFarmerId, "farmer", "+251900100001", "  ", "Abebe Kebede Lemma"));
+
+        await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["farmerName"].S == "Abebe Kebede Lemma"));
+    }
+
+    // SIM-46: no name anywhere must not fall back to the client value.
+    [Fact]
+    public async Task DeliveryCreate_PartyWithoutAnyName_IsRejected()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles(farmerDisplayName: null);
+        var op = MakeDeliveryCreateOp();
+        op.Data!["farmerName"] = "Spoofed Farmer";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("farmer has no name", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    // SIM-46: an unreadable party profile fails closed (as SIM-40 does for owners).
+    [Fact]
+    public async Task DeliveryCreate_FarmerProfileMissing_IsRejected()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        _mockUserRepo.GetUserByIdAsync(TestFarmerId).Returns((UserDto?)null);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("farmer profile could not be read", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    // SIM-46: a self-pickup stamps buyer and farmer from their profiles and stores no
+    // trucker contact at all, whatever the client sent.
+    [Fact]
+    public async Task SelfPickupCreate_PartyContact_IsStampedWithoutTrucker()
+    {
+        SetupDeliveryPartyProfiles();
+        var op = new SyncOperationRequest
+        {
+            OperationId = "op-sp-create-contact",
+            IdempotencyKey = $"{TestBuyerId}:delivery:{TestSelfPickupDeliveryId}:create:1",
+            EntityType = "delivery",
+            // A UUID: the server synthesizes the tripId sort key from it.
+            EntityId = TestSelfPickupDeliveryId,
+            Action = "create",
+            Data = new Dictionary<string, object>
+            {
+                { "deliveryType", "self_pickup" },
+                { "orderId", TestOrderId },
+                { "listingId", TestListingId },
+                { "farmerId", TestFarmerId },
+                { "farmerName", "Spoofed Farmer" },
+                { "farmerPhone", "+251911000002" },
+                { "truckerName", "Ghost Trucker" },
+                { "truckerPhone", "+251911000003" },
+                { "buyerId", TestBuyerId },
+                { "buyerName", "Spoofed Buyer" },
+                { "status", "pending" }
+            }
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestBuyerId, "buyer"), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item["buyerName"].S == "Mekonnen Haile"
+            && r.Item["buyerPhone"].S == "+251900100003"
+            && r.Item["farmerName"].S == "Abebe Kebede"
+            && r.Item["farmerPhone"].S == "+251900100001"
+            && !r.Item.ContainsKey("truckerName")
+            && !r.Item.ContainsKey("truckerPhone")));
     }
 
     [Fact]

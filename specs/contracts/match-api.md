@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.0.0
+1.1.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -148,7 +148,7 @@ identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 |--------|--------|------------|
 | Type | 0.30 | Exact crop = 1.0; accepted substitute = 0.6 |
 | Price | 0.20 | ≤ budget = 1.0; linear decay across the +15% near-miss band; 0 beyond |
-| Geo | 0.18 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy (same = 1.0, substring = 0.6, otherwise 0.3) |
+| Geo | 0.18 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy on normalised names (same = 1.0, whole-word overlap = 0.6, otherwise 0.3) |
 | Quantity | 0.12 | `min(listingQuantity / quantityNeeded, 1)`; partial fills score lower |
 | Freshness | 0.10 | 1.0 for listings ≤ 7 days old, decaying to a 0.3 floor by 30 days |
 | Reliability | 0.10 | Farmer's listing-conversion track record in [0,1] (server-injected `farmerReliability` on the crop); unknown farmers use the neutral default 0.7 |
@@ -160,6 +160,26 @@ Listings failing any of these are excluded entirely.
 **Accepted substitutes** (lowercase, matching the stored `CropType` enum
 names): `wheat↔barley`, `maize↔sorghum`, `chickpea↔lentils`. `teff` has no
 substitute.
+
+**Woreda name normalisation** (v1.1.0). Before the woreda-string proxy compares
+`deliveryWoreda` with the listing's `woreda`, both sides go through ONE shared
+rule (`WoredaNames` on the server, `normalizeWoreda` on mobile; the two must
+stay identical):
+
+1. keep only the place segment before a `, Region` / `(Region)` suffix
+   (Latin `,` or Ethiopic `፣` comma, `(` or `[`);
+2. lowercase, fold Latin diacritics with the shared explicit table
+   (`Ādama` to `adama`), collapse whitespace;
+3. drop apostrophes (`Debre Mark’os` to `debre markos`), treat `-`, `_`, `/`
+   as spaces.
+
+Ge'ez text passes through unchanged. Comparison: equal keys = same place
+(1.0); every word of the shorter name present as a whole word in the longer
+(`Adama` vs `Adama Zone`) = partial (0.6); anything else, including a blank
+side, = neutral (0.3). Whole-word overlap replaces the raw substring rule,
+which scored `Ambo` as a partial match of `Gambo`. Mobile applies the same
+rule when it pairs matched crops with trucker trips, so a trip typed as
+`Adama, Oromia` is suggested for a crop picked as `Ādama`.
 
 ---
 
@@ -226,9 +246,10 @@ substitute.
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-06-19 | Initial contract: GET /match endpoint, MatchDto, shared scoring model, candidate-generation and invariants. |
+| 1.1.0 | 2026-10-06 | Woreda-string geo proxy compares normalised names (region suffix cut, diacritics folded, whole-word partial) on both server and mobile (SIM-52). No wire change. |
 
 ---
 
-**Last Updated**: 2026-06-19
-**Version**: 1.0.0
+**Last Updated**: 2026-10-06
+**Version**: 1.1.0
 **Status**: Draft

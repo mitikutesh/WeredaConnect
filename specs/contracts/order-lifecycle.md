@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.7.1
+1.7.2
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -125,7 +125,7 @@ transportCost    = quantity / 100 × pricePerQuintal     (0 without a trip)
 orderTotal       = cropCost + transportCost + commissionAmount
 ```
 
-Client previews of an order total (place order, the listing detail price breakdown, the match "Estimated Total", on mobile and web) use this same formula through `mobile/lib/core/models/order_pricing.dart`. Commission is never charged on transport (1.7.1, SIM-53).
+Client previews of an order total (place order, the listing detail price breakdown, the match "Estimated Total", on mobile and web) use this same formula through `mobile/lib/core/models/order_pricing.dart`. Commission is never charged on transport (1.7.2, SIM-53).
 
 `orderTotal` is what the buyer pays: `POST /escrow/initiate` rejects any other amount (`ESCROW_028`, escrow-protocol.md 1.2.0).
 
@@ -181,6 +181,17 @@ farmer-side reason it only explains. On `AUTH_040` it asks for the password and 
 Fayda-verified yet gets `buyer_fayda` first; that link is also the fresh Fayda login, so the
 resubmitted payment passes both gates.
 
+### Payment reference (1.7.1)
+
+The payment screen shows the full `orderId`, exactly as stored, as the transfer reference
+(CBE and Telebirr), and Copy copies it. It is unique per order and it is the id every
+server path keys the order payment on (`escrow-order-{orderId}`, `ORDER-FUND-{orderId}`,
+the order checkout mapping). In demo mode a blank transaction id is sent as
+`cbeTransactionId` `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}` (under the 100-character
+limit); an entered one is sent trimmed. With the live gateway the payment is matched only
+by the server-generated `merch_order_id` of `POST /escrow/order-checkout`
+(`escrow-protocol.md` 1.5.0), never by a reference the buyer types. No wire change.
+
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
 farmer of a pending delivery "Show QR Code" (the code the trucker or the self-pickup buyer
@@ -191,7 +202,8 @@ active delivery.` opens the existing delivery.
 
 ## Changelog
 
-- **1.7.1 (2026-10-01)**: Client order previews use the server formula, commission on the crop cost only (SIM-53). The place-order preview charged it on crop plus transport and showed more than the server charges (18375 instead of 18350 ETB for 17000 of crop and 500 of transport). Doc-only, no wire change.
+- **1.7.2 (2026-10-06)**: Client order previews use the server formula, commission on the crop cost only (SIM-53). The place-order preview charged it on crop plus transport and showed more than the server charges (18375 instead of 18350 ETB for 17000 of crop and 500 of transport). Doc-only, no wire change.
+- **1.7.1 (2026-10-06)**: The payment screen shows the full order id as the transfer reference (SIM-54); it was the first 8 characters upper-cased, which repeated across orders (`ORD_1790` for every legacy web order). Demo references are `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}`. No wire change; live payments are still matched by the server's `merch_order_id`.
 - **1.7.0 (2026-09-30)**: Live order funding (ESC-01): with the live gateway the buyer pays a `payment_submitted` order through `POST /escrow/order-checkout`, and the Telebirr webhook funds it exactly once with the same side effects as the mock path; the funding stock decrement is idempotent per order; the Telebirr references are server-only order fields; `payment_failed` is system-only. The server stamps `paymentSubmittedAt` on `payment_submitted`; the order cron moves an order that stayed `payment_submitted` for 24 hours to `payment_failed`; with the live gateway `payment_submitted` refuses an `orderTotal` outside 100 to 500,000 ETB.
 - **1.6.0 (2026-09-29)**: Payment step-up is tiered: a fresh password (`AUTH_040`) on every payment up to 10,000 ETB, a fresh Fayda login (`AUTH_041`) above it instead of the password. Order detail links every party to the order's delivery (and the farmer to the pickup QR) once one exists, so a second create is never offered.
 - **1.5.2 (2026-09-29)**: The order quantity cap is 1,000,000 kg, the kg size of a full 10,000-quintal listing. It was 100,000, which rejected full orders on any listing above 1,000 quintals. The place-order screen now blocks a quantity above the listing stock before sending.
