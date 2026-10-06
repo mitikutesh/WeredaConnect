@@ -274,7 +274,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `escrows` | Retain (money record) with one pseudonymization write | Money, ids, status, flags, `expiresAt`, dispute fields never change. The only write is the user's copied `buyerName` or `farmerName` to sentinel (see Open Points 2) |
 | `escrow-audit` | Retain untouched | Append-only. Holds ids, `ipAddress`, notes and, for payer mismatches, the last 4 phone digits (`payerSuffix`). Never rewritten. Read by the `payment_review` blocker |
 | `transaction-audit` | Retain untouched, append only | Never rewritten. Deletion appends `account_deletion_started` and `account_deleted` (checked writes), `account_deletion_aborted` on a step 9 abort, and one `order_cancelled` per step 8 order |
-| `payments` | Retain untouched | Legacy money table. Only the admin function reads it; nothing on `main` writes it |
+| `payments` | Retain untouched | Legacy money table from the first escrow design. The admin function holds a read grant and loads the table name, but no code path reads or writes it today |
 | `ratings` | Anonymize | Remove `comment`; keep `stars` (they back the counterparty's reputation), ids, `rateeRole`, timestamps. Authored ratings (buyer) via GetItem per buyer order; received ratings (farmer, trucker) via `RateeIdCreatedAtIndex`. This is a system erasure and the one exception to `rating-api.md` invariant 4 |
 | `messages` | Delete | Hard delete every message where `senderId` or `recipientId` is the user (`SenderIdCreatedAtIndex`, `RecipientIdCreatedAtIndex`). The message stream consumer ignores REMOVE. The counterparty's device may keep its local copy (create-only entity, no tombstone is synced) |
 | `intents` | Delete | Hard delete every row with PK `buyerId = userId`. Read the `intentId`s first for the next row |
@@ -296,8 +296,8 @@ Client-side drafts (unsynced Isar rows, the sync queue, unsent message text) exi
 | Cognito user pool | `AdminUserGlobalSignOut` (step 6), then `AdminDeleteUser` (step 12). The username is the `userId` |
 | SNS platform endpoints | Deleted with the device-tokens rows |
 | S3 uploads bucket | Delete the object at `profilePhotoRef` if set (there is no upload pipeline for it today, so this is usually a no-op). Delivery photos under `photos/` are evidence and are kept under the existing lifecycle rule (Glacier after 1 year) |
-| CloudWatch logs | Not rewritten. Lambda logs expire after 3 months by default, 1 year for the payment, webhook, admin and API access logs |
-| Point-in-time recovery | Every table has PITR (35 days). Restores can bring deleted data back. Before a restored table is put in service, ops runs the sweep's `reapply` action for every `userId` found in either replay source: transaction-audit `account_deleted` rows (checked writes, so none is missing) and the live users tombstones. `reapply` is idempotent like every step |
+| CloudWatch logs | Not rewritten. Lambda logs expire after 3 months by default; the escrow, escrow cron, Telebirr webhook and API access logs keep 1 year |
+| Point-in-time recovery | Every table built with the shared `WeredaDynamoTable` construct has PITR (35 days); the dev-only `fayda-mock-codes` table has none. Restores can bring deleted data back. Before a restored table is put in service, ops runs the sweep's `reapply` action for every `userId` found in either replay source: transaction-audit `account_deleted` rows (checked writes, so none is missing) and the live users tombstones. `reapply` is idempotent like every step |
 | Fayda, Telebirr | No call is made. The platform stores no Fayda tokens. Telebirr keeps its own transaction records under its own policy |
 
 ## Effects on Other Endpoints (ACC-02)
