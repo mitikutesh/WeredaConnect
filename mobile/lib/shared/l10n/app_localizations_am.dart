@@ -2270,7 +2270,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String syncedAgo(String time) {
-    return 'ከ$time በፊት ተመሳሳል';
+    return 'ከ$time በፊት ተመሳስሏል';
   }
 
   @override
@@ -2428,7 +2428,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get sellYourHarvest => 'ምርትዎን ይሸጡ';
 
   @override
-  String get tapToListCrops => 'ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
+  String get tapToListCrops => 'ሰብልዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
 
   @override
   String get synced => 'ተመሳስሏል';

@@ -2573,7 +2573,7 @@
   },
   "deliveryStatusActivity": "Delivery {status}",
   "@deliveryStatusActivity": {
-    "description": "Activity feed description for delivery status",
+    "description": "Activity feed description for delivery status. {status} is the localized delivery status label, not the enum name",
     "placeholders": {
       "status": {
         "type": "String"

@@ -2348,7 +2348,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String syncedAgo(String time) {
-    return '$time dura walsiме';
+    return '$time dura walsimame';
   }
 
   @override

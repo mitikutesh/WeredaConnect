@@ -2366,7 +2366,7 @@
   "cropCostLabel": "የሰብል ዋጋ",
   "transportCostLabel": "የትራንስፖርት ዋጋ",
   "commissionLabel": "ኮሚሽን (5%)",
-  "syncedAgo": "ከ{time} በፊት ተመሳሳል",
+  "syncedAgo": "ከ{time} በፊት ተመሳስሏል",
   "@syncedAgo": {
     "placeholders": {
       "time": {
@@ -2423,7 +2423,7 @@
   "checkConnectionRetry": "እባክዎ ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
   "sellCrops": "ሰብል ይሸጡ",
   "sellYourHarvest": "ምርትዎን ይሸጡ",
-  "tapToListCrops": "ሰብลዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ",
+  "tapToListCrops": "ሰብልዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ",
   "synced": "ተመሳስሏል",
   "offline": "ከመስመር ውጭ",
   "syncFailureCount": "{count} ስራዎች ትኩረት ይፈልጋሉ",

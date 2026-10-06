@@ -14,10 +14,11 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Screen for paying for an order after it is created.
 ///
-/// Buyers choose a payment method — Commercial Bank of Ethiopia (CBE) or
+/// Buyers choose a payment method: Commercial Bank of Ethiopia (CBE) or
 /// Telebirr. Both are currently **mocked** (demo mode): the buyer may enter a
-/// real reference, but if left blank a mock reference is generated so the order
-/// can progress without a real transfer. See [_PaymentMethod].
+/// real reference, but if left blank the mock reference `MOCK-CBE-{orderId}` /
+/// `MOCK-TBR-{orderId}` is sent so the order can progress without a real
+/// transfer. See [_PaymentMethod].
 class PaymentInstructionsScreen extends StatefulWidget {
   final Order order;
 
@@ -57,12 +58,19 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     super.dispose();
   }
 
-  String get _reference => widget.order.orderId.substring(0, 8).toUpperCase();
+  /// The transfer reference is the full order id, exactly as stored. It is
+  /// unique per order and it is what the server keys the order payment on
+  /// (`escrow-order-{orderId}`, the order checkout mapping). It used to be the
+  /// first 8 characters upper-cased, which repeated across orders (SIM-54).
+  /// A live Telebirr payment is matched by the server's merch_order_id, never
+  /// by a reference the buyer types.
+  String get _reference => widget.order.orderId;
 
   void _submitPayment() {
     // Demo mode: both rails are mocked. Use the entered reference if the buyer
-    // supplied one, otherwise generate a mock reference so the order can
-    // progress (a real integration would collect a genuine transaction id).
+    // supplied one, otherwise send MOCK-CBE-{orderId} / MOCK-TBR-{orderId} so
+    // the order can progress (a real integration would collect a genuine
+    // transaction id).
     final entered = _transactionIdController.text.trim();
     final reference = entered.isNotEmpty
         ? entered
