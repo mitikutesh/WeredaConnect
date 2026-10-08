@@ -1678,16 +1678,34 @@ public class SyncFunctionTests
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
+    /// <summary>
+    /// A departure 5 days out at 06:00 UTC, sent as mobile and web do ("Z"), with an
+    /// offset ("+03:00"), or without a zone like builds before 2026-06-18 ("none"),
+    /// and the single form the server stores for all three.
+    /// </summary>
+    private static (string Sent, string Stored) DepartureDateIn(string zone)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var departure = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(5).AddHours(6), TimeSpan.Zero);
+        var stored = departure.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", inv);
+        var sent = zone switch
+        {
+            "Z" => stored,
+            "+03:00" => departure.ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", inv),
+            _ => departure.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff", inv),
+        };
+        return (sent, stored);
+    }
+
     [Theory]
     [InlineData("Z")]
     [InlineData("+03:00")]
-    public async Task TripUpdate_IsoDepartureDateWithZoneOrOffset_IsAccepted(string zone)
+    [InlineData("none")]
+    public async Task TripUpdate_IsoDepartureDate_IsAcceptedAndStoredAsUtc(string zone)
     {
-        // Z is what mobile and web send (Dart toIso8601String of a UTC time); an offset is ISO too.
-        var departure = DateTimeOffset.UtcNow.AddDays(5);
-        var value = zone == "Z"
-            ? departure.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture)
-            : departure.ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture);
+        // An offset must not move the trip within StatusDepartureDateIndex, so every
+        // accepted value is written in the one UTC form shipped clients send.
+        var (sent, stored) = DepartureDateIn(zone);
         SetupExistingTrip("trip-001", "trucker-001", "open", 1,
             departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
@@ -1696,13 +1714,56 @@ public class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
             {
-                { "departureDate", value }, { "version", 1 }
+                { "departureDate", sent }, { "version", 1 }
             }))), _context);
 
         Assert.Contains("success", response.Body);
         Assert.DoesNotContain("TRIP_VALIDATION", response.Body);
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            r.ExpressionAttributeValues.Values.Any(v => v.S == value)));
+            r.ExpressionAttributeValues.Values.Any(v => v.S == stored)));
+    }
+
+    [Theory]
+    [InlineData("+03:00")]
+    [InlineData("none")]
+    public async Task TripCreate_IsoDepartureDate_IsStoredAsUtc(string zone)
+    {
+        // A zone-less value is read as UTC, so a create queued by an old build still replays.
+        var (sent, stored) = DepartureDateIn(zone);
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object> { { "departureDate", sent } });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.TableName == "test-trips-table" && r.Item["departureDate"].S == stored));
+    }
+
+    [Fact]
+    public async Task TripUpdate_UnchangedDepartureEchoedWithAnOffset_IsStoredAsUtc()
+    {
+        // The same-instant echo rule accepts another spelling of the stored date, but the
+        // row keeps the UTC form, so the echo cannot shift the trip's browse rank.
+        var departedUtc = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-1).AddHours(6), TimeSpan.Zero);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        SetupExistingTrip("trip-001", "trucker-001", "matched", 2,
+            departureDate: departedUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", inv));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 3) });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", departedUtc.ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", inv) },
+                { "status", "inTransit" }, { "version", 2 }
+            }))), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeValues.Values.Any(v =>
+                v.S == departedUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", inv))
+            && !r.ExpressionAttributeValues.Values.Any(v => v.S != null && v.S.EndsWith("+03:00"))));
     }
 
     // --- Trip Update Tests ---
@@ -4836,6 +4897,32 @@ public class SyncFunctionTests
         Assert.Contains("success", body);
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PickupCatchUp_ReadsTheDeliveryStronglyConsistent()
+    {
+        // Right after the pickup scan an eventually consistent read may still say pending
+        // and would refuse the catch-up; only the consistent read sees pickedUp here.
+        var order = SetupExistingOrder(status: "accepted");
+        order["activeDeliveryId"] = "del-001";
+        SetupOrderUpdateSucceeds();
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && !r.ConsistentRead))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder() } });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder(status: "pickedUp") }
+            });
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        await _mockDynamoDb.Received().QueryAsync(Arg.Is<QueryRequest>(r =>
+            r.TableName == "test-deliveries-table" && r.ConsistentRead));
     }
 
     // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---

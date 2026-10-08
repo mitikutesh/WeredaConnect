@@ -366,12 +366,46 @@ public partial class SyncFunction
     [GeneratedRegex(@"^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$")]
     private static partial Regex PhotoRefRegex();
 
-    // SIM-60: departureDate is ISO 8601 date and time with Z or an offset, as clients send
-    // it (Dart toIso8601String of a UTC time, .NET "o"). It is the sort key of
+    // SIM-60: departureDate is ISO 8601 date and time with Z, an offset or no zone, as clients
+    // send it (Dart toIso8601String of a UTC time; builds before 2026-06-18 sent a local time
+    // without a zone, and trip creates they queued still replay). It is the sort key of
     // StatusDepartureDateIndex, so a value only a lenient parse accepts ("10/15/2026")
     // would sort ahead of every real date in buyer browse.
-    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,7})?)?(Z|[+-][0-9]{2}:[0-9]{2})$")]
+    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,7})?)?(Z|[+-][0-9]{2}:[0-9]{2})?$")]
     private static partial Regex IsoDepartureDateRegex();
+
+    /// <summary>
+    /// SIM-60: read a departureDate as a UTC instant; an offset is converted and a value
+    /// without a zone is taken as UTC. <paramref name="requireIsoShape"/> also requires
+    /// <see cref="IsoDepartureDateRegex"/> (client input; stored values are read as they are).
+    /// </summary>
+    private static bool TryParseDepartureDateUtc(string? raw, bool requireIsoShape, out DateTime utc)
+    {
+        utc = default;
+        if (string.IsNullOrWhiteSpace(raw) || (requireIsoShape && !IsoDepartureDateRegex().IsMatch(raw)))
+        {
+            return false;
+        }
+
+        return DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+            out utc);
+    }
+
+    /// <summary>
+    /// SIM-60: store departureDate in one form, UTC with milliseconds, the shape mobile and
+    /// web send (toUtc().toIso8601String()), so an offset cannot move a trip within the
+    /// StatusDepartureDateIndex order. Call after <see cref="ValidateTripFields"/> passed.
+    /// </summary>
+    private static void NormalizeDepartureDate(Dictionary<string, object> data)
+    {
+        if (data.TryGetValue("departureDate", out var raw)
+            && TryParseDepartureDateUtc(raw?.ToString(), requireIsoShape: true, out var utc))
+        {
+            data["departureDate"] = utc.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
 
     // FIX-011: Validate photo ref format and delivery ID ownership to prevent path traversal
     private static bool IsValidPhotoRef(string photoRef, string deliveryId)
@@ -2425,6 +2459,8 @@ public partial class SyncFunction
                         };
                     }
 
+                    NormalizeDepartureDate(operation.Data);
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -2626,6 +2662,8 @@ public partial class SyncFunction
                             Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
                         };
                     }
+
+                    NormalizeDepartureDate(operation.Data);
 
                     // H1: Validate status transition if status is being changed
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
@@ -2853,7 +2891,7 @@ public partial class SyncFunction
 
     /// <summary>
     /// True when an update's departureDate echoes the stored one (same text, or the same
-    /// UTC instant), so no date rule needs to run.
+    /// UTC instant; <paramref name="parsed"/> is UTC), so no date rule needs to run.
     /// </summary>
     private static bool IsUnchangedDepartureDate(string raw, DateTime parsed, string? stored)
     {
@@ -2867,9 +2905,8 @@ public partial class SyncFunction
             return true;
         }
 
-        return DateTime.TryParse(stored, null,
-                   System.Globalization.DateTimeStyles.RoundtripKind, out var storedParsed)
-               && storedParsed.ToUniversalTime() == parsed.ToUniversalTime();
+        return TryParseDepartureDateUtc(stored, requireIsoShape: false, out var storedUtc)
+               && storedUtc == parsed;
     }
 
     /// <summary>
@@ -2971,9 +3008,7 @@ public partial class SyncFunction
                     ? "departureDate is required."
                     : "departureDate must be a valid ISO 8601 date.");
             }
-            else if (!IsoDepartureDateRegex().IsMatch(dateObj.ToString()!)
-                     || !DateTime.TryParse(dateObj.ToString(), null,
-                         System.Globalization.DateTimeStyles.RoundtripKind, out var parsedDate))
+            else if (!TryParseDepartureDateUtc(dateObj.ToString(), requireIsoShape: true, out var parsedDate))
             {
                 errors.Add("departureDate must be a valid ISO 8601 date.");
             }
@@ -4985,7 +5020,8 @@ public partial class SyncFunction
     /// <summary>
     /// Query for a delivery item by deliveryId (partition key).
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetDeliveryItemAsync(string deliveryId)
+    private async Task<Dictionary<string, AttributeValue>?> GetDeliveryItemAsync(
+        string deliveryId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -4995,7 +5031,8 @@ public partial class SyncFunction
             {
                 { ":id", new AttributeValue { S = deliveryId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);
@@ -5716,7 +5753,9 @@ public partial class SyncFunction
             return $"The order has no active delivery; '{newStatus}' is set when the delivery is picked up.";
         }
 
-        var delivery = await GetDeliveryItemAsync(activeDeliveryId);
+        // Strongly consistent: the catch-up usually comes right after the delivery's own
+        // transition, which an eventually consistent read may not show yet.
+        var delivery = await GetDeliveryItemAsync(activeDeliveryId, consistentRead: true);
         var deliveryStatus = delivery != null && delivery.TryGetValue("status", out var dsAttr) ? dsAttr.S : null;
         if (deliveryStatus != null && DeliveryStatusesImplyingOrderStatus[newStatus].Contains(deliveryStatus))
         {

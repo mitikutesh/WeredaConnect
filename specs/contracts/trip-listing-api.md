@@ -270,7 +270,8 @@ Invalid transitions return `422 Unprocessable Entity`:
    - Allow Amharic, Afan Oromo, English characters
    - fromWoreda and toWoreda must be different
 2. **Departure Date**:
-   - Must be an ISO 8601 date and time with `Z` or an offset, for example `2026-02-18T06:00:00Z` or `2026-02-18T09:00:00+03:00` (seconds and a fraction of up to 7 digits optional), on create and whenever an update sends it (1.3.0). A blank value or any other shape (`10/15/2026`, a bare date) is `TRIP_VALIDATION: departureDate must be a valid ISO 8601 date.` and nothing is written. It is the sort key of the browse index, so a lenient parse would let such a value sort ahead of every real date. Mobile and web send `toUtc().toIso8601String()` (`2026-02-18T06:00:00.000Z`)
+   - Must be an ISO 8601 date and time, for example `2026-02-18T06:00:00.000Z`, `2026-02-18T09:00:00+03:00` or `2026-02-18T06:00:00.000` (seconds and a fraction of up to 7 digits optional; a value without a zone is read as UTC, as mobile builds before 2026-06-18 sent it), on create and whenever an update sends it (1.3.0). A blank value or any other shape (`10/15/2026`, a bare date) is `TRIP_VALIDATION: departureDate must be a valid ISO 8601 date.` and nothing is written. It is the sort key of the browse index, so a lenient parse would let such a value sort ahead of every real date
+   - Stored in one form, UTC with milliseconds (`2026-02-18T06:00:00.000Z`, what mobile and web send with `toUtc().toIso8601String()`), whatever zone the client used (1.3.0). Responses return that form, so an offset cannot move a trip within the browse order
    - Must be in the future (for create action)
    - Must be within 30 days from now
    - On update (1.3.0): a `departureDate` that differs from the stored one must satisfy the same two rules (`TRIP_VALIDATION: departureDate must be in the future when changed.` / `departureDate must be within 30 days.`). An unchanged echo of the stored date is accepted even when it is past, so status changes on departed trips still sync. Before 1.3.0 any parseable date was accepted on update. Shipped clients send only `status` + `version` on update.
@@ -428,7 +429,7 @@ Common route patterns:
 | 1.1.0 | 2026-09-25 | Update: `truckerId`/`truckerName`/`truckerPhone` are immutable after create (SIM-03); a changed value is rejected with `TRIP_VALIDATION`, an echoed value is stripped |
 | 1.2.0 | 2026-09-28 | Create: `truckerName`/`truckerPhone` come from the trucker's profile, client values ignored (SIM-40) |
 | 1.2.1 | 2026-10-01 | Browse: cancelled trips (status update or soft delete) are never listed, matching the detail 404; `status=cancelled` returns an empty page (SIM-31) |
-| 1.3.0 | 2026-10-06 | Update: a changed `departureDate` must be in the future and within 30 days like on create (SIM-60); an unchanged echo of the stored date is accepted. Create and update: `departureDate` must be ISO 8601 date and time with `Z` or an offset; blank or any other shape is refused |
+| 1.3.0 | 2026-10-06 | Update: a changed `departureDate` must be in the future and within 30 days like on create (SIM-60); an unchanged echo of the stored date is accepted. Create and update: `departureDate` must be ISO 8601 date and time (`Z`, an offset, or no zone read as UTC); blank or any other shape is refused; it is stored as UTC with milliseconds |
 
 ---
 
