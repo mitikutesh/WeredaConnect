@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 // Dashboard
@@ -100,11 +100,16 @@ export function useUserAction() {
 }
 
 // Manual payout queue (ESC-02): settlements the live gateway could not make.
+// Oldest first, 50 per page; the page loads the next page on demand.
 export function useManualPayouts() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["admin", "payouts"],
-    // Oldest first; the page says when more are waiting beyond these 50.
-    queryFn: () => api.get("/admin/payouts/manual?limit=50"),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ payouts?: unknown[]; nextToken?: string | null }>(
+        `/admin/payouts/manual?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
 }
 

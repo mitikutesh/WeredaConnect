@@ -144,7 +144,8 @@
     "recordRef": "Wabii galmeessi",
     "confirmFound": "Poortaalichi eenyummeessa kanaan {amount} {phone}f akka kaffalame agarsiisaa?",
     "loadFailed": "Tarreen kaffaltii fe'amuu hin dandeenye. Homaa kaffaluu dura irra deebi'ii fe'aa.",
-    "more": "Kanneen durii 50 qofatu mul'ata. Isaan kana galmeessaatii kanneen hafan argachuuf irra deebi'ii fe'aa."
+    "loadMore": "Dabalata fe'i",
+    "deliveredWarning": "Erga deebisuun kun tarreeffamee booda geejjibni mirkanaa'eera. Osoo hin deebisin dura bitataa fi qonnaan bulaa wajjin mirkaneessaa."
   },
   "fraud": {
     "title": "Gamaaggama Gosoota",

@@ -34,6 +34,7 @@ interface ManualPayout {
   reason: string;
   escrowStatus: string;
   fromStatus: string;
+  deliveryConfirmedAt?: string;
   queuedAt: string;
   currency: string;
   legs: PayoutLeg[];
@@ -63,7 +64,7 @@ function fill(template: string, values: Record<string, string>): string {
 
 export function ManualPayoutsPage() {
   const { t, locale } = useLocale();
-  const { data, isLoading, isError } = useManualPayouts();
+  const { data, isLoading, isError, hasNextPage, fetchNextPage, isFetchingNextPage } = useManualPayouts();
   const complete = useCompleteManualPayout();
   const [refs, setRefs] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -71,8 +72,8 @@ export function ManualPayoutsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const resp = data as { payouts?: ManualPayout[]; nextToken?: string | null } | undefined;
-  const payouts = resp?.payouts ?? [];
+  const pages = (data?.pages ?? []) as { payouts?: ManualPayout[] }[];
+  const payouts = pages.flatMap((page) => page.payouts ?? []);
   const rows: Row[] = payouts.flatMap((payout) =>
     payout.legs.map((leg) => ({ key: `${payout.escrowId}:${leg.ref}`, payout, leg })),
   );
@@ -207,6 +208,11 @@ export function ManualPayoutsPage() {
               <Badge variant="warning">{t("payouts.statusChanged")}</Badge>
             </div>
           )}
+          {row.payout.op === "refund" &&
+            row.payout.deliveryConfirmedAt &&
+            row.payout.deliveryConfirmedAt > row.payout.queuedAt && (
+            <p className="max-w-56 text-xs text-warning">{t("payouts.deliveredWarning")}</p>
+          )}
         </div>
       ),
     },
@@ -327,9 +333,6 @@ export function ManualPayoutsPage() {
           {t("payouts.loadFailed")}
         </div>
       )}
-      {!isError && resp?.nextToken && (
-        <p className="mb-4 text-sm text-text-muted">{t("payouts.more")}</p>
-      )}
       {notice && (
         <div
           role="status"
@@ -346,6 +349,18 @@ export function ManualPayoutsPage() {
             </div>
           ) : (
             <DataTable columns={columns} data={rows} isLoading={isLoading} />
+          )}
+          {hasNextPage && (
+            <div className="flex justify-center border-t border-gray-200 p-4">
+              <button
+                type="button"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                {t("payouts.loadMore")}
+              </button>
+            </div>
           )}
         </Card>
       )}

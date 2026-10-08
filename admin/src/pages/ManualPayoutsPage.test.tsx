@@ -15,7 +15,14 @@ type MutateOptions = {
 };
 
 const mocks = vi.hoisted(() => ({
-  payouts: { data: undefined as unknown, isLoading: false, isError: false },
+  payouts: {
+    data: undefined as unknown,
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  },
   mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
 }));
 
@@ -101,6 +108,11 @@ function refundOverdue() {
   };
 }
 
+/* useManualPayouts is an infinite query: the page reads data.pages. */
+function pages(...list: Record<string, unknown>[]) {
+  return { pages: list, pageParams: list.map(() => null) };
+}
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -122,7 +134,9 @@ describe("ManualPayoutsPage", () => {
     mocks.mutate.mockReset();
     mocks.payouts.isLoading = false;
     mocks.payouts.isError = false;
-    mocks.payouts.data = { payouts: [releaseWithTwoLegs(), refundOverdue()], total: 2 };
+    mocks.payouts.hasNextPage = false;
+    mocks.payouts.fetchNextPage = vi.fn();
+    mocks.payouts.data = pages({ payouts: [releaseWithTwoLegs(), refundOverdue()], total: 2 });
   });
 
   it("renders one row per leg with payee, amount, operation and reason", () => {
@@ -225,7 +239,7 @@ describe("ManualPayoutsPage", () => {
   });
 
   it("shows a paid leg with its reference and who recorded it", () => {
-    mocks.payouts.data = {
+    mocks.payouts.data = pages({
       payouts: [
         releaseWithTwoLegs({
           legs: [
@@ -255,7 +269,7 @@ describe("ManualPayoutsPage", () => {
         }),
       ],
       total: 1,
-    };
+    });
     renderPage();
 
     const farmerRow = rowFor("Abebe Kebede");
@@ -301,15 +315,48 @@ describe("ManualPayoutsPage", () => {
     expect(screen.queryByText("No payouts are waiting.")).toBeNull();
   });
 
-  it("says when more payouts wait beyond the first page", () => {
-    mocks.payouts.data = { payouts: [releaseWithTwoLegs()], nextToken: "next-page", total: 1 };
+  it("loads the next page on demand and shows every loaded page", async () => {
+    mocks.payouts.data = pages(
+      { payouts: [releaseWithTwoLegs()], nextToken: "next-page", total: 1 },
+      { payouts: [refundOverdue()], total: 1 },
+    );
+    mocks.payouts.hasNextPage = true;
+    const user = userEvent.setup();
     renderPage();
 
-    expect(screen.getByText("Showing the oldest 50. Record these, then reload for the rest.")).toBeTruthy();
+    expect(rowFor("Abebe Kebede")).toBeTruthy();
+    expect(rowFor("Sara Bekele")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(mocks.payouts.fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Load more button on the last page", () => {
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("warns on a refund whose delivery was confirmed after it was queued", () => {
+    const refund = { ...refundOverdue(), deliveryConfirmedAt: hoursAgo(1) };
+    const earlier = {
+      ...refundOverdue(),
+      escrowId: "escrow-order-ord-3",
+      orderId: "ord-3",
+      deliveryConfirmedAt: hoursAgo(40),
+      legs: [{ ...refundOverdue().legs[0], payeeName: "Hana Girma" }],
+    };
+    mocks.payouts.data = pages({ payouts: [refund, earlier], total: 2 });
+    renderPage();
+
+    const warning =
+      "Delivery was confirmed after this refund was queued. Check with the buyer and the farmer before refunding.";
+    expect(within(rowFor("Sara Bekele")).getByText(warning)).toBeTruthy();
+    // Confirmed before the refund was queued (for example a buyer_wins verdict): no warning.
+    expect(within(rowFor("Hana Girma")).queryByText(warning)).toBeNull();
   });
 
   it("shows the empty state when nothing is waiting", () => {
-    mocks.payouts.data = { payouts: [], total: 0 };
+    mocks.payouts.data = pages({ payouts: [], total: 0 });
     renderPage();
 
     expect(screen.getByText("No payouts are waiting.")).toBeTruthy();

@@ -144,7 +144,8 @@
     "recordRef": "Record reference",
     "confirmFound": "The portal shows {amount} paid to {phone} under this ID?",
     "loadFailed": "The payout queue could not be loaded. Reload before paying anything.",
-    "more": "Showing the oldest 50. Record these, then reload for the rest."
+    "loadMore": "Load more",
+    "deliveredWarning": "Delivery was confirmed after this refund was queued. Check with the buyer and the farmer before refunding."
   },
   "fraud": {
     "title": "Fraud Review",
