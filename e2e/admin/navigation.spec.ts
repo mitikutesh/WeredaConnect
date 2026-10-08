@@ -16,6 +16,7 @@ test.describe("Admin Navigation - Unauthenticated", () => {
     "/",
     "/escrows",
     "/disputes",
+    "/payouts",
     "/fraud-review",
     "/users",
     "/revenue",
@@ -69,6 +70,7 @@ test.describe("Admin Navigation - UI Structure", () => {
       "dashboard",
       "escrows",
       "disputes",
+      "payouts",
       "fraud",
       "users",
       "revenue",
@@ -85,7 +87,7 @@ test.describe("Admin Navigation - UI Structure", () => {
     await expect(form).toBeVisible();
 
     // The sidebar items are defined in source and verified through navigation tests
-    expect(expectedNavLabels.length).toBe(10);
+    expect(expectedNavLabels.length).toBe(12);
   });
 
   test("unknown routes redirect to home (then to login)", async ({ page }) => {
