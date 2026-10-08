@@ -589,7 +589,7 @@ public partial class SyncFunction
         {
             var result = await ProcessOperationAsync(operation, authenticatedUserId, authenticatedRole, context);
             context.Logger.LogInformation(
-                $"Op {result.OperationId}: status={result.Status}, msg={result.Message ?? "none"}");
+                $"Op {MoneyAlarmLog.LogId(result.OperationId)}: status={result.Status}, msg={MoneyAlarmLog.LogText(result.Message ?? "none")}");
             results.Add(result);
         }
 
@@ -674,7 +674,7 @@ public partial class SyncFunction
             if (isDuplicate)
             {
                 context.Logger.LogInformation(
-                    $"Duplicate idempotency key: {operation.IdempotencyKey} for operation {operation.OperationId}");
+                    $"Duplicate idempotency key: {MoneyAlarmLog.LogId(operation.IdempotencyKey)} for operation {MoneyAlarmLog.LogId(operation.OperationId)}");
 
                 return new SyncOperationResult
                 {
@@ -718,7 +718,7 @@ public partial class SyncFunction
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"Error processing operation {operation.OperationId}: {ex.Message}");
+                $"Error processing operation {MoneyAlarmLog.LogId(operation.OperationId)}: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
 
             return new SyncOperationResult
             {
@@ -1869,7 +1869,7 @@ public partial class SyncFunction
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to record fraud signal {signalType} for user {userId}: {ex.Message}");
+                $"Failed to record fraud signal {signalType} for user {userId}: [{ex.GetType().Name}]");
         }
     }
 
@@ -2054,7 +2054,7 @@ public partial class SyncFunction
                             operation.Data["isFlagged"] = true;
                             operation.Data["flagReason"] = fraudCheck.FlagReason ?? "UNKNOWN";
                             context.Logger.LogWarning(
-                                $"Fraud flag on listing {operation.EntityId}: {fraudCheck.FlagReason} — {fraudCheck.Message}");
+                                $"Fraud flag on listing {MoneyAlarmLog.LogId(operation.EntityId)}: {fraudCheck.FlagReason}: {MoneyAlarmLog.LogText(fraudCheck.Message)}");
                             await TryRecordFraudSignalAsync(
                                 authenticatedUserId!, fraudCheck.FlagReason ?? "UNKNOWN",
                                 operation.EntityId, "crop", fraudCheck.Message, context);
@@ -4524,7 +4524,7 @@ public partial class SyncFunction
                         {
                             operation.Data["gpsAnomalyFlag"] = true;
                             context.Logger.LogWarning(
-                                $"GPS anomaly on delivery {operation.EntityId}: {gpsCheck.Message}");
+                                $"GPS anomaly on delivery {MoneyAlarmLog.LogId(operation.EntityId)}: {MoneyAlarmLog.LogText(gpsCheck.Message)}");
                             await TryRecordFraudSignalAsync(
                                 authenticatedUserId ?? "", gpsCheck.FlagReason ?? "GPS_ANOMALY",
                                 operation.EntityId, "delivery", gpsCheck.Message, context);
@@ -5006,7 +5006,7 @@ public partial class SyncFunction
                 });
 
             context.Logger.LogInformation(
-                $"Escrow {escrowId} stamped for delivery {deliveryId}; auto-release scheduled after 48h dispute window.");
+                $"Escrow {MoneyAlarmLog.LogId(escrowId)} stamped for delivery {MoneyAlarmLog.LogId(deliveryId)}; auto-release scheduled after 48h dispute window.");
         }
         catch (Exception ex)
         {
@@ -5014,7 +5014,7 @@ public partial class SyncFunction
             // escrow is stamped, the 7-day auto-refund is NOT blocked, so this needs
             // an ops alert / reconciliation follow-up.
             context.Logger.LogError(
-                $"Delivery {deliveryId} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
+                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
                 + "Escrow not yet marked delivery-confirmed — requires reconciliation.");
         }
     }
@@ -5607,17 +5607,17 @@ public partial class SyncFunction
             var outcome = await _orderEscrowService.MarkDisputedFromDeliveryAsync(deliveryId, disputedBy, reason);
             context.Logger.LogInformation(outcome switch
             {
-                DeliveryDisputeFreeze.Frozen => $"Escrow for delivery {deliveryId} disputed by {disputedBy}",
+                DeliveryDisputeFreeze.Frozen => $"Escrow for delivery {MoneyAlarmLog.LogId(deliveryId)} disputed by {MoneyAlarmLog.LogId(disputedBy)}",
                 DeliveryDisputeFreeze.RefusedManualPayout =>
-                    $"Escrow for disputed delivery {deliveryId} waits in the manual payout queue; escrow and order left as they are",
-                _ => $"No escrowed money to freeze for disputed delivery {deliveryId}"
+                    $"Escrow for disputed delivery {MoneyAlarmLog.LogId(deliveryId)} waits in the manual payout queue; escrow and order left as they are",
+                _ => $"No escrowed money to freeze for disputed delivery {MoneyAlarmLog.LogId(deliveryId)}"
             });
             return outcome;
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to freeze escrow for disputed delivery {deliveryId}: [{ex.GetType().Name}] {ex.Message}");
+                $"Failed to freeze escrow for disputed delivery {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
             return DeliveryDisputeFreeze.NothingToFreeze;
         }
     }
@@ -5691,18 +5691,18 @@ public partial class SyncFunction
             if (!result.IsSuccess)
             {
                 context.Logger.LogWarning(
-                    $"Order {orderId} not advanced to {target} from delivery {deliveryStatus}: {result.Error?.Message}");
+                    $"Order {MoneyAlarmLog.LogId(orderId)} not advanced to {target} from delivery {MoneyAlarmLog.LogId(deliveryStatus)}: {MoneyAlarmLog.LogText(result.Error?.Message)}");
                 return;
             }
 
             await EmitTxAuditAsync(context, orderId, "order", orderId,
                 OrderActionFor(target), current, target, ctxOverride: AuditContext.ForSystem());
-            context.Logger.LogInformation($"Order {orderId}: {current} -> {target} (delivery {deliveryStatus})");
+            context.Logger.LogInformation($"Order {MoneyAlarmLog.LogId(orderId)}: {current} -> {target} (delivery {MoneyAlarmLog.LogId(deliveryStatus)})");
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to advance order {orderId} for delivery {deliveryStatus}: [{ex.GetType().Name}] {ex.Message}");
+                $"Failed to advance order {MoneyAlarmLog.LogId(orderId)} for delivery {MoneyAlarmLog.LogId(deliveryStatus)}: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
         }
     }
 
@@ -5726,13 +5726,13 @@ public partial class SyncFunction
 
             var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
             context.Logger.LogInformation(restored
-                ? $"Listing {listingId}: +{quintals} quintals restored (order {orderId} died)"
-                : $"Listing {listingId}: nothing to restore for order {orderId} (already restored or listing gone)");
+                ? $"Listing {MoneyAlarmLog.LogId(listingId)}: +{quintals} quintals restored (order {MoneyAlarmLog.LogId(orderId)} died)"
+                : $"Listing {MoneyAlarmLog.LogId(listingId)}: nothing to restore for order {MoneyAlarmLog.LogId(orderId)} (already restored or listing gone)");
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Failed to restore listing stock for order: [{ex.GetType().Name}] {ex.Message}");
+                $"Failed to restore listing stock for order: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
         }
     }
 
@@ -5780,20 +5780,20 @@ public partial class SyncFunction
             if (!result.IsSuccess)
             {
                 context.Logger.LogWarning(
-                    $"Mock auto-fund not applied for order {orderId}: {result.Error?.Message}");
+                    $"Mock auto-fund not applied for order {MoneyAlarmLog.LogId(orderId)}: {MoneyAlarmLog.LogText(result.Error?.Message)}");
                 return null;
             }
 
             // Same side effects as a live Telebirr payment (ESC-01): stock off the listing
             // and the order escrow, both idempotent per order.
             await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
-            context.Logger.LogInformation($"Order {orderId} auto-funded (mock payments).");
+            context.Logger.LogInformation($"Order {MoneyAlarmLog.LogId(orderId)} auto-funded (mock payments).");
             return result.Value;
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"Mock auto-fund failed for order {orderId}: [{ex.GetType().Name}]");
+                $"Mock auto-fund failed for order {MoneyAlarmLog.LogId(orderId)}: [{ex.GetType().Name}]");
             return null;
         }
     }
@@ -5816,14 +5816,14 @@ public partial class SyncFunction
             var scheduled = await _orderEscrowService.ScheduleRefundForOrderAsync(
                 orderId, reason, "system", _batchAudit);
             context.Logger.LogInformation(scheduled
-                ? $"Order escrow refund scheduled: orderId={orderId} reason={reason}"
-                : $"No refundable order escrow for orderId={orderId} ({reason}) — "
+                ? $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={reason}"
+                : $"No refundable order escrow for orderId={MoneyAlarmLog.LogId(orderId)} ({reason}): "
                   + "either none exists or delivery already confirmed.");
         }
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={orderId} reason=[{ex.GetType().Name}]");
+                $"ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
         }
     }
 
@@ -5847,13 +5847,13 @@ public partial class SyncFunction
             if (!linked)
             {
                 context.Logger.LogInformation(
-                    $"No order escrow linked for delivery {deliveryId} (orderId={orderId}).");
+                    $"No order escrow linked for delivery {MoneyAlarmLog.LogId(deliveryId)} (orderId={MoneyAlarmLog.LogId(orderId)}).");
             }
         }
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"ORDER_ESCROW_LINK_FAILED orderId={orderId} deliveryId={deliveryId} "
+                $"ORDER_ESCROW_LINK_FAILED orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} "
                 + $"reason=[{ex.GetType().Name}]");
         }
     }

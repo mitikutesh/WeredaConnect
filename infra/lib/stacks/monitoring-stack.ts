@@ -799,11 +799,13 @@ export class MonitoringStack extends cdk.Stack {
         'exception (ESCROW_SETTLEMENT_FAILED in the escrow or escrow-cron log group; the ' +
         'line carries escrowId, action, outcome and code; the escrow-audit row has the same ' +
         'action). outcome=unknown means Telebirr may already have paid: check the merchant ' +
-        'portal before any manual release or refund. The hourly sweep retries a failed leg ' +
-        'until ESC-05 stops blind retries. A trucker_release_failed with code - is an ' +
-        'unverified trucker whose leg nobody retries yet (ESC-04). code=MANUAL_QUEUE_FAILED:' +
-        '<reason> means the manual payout queue write failed and the next sweep retries. A ' +
-        'payout waiting in the manual payout queue (202 ESCROW_034) is not counted here.',
+        'portal before any manual release or refund. release_failed and refund_failed (any ' +
+        'code, MANUAL_QUEUE_FAILED:<reason> included): the lock is released and the next hourly ' +
+        'sweep retries until ESC-05 stops blind retries. trucker_release_failed (any code): the ' +
+        'escrow completed with truckerPayoutPending and nothing retries the trucker leg until ' +
+        'ESC-04: check the Telebirr portal and pay the trucker by hand (with outcome=unknown the ' +
+        'trucker may already be paid). A payout waiting in the manual payout queue (202 ' +
+        'ESCROW_034) is not counted here.',
     );
 
     const manualPayoutsOverdueAlarm = moneyLogAlarm(
@@ -935,6 +937,10 @@ export class MonitoringStack extends cdk.Stack {
     // serializer cannot read does. A run killed after a gateway call logs nothing, so this
     // alarm is the only signal for it. The aggregate LambdaErrors alarm (> 3 in 5 minutes)
     // never sees a single crash, and the scheduled retries land in separate periods.
+    // 4 periods of 5 minutes, 1 datapoint: a timeout kill and its two async retries (each up
+    // to 5 minutes, 1 and 2 minutes apart) leave empty periods between errors, and a
+    // 20 minute window keeps them one ALARM episode instead of flapping. It clears by itself
+    // 20 to 25 minutes after the last error.
     const escrowCronErrorsAlarm = new cloudwatch.Alarm(this, 'EscrowCronErrors', {
       alarmName: `${prefix}-escrow-cron-errors`,
       alarmDescription:
@@ -946,7 +952,8 @@ export class MonitoringStack extends cdk.Stack {
         'holding its settlement lock; check the escrow-audit rows and the Telebirr merchant ' +
         'portal before any manual release or refund. The lock stays held until ESC-05 adds ' +
         'recovery. Lambda retries a failed scheduled run twice, so one crash can show up to ' +
-        'three errors.',
+        'three errors; they stay one episode, and the alarm clears 20 to 25 minutes after the ' +
+        'last one.',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/Lambda',
         metricName: 'Errors',
@@ -956,7 +963,8 @@ export class MonitoringStack extends cdk.Stack {
         label: 'Escrow Cron Errors',
       }),
       threshold: 1,
-      evaluationPeriods: 1,
+      evaluationPeriods: 4,
+      datapointsToAlarm: 1,
       comparisonOperator:
         cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,

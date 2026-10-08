@@ -2007,7 +2007,7 @@ public sealed class EscrowService
 
         var legs = string.Join(",", failures);
         Console.WriteLine(
-            $"DISPUTE_PROPAGATION_FAILED escrowId={escrowId} orderId={orderId} deliveryId={deliveryId} legs={legs}");
+            $"DISPUTE_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} legs={legs}");
         try
         {
             await AppendAuditAsync(
@@ -2017,7 +2017,7 @@ public sealed class EscrowService
         {
             // The ledger write itself failed; the dispute is still recorded on the escrow.
             Console.WriteLine(
-                $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={escrowId} reason=[{ex.GetType().Name}]");
+                $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
         }
     }
 
@@ -2048,7 +2048,7 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
                 metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={escrowId}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)}");
             return DeliveryDisputeFreeze.RefusedManualPayout;
         }
         var now = DateTime.UtcNow;
@@ -2359,7 +2359,7 @@ public sealed class EscrowService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={escrowId} error={ex.GetType().Name}");
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             }
 
             return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message);
@@ -2494,7 +2494,7 @@ public sealed class EscrowService
             await EnsureQueuedAuditAsync(escrow, op);
             await EnsureAuditAsync(escrowId, now, "manual_payout_paid", currentStatus, currentStatus, actorUserId,
                 reference, ManualPaidMetadata(leg, amount, payeeId));
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={escrowId} op={op} leg={leg} remaining={pendingOthers.Count}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} leg={leg} remaining={pendingOthers.Count}");
 
             var finalStatus = currentStatus;
             if (newStatus != currentStatus)
@@ -2603,7 +2603,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             return "released";
         }
 
@@ -2615,7 +2615,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_AUDIT_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_AUDIT_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
         }
 
         return "completed";
@@ -2771,7 +2771,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} error={ex.GetType().Name}");
             queued = false;
         }
 
@@ -2784,7 +2784,7 @@ public sealed class EscrowService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_RECHECK_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_RECHECK_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} error={ex.GetType().Name}");
                 return false;
             }
 
@@ -2800,7 +2800,7 @@ public sealed class EscrowService
         var legNames = string.Join(",", legs.Select(l => l.Leg));
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", fromStatus, fromStatus, actor,
             metadata: $"op={op};legs={legNames};reason={reason}");
-        Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={escrowId} op={op} legs={legNames} reason={reason}");
+        Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={legNames} reason={reason}");
         return true;
     }
 

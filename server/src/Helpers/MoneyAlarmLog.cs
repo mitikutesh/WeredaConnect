@@ -8,8 +8,8 @@ namespace WeredaConnect.Server.Helpers;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Line formats (one line each; ids are reduced to <c>[A-Za-z0-9-_.:]</c>, cut at 64
-/// characters, empty becomes <c>-</c>):
+/// Line formats (one line each; ids go through <see cref="LogId"/>, the other fields keep
+/// <c>[A-Za-z0-9-_.:]</c>; every field is cut at 64 characters and an empty one is <c>-</c>):
 /// </para>
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
@@ -28,6 +28,14 @@ namespace WeredaConnect.Server.Helpers;
 /// logs <c>MANUAL_PAYOUT_OVERDUE</c> per pending leg with <c>ref=&lt;op&gt;:&lt;leg&gt;</c>;
 /// the <c>ADMIN_QUEUE_OVERDUE</c> producer comes with ESC-06. Contract:
 /// <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1".
+/// </para>
+/// <para>
+/// Spoofing: a metric filter counts any line of its log group that contains the token, so a
+/// client must never be able to put a token into any line there. Every alarm token contains
+/// <c>_</c> (an infra test enforces it), so every client-influenced value written to the
+/// escrow, escrow-cron, sync or webhook log group goes through <see cref="LogId"/> (ids,
+/// path parameters, headers) or <see cref="LogText"/> (messages that may echo input), which
+/// turn <c>_</c> into <c>-</c>. Action, outcome, code, ref and reason are server values.
 /// </para>
 /// <para>
 /// The overdue line is written with <c>LogWarning</c> and the failure lines with
@@ -52,6 +60,7 @@ public static class MoneyAlarmLog
     public static readonly TimeSpan QueueAlarmAfter = TimeSpan.FromHours(24);
 
     private const int MaxFieldLength = 64;
+    private const int MaxTextLength = 200;
 
     /// <summary>
     /// Escrow-audit actions that count as a settlement failure. Not counted on purpose:
@@ -68,18 +77,52 @@ public static class MoneyAlarmLog
         => action != null && SettlementFailureAuditActions.Contains(action);
 
     public static string SettlementFailed(string? escrowId, string? action, string? outcome, string? code)
-        => $"{SettlementFailedToken} escrowId={Safe(escrowId)} action={Safe(action)} outcome={Safe(outcome)} code={Safe(code)}";
+        => $"{SettlementFailedToken} escrowId={LogId(escrowId)} action={Safe(action)} outcome={Safe(outcome)} code={Safe(code)}";
 
     public static string ManualPayoutOverdue(string? escrowId, string? reference, int ageHours)
-        => $"{ManualPayoutOverdueToken} escrowId={Safe(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
+        => $"{ManualPayoutOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
 
     public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours)
-        => $"{AdminQueueOverdueToken} orderId={Safe(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+        => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
     /// <summary>
-    /// Same rule as the webhook's log sanitizer: keep <c>[A-Za-z0-9-_.:]</c>, cut at 64
-    /// characters, empty becomes <c>-</c>. A field can never hold a space or a newline, so a
-    /// value cannot add a second token to the line or break the metric filter.
+    /// A client-chosen or client-influenced id (entity id, path parameter, header, an escrow id
+    /// that embeds an order id) for any log line in a log group a money alarm filters: keeps
+    /// <c>[A-Za-z0-9-.:]</c>, turns <c>_</c> into <c>-</c>, cuts at 64 characters, empty becomes
+    /// <c>-</c>. No space, newline or underscore survives, so the value cannot spell an alarm token.
+    /// </summary>
+    public static string LogId(string? value) => Safe(Defang(value));
+
+    /// <summary>
+    /// Free text that may echo client input (an exception or error message) for the same log
+    /// groups: control characters become spaces, <c>_</c> becomes <c>-</c>, cut at 200 characters,
+    /// empty becomes <c>-</c>.
+    /// </summary>
+    public static string LogText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "-";
+        }
+
+        var text = new string(Defang(value)!
+            .Select(c => char.IsControl(c) ? ' ' : c)
+            .Take(MaxTextLength)
+            .ToArray());
+        return string.IsNullOrWhiteSpace(text) ? "-" : text;
+    }
+
+    /// <summary>
+    /// <c>_</c> becomes <c>-</c>, nothing else changes. Every alarm token contains <c>_</c>, so a
+    /// defanged value cannot contain one (write it after a space or <c>=</c>, never glued to a
+    /// server prefix). For values their writer already escapes (the JSON audit line).
+    /// </summary>
+    public static string? Defang(string? value) => value?.Replace('_', '-');
+
+    /// <summary>
+    /// Keep <c>[A-Za-z0-9-_.:]</c>, cut at 64 characters, empty becomes <c>-</c>. A field can
+    /// never hold a space or a newline, so it cannot add a second field or break the line.
+    /// Only for server values (actions, codes, references); client-influenced ids use <see cref="LogId"/>.
     /// </summary>
     private static string Safe(string? value)
     {

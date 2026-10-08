@@ -808,7 +808,9 @@ describe('MonitoringStack', () => {
       ],
       Threshold: 1,
       ComparisonOperator: 'GreaterThanOrEqualToThreshold',
-      EvaluationPeriods: 1,
+      // A crash plus two async retries leaves empty 5 minute periods: 4 periods keep one episode.
+      EvaluationPeriods: 4,
+      DatapointsToAlarm: 1,
       TreatMissingData: 'notBreaching',
     });
   });
@@ -872,6 +874,59 @@ describe('MonitoringStack', () => {
     }
     // A sanitized field value cannot forge a token (MoneyAlarmLog drops spaces and newlines).
     expect(cloudWatchTermsMatch(payouts, 'ESCROW_SETTLEMENT_FAILED escrowId=xMANUAL_PAYOUT_OVERDUEx action=a outcome=failed code=-')).toBe(false);
+  });
+
+  // Every term of a money filter, as the synthesized pattern spells it.
+  function filterTerms(pattern: string): string[] {
+    return (pattern.match(/\??"[^"]*"|\??\S+/g) ?? []).map((t) => t.replace(/^\?/, '').replace(/^"|"$/g, ''));
+  }
+
+  // The money filters of the four log groups that carry them (webhook only with the live gateway).
+  function moneyFilterPatterns(template: Template): string[] {
+    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
+    const money = ['EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue', 'OrderPaymentProblems'];
+    return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
+      .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
+      .map((f) => f.Properties.FilterPattern);
+  }
+
+  test('ESC-13: every money filter term contains an underscore (the server defangs client text by turning _ into -)', () => {
+    const patterns = moneyFilterPatterns(monitoringTemplate(true));
+    expect(patterns.length).toBe(6);
+    for (const term of patterns.flatMap(filterTerms)) {
+      expect([term, term.includes('_')]).toEqual([term, true]);
+    }
+  });
+
+  test('ESC-13: client text that spells a token cannot fire a money alarm once the server wrote it', () => {
+    const patterns = moneyFilterPatterns(monitoringTemplate(true));
+    const tokens = patterns.flatMap(filterTerms);
+    // What a client could send: a path, an id, a header or a field that spells every token.
+    const hostile = tokens.join('-');
+    const defanged = hostile.replace(/_/g, '-');
+    // Before ESC-13 the escrow Lambda logged the raw path: that line would fire the alarm.
+    expect(patterns.some((p) => cloudWatchTermsMatch(p, `EscrowFunction invoked: GET /escrow/${hostile}`))).toBe(true);
+    // The lines as the server writes them now (route template, MoneyAlarmLog.LogId / LogText,
+    // AuditLogger defangs its ids): no pattern matches, by term or even by substring.
+    const lines = [
+      'EscrowFunction invoked: GET /escrow/{id}',
+      `Error getting escrow ${defanged}: [AmazonDynamoDBException]`,
+      `Error getting escrow for delivery ${defanged}: [AmazonDynamoDBException]`,
+      `{"timestamp":"2026-10-09T10:00:00Z","category":"ESCROW","action":"DISPUTE","userId":"u-1","correlationId":"${defanged}","entityType":"escrow","entityId":"${defanged}","outcome":"failure"}`,
+      `Op ${defanged}: status=error, msg=Invalid action: '${defanged}'. Must be create, update, or delete.`,
+      `Duplicate idempotency key: ${defanged} for operation ${defanged}`,
+      `Error processing operation ${defanged}: [FormatException] The input string '${defanged}' was not in a correct format.`,
+      `ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-order-${defanged} sweep=auto-release`,
+      `Auto-release failed for escrow-order-${defanged}: ESCROW_013 - ${defanged}`,
+      `Order funded by a Telebirr payment: orderId=${defanged} merchOrderId=m-1 paymentOrderId=p-1.`,
+      `ORDER_PAYMENT_BOOKKEEPING_FAILED orderId=${defanged} merchOrderId=m-1 paymentOrderId=p-1 step=inbox outcome=funded reason=TimeoutException`,
+    ];
+    for (const line of lines) {
+      for (const pattern of patterns) {
+        expect([line, cloudWatchTermsMatch(pattern, line)]).toEqual([line, false]);
+        expect([line, filterTerms(pattern).some((t) => line.includes(t))]).toEqual([line, false]);
+      }
+    }
   });
 
   test.each([false, true])('ESC-13: money alarms exist with the live gateway %s and notify the alarm topic', (live) => {

@@ -10,6 +10,22 @@ namespace WeredaConnect.Server.Tests.Helpers;
 /// </summary>
 public class MoneyAlarmLogTests
 {
+    /// <summary>
+    /// Every token a money metric filter counts in the escrow, escrow-cron, sync and webhook
+    /// log groups (infra/lib/stacks/monitoring-stack.ts). Each contains an underscore, which the
+    /// infra tests enforce.
+    /// </summary>
+    public static readonly string[] AlarmTokens =
+    {
+        "ESCROW_SETTLEMENT_FAILED", "MANUAL_PAYOUT_OVERDUE", "ADMIN_QUEUE_OVERDUE",
+        "ORDER_ESCROW_CREATE_FAILED", "ORDER_ESCROW_LINK_FAILED", "ORDER_ESCROW_REFUND_SCHEDULE_FAILED",
+        "ORDER_PAYMENT_UNMATCHED", "ORDER_PAYMENT_DUPLICATE", "ORDER_PAYMENT_UNPROCESSED",
+        "ORDER_STOCK_DECREMENT_FAILED"
+    };
+
+    /// <summary>A client value that spells every alarm token.</summary>
+    public static readonly string Hostile = string.Join("-", AlarmTokens);
+
     [Fact]
     public void SettlementFailed_FormatsTokenAndFields()
     {
@@ -25,13 +41,67 @@ public class MoneyAlarmLogTests
 
         var line = MoneyAlarmLog.SettlementFailed("bad id\nMANUAL_PAYOUT_OVERDUE x=1", "a b=c", null, longCode);
 
-        // Spaces, newlines and '=' are dropped, so a value can never add a second token
-        // or a second field to the line; long values are cut at 64 characters.
+        // Spaces, newlines and '=' are dropped, so a value cannot add a second field or break
+        // the line; the id also loses its underscores, so it cannot spell a token; long values
+        // are cut at 64 characters.
         line.Should().Be(
-            "ESCROW_SETTLEMENT_FAILED escrowId=badidMANUAL_PAYOUT_OVERDUEx1 action=abc outcome=- "
+            "ESCROW_SETTLEMENT_FAILED escrowId=badidMANUAL-PAYOUT-OVERDUEx1 action=abc outcome=- "
             + $"code={new string('a', 64)}");
         line.Should().NotContain("\n");
     }
+
+    [Fact]
+    public void Lines_WithAClientIdThatSpellsTokens_CarryOnlyTheirOwnToken()
+    {
+        var settlement = MoneyAlarmLog.SettlementFailed($"escrow-order-{Hostile}", "release_failed", "failed", "TELEBIRR_TIMEOUT");
+        var overdue = MoneyAlarmLog.ManualPayoutOverdue($"escrow-order-{Hostile}", "release:farmer", 26);
+        var queue = MoneyAlarmLog.AdminQueueOverdue(Hostile, "undelivered", 30);
+
+        TokensIn(settlement).Should().Equal("ESCROW_SETTLEMENT_FAILED");
+        TokensIn(overdue).Should().Equal("MANUAL_PAYOUT_OVERDUE");
+        TokensIn(queue).Should().Equal("ADMIN_QUEUE_OVERDUE");
+    }
+
+    [Fact]
+    public void LogId_ClientValues_CannotSpellAToken()
+    {
+        foreach (var value in new[] { Hostile, $"escrow-order-{Hostile}", $"/escrow/{Hostile}", $"a b\n{Hostile}\r\t\"x\"" })
+        {
+            var logged = MoneyAlarmLog.LogId(value);
+
+            TokensIn(logged).Should().BeEmpty();
+            logged.Should().MatchRegex("^[A-Za-z0-9.:-]{1,64}$");
+        }
+
+        MoneyAlarmLog.LogId("1f0e7c1a-2b3c-4d5e-8f90-a1b2c3d4e5f6").Should().Be("1f0e7c1a-2b3c-4d5e-8f90-a1b2c3d4e5f6");
+        MoneyAlarmLog.LogId(null).Should().Be("-");
+        MoneyAlarmLog.LogId("___").Should().Be("---");
+    }
+
+    [Fact]
+    public void LogText_MessagesThatEchoInput_CannotSpellATokenOrBreakTheLine()
+    {
+        var message = $"The input string '{Hostile}' was not in a correct format.\nnext line\t{Hostile}";
+
+        var logged = MoneyAlarmLog.LogText(message);
+
+        TokensIn(logged).Should().BeEmpty();
+        logged.Should().NotContain("\n").And.NotContain("\t");
+        logged.Should().StartWith("The input string 'ESCROW-SETTLEMENT-FAILED-");
+        MoneyAlarmLog.LogText(new string('x', 500)).Should().HaveLength(200);
+        MoneyAlarmLog.LogText(null).Should().Be("-");
+        MoneyAlarmLog.LogText("\n").Should().Be("-");
+    }
+
+    [Fact]
+    public void Defang_OnlyTurnsUnderscoresIntoDashes()
+    {
+        MoneyAlarmLog.Defang(Hostile).Should().NotContain("_");
+        MoneyAlarmLog.Defang("+251900100003 a_b").Should().Be("+251900100003 a-b");
+        MoneyAlarmLog.Defang(null).Should().BeNull();
+    }
+
+    private static IEnumerable<string> TokensIn(string line) => AlarmTokens.Where(line.Contains);
 
     [Fact]
     public void SettlementFailed_NullOrEmptyFieldsBecomeDash()

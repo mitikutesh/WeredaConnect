@@ -10,7 +10,8 @@
 # Check mode (default; read-only apart from `aws logs test-metric-filter`):
 #   - reads each deployed metric filter and tests it against a sample line, bare and
 #     with the Lambda runtime's tab-separated prefix
-#   - checks that the lines of a normal queued payout (ESC-02) match no money filter
+#   - checks that the lines of a normal queued payout (ESC-02) and lines carrying hostile
+#     client text, as the server writes them, match no money filter
 #   - asserts the shape of the escrow-cron Errors alarm
 #   - prints the current state of every money alarm
 #
@@ -100,11 +101,20 @@ L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 # How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
 RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
 
-# A normal queued payout (ESC-02, 202 ESCROW_034) logs these; no money filter may count them.
-QUEUED_LINES=(
+# No money filter may count these: the lines of a normal queued payout (ESC-02, 202
+# ESCROW_034), and lines that carry client text exactly as the server writes them, with a
+# hostile value that spells a token (the server turns "_" into "-" in client values, and the
+# escrow Lambda logs the route template, not the path).
+HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE"
+NEGATIVE_LINES=(
   "ESCROW_MANUAL_PAYOUT_QUEUED escrowId=${SID} op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED"
   "ESCROW_MANUAL_PAYOUT_WAITING escrowId=${SID} sweep=auto-release"
   "ESCROW_MANUAL_PAYOUT_PAID escrowId=${SID} op=release leg=farmer remaining=1"
+  "EscrowFunction invoked: GET /escrow/{id}"
+  "Error getting escrow ${HOSTILE}: [AmazonDynamoDBException]"
+  "{\"category\":\"ESCROW\",\"action\":\"DISPUTE\",\"correlationId\":\"${HOSTILE}\",\"entityId\":\"${HOSTILE}\",\"outcome\":\"failure\"}"
+  "Op ${HOSTILE}: status=error, msg=Invalid action: '${HOSTILE}'. Must be create, update, or delete."
+  "ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-order-${HOSTILE} sweep=auto-release"
 )
 
 # log group | metric name | sample line
@@ -142,11 +152,11 @@ for entry in "${CHECKS[@]}"; do
     fail "${metric} on ${lg}: pattern ${pattern} does not match '${sample}' bare and prefixed (matches: ${matches:-none})"
   fi
   queued="$(aws_text logs test-metric-filter --filter-pattern "$pattern" \
-    --log-event-messages "${QUEUED_LINES[@]}" --query 'length(matches)' 2>/dev/null)"
+    --log-event-messages "${NEGATIVE_LINES[@]}" --query 'length(matches)' 2>/dev/null)"
   if [ "$queued" = "0" ]; then
-    pass "${metric} on ${lg}: a normal queued payout is not counted"
+    pass "${metric} on ${lg}: queued payouts and hostile client text are not counted"
   else
-    fail "${metric} on ${lg}: pattern ${pattern} counts a normal queued payout line (matches: ${queued:-none})"
+    fail "${metric} on ${lg}: pattern ${pattern} counts a queued-payout or hostile client line (matches: ${queued:-none})"
   fi
 done
 echo
@@ -232,11 +242,12 @@ put_lines "$LG_SYNC" "$L_LINK"
 # invocation before the handler runs: one Errors datapoint, no sweep, no money effect. If
 # it ever reached the handler, the missing action would answer 400 and the invoke would
 # carry no FunctionError, which is reported as "not exercised" rather than as a pass.
+# --query and --output pin the answer whatever AWS_DEFAULT_OUTPUT says.
 INVOKE_OUT="$(mktemp)"
-invoke_meta="$(aws --region "$REGION" lambda invoke --function-name "${PREFIX}-escrow-cron" \
-  --cli-binary-format raw-in-base64-out --payload '"synthetic-esc13"' "$INVOKE_OUT" 2>&1)"
+invoke_meta="$(aws --region "$REGION" --output text lambda invoke --function-name "${PREFIX}-escrow-cron" \
+  --cli-binary-format raw-in-base64-out --payload '"synthetic-esc13"' --query FunctionError "$INVOKE_OUT" 2>&1)"
 rm -f "$INVOKE_OUT"
-if [[ "$invoke_meta" == *FunctionError* ]]; then
+if [ "$invoke_meta" = "Unhandled" ]; then
   pass "escrow-cron invocation failed as intended (one Lambda error, handler never ran)"
 else
   fail "escrow-cron invocation did not fail, so ${A_CRON} is not exercised (${invoke_meta})"
@@ -286,7 +297,7 @@ echo
 echo "Expected to clear by themselves with no new lines or errors:"
 echo "  ${A_SETTLE}, ${A_PAYOUT}, ${A_QUEUE}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
-echo "  ${A_CRON}: 5 to 10 minutes"
+echo "  ${A_CRON}: 20 to 25 minutes"
 
 if [ "$WAIT_CLEAR" = 1 ] && [ ${#FIRED[@]} -gt 0 ]; then
   echo

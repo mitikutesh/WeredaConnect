@@ -1523,4 +1523,35 @@ public class EscrowCronFunctionTests
         Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-q-ref sweep=auto-refund", Logs);
         Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
     }
+
+    // An order-funded escrow id embeds the client-chosen order id, and gateway messages may
+    // echo it: none of that may spell a token in this log group.
+
+    [Fact]
+    public async Task HostileOrderId_InTheEscrowIdAndMessages_LogsOnlyTheRealTokens()
+    {
+        var hostile = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.Hostile;
+        var escrowId = $"escrow-order-{hostile}";
+        var escrow = MakeEscrowItem(escrowId,
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED", ErrorMessage = $"rejected release:{escrowId}" });
+        StubQueue((new List<Dictionary<string, object>> { QueuedRow(escrowId, 26, "refund", ("buyer", "pending")) }, null));
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        var tokens = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens;
+        Assert.Single(serviceLines);
+        Assert.Equal(new[] { "ESCROW_SETTLEMENT_FAILED" }, tokens.Where(serviceLines[0].Contains));
+        // The overdue line is the only token in the cron log: one per line, never one from the id.
+        var cronLines = Logs.Split(new[] { (char)10 }, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Contains(cronLines, l => l.Contains("Auto-release failed for escrow-order-ESCROW-SETTLEMENT-FAILED"));
+        Assert.All(cronLines, l => Assert.True(
+            tokens.Count(l.Contains) == (l.Contains("MANUAL_PAYOUT_OVERDUE escrowId=") ? 1 : 0), l));
+    }
 }
