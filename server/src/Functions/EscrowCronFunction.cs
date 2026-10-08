@@ -70,9 +70,6 @@ public class EscrowCronFunction
     private const int ManualPayoutReportPageSize = 50;
     private const int ManualPayoutReportMaxPages = 20;
 
-    /// <summary>A manual payout older than this logs MANUAL_PAYOUT_OVERDUE every run (ESC-13).</summary>
-    private static readonly TimeSpan ManualPayoutOverdueAfter = TimeSpan.FromHours(24);
-
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -641,8 +638,8 @@ public class EscrowCronFunction
                     var age = DateTime.TryParse(queuedAt, CultureInfo.InvariantCulture,
                         DateTimeStyles.RoundtripKind, out var queued)
                         ? now - queued.ToUniversalTime()
-                        : ManualPayoutOverdueAfter; // unreadable time: treat as overdue
-                    if (age < ManualPayoutOverdueAfter)
+                        : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: treat as overdue
+                    if (age < MoneyAlarmLog.QueueAlarmAfter)
                     {
                         return lines;
                     }
@@ -655,7 +652,7 @@ public class EscrowCronFunction
                         .ToList();
                     foreach (var leg in pending.Count > 0 ? pending : ["no_pending_leg"])
                     {
-                        context.Logger.LogWarning(ManualPayoutOverdueLine(escrowId, $"{op}:{leg}", ageHours));
+                        context.Logger.LogWarning(MoneyAlarmLog.ManualPayoutOverdue(escrowId, $"{op}:{leg}", ageHours));
                         lines++;
                     }
                 }
@@ -673,28 +670,11 @@ public class EscrowCronFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError(
-                $"ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code={AlarmField($"manual_payout_query:{ex.GetType().Name}")}");
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"manual_payout_query:{ex.GetType().Name}"));
         }
 
         return lines;
-    }
-
-    /// <summary>
-    /// The ESC-13 line format (<c>MoneyAlarmLog.ManualPayoutOverdue</c> in PR #113, which
-    /// switches this producer to that helper when it lands).
-    /// </summary>
-    private static string ManualPayoutOverdueLine(string? escrowId, string reference, int ageHours)
-        => $"MANUAL_PAYOUT_OVERDUE escrowId={AlarmField(escrowId)} ref={AlarmField(reference)} ageHours={Math.Max(0, ageHours)}";
-
-    /// <summary>Keep [A-Za-z0-9-_.:], cut at 64 characters, empty becomes "-" (ESC-13 field rule).</summary>
-    private static string AlarmField(string? value)
-    {
-        var safe = new string((value ?? "")
-            .Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or ':')
-            .Take(64)
-            .ToArray());
-        return safe.Length == 0 ? "-" : safe;
     }
 
     /// <summary>

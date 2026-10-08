@@ -8,7 +8,9 @@
 # alarm table is in specs/contracts/escrow-protocol.md ("Additions in 1.8.1").
 #
 # Check mode (default; read-only apart from `aws logs test-metric-filter`):
-#   - reads each deployed metric filter and tests it against a sample line
+#   - reads each deployed metric filter and tests it against a sample line, bare and
+#     with the Lambda runtime's tab-separated prefix
+#   - checks that the lines of a normal queued payout (ESC-02) match no money filter
 #   - asserts the shape of the escrow-cron Errors alarm
 #   - prints the current state of every money alarm
 #
@@ -18,8 +20,9 @@
 # until each alarm's history shows the transition to ALARM. It never calls
 # set-alarm-state: every alarm clears by itself once the synthetic datapoint leaves its
 # evaluation window. Subscribers of the <prefix>-alarms topic get one ALARM and, later,
-# one OK notification per alarm. An alarm that is already in ALARM cannot transition and
-# is reported for investigation instead of being counted.
+# one OK notification per alarm. An alarm that is already in ALARM cannot transition: it
+# is reported as not proven (investigate it, then run again once it is OK), and the run
+# does not pass.
 #
 # Usage:
 #   scripts/money_alarms_synthetic.sh [--env dev|staging|prod] [--region <aws-region>]
@@ -37,7 +40,8 @@
 # <prefix>-escrow-cron (--fire).
 #
 # Exit codes: 0 every check (and, with --fire, every alarm) passed; 1 a check or an
-# alarm failed; 2 usage error.
+# alarm failed, or an alarm was already in ALARM so its firing is not proven; 2 usage
+# error.
 #
 set -uo pipefail
 
@@ -54,7 +58,7 @@ while [ $# -gt 0 ]; do
     --fire) FIRE=1; shift ;;
     --wait-clear) WAIT_CLEAR=1; shift ;;
     --allow-prod) ALLOW_PROD=1; shift ;;
-    -h|--help) grep '^#' "$0" | sed 's/^#\s\?//'; exit 0 ;;
+    -h|--help) grep '^#' "$0" | sed -E 's/^# ?//'; exit 0 ;;
     *) echo "unknown arg: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -90,8 +94,18 @@ ALL_ALARMS=("$A_SETTLE" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE")
 SID="synthetic-esc13"
 L_SETTLE="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=release_failed outcome=failed code=SYNTHETIC"
 L_LINK="ORDER_ESCROW_LINK_FAILED orderId=${SID} deliveryId=${SID} reason=[Synthetic]"
-L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=synthetic ageHours=25"
+L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=release:farmer ageHours=25"
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
+
+# How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
+RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
+
+# A normal queued payout (ESC-02, 202 ESCROW_034) logs these; no money filter may count them.
+QUEUED_LINES=(
+  "ESCROW_MANUAL_PAYOUT_QUEUED escrowId=${SID} op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED"
+  "ESCROW_MANUAL_PAYOUT_WAITING escrowId=${SID} sweep=auto-release"
+  "ESCROW_MANUAL_PAYOUT_PAID escrowId=${SID} op=release leg=farmer remaining=1"
+)
 
 # log group | metric name | sample line
 CHECKS=(
@@ -111,7 +125,7 @@ echo "Money alarms synthetic test: env=${ENV_NAME} region=${REGION} prefix=${PRE
 echo
 
 # ─── Check mode ───────────────────────────────────────────────────────────
-echo "Metric filters (deployed pattern against the server's exact line):"
+echo "Metric filters (deployed pattern against the server's exact line, bare and runtime-prefixed):"
 for entry in "${CHECKS[@]}"; do
   IFS='|' read -r lg metric sample <<< "$entry"
   pattern="$(aws_text logs describe-metric-filters --log-group-name "$lg" \
@@ -121,11 +135,18 @@ for entry in "${CHECKS[@]}"; do
     continue
   fi
   matches="$(aws_text logs test-metric-filter --filter-pattern "$pattern" \
-    --log-event-messages "$sample" --query 'length(matches)' 2>/dev/null)"
-  if [ "$matches" = "1" ]; then
+    --log-event-messages "$sample" "${RT_PREFIX}${sample}" --query 'length(matches)' 2>/dev/null)"
+  if [ "$matches" = "2" ]; then
     pass "${metric} on ${lg}: pattern ${pattern} matches"
   else
-    fail "${metric} on ${lg}: pattern ${pattern} does not match '${sample}'"
+    fail "${metric} on ${lg}: pattern ${pattern} does not match '${sample}' bare and prefixed (matches: ${matches:-none})"
+  fi
+  queued="$(aws_text logs test-metric-filter --filter-pattern "$pattern" \
+    --log-event-messages "${QUEUED_LINES[@]}" --query 'length(matches)' 2>/dev/null)"
+  if [ "$queued" = "0" ]; then
+    pass "${metric} on ${lg}: a normal queued payout is not counted"
+  else
+    fail "${metric} on ${lg}: pattern ${pattern} counts a normal queued payout line (matches: ${queued:-none})"
   fi
 done
 echo
@@ -170,12 +191,14 @@ T0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 STREAM="synthetic-esc13-$(date +%s)"
 NOW_MS="$(( $(date +%s) * 1000 ))"
 
-# An alarm already in ALARM cannot transition; report it instead of counting it.
+# An alarm already in ALARM cannot transition, so this run cannot prove it fires.
 PENDING=()
+SKIPPED=()
 for a in "${ALL_ALARMS[@]}"; do
   state="$(aws_text cloudwatch describe-alarms --alarm-names "$a" --query 'MetricAlarms[0].StateValue' 2>/dev/null)"
   if [ "$state" = "ALARM" ]; then
-    echo "  SKIP  ${a} is already in ALARM: investigate before testing it"
+    echo "  SKIP  ${a} is already in ALARM: not proven by this run, investigate it first"
+    SKIPPED+=("$a")
   else
     PENDING+=("$a")
   fi
@@ -261,14 +284,14 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_PAYOUT}, ${A_QUEUE}: about 60 to 75 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_PAYOUT}, ${A_QUEUE}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
 echo "  ${A_CRON}: 5 to 10 minutes"
 
 if [ "$WAIT_CLEAR" = 1 ] && [ ${#FIRED[@]} -gt 0 ]; then
   echo
-  echo "Waiting for the fired alarms to return to OK by themselves (up to 90 minutes)..."
-  deadline=$(( $(date +%s) + 90 * 60 ))
+  echo "Waiting for the fired alarms to return to OK by themselves (up to 120 minutes)..."
+  deadline=$(( $(date +%s) + 120 * 60 ))
   WAITING=("${FIRED[@]}")
   while [ ${#WAITING[@]} -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 60
@@ -284,14 +307,17 @@ if [ "$WAIT_CLEAR" = 1 ] && [ ${#FIRED[@]} -gt 0 ]; then
     WAITING=("${still[@]+"${still[@]}"}")
   done
   for a in "${WAITING[@]+"${WAITING[@]}"}"; do
-    fail "${a} did not clear within 90 minutes (a real failure may be keeping it in ALARM)"
+    fail "${a} did not clear within 120 minutes (a real failure may be keeping it in ALARM)"
   done
 fi
 
 echo
+for a in "${SKIPPED[@]+"${SKIPPED[@]}"}"; do
+  fail "${a} was already in ALARM before the test: not proven, run again once it is OK"
+done
 if [ "$FAILED" = 0 ]; then
   echo "All money alarms fired."
 else
-  echo "Some checks FAILED."
+  echo "Some checks FAILED or are not proven."
 fi
 exit "$FAILED"

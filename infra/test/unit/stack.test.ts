@@ -703,13 +703,24 @@ describe('MonitoringStack', () => {
   // SyncFunction), once bare and once with the Lambda runtime's line prefix.
   const SETTLEMENT_LINE =
     'ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=unknown code=TELEBIRR_TIMEOUT';
-  const PREFIXED_SETTLEMENT_LINE = `2026-10-06T10:00:00.000Z 4f1c7a2e-req error ${SETTLEMENT_LINE}`;
+  const PREFIXED_SETTLEMENT_LINE = `2026-10-06T10:00:00.000Z\t4f1c7a2e-req\terror\t${SETTLEMENT_LINE}`;
+  // ESC-02's overdue-query failure line in escrow-cron (same token, its own code).
+  const SWEEP_QUERY_LINE =
+    'ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=manual_payout_query:InvalidOperationException';
   const CREATE_LINE = 'ORDER_ESCROW_CREATE_FAILED orderId=ord-1 reason=validation';
   const LINK_LINE =
     'ORDER_ESCROW_LINK_FAILED orderId=ord-1 deliveryId=del-1 reason=[ProvisionedThroughputExceededException]';
   const REFUND_SCHEDULE_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=[TimeoutException]';
-  const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-1 ref=release:escrow-1 ageHours=26';
+  // ESC-02's producer: one line per pending leg, ref=<op>:<leg>.
+  const PAYOUT_LINE = 'MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26';
   const QUEUE_LINE = 'ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=undelivered ageHours=30';
+  // ESC-02 lines of a normal queued payout (202 ESCROW_034): no money alarm may count them.
+  const QUEUED_PAYOUT_LINES = [
+    'ESCROW_MANUAL_PAYOUT_QUEUED escrowId=escrow-order-ord-1 op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED',
+    'ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-order-ord-1 sweep=auto-release',
+    'ESCROW_MANUAL_PAYOUT_PAID escrowId=escrow-order-ord-1 op=release leg=farmer remaining=1',
+    'ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId=escrow-order-ord-1 op=release error=TimeoutException',
+  ];
 
   type MetricFilterResource = {
     Properties: {
@@ -765,12 +776,14 @@ describe('MonitoringStack', () => {
       expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, SETTLEMENT_LINE)).toBe(true);
       expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, PREFIXED_SETTLEMENT_LINE)).toBe(true);
     }
+    const cronFilter = metricFilter(template, ESCROW_CRON_LG, 'EscrowSettlementFailures');
+    expect(cloudWatchTermsMatch(cronFilter.Properties.FilterPattern, SWEEP_QUERY_LINE)).toBe(true);
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'wereda-connect-dev-escrow-settlement-failures',
       Metrics: [customMetric('EscrowSettlementFailures', 900)],
       Threshold: 0,
       ComparisonOperator: 'GreaterThanThreshold',
-      EvaluationPeriods: 4,
+      EvaluationPeriods: 5,
       DatapointsToAlarm: 1,
       TreatMissingData: 'notBreaching',
     });
@@ -832,7 +845,7 @@ describe('MonitoringStack', () => {
         AlarmName: alarmName,
         Metrics: [customMetric(metricName, 900)],
         Threshold: 0,
-        EvaluationPeriods: 4,
+        EvaluationPeriods: 5,
         DatapointsToAlarm: 1,
       });
     }
@@ -850,6 +863,13 @@ describe('MonitoringStack', () => {
     expect(cloudWatchTermsMatch(settlement, PAYOUT_LINE)).toBe(false);
     expect(cloudWatchTermsMatch(orderProblems, SETTLEMENT_LINE)).toBe(false);
     expect(cloudWatchTermsMatch(payouts, QUEUE_LINE)).toBe(false);
+    // A normal queued payout (ESC-02) is not a settlement failure and not overdue.
+    const adminQueue = metricFilter(template, ESCROW_CRON_LG, 'AdminQueueOverdue').Properties.FilterPattern;
+    for (const line of QUEUED_PAYOUT_LINES) {
+      for (const pattern of [settlement, payouts, adminQueue, orderProblems]) {
+        expect(cloudWatchTermsMatch(pattern, line)).toBe(false);
+      }
+    }
     // A sanitized field value cannot forge a token (MoneyAlarmLog drops spaces and newlines).
     expect(cloudWatchTermsMatch(payouts, 'ESCROW_SETTLEMENT_FAILED escrowId=xMANUAL_PAYOUT_OVERDUEx action=a outcome=failed code=-')).toBe(false);
   });
@@ -863,6 +883,18 @@ describe('MonitoringStack', () => {
         AlarmActions: notifiesTopic,
         OKActions: notifiesTopic,
       });
+    }
+  });
+
+  test.each([false, true])('ESC-13: every alarm description fits the CloudWatch limit (live gateway %s)', (live) => {
+    // AlarmDescription is capped at 1024 characters; synth does not check it, the deploy fails.
+    const alarms = Object.values(monitoringTemplate(live).findResources('AWS::CloudWatch::Alarm')) as Array<{
+      Properties: { AlarmName: string; AlarmDescription?: string };
+    }>;
+    expect(alarms.length).toBeGreaterThan(0);
+    for (const alarm of alarms) {
+      expect([alarm.Properties.AlarmName, (alarm.Properties.AlarmDescription ?? '').length <= 1024])
+        .toEqual([alarm.Properties.AlarmName, true]);
     }
   });
 

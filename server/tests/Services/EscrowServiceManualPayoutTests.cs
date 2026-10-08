@@ -34,6 +34,7 @@ public class EscrowServiceManualPayoutTests
     private readonly IEscrowIdempotencyRepository _idempotencyRepo = Substitute.For<IEscrowIdempotencyRepository>();
     private readonly ITelebirrGateway _gateway = Substitute.For<ITelebirrGateway>();
     private readonly IUserRepository _userRepo = Substitute.For<IUserRepository>();
+    private readonly List<string> _alarmLines = new();
     private readonly EscrowService _service;
 
     public EscrowServiceManualPayoutTests()
@@ -64,7 +65,10 @@ public class EscrowServiceManualPayoutTests
         _userRepo.GetUserByIdAsync(TruckerId).Returns(User(TruckerId, "trucker", TruckerPhone));
         _userRepo.GetUserByIdAsync(BuyerId).Returns(User(BuyerId, "buyer", BuyerPhone));
 
-        _service = new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, _gateway, _userRepo);
+        _service = new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, _gateway, _userRepo)
+        {
+            AlarmLog = _alarmLines.Add
+        };
     }
 
     // ──────────────────────────────────────────────
@@ -614,6 +618,154 @@ public class EscrowServiceManualPayoutTests
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).ReleaseSettlementLockAsync(EscrowId, CreatedAt);
+    }
+
+    // ──────────────────────────────────────────────
+    // ESC-13: money alarm lines. A queued payout (202 ESCROW_034) is not a settlement
+    // failure; a failed queue write is, and after a reference-less "success" its outcome
+    // is unknown because the gateway may have paid.
+    // ──────────────────────────────────────────────
+
+    private void QueueWritesFail()
+        => _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(false);
+
+    private void FarmerPaidTruckerGets(ReleaseFundsResponse trucker)
+    {
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => !r.TransactionRef.EndsWith(":trucker")))
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-FARMER-1" });
+        _gateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef.EndsWith(":trucker")))
+            .Returns(trucker);
+    }
+
+    [Fact]
+    public async Task Alarm_ReleaseQueued_LogsNothing()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+
+        AssertWaiting(await _service.ReleaseAsync(ReleaseRequest(), "system"));
+
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Alarm_ReleaseFarmerPaidTruckerQueued_LogsNothing()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        FarmerPaidTruckerGets(NotSupportedRelease());
+
+        AssertWaiting(await _service.ReleaseAsync(ReleaseRequest(), "system"));
+
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Alarm_RefundQueued_LogsNothing()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+
+        AssertWaiting(await _service.RefundAsync(RefundRequest(), "system"));
+
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Alarm_QueueWriteThrowsButCommitted_LogsNothing()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .ThrowsAsync(new AmazonDynamoDBException("timeout"));
+
+        AssertWaiting(await _service.ReleaseAsync(ReleaseRequest(), "system"));
+
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Alarm_AlreadyQueued_Returns202_LogsNothing()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        AssertWaiting(await _service.ReleaseAsync(ReleaseRequest(), "system"));
+
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        AssertWaiting(await _service.RefundAsync(RefundRequest(), "system"));
+
+        _alarmLines.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Alarm_ReleaseQueueWriteFails_LogsFailedWithTheQueueCode()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        QueueWritesFail();
+
+        await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        // PAYOUT_NOT_SUPPORTED is a definite refusal: nothing moved.
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=failed code=MANUAL_QUEUE_FAILED:PAYOUT_NOT_SUPPORTED");
+    }
+
+    [Fact]
+    public async Task Alarm_ReleaseRefMissingAndQueueWriteFails_LogsUnknownOutcome()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(withTrucker: false));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "" });
+        QueueWritesFail();
+
+        await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        // The gateway said it paid: the operator must check the portal before paying by hand.
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=release_failed outcome=unknown code=MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING");
+    }
+
+    [Fact]
+    public async Task Alarm_RefundRefMissingAndQueueWriteFails_LogsUnknownOutcome()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = true, TelebirrRef = null });
+        QueueWritesFail();
+
+        await _service.RefundAsync(RefundRequest(), "system");
+
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=refund_failed outcome=unknown code=MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING");
+    }
+
+    [Fact]
+    public async Task Alarm_TruckerQueueWriteFails_AfterFarmerPaid_LogsTruckerLegOnly()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        FarmerPaidTruckerGets(NotSupportedRelease());
+        QueueWritesFail();
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        result.IsSuccess.Should().BeTrue();
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=trucker_release_failed outcome=failed code=MANUAL_QUEUE_FAILED:PAYOUT_NOT_SUPPORTED");
+    }
+
+    [Fact]
+    public async Task Alarm_TruckerRefMissingAndQueueWriteFails_LogsUnknownOutcome()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        FarmerPaidTruckerGets(new ReleaseFundsResponse { Success = true, TelebirrRef = "" });
+        QueueWritesFail();
+
+        var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        result.IsSuccess.Should().BeTrue();
+        _alarmLines.Should().Equal(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-order-ord-1 action=trucker_release_failed outcome=unknown code=MANUAL_QUEUE_FAILED:GATEWAY_REF_MISSING");
     }
 
     // ──────────────────────────────────────────────

@@ -424,8 +424,8 @@ queue; mock mode (`TELEBIRR_MOCK=true`, dev) never queues anything.
    `manual_payout_refused`.
 5. Alarm: the hourly escrow-cron logs `MANUAL_PAYOUT_OVERDUE` for every pending
    leg queued more than 24 hours ago, which feeds
-   `${prefix}-manual-payouts-overdue` (ESC-13). Until that alarm is deployed,
-   check the page daily. The cron also logs `ESCROW_MANUAL_PAYOUT_WAITING` for
+   `${prefix}-manual-payouts-overdue` (ESC-13, see Monitoring below; it needs a
+   subscriber on the alarm topic). The cron also logs `ESCROW_MANUAL_PAYOUT_WAITING` for
    every queued escrow a sweep skips, and the service logs
    `ESCROW_MANUAL_PAYOUT_QUEUED` when one enters the queue.
 
@@ -573,11 +573,15 @@ nothing.
 
 | Alarm | Meaning | First action |
 |---|---|---|
-| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group) | find the line by escrowId; `outcome=unknown` means check the Telebirr merchant portal before any manual release or refund; `trucker_release_failed code=-` is an unverified trucker (ESC-04) |
+| `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId; `outcome=unknown` means check the Telebirr merchant portal before any manual release or refund; `trucker_release_failed code=-` is an unverified trucker (ESC-04); `code=MANUAL_QUEUE_FAILED:<reason>` is a failed queue write the next sweep retries |
 | `<prefix>-escrow-cron-errors` | escrow-cron was killed (5 minute timeout, out of memory) or crashed; a run killed mid-settlement logs no token | find the failed RequestId (REPORT line, "Task timed out"), the last escrowId it logged and any escrow still holding its settlement lock; treat them as unknown outcomes |
 | `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds |
-| `<prefix>-manual-payouts-overdue` | a manual payout (ESC-02) has waited more than 24 hours | pay it from the admin manual payout queue and mark it paid |
-| `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours | decide it in the admin stuck-order queue (release, refund or extend) |
+| `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`) | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
+| `<prefix>-admin-queue-overdue` | a stuck order in the admin queue (ESC-06) has waited more than 24 hours; no producer until ESC-06, so it stays OK | decide it in the admin stuck-order queue (release, refund or extend) |
+
+The settlement-failure and the two queue alarms evaluate 5 periods of 15 minutes, so an
+hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
+minutes after the last line. Order escrow problems uses one 15 minute period.
 
 Synthetic test of the money alarms (after a deploy; needs AWS credentials, see the script
 header for the exact permissions):
@@ -588,6 +592,7 @@ scripts/money_alarms_synthetic.sh --env dev
 
 # Fire every money alarm once from synthetic log lines plus one failed escrow-cron invocation
 # (no money moves; subscribers get one ALARM and later one OK per alarm), then wait for them to clear
+# (up to 2 hours). An alarm already in ALARM is reported as not proven and the run fails.
 scripts/money_alarms_synthetic.sh --env dev --fire --wait-clear
 ```
 

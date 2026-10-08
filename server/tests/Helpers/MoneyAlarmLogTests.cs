@@ -45,8 +45,11 @@ public class MoneyAlarmLogTests
     [Fact]
     public void QueueOverdueLines_FormatTokenIdAndAge()
     {
-        MoneyAlarmLog.ManualPayoutOverdue("escrow-001", "release:escrow-001", 26)
-            .Should().Be("MANUAL_PAYOUT_OVERDUE escrowId=escrow-001 ref=release:escrow-001 ageHours=26");
+        // ESC-02 logs ref=<op>:<leg>, one line per pending leg; the colon survives.
+        MoneyAlarmLog.ManualPayoutOverdue("escrow-order-ord-1", "release:farmer", 26)
+            .Should().Be("MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26");
+        MoneyAlarmLog.ManualPayoutOverdue("escrow-order-ord-1", "refund:no_pending_leg", 40)
+            .Should().Be("MANUAL_PAYOUT_OVERDUE escrowId=escrow-order-ord-1 ref=refund:no_pending_leg ageHours=40");
         MoneyAlarmLog.AdminQueueOverdue("order-001", "undelivered", 30)
             .Should().Be("ADMIN_QUEUE_OVERDUE orderId=order-001 reason=undelivered ageHours=30");
         MoneyAlarmLog.AdminQueueOverdue(null, null, -5)

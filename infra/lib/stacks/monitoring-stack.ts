@@ -106,8 +106,8 @@ export class MonitoringStack extends cdk.Stack {
       escrowLogGroupName,
     );
 
-    // Escrow cron log group (the hourly money sweeps). api-stack creates it through
-    // logRetention, so a filter on it is safe on a fresh deploy.
+    // Escrow cron log group (the hourly money sweeps). The api-stack Lambda construct
+    // creates it as an explicit LogGroup, so a filter on it is safe on a fresh deploy.
     const escrowCronLogGroup = logs.LogGroup.fromLogGroupName(
       this,
       'EscrowCronLogGroup',
@@ -225,10 +225,10 @@ export class MonitoringStack extends cdk.Stack {
     countSettlementFailures('EscrowSettlementFailuresFilter', escrowLogGroup);
     countSettlementFailures('EscrowCronSettlementFailuresFilter', escrowCronLogGroup);
 
-    // ESC-13: queue age. The hourly escrow-cron run logs one line per manual payout
-    // (ESC-02) or admin stuck-order queue entry (ESC-06) older than 24 hours. The
-    // producers land with those tasks; until then these metrics stay at zero and the
-    // alarms below are already wired.
+    // ESC-13: queue age. The hourly escrow-cron run logs one line per pending manual
+    // payout leg older than 24 hours (ESC-02, ReportOverdueManualPayoutsAsync) and, once
+    // ESC-06 builds the admin stuck-order queue, one per overdue entry. Until ESC-06 the
+    // admin-queue metric stays at zero; its alarm is already wired.
     new logs.MetricFilter(this, 'ManualPayoutsOverdueFilter', {
       logGroup: escrowCronLogGroup,
       filterPattern: logs.FilterPattern.literal('"MANUAL_PAYOUT_OVERDUE"'),
@@ -755,11 +755,12 @@ export class MonitoringStack extends cdk.Stack {
     orderEscrowProblemsAlarm.addAlarmAction(snsAction);
     orderEscrowProblemsAlarm.addOkAction(snsAction);
 
-    // ESC-13 money alarms on the log tokens. 15 minute periods, 4 evaluation periods,
-    // 1 datapoint to alarm: an hourly sweep that keeps failing holds the alarm in ALARM
-    // (one notification per episode) and it clears by itself about an hour after the
-    // last line. A synthetic line fires it within about 15 minutes
-    // (scripts/money_alarms_synthetic.sh).
+    // ESC-13 money alarms on the log tokens. 15 minute periods, 5 evaluation periods,
+    // 1 datapoint to alarm. The producers run hourly, so the 75 minute window always holds
+    // the previous run's line: a sweep that keeps failing or a payout that stays overdue
+    // keeps the alarm in ALARM (one notification per episode, no hourly OK and ALARM flap).
+    // It clears by itself 75 to 90 minutes after the last line. A synthetic line fires it
+    // within about 15 minutes (scripts/money_alarms_synthetic.sh).
     const moneyLogAlarm = (
       id: string,
       nameSuffix: string,
@@ -778,7 +779,7 @@ export class MonitoringStack extends cdk.Stack {
           label,
         }),
         threshold: 0,
-        evaluationPeriods: 4,
+        evaluationPeriods: 5,
         datapointsToAlarm: 1,
         comparisonOperator:
           cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
@@ -800,7 +801,9 @@ export class MonitoringStack extends cdk.Stack {
         'action). outcome=unknown means Telebirr may already have paid: check the merchant ' +
         'portal before any manual release or refund. The hourly sweep retries a failed leg ' +
         'until ESC-05 stops blind retries. A trucker_release_failed with code - is an ' +
-        'unverified trucker whose leg nobody retries yet (ESC-04).',
+        'unverified trucker whose leg nobody retries yet (ESC-04). code=MANUAL_QUEUE_FAILED:' +
+        '<reason> means the manual payout queue write failed and the next sweep retries. A ' +
+        'payout waiting in the manual payout queue (202 ESCROW_034) is not counted here.',
     );
 
     const manualPayoutsOverdueAlarm = moneyLogAlarm(
@@ -808,12 +811,16 @@ export class MonitoringStack extends cdk.Stack {
       'manual-payouts-overdue',
       'ManualPayoutsOverdue',
       'Manual Payouts Overdue',
-      'A manual payout (a release or refund the live gateway could not pay out, queued ' +
-        'for an admin, ESC-02) has waited more than 24 hours (MANUAL_PAYOUT_OVERDUE in the ' +
-        'escrow-cron log group, one line per overdue item per hourly run, with escrowId, ' +
-        'ref and ageHours). A farmer or buyer is still waiting for their money: pay it out ' +
-        'from the admin manual payout queue and mark the item paid so the next sweep ' +
-        'stops counting it.',
+      'A manual payout leg (a release or refund the live gateway could not pay out, or ' +
+        'reported paid without a reference; ESC-02) has waited more than 24 hours ' +
+        '(MANUAL_PAYOUT_OVERDUE in the escrow-cron log group, one line per pending leg per ' +
+        'hourly run, with escrowId, ref=<op>:<leg> and ageHours). A farmer, trucker or buyer ' +
+        'is still waiting for their money. Open Manual Payouts in the admin app (/payouts, ' +
+        'oldest first). PAYOUT_NOT_SUPPORTED: pay the leg in the Telebirr merchant portal and ' +
+        'record its transaction id. GATEWAY_REF_MISSING: find the payment in the portal first ' +
+        'and pay only if it is missing. A leg refused with ESCROW_029 (unverified payee) ' +
+        'cannot be recorded and keeps this alarm on until the payee verifies. While the alarm ' +
+        'is in ALARM a newly overdue leg is not announced again: read the lines or the page.',
     );
 
     const adminQueueOverdueAlarm = moneyLogAlarm(
@@ -826,7 +833,7 @@ export class MonitoringStack extends cdk.Stack {
         '(ADMIN_QUEUE_OVERDUE in the escrow-cron log group, one line per overdue entry per ' +
         'hourly run, with orderId, reason and ageHours). The buyer\'s money is held while ' +
         'nobody decides: open the admin stuck-order queue and release, refund or extend ' +
-        'the order.',
+        'the order. The producer comes with ESC-06; until then this alarm stays OK.',
     );
 
     // ESC-01: live order payments. The Telebirr webhook (and its log group) only

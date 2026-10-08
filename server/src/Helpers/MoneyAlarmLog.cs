@@ -24,8 +24,16 @@ namespace WeredaConnect.Server.Helpers;
 /// The two queue lines are the producer API for the manual payout queue (ESC-02) and the
 /// admin stuck-order queue (ESC-06). Both must be logged from the escrow-cron Lambda, once
 /// per hourly run for each item older than <see cref="QueueAlarmAfter"/>, because the
-/// metric filters sit on that log group. Contract: <c>specs/contracts/escrow-protocol.md</c>,
-/// "Additions in 1.8.1".
+/// metric filters sit on that log group. <c>EscrowCronFunction.ReportOverdueManualPayoutsAsync</c>
+/// logs <c>MANUAL_PAYOUT_OVERDUE</c> per pending leg with <c>ref=&lt;op&gt;:&lt;leg&gt;</c>;
+/// the <c>ADMIN_QUEUE_OVERDUE</c> producer comes with ESC-06. Contract:
+/// <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1".
+/// </para>
+/// <para>
+/// The overdue line is written with <c>LogWarning</c> and the failure lines with
+/// <c>LogError</c> or stdout. Raising escrow-cron's log level above Warning (the runtime's
+/// handler log level, or a Lambda application log level) would silence the manual payout
+/// alarm without any other sign.
 /// </para>
 /// </remarks>
 public static class MoneyAlarmLog

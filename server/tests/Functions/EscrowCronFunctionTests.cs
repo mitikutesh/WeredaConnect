@@ -1446,4 +1446,81 @@ public class EscrowCronFunctionTests
         Assert.Contains("Auto-release failed for escrow-release-001: ESCROW_013", Logs);
         Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
     }
+
+    // A payout the gateway cannot make waits in the manual payout queue (202 ESCROW_034):
+    // not a settlement failure, so no sweep and no service line may count it.
+
+    private (EscrowCronFunction Function, List<string> ServiceLines) FunctionCapturingServiceAlarms()
+    {
+        var serviceLines = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway)
+        {
+            AlarmLog = serviceLines.Add
+        };
+        return (new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway), serviceLines);
+    }
+
+    private void QueueWritesSucceed()
+        => _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
+
+    [Fact]
+    public async Task AutoRelease_PayoutQueued_LogsNoSettlementFailure()
+    {
+        var escrow = MakeEscrowItem("escrow-q-rel",
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-rel").Returns(escrow);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(PayoutNotSupportedRelease());
+        QueueWritesSucceed();
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-q-rel sweep=auto-release", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_RefundQueued_LogsNoSettlementFailure()
+    {
+        SweepFinds(ResolvedDispute("escrow-dr-q", "buyer_wins"));
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+        QueueWritesSucceed();
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-dr-q sweep=dispute refund", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    [Fact]
+    public async Task AutoRefund_AlreadyQueued_LogsNoSettlementFailure()
+    {
+        var escrow = MakeEscrowItem("escrow-q-ref", expiresAt: DateTime.UtcNow.AddDays(-1).ToString("o"));
+        escrow["settlementLock"] = "refund";
+        escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRefund;
+        escrow[ManualPayoutFields.StatusAttr("buyer")] = ManualPayoutFields.LegPending;
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-q-ref sweep=auto-refund", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
 }
