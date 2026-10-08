@@ -663,12 +663,21 @@ void main() {
         (tester) async {
       final semantics = tester.ensureSemantics();
       setMobileSize(tester);
-      final controller = StreamController<AuthState>.broadcast();
+      // Sync, so the bloc fails inside the submit (as offline login does):
+      // clearing the banner and the same error land in one build, no frame
+      // in between.
+      final controller = StreamController<AuthState>.broadcast(sync: true);
       addTearDown(controller.close);
       const error = AuthError(
         errorCode: 'AUTH_007',
         errorMessage: 'Server error. Please try again later.',
       );
+      when(() => authBloc.add(any(that: isA<AuthLoginRequested>())))
+          .thenAnswer((_) {
+        controller
+          ..add(const AuthLoading())
+          ..add(error);
+      });
       final banner = find.byKey(const Key('login_error_banner'));
 
       await tester.pumpWidget(buildTestWidget(stream: controller.stream));
@@ -677,20 +686,20 @@ void main() {
       await tester.enterText(passwordField, 'password1');
       await tester.pumpAndSettle();
 
-      controller.add(error);
-      await tester.pump();
-      await tester.pump();
+      await tapLogin(tester);
       final firstNodeId = tester.getSemantics(banner).id;
 
-      // Retrying removes the banner, so the same message comes back as a
-      // new live-region node, which TalkBack and the web engine announce
-      // (they skip a live region whose label did not change).
-      await tapLogin(tester);
-      expect(banner, findsNothing);
+      // An unrelated rebuild keeps the node, so nothing is re-announced.
+      await tester.tap(find.byIcon(Icons.visibility_off));
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(banner).id, firstNodeId);
 
-      controller.add(error);
-      await tester.pump();
-      await tester.pump();
+      // The same error again is a new live-region node, which TalkBack and
+      // the web engine announce (they skip a live region whose label did
+      // not change).
+      await tapLogin(tester);
+      verify(() => authBloc.add(any(that: isA<AuthLoginRequested>())))
+          .called(2);
       final again = tester.getSemantics(banner);
       expect(again.id, isNot(firstNodeId));
       expect(

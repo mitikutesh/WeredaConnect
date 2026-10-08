@@ -47,6 +47,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  /// Bumped on every [AuthError], see the error banner.
+  int _errorSerial = 0;
+
   /// Per-field autovalidation, switched on by the first submit (see
   /// [_handleLogin]).
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
@@ -151,6 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         } else if (state is AuthError) {
           setState(() {
+            _errorSerial++;
             _errorMessage = _localizeAuthError(
               state.errorCode,
               state.errorMessage,
@@ -455,38 +459,45 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // Error message. Its own semantics node flagged as a live
               // region, so TalkBack/VoiceOver and the web aria-live element
-              // announce it when it appears.
+              // announce it when it appears. A new key per AuthError makes
+              // it a new node, so a repeated identical error is announced
+              // again even when it lands in the same frame as the submit
+              // that cleared it (Android and the web engine skip a live
+              // region whose label did not change).
               if (_errorMessage != null)
-                Semantics(
-                  key: const Key('login_error_banner'),
-                  container: true,
-                  liveRegion: true,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.errorContainer,
-                      border: Border.all(
-                        color: AppTheme.statusError.withAlpha(80),
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          color: theme.colorScheme.error,
+                KeyedSubtree(
+                  key: ValueKey<int>(_errorSerial),
+                  child: Semantics(
+                    key: const Key('login_error_banner'),
+                    container: true,
+                    liveRegion: true,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer,
+                        border: Border.all(
+                          color: AppTheme.statusError.withAlpha(80),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(
-                              color: theme.colorScheme.error,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            color: theme.colorScheme.error,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                color: theme.colorScheme.error,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
