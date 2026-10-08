@@ -47,6 +47,13 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  /// Bumped on every [AuthError], see the error banner.
+  int _errorSerial = 0;
+
+  /// Per-field autovalidation, switched on by the first submit (see
+  /// [_handleLogin]).
+  AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
   @override
   void dispose() {
     _phoneController.dispose();
@@ -83,9 +90,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() {
-    // Clear previous errors
+    // Clear previous errors. No live validation while the user types the
+    // first time; after the first submit every field the user edits is
+    // re-checked, so a corrected field clears its error right away.
     setState(() {
       _errorMessage = null;
+      _autovalidateMode = AutovalidateMode.onUserInteraction;
     });
 
     // Validate form
@@ -144,6 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         } else if (state is AuthError) {
           setState(() {
+            _errorSerial++;
             _errorMessage = _localizeAuthError(
               state.errorCode,
               state.errorMessage,
@@ -341,6 +352,9 @@ class _LoginScreenState extends State<LoginScreen> {
               // Phone number input
               TextFormField(
                 controller: _phoneController,
+                // Set per field, not on the Form: a Form-level mode would
+                // revalidate (and re-announce) every field on each keystroke.
+                autovalidateMode: _autovalidateMode,
                 decoration: InputDecoration(
                   labelText: l10n.phoneNumber,
                   prefixIcon: const Icon(Icons.phone),
@@ -351,6 +365,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     horizontal: 16,
                     vertical: 20,
                   ),
+                  // Wrap long errors (Oromo, large text scale, narrow
+                  // phones) instead of cutting them to one ellipsized line,
+                  // which is what null means.
+                  errorMaxLines: 10,
                 ),
                 keyboardType: TextInputType.phone,
                 inputFormatters: [
@@ -371,6 +389,7 @@ class _LoginScreenState extends State<LoginScreen> {
               // Password input
               TextFormField(
                 controller: _passwordController,
+                autovalidateMode: _autovalidateMode,
                 decoration: InputDecoration(
                   labelText: l10n.password,
                   prefixIcon: const Icon(Icons.lock),
@@ -394,6 +413,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     horizontal: 16,
                     vertical: 20,
                   ),
+                  errorMaxLines: 10,
                 ),
                 obscureText: _obscurePassword,
                 maxLength: 128,
@@ -437,34 +457,48 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Error message
+              // Error message. Its own semantics node flagged as a live
+              // region, so TalkBack/VoiceOver and the web aria-live element
+              // announce it when it appears. A new key per AuthError makes
+              // it a new node, so a repeated identical error is announced
+              // again even when it lands in the same frame as the submit
+              // that cleared it (Android and the web engine skip a live
+              // region whose label did not change).
               if (_errorMessage != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    border: Border.all(
-                      color: AppTheme.statusError.withAlpha(80),
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: theme.colorScheme.error,
+                KeyedSubtree(
+                  key: ValueKey<int>(_errorSerial),
+                  child: Semantics(
+                    key: const Key('login_error_banner'),
+                    container: true,
+                    liveRegion: true,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer,
+                        border: Border.all(
+                          color: AppTheme.statusError.withAlpha(80),
+                        ),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
                             color: theme.colorScheme.error,
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
 
