@@ -279,6 +279,12 @@ public sealed record ManualPayoutDto
 
     /// <summary>Escrow status when it was queued; differs from <see cref="EscrowStatus"/> after a later dispute.</summary>
     public required string FromStatus { get; init; }
+
+    /// <summary>
+    /// When the delivery was confirmed, if it was. On a queued refund this means the goods
+    /// arrived after the refund was queued: check before refunding.
+    /// </summary>
+    public string? DeliveryConfirmedAt { get; init; }
     public required string QueuedAt { get; init; }
     public required string Currency { get; init; }
     public required List<ManualPayoutLegDto> Legs { get; init; }
@@ -312,6 +318,9 @@ public sealed record CompleteManualPayoutResponse
     public required string PaidAt { get; init; }
     public required List<string> RemainingLegs { get; init; }
     public string? Message { get; init; }
+
+    /// <summary>True when this leg was already recorded with the same reference (a replay); nothing new was paid or settled.</summary>
+    public bool AlreadyRecorded { get; init; }
 }
 
 // ──────────────────────────────────────────────

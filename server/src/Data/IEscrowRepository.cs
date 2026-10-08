@@ -28,8 +28,8 @@ public interface IEscrowRepository
     /// <summary>
     /// Update escrow status with optimistic concurrency check on the expected current status.
     /// Throws ConditionalCheckFailedException if the current status doesn't match expectedCurrentStatus.
-    /// A move to <c>released</c> or <c>refunded</c> also requires that the escrow has no open
-    /// manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
+    /// A move to <c>released</c>, <c>refunded</c> or <c>disputed</c> also requires that the escrow
+    /// has no open manual payout (ESC-02); a queued escrow settles only through TryCloseManualPayoutAsync.
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -61,11 +61,12 @@ public interface IEscrowRepository
     /// Marks the row <c>manualPayout = open</c> with the given legs, conditional on the
     /// caller holding the settlement lock for <paramref name="op"/> and no queue entry
     /// existing yet. The lock is deliberately KEPT: nothing else may settle this escrow
-    /// until an admin has paid every leg. Returns false when the condition fails.
+    /// until an admin has paid every leg. <paramref name="queuedAt"/> becomes the index sort
+    /// key and the timestamp of the queued audit row. Returns false when the condition fails.
     /// </summary>
     Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs);
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt);
 
     /// <summary>
     /// ESC-02: record an admin-paid leg that is NOT the last pending one. Conditional on
@@ -131,6 +132,8 @@ public interface IEscrowRepository
 
     /// <summary>
     /// Query escrows by status for cron/background processing using the StatusExpiresIndex GSI.
+    /// Escrows with an open manual payout (ESC-02) are filtered out, and paging continues
+    /// through filtered-empty pages, so queued rows can never fill the window.
     /// </summary>
     /// <param name="status">Status to query (e.g. "held", "pending_release").</param>
     /// <param name="expiresAtBefore">Optional upper bound for expiresAt (ISO 8601).</param>

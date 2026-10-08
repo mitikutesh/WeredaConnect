@@ -167,7 +167,11 @@ public class TelebirrSandboxGatewayTests
 
         var release = await gateway.ReleaseFundsAsync(new ReleaseFundsRequest
         {
-            TransactionRef = "release:e1", HoldRef = "h", FarmerPhone = "+2519", Amount = 1m, PlatformCommission = 0m,
+            TransactionRef = "release:e1",
+            HoldRef = "h",
+            FarmerPhone = "+2519",
+            Amount = 1m,
+            PlatformCommission = 0m,
         });
         release.Success.Should().BeFalse();
         release.ErrorCode.Should().Be(TelebirrGatewayErrors.PayoutNotSupported);
@@ -176,7 +180,10 @@ public class TelebirrSandboxGatewayTests
 
         var refund = await gateway.RefundFundsAsync(new RefundFundsRequest
         {
-            TransactionRef = "refund:e1", HoldRef = "h", BuyerPhone = "+2519", Amount = 1m,
+            TransactionRef = "refund:e1",
+            HoldRef = "h",
+            BuyerPhone = "+2519",
+            Amount = 1m,
         });
         refund.Success.Should().BeFalse();
         refund.ErrorCode.Should().Be(TelebirrGatewayErrors.PayoutNotSupported);

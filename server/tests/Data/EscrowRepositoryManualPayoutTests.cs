@@ -45,7 +45,7 @@ public class EscrowRepositoryManualPayoutTests
             new("trucker", "pending", null, null, null)
         };
 
-        var ok = await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "disputed", legs);
+        var ok = await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "disputed", legs, "2026-10-02T09:00:00.0000000Z");
 
         ok.Should().BeTrue();
         _update.Should().NotBeNull();
@@ -82,7 +82,7 @@ public class EscrowRepositoryManualPayoutTests
             .ThrowsAsync(new ConditionalCheckFailedException("lock not held"));
 
         var ok = await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "refund", "PAYOUT_NOT_SUPPORTED", "escrowed",
-            new List<ManualPayoutLegSeed> { new("buyer", "pending", null, null, null) });
+            new List<ManualPayoutLegSeed> { new("buyer", "pending", null, null, null) }, "2026-10-02T09:00:00.0000000Z");
 
         ok.Should().BeFalse();
     }
@@ -229,7 +229,8 @@ public class EscrowRepositoryManualPayoutTests
     [Theory]
     [InlineData("released")]
     [InlineData("refunded")]
-    public async Task UpdateStatus_ToASettledStatus_RequiresNoOpenManualPayout(string newStatus)
+    [InlineData("disputed")]
+    public async Task UpdateStatus_ToASettledOrDisputedStatus_RequiresNoOpenManualPayout(string newStatus)
     {
         await _repo.UpdateStatusAsync(EscrowId, CreatedAt, newStatus, "escrowed",
             new Dictionary<string, object> { { "telebirrReleaseRef", "GW-1" } });
@@ -266,5 +267,72 @@ public class EscrowRepositoryManualPayoutTests
         _update!.ConditionExpression.Should().Contain("attribute_not_exists(settlementLock)")
             .And.Contain("attribute_not_exists(#manualPayout)");
         Name(_update, "#manualPayout").Should().Be("manualPayout");
+    }
+
+    [Fact]
+    public async Task CronQuery_ExcludesQueuedRows_AndKeepsPagingThroughFilteredEmptyPages()
+    {
+        // 150 queued escrows (oldest expiresAt first) and one fresh escrow behind them. DynamoDB
+        // applies Limit before the filter, so the first pages come back empty with a
+        // LastEvaluatedKey; the fresh row must still be returned to the sweep.
+        var index = Enumerable.Range(0, 150)
+            .Select(n => new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = $"escrow-queued-{n:D3}" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = $"2026-09-01T00:{n / 60:D2}:{n % 60:D2}Z" } },
+                { "manualPayout", new AttributeValue { S = "open" } }
+            })
+            .Append(new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = "escrow-fresh" } },
+                { "status", new AttributeValue { S = "escrowed" } },
+                { "expiresAt", new AttributeValue { S = "2026-10-01T00:00:00Z" } }
+            })
+            .ToList();
+        var requests = new List<QueryRequest>();
+        _dynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => FakeIndexPage(index, call.Arg<QueryRequest>(), requests));
+
+        var items = await _repo.QueryByStatusForCronAsync("escrowed", limit: 100);
+
+        items.Select(i => (string)i["escrowId"]).Should().Equal("escrow-fresh");
+        requests.Should().HaveCount(2);
+        requests.Should().AllSatisfy(r =>
+        {
+            r.IndexName.Should().Be("StatusExpiresIndex");
+            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout)");
+            r.ExpressionAttributeNames["#manualPayout"].Should().Be("manualPayout");
+        });
+    }
+
+    [Fact]
+    public async Task CronQuery_DeliveryFilter_IsCombinedWithTheQueueFilter()
+    {
+        await _repo.QueryByStatusForCronAsync("escrowed", deliveryConfirmedBefore: "2026-10-01T00:00:00Z");
+
+        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND #confirmedAt <= :confirmedBefore");
+    }
+
+    /// <summary>
+    /// DynamoDB Query semantics on a sorted index: read up to Limit items from the start key,
+    /// then apply the filter, and return a LastEvaluatedKey when more items remain.
+    /// </summary>
+    private static QueryResponse FakeIndexPage(
+        List<Dictionary<string, AttributeValue>> index, QueryRequest request, List<QueryRequest> seen)
+    {
+        seen.Add(request);
+        var start = request.ExclusiveStartKey is { Count: > 0 } key
+            ? index.FindIndex(i => i["escrowId"].S == key["escrowId"].S) + 1
+            : 0;
+        var evaluated = index.Skip(start).Take(request.Limit > 0 ? request.Limit : index.Count).ToList();
+        var filterQueued = request.FilterExpression?.Contains("attribute_not_exists(#manualPayout)") == true;
+        return new QueryResponse
+        {
+            Items = evaluated.Where(i => !filterQueued || !i.ContainsKey("manualPayout")).ToList(),
+            LastEvaluatedKey = start + evaluated.Count < index.Count
+                ? new Dictionary<string, AttributeValue> { { "escrowId", evaluated[^1]["escrowId"] } }
+                : new Dictionary<string, AttributeValue>()
+        };
     }
 }

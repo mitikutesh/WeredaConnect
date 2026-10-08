@@ -42,7 +42,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(true);
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(true);
         _escrowRepo.TryMarkManualLegPaidAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -216,12 +216,20 @@ public class EscrowServiceManualPayoutTests
     }
 
     private Task<bool> AuditWritten(string action, string? metadataContains = null)
-        => Task.FromResult(_auditRepo.ReceivedCalls().Any(c =>
-            c.GetMethodInfo().Name == nameof(IEscrowAuditRepository.AppendAsync)
-            && c.GetArguments()[0] is Dictionary<string, object> entry
+        => Task.FromResult(AuditEntries().Any(entry =>
+            (string)entry["action"] == action
             && (string)entry["action"] == action
             && (metadataContains == null
                 || (entry.TryGetValue("metadata", out var m) && ((string)m).Contains(metadataContains)))));
+
+    /// <summary>Every audit entry written, plain appends and the idempotent (deterministic key) ones.</summary>
+    private List<Dictionary<string, object>> AuditEntries()
+        => _auditRepo.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name is nameof(IEscrowAuditRepository.AppendAsync)
+                or nameof(IEscrowAuditRepository.AppendIfAbsentAsync))
+            .Select(c => c.GetArguments()[0])
+            .OfType<Dictionary<string, object>>()
+            .ToList();
 
     // ──────────────────────────────────────────────
     // Release: queueing
@@ -240,7 +248,7 @@ public class EscrowServiceManualPayoutTests
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs =>
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "pending" && legs[0].Ref == null
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"));
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
         // The lock is kept on purpose, nothing settled, the trucker leg was never attempted.
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await AssertNothingSettled();
@@ -261,7 +269,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRelease, Arg.Any<string>(), "escrowed",
-            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "farmer"));
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "farmer"), Arg.Any<string>());
         await AssertNothingSettled();
     }
 
@@ -277,7 +285,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRelease, ManualPayoutFields.ReasonGatewayRefMissing, "escrowed",
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await AssertNothingSettled();
     }
 
@@ -299,7 +307,7 @@ public class EscrowServiceManualPayoutTests
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "paid" && legs[0].Ref == "GW-FARMER-1"
                 && legs[0].PaidBy == ManualPayoutFields.PaidByGateway && legs[0].PaidAt != null
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"));
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
         await AssertNothingSettled();
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
     }
@@ -310,7 +318,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -331,7 +339,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .ThrowsAsync(new ProvisionedThroughputExceededException("throttled"));
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -353,7 +361,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(NotSupportedRelease());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -363,7 +371,7 @@ public class EscrowServiceManualPayoutTests
         result.Value.TelebirrRef.Should().Be("GW-FARMER-1");
         await _escrowRepo.Received(4).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f =>
                 (string)f["telebirrReleaseRef"] == "GW-FARMER-1" && (bool)f["truckerPayoutPending"]));
@@ -390,7 +398,7 @@ public class EscrowServiceManualPayoutTests
             Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs =>
                 legs.Count == 2
                 && legs[0].Leg == "farmer" && legs[0].Status == "paid" && legs[0].Ref == "GW-FARMER-1"
-                && legs[1].Leg == "trucker" && legs[1].Status == "pending"));
+                && legs[1].Leg == "trucker" && legs[1].Status == "pending"), Arg.Any<string>());
         await AssertNothingSettled();
         (await AuditWritten("trucker_release")).Should().BeFalse();
     }
@@ -404,7 +412,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .ThrowsAsync(new AmazonDynamoDBException("timeout"));
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -425,7 +433,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -446,7 +454,7 @@ public class EscrowServiceManualPayoutTests
             .Returns(NotSupportedRelease());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.ReleaseAsync(ReleaseRequest(), "system");
@@ -454,7 +462,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await AssertNothingSettled();
         (await AuditWritten("trucker_release_failed")).Should().BeFalse();
     }
@@ -475,7 +483,7 @@ public class EscrowServiceManualPayoutTests
         await _gateway.Received(1).ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _escrowRepo.DidNotReceive().TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).UpdateStatusAsync(EscrowId, CreatedAt, "released", "escrowed",
             Arg.Is<Dictionary<string, object>>(f => (bool)f["truckerPayoutPending"]));
     }
@@ -520,7 +528,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRefund, ManualPayoutFields.ReasonPayoutNotSupported, "escrowed",
-            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "buyer" && legs[0].Status == "pending"));
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(legs => legs.Count == 1 && legs[0].Leg == "buyer" && legs[0].Status == "pending"), Arg.Any<string>());
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await AssertNothingSettled();
         await _idempotencyRepo.Received(1).UpdateAsync(RefundRequest().IdempotencyKey, "manual_payout");
@@ -539,7 +547,7 @@ public class EscrowServiceManualPayoutTests
         AssertWaiting(result);
         await _escrowRepo.Received(1).TryQueueManualPayoutAsync(
             EscrowId, CreatedAt, ManualPayoutFields.OpRefund, ManualPayoutFields.ReasonGatewayRefMissing, "escrowed",
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await AssertNothingSettled();
     }
 
@@ -549,7 +557,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.RefundAsync(RefundRequest(), "system");
@@ -568,7 +576,7 @@ public class EscrowServiceManualPayoutTests
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
         _escrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(false);
 
         var result = await _service.RefundAsync(RefundRequest(), "system");
@@ -604,7 +612,7 @@ public class EscrowServiceManualPayoutTests
         result.Error!.Code.Should().Be("ESCROW_013");
         await _escrowRepo.DidNotReceive().TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
         await _escrowRepo.Received(1).ReleaseSettlementLockAsync(EscrowId, CreatedAt);
     }
 
@@ -979,6 +987,130 @@ public class EscrowServiceManualPayoutTests
         result.Error.Code.Should().Be("ESCROW_INVALID_TRANSITION");
     }
 
+    [Fact]
+    public async Task Complete_CloseWriteSucceededButAuditFailed_ReplayFillsTheRowsOnce()
+    {
+        // First call: the close write lands, then the audit table fails, so the admin sees an
+        // error. The replay with the same reference must write the missing rows at the same
+        // deterministic keys and report alreadyRecorded.
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+        _auditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>())
+            .Returns<bool>(_ => throw new AmazonDynamoDBException("audit down"));
+
+        var first = async () => await Complete("buyer", "TB-REF-0009");
+        await first.Should().ThrowAsync<AmazonDynamoDBException>();
+        var closeCall = _escrowRepo.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IEscrowRepository.TryCloseManualPayoutAsync));
+        var paidAt = (string)closeCall.GetArguments()[6]!;
+
+        var closed = Escrow(status: "refunded", queuedOp: ManualPayoutFields.OpRefund, buyerLeg: "paid");
+        closed.Remove(ManualPayoutFields.Marker);
+        closed[ManualPayoutFields.RefAttr("buyer")] = "TB-REF-0009";
+        closed[ManualPayoutFields.PaidAtAttr("buyer")] = paidAt;
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(closed);
+        _auditRepo.ClearReceivedCalls();
+        _auditRepo.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(true);
+
+        var replay = await Complete("buyer", "TB-REF-0009");
+
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value!.AlreadyRecorded.Should().BeTrue();
+        replay.Value.EscrowStatus.Should().Be("refunded");
+        var entries = AuditEntries();
+        entries.Should().ContainSingle(e => (string)e["action"] == "manual_payout_paid"
+                                            && (string)e["timestamp"] == paidAt);
+        entries.Should().ContainSingle(e => (string)e["action"] == "refund" && (string)e["metadata"] == "manual"
+                                            && string.CompareOrdinal((string)e["timestamp"], paidAt) > 0);
+        entries.Should().ContainSingle(e => (string)e["action"] == "manual_payout_queued"
+                                            && (string)e["timestamp"] == "2026-10-02T09:00:00.0000000Z");
+        await _auditRepo.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
+        await _escrowRepo.Received(1).TryCloseManualPayoutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task Complete_PaidAuditUsesTheLegPaidAtAsItsKey()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+
+        var result = await Complete("farmer", "TB-REF-0001");
+
+        result.Value!.AlreadyRecorded.Should().BeFalse();
+        var paid = AuditEntries().Single(e => (string)e["action"] == "manual_payout_paid");
+        ((string)paid["timestamp"]).Should().Be(result.Value.PaidAt);
+    }
+
+    [Fact]
+    public async Task Release_QueuedAudit_IsKeyedOnTheQueuedAtWrittenToTheRow()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+
+        await _service.ReleaseAsync(ReleaseRequest(), "system");
+
+        var queueCall = _escrowRepo.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IEscrowRepository.TryQueueManualPayoutAsync));
+        var queuedAt = (string)queueCall.GetArguments()[6]!;
+        var queuedAudit = AuditEntries().Single(e => (string)e["action"] == "manual_payout_queued");
+        ((string)queuedAudit["timestamp"]).Should().Be(queuedAt);
+        await _auditRepo.Received(1).AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
+    }
+
+    // ──────────────────────────────────────────────
+    // Disputes on a queued escrow
+    // ──────────────────────────────────────────────
+
+    private static DisputeEscrowRequest DisputeRequest() => new()
+    {
+        EscrowId = EscrowId,
+        DisputedBy = BuyerId,
+        Reason = "not_delivered",
+        IdempotencyKey = $"{BuyerId}:escrow:{EscrowId}:1791500000"
+    };
+
+    [Fact]
+    public async Task Dispute_QueuedEscrow_Returns409Escrow038_NoWrite()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow(queuedOp: ManualPayoutFields.OpRefund));
+
+        var result = await _service.DisputeAsync(DisputeRequest(), BuyerId);
+
+        result.Error!.HttpStatus.Should().Be(409);
+        result.Error.Code.Should().Be("ESCROW_038");
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _idempotencyRepo.DidNotReceive().StoreAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Dispute_QueuedBetweenReadAndWrite_Returns409Escrow038_AndFreesTheKey()
+    {
+        _escrowRepo.GetByIdAsync(EscrowId).Returns(Escrow());
+        _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+        _escrowRepo.UpdateStatusAsync(EscrowId, CreatedAt, "disputed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new ConditionalCheckFailedException("queued"));
+
+        var result = await _service.DisputeAsync(DisputeRequest(), BuyerId);
+
+        result.Error!.Code.Should().Be("ESCROW_038");
+        await _idempotencyRepo.Received(1).DeleteAsync(DisputeRequest().IdempotencyKey);
+        (await AuditWritten("dispute")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeliveryDispute_QueuedEscrow_IsNotFrozen_AndTheRefusalIsAudited()
+    {
+        _escrowRepo.GetByDeliveryIdAsync("del-1").Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease));
+
+        var frozen = await _service.MarkDisputedFromDeliveryAsync("del-1", BuyerId, "never arrived");
+
+        frozen.Should().BeFalse();
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        (await AuditWritten("dispute_refused_manual_payout", "deliveryId=del-1;op=release")).Should().BeTrue();
+    }
+
     // ──────────────────────────────────────────────
     // List
     // ──────────────────────────────────────────────
@@ -1053,9 +1185,16 @@ public class EscrowServiceManualPayoutTests
             Substitute.For<ITelebirrSignatureService>(),
             new TelebirrConfig
             {
-                FabricAppId = "f", AppSecret = "s", MerchantAppId = "m", MerchantCode = "220100", ShortCode = "220100",
-                BaseUrl = "http://telebirr.local", WebUrl = "http://telebirr.local/pay",
-                MerchantPrivateKeyPem = "k", TelebirrPublicKeyPem = "k", ReturnUrl = "wc://done",
+                FabricAppId = "f",
+                AppSecret = "s",
+                MerchantAppId = "m",
+                MerchantCode = "220100",
+                ShortCode = "220100",
+                BaseUrl = "http://telebirr.local",
+                WebUrl = "http://telebirr.local/pay",
+                MerchantPrivateKeyPem = "k",
+                TelebirrPublicKeyPem = "k",
+                ReturnUrl = "wc://done",
                 NotifyUrl = "http://server.local/webhooks/telebirr",
             });
         var service = new EscrowService(_escrowRepo, _auditRepo, _idempotencyRepo, liveGateway, _userRepo);
@@ -1075,7 +1214,7 @@ public class EscrowServiceManualPayoutTests
         await _escrowRepo.DidNotReceive().ReleaseSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>());
         await _escrowRepo.Received(9).TryQueueManualPayoutAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>());
+            Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>());
 
         // Only the admin's references settle the queued escrow.
         _escrowRepo.GetByIdAsync(EscrowId, true).Returns(Escrow(queuedOp: ManualPayoutFields.OpRelease, farmerLeg: "paid"));

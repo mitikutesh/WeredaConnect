@@ -94,4 +94,36 @@ public class EscrowAuditRepositoryTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public async Task AppendIfAbsentAsync_PutsConditionallyAndReportsAWrite()
+    {
+        PutItemRequest? put = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => put = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        var written = await _repository.AppendIfAbsentAsync(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-1" }, { "timestamp", "2026-10-02T10:00:00.0000000Z" }, { "action", "manual_payout_paid" }
+        });
+
+        Assert.True(written);
+        Assert.NotNull(put);
+        Assert.Equal("attribute_not_exists(escrowId)", put!.ConditionExpression);
+        Assert.Equal("2026-10-02T10:00:00.0000000Z", put.Item["timestamp"].S);
+    }
+
+    [Fact]
+    public async Task AppendIfAbsentAsync_ExistingRow_ReturnsFalseAndDoesNotThrow()
+    {
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns<PutItemResponse>(_ => throw new ConditionalCheckFailedException("exists"));
+
+        var written = await _repository.AppendIfAbsentAsync(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-1" }, { "timestamp", "2026-10-02T10:00:00.0000000Z" }, { "action", "refund" }
+        });
+
+        Assert.False(written);
+    }
 }

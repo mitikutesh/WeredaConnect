@@ -581,13 +581,18 @@ public class AdminFunction
         }
 
         var value = result.Value!;
-        await TransactionAuditWriter.EmitAsync(
-            TxAuditRepo(), context, value.OrderId ?? escrowId, "escrow", escrowId,
-            "admin_manual_payout", null, value.EscrowStatus, auditContext,
-            metadata: $"leg={leg};ref={value.ExternalRef}");
+        // A replay of an already recorded leg moved nothing: no second transaction-audit row.
+        if (!value.AlreadyRecorded)
+        {
+            await TransactionAuditWriter.EmitAsync(
+                TxAuditRepo(), context, value.OrderId ?? escrowId, "escrow", escrowId,
+                "admin_manual_payout", null, value.EscrowStatus, auditContext,
+                metadata: $"leg={leg};ref={value.ExternalRef}");
+        }
+
         AuditLogger.LogAudit("ADMIN", "MANUAL_PAYOUT",
             userId: adminUserId, correlationId: correlationId,
-            entityType: "escrow", entityId: escrowId, outcome: "success",
+            entityType: "escrow", entityId: escrowId, outcome: value.AlreadyRecorded ? "replay" : "success",
             detail: $"leg={leg};escrowStatus={value.EscrowStatus}");
 
         return LambdaResponse.Ok(value, AppJsonContext.Default.CompleteManualPayoutResponse);

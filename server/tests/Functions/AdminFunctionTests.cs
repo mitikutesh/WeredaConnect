@@ -955,6 +955,46 @@ public class AdminFunctionTests
     }
 
     [Fact]
+    public async Task ManualPayouts_Complete_Replay_ReEnsuresAuditRows_NoSecondTxAudit()
+    {
+        // The refund already closed (marker gone, refunded) with this reference, but the audit
+        // writes after the close may have failed: the replay re-ensures them with conditional
+        // puts at deterministic keys and writes no second transaction-audit row.
+        var closed = QueuedRefundEscrowItem();
+        closed.Remove("manualPayout");
+        closed["status"] = S("refunded");
+        closed["manualBuyerStatus"] = S("paid");
+        closed["manualBuyerRef"] = S("TB-REF-0009");
+        closed["manualBuyerPaidBy"] = S("admin-1");
+        closed["manualBuyerPaidAt"] = S("2026-10-02T10:00:00.0000000Z");
+        var db = Substitute.For<IAmazonDynamoDB>();
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { closed } });
+        db.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(new PutItemResponse());
+
+        var response = await PayoutFunction(db).FunctionHandler(
+            AdminGroupRequest("POST", "/admin/payouts/escrow-order-ord-7/buyer/complete",
+                JsonSerializer.Serialize(new { externalRef = "TB-REF-0009" })),
+            _context);
+
+        response.StatusCode.Should().Be(200);
+        response.Body.Should().Contain("\"alreadyRecorded\":true").And.Contain("\"escrowStatus\":\"refunded\"");
+        await db.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await db.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "manual_payout_paid"
+                                        && p.Item["timestamp"].S == "2026-10-02T10:00:00.0000000Z"
+                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"),
+            Arg.Any<CancellationToken>());
+        await db.Received(1).PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == AuditTable && p.Item["action"].S == "refund"
+                                        && p.Item["timestamp"].S == "2026-10-02T10:00:00.0000001Z"
+                                        && p.ConditionExpression == "attribute_not_exists(escrowId)"),
+            Arg.Any<CancellationToken>());
+        await db.DidNotReceive().PutItemAsync(
+            Arg.Is<PutItemRequest>(p => p.TableName == TxAuditTable), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ManualPayouts_Complete_RoleClaimOnly_Returns403_NoWrite()
     {
         // A marketplace token that merely claims role=admin is not in the admin group and is

@@ -398,14 +398,19 @@ queue; mock mode (`TELEBIRR_MOCK=true`, dev) never queues anything.
 1. Open the admin app, "Manual Payouts" (`/payouts`). Each row is one payee leg:
    escrow, order, operation (release or refund), reason, payee role, name,
    registered phone and the exact amount. Rows older than 24 hours are flagged.
-   Only one admin works the queue at a time: there is no claim step, so two
-   admins could both pay the same leg in the portal.
+   The page shows the oldest 50; "Load more" fetches the next 50. Only one
+   admin works the queue at a time: there is no claim step, so two admins could
+   both pay the same leg in the portal.
 2. Check the reason before paying:
    - "Gateway has no payout API" (`PAYOUT_NOT_SUPPORTED`): nothing was paid. Pay
      that amount to that phone in the Telebirr merchant portal.
    - "Gateway returned no reference" (`GATEWAY_REF_MISSING`): the gateway said
      it paid, so the money has probably moved. Find that payment in the portal
      and record its id. Pay only if it is really missing.
+   - A refund row that says the delivery was confirmed after the refund was
+     queued: the goods arrived. Check with the buyer and the farmer before
+     refunding. Queued escrows cannot be disputed (`ESCROW_038`); a delivery
+     dispute on one shows up as `dispute_refused_manual_payout` in its audit.
 3. Paste the portal's transaction id into "Telebirr transaction ID", click
    "Mark as paid" (or "Record reference") and confirm the amount and phone. The
    last leg of an escrow moves it to `completed` (release) or `refunded`

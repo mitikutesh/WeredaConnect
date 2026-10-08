@@ -1756,6 +1756,13 @@ public sealed class EscrowService
                 $"Cannot dispute escrow in '{currentStatus}' state. Must be 'escrowed'.");
         }
 
+        // 5a. ESC-02: a settlement already waiting in the manual payout queue cannot be
+        //     disputed; the queue would settle over the open dispute.
+        if (IsManualPayoutOpen(escrowItem))
+        {
+            return DisputeRefusedManualPayout();
+        }
+
         // 6. Validate dispute window (deliveryConfirmedAt + 48h) → ESCROW_018
         var deliveryConfirmedAt = GetStringOrNull(escrowItem, "deliveryConfirmedAt");
         if (deliveryConfirmedAt != null
@@ -1856,7 +1863,22 @@ public sealed class EscrowService
             additionalFields["disputeEvidenceRefs"] = string.Join(",", request.EvidenceRefs);
         }
 
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Lost a race: the escrow moved, or it was queued for a manual payout meanwhile.
+            var latest = await _escrowRepo.GetByIdAsync(request.EscrowId, consistentRead: true);
+            if (latest != null && IsManualPayoutOpen(latest))
+            {
+                await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+                return DisputeRefusedManualPayout();
+            }
+
+            throw;
+        }
 
         // 10. Audit log
         await AppendAuditAsync(request.EscrowId, "dispute", "escrowed", "disputed", authenticatedUserId);
@@ -2003,6 +2025,16 @@ public sealed class EscrowService
 
         var escrowId = GetString(escrow, "escrowId");
         var createdAt = GetString(escrow, "createdAt");
+
+        // ESC-02: a queued manual payout is not frozen (the admin queue owns it). The refusal
+        // is audited so the admin sees the delivery dispute on the escrow's timeline.
+        if (IsManualPayoutOpen(escrow))
+        {
+            await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
+                metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={escrowId}");
+            return false;
+        }
         var now = DateTime.UtcNow;
         var confirmedAt = GetStringOrNull(escrow, "deliveryConfirmedAt");
         var disputeWindowEndsAt = confirmedAt != null
@@ -2345,14 +2377,13 @@ public sealed class EscrowService
                         409, "ESCROW_036", "This leg was already recorded with a different reference.");
                 }
 
-                if (currentStatus == "released")
-                {
-                    currentStatus = await FinishManualReleaseAsync(escrowId, createdAt, actorUserId);
-                }
+                // A crash after the money write may have left the audit rows or the final
+                // status behind: re-ensure them (deterministic keys, never written twice).
+                currentStatus = await EnsureManualPayoutRecordedAsync(escrow, op, leg, currentStatus);
 
                 return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
-                    escrow, leg, reference, currentStatus, PendingLegs(escrow, op, except: leg),
-                    "Already recorded."));
+                    escrow, leg, reference, GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(leg)) ?? "",
+                    currentStatus, PendingLegs(escrow, op, except: leg), "Already recorded.", alreadyRecorded: true));
             }
 
             if (!IsManualPayoutOpen(escrow) || legStatus == null || !ManualPayoutFields.LegBelongsToOp(leg, op))
@@ -2442,14 +2473,17 @@ public sealed class EscrowService
                     409, "ESCROW_036", "The payout changed while this leg was being recorded. Reload and try again.");
             }
 
-            await AppendAuditAsync(escrowId, "manual_payout_paid", currentStatus, currentStatus, actorUserId,
-                reference, $"leg={leg};amount={amount.ToString("F2", CultureInfo.InvariantCulture)};payee={payeeId}");
+            // Audit rows at deterministic keys (paidAt, paidAt + 1 tick): if one of these
+            // writes fails, a replay of the same reference fills it in without a duplicate.
+            await EnsureQueuedAuditAsync(escrow, op);
+            await EnsureAuditAsync(escrowId, now, "manual_payout_paid", currentStatus, currentStatus, actorUserId,
+                reference, ManualPaidMetadata(leg, amount, payeeId));
             Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={escrowId} op={op} leg={leg} remaining={pendingOthers.Count}");
 
             var finalStatus = currentStatus;
             if (newStatus != currentStatus)
             {
-                await AppendAuditAsync(escrowId, op == ManualPayoutFields.OpRelease ? "release" : "refund",
+                await EnsureAuditAsync(escrowId, AddTicks(now, 1), op == ManualPayoutFields.OpRelease ? "release" : "refund",
                     currentStatus, newStatus, actorUserId, reference, "manual");
                 finalStatus = newStatus == "released"
                     ? await FinishManualReleaseAsync(escrowId, createdAt, actorUserId)
@@ -2457,14 +2491,71 @@ public sealed class EscrowService
             }
 
             return EscrowResult<CompleteManualPayoutResponse>.Success(BuildCompleteResponse(
-                escrow, leg, reference, finalStatus, pendingOthers,
+                escrow, leg, reference, now, finalStatus, pendingOthers,
                 pendingOthers.Count > 0
                     ? $"Leg recorded. {pendingOthers.Count} leg(s) still waiting."
                     : finalStatus == "refunded"
                         ? "Refund recorded. The escrow is refunded."
-                        : "Payout recorded. The escrow is completed."));
+                        : "Payout recorded. The escrow is completed.",
+                alreadyRecorded: false));
         }
     }
+
+    /// <summary>
+    /// Replay of an already recorded leg: make sure its queued and paid audit rows exist and,
+    /// when the queue already closed, the release or refund row (closing leg's paidAt + 1 tick)
+    /// and the move to completed. Returns the escrow status after that.
+    /// </summary>
+    private async Task<string> EnsureManualPayoutRecordedAsync(
+        Dictionary<string, object> escrow, string op, string leg, string currentStatus)
+    {
+        var escrowId = GetString(escrow, "escrowId");
+        var fromStatus = GetStringOrNull(escrow, ManualPayoutFields.FromStatus) ?? currentStatus;
+        var legFromStatus = ManualPayoutSettleableStatuses.Contains(currentStatus) ? currentStatus : fromStatus;
+        await EnsureQueuedAuditAsync(escrow, op);
+
+        var paidAt = GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(leg));
+        var paidBy = GetStringOrNull(escrow, ManualPayoutFields.PaidByAttr(leg));
+        if (paidAt != null && paidBy != null && paidBy != ManualPayoutFields.PaidByGateway)
+        {
+            var payeeId = GetStringOrNull(escrow, ManualPayoutPayeeField(leg)) ?? "";
+            await EnsureAuditAsync(escrowId, paidAt, "manual_payout_paid", legFromStatus, legFromStatus, paidBy,
+                GetStringOrNull(escrow, ManualPayoutFields.RefAttr(leg)),
+                ManualPaidMetadata(leg, ManualPayoutLegAmount(escrow, leg), payeeId));
+        }
+
+        if (IsManualPayoutOpen(escrow) || currentStatus is not ("released" or "completed" or "refunded"))
+        {
+            return currentStatus;
+        }
+
+        // The queue closed on the leg recorded last.
+        var closingLeg = ManualPayoutFields.AllLegs
+            .Where(l => ManualPayoutFields.LegBelongsToOp(l, op)
+                        && GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(l)) != null)
+            .OrderByDescending(l => GetString(escrow, ManualPayoutFields.PaidAtAttr(l)), StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (closingLeg != null)
+        {
+            var closedAt = GetString(escrow, ManualPayoutFields.PaidAtAttr(closingLeg));
+            var settled = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
+            await EnsureAuditAsync(escrowId, AddTicks(closedAt, 1), op == ManualPayoutFields.OpRelease ? "release" : "refund",
+                fromStatus, settled, GetStringOrNull(escrow, ManualPayoutFields.PaidByAttr(closingLeg)) ?? "system",
+                GetStringOrNull(escrow, ManualPayoutFields.RefAttr(closingLeg)), "manual");
+        }
+
+        return currentStatus == "released"
+            ? await FinishManualReleaseAsync(escrowId, GetString(escrow, "createdAt"), "system")
+            : currentStatus;
+    }
+
+    private static string ManualPaidMetadata(string leg, decimal amount, string payeeId)
+        => $"leg={leg};amount={amount.ToString("F2", CultureInfo.InvariantCulture)};payee={payeeId}";
+
+    /// <summary>An ISO "o" time plus <paramref name="ticks"/> 100ns ticks, for adjacent deterministic audit keys.</summary>
+    private static string AddTicks(string isoTime, long ticks)
+        => DateTime.Parse(isoTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+            .ToUniversalTime().AddTicks(ticks).ToString("o");
 
     /// <summary>
     /// released to completed after a manual release close. A transient failure here is
@@ -2474,9 +2565,10 @@ public sealed class EscrowService
     {
         try
         {
+            var completedAt = DateTime.UtcNow.ToString("o");
             await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
-                new Dictionary<string, object> { { "completedAt", DateTime.UtcNow.ToString("o") } });
-            await AppendAuditAsync(escrowId, "complete", "released", "completed", actor, metadata: "manual");
+                new Dictionary<string, object> { { "completedAt", completedAt } });
+            await EnsureAuditAsync(escrowId, completedAt, "complete", "released", "completed", actor, metadata: "manual");
             return "completed";
         }
         catch (ConditionalCheckFailedException)
@@ -2492,19 +2584,20 @@ public sealed class EscrowService
     }
 
     private static CompleteManualPayoutResponse BuildCompleteResponse(
-        Dictionary<string, object> escrow, string leg, string reference, string escrowStatus,
-        List<string> remainingLegs, string message) => new()
-    {
-        EscrowId = GetString(escrow, "escrowId"),
-        OrderId = GetStringOrNull(escrow, "orderId"),
-        Ref = leg,
-        LegStatus = ManualPayoutFields.LegPaid,
-        EscrowStatus = escrowStatus,
-        ExternalRef = reference,
-        PaidAt = GetStringOrNull(escrow, ManualPayoutFields.PaidAtAttr(leg)) ?? DateTime.UtcNow.ToString("o"),
-        RemainingLegs = remainingLegs,
-        Message = message
-    };
+        Dictionary<string, object> escrow, string leg, string reference, string paidAt, string escrowStatus,
+        List<string> remainingLegs, string message, bool alreadyRecorded) => new()
+        {
+            EscrowId = GetString(escrow, "escrowId"),
+            OrderId = GetStringOrNull(escrow, "orderId"),
+            Ref = leg,
+            LegStatus = ManualPayoutFields.LegPaid,
+            EscrowStatus = escrowStatus,
+            ExternalRef = reference,
+            PaidAt = paidAt,
+            RemainingLegs = remainingLegs,
+            Message = message,
+            AlreadyRecorded = alreadyRecorded
+        };
 
     private static List<string> PendingLegs(Dictionary<string, object> escrow, string op, string except)
         => ManualPayoutFields.AllLegs
@@ -2555,6 +2648,7 @@ public sealed class EscrowService
             Reason = GetString(item, ManualPayoutFields.Reason),
             EscrowStatus = GetString(item, "status"),
             FromStatus = GetString(item, ManualPayoutFields.FromStatus),
+            DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
             QueuedAt = GetString(item, ManualPayoutFields.QueuedAt),
             Currency = GetStringOrNull(item, "currency") ?? "ETB",
             Legs = legs,
@@ -2631,10 +2725,11 @@ public sealed class EscrowService
         string escrowId, string createdAt, string op, string reason, string fromStatus,
         List<ManualPayoutLegSeed> legs, string actor)
     {
+        var queuedAt = DateTime.UtcNow.ToString("o");
         bool queued;
         try
         {
-            queued = await _escrowRepo.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs);
+            queued = await _escrowRepo.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
         }
         catch (Exception ex)
         {
@@ -2660,13 +2755,34 @@ public sealed class EscrowService
             {
                 return false;
             }
+
+            queuedAt = GetStringOrNull(latest, ManualPayoutFields.QueuedAt) ?? queuedAt;
         }
 
         var legNames = string.Join(",", legs.Select(l => l.Leg));
-        await AppendAuditAsync(escrowId, "manual_payout_queued", fromStatus, fromStatus, actor,
+        await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", fromStatus, fromStatus, actor,
             metadata: $"op={op};legs={legNames};reason={reason}");
         Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={escrowId} op={op} legs={legNames} reason={reason}");
         return true;
+    }
+
+    /// <summary>
+    /// The queued audit row of an open or closed queue entry, re-ensured from the row itself
+    /// (a crash right after the queue write leaves it missing).
+    /// </summary>
+    private Task EnsureQueuedAuditAsync(Dictionary<string, object> escrow, string op)
+    {
+        var queuedAt = GetStringOrNull(escrow, ManualPayoutFields.QueuedAt);
+        if (queuedAt == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var fromStatus = GetStringOrNull(escrow, ManualPayoutFields.FromStatus) ?? GetString(escrow, "status");
+        var legNames = string.Join(",", ManualPayoutFields.AllLegs
+            .Where(l => GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(l)) != null));
+        return EnsureAuditAsync(GetString(escrow, "escrowId"), queuedAt, "manual_payout_queued", fromStatus, fromStatus,
+            "system", metadata: $"op={op};legs={legNames};reason={GetStringOrNull(escrow, ManualPayoutFields.Reason)}");
     }
 
     /// <summary>
@@ -2692,6 +2808,11 @@ public sealed class EscrowService
     internal static bool IsManualPayoutOpen(Dictionary<string, object> escrow)
         => string.Equals(GetStringOrNull(escrow, ManualPayoutFields.Marker), ManualPayoutFields.MarkerOpen,
             StringComparison.Ordinal);
+
+    /// <summary>409 ESCROW_038: no dispute on an escrow whose settlement waits in the manual payout queue.</summary>
+    private static EscrowResult<DisputeEscrowResponse> DisputeRefusedManualPayout() => EscrowResult<DisputeEscrowResponse>.Failure(
+        409, "ESCROW_038",
+        "This payment is already being paid out by an admin, so it can no longer be disputed. Contact support.");
 
     /// <summary>
     /// 202 ESCROW_034: the settlement is waiting in the manual payout queue; this call moved
@@ -3087,15 +3208,38 @@ public sealed class EscrowService
         string escrowId, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
+        await _auditRepo.AppendAsync(BuildAuditEntry(
+            $"audit-{Guid.NewGuid():N}", DateTime.UtcNow.ToString("o"),
+            escrowId, action, fromState, toState, actor, telebirrRef, metadata));
+    }
+
+    /// <summary>
+    /// ESC-02: write an audit row at a deterministic key (<paramref name="timestamp"/> comes
+    /// from the escrow row, for example a leg's paidAt), only if it is not there yet. A replay
+    /// after a crash between the money write and its audit row fills the gap without a duplicate.
+    /// </summary>
+    private async Task EnsureAuditAsync(
+        string escrowId, string timestamp, string action, string fromState, string toState,
+        string actor, string? telebirrRef = null, string? metadata = null)
+    {
+        var auditId = $"audit-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
+        await _auditRepo.AppendIfAbsentAsync(BuildAuditEntry(
+            auditId, timestamp, escrowId, action, fromState, toState, actor, telebirrRef, metadata));
+    }
+
+    private Dictionary<string, object> BuildAuditEntry(
+        string auditId, string timestamp, string escrowId, string action, string fromState,
+        string toState, string actor, string? telebirrRef, string? metadata)
+    {
         var auditEntry = new Dictionary<string, object>
         {
-            { "auditId", $"audit-{Guid.NewGuid():N}" },
+            { "auditId", auditId },
             { "escrowId", escrowId },
             { "action", action },
             { "fromState", fromState },
             { "toState", toState },
             { "actor", actor },
-            { "timestamp", DateTime.UtcNow.ToString("o") }
+            { "timestamp", timestamp }
         };
 
         if (telebirrRef != null)
@@ -3121,7 +3265,7 @@ public sealed class EscrowService
             auditEntry["correlationId"] = _auditContext!.CorrelationId!;
         }
 
-        await _auditRepo.AppendAsync(auditEntry);
+        return auditEntry;
     }
 
     // ──────────────────────────────────────────────

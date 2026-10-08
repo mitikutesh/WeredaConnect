@@ -881,7 +881,7 @@ public class EscrowFlowIntegrationTests
             .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
         _mockEscrowRepo.TryQueueManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>())
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
             .Returns(true);
         _mockEscrowRepo.TryCloseManualPayoutAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -900,7 +900,7 @@ public class EscrowFlowIntegrationTests
         Assert.Contains("\"manualPayoutsWaiting\":\"1\"", first.Body);
         await _mockEscrowRepo.Received(1).TryQueueManualPayoutAsync(
             escrowId, Arg.Any<string>(), "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
-            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "farmer"));
+            Arg.Is<IReadOnlyList<ManualPayoutLegSeed>>(l => l.Count == 1 && l[0].Leg == "farmer"), Arg.Any<string>());
         await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
 

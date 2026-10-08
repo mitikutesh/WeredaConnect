@@ -284,57 +284,57 @@ public class EscrowCronFunction
                 switch (resolution)
                 {
                     case "farmer_wins":
-                    {
-                        var result = await _escrowService.ReleaseAsync(
-                            new ReleaseEscrowRequest
+                        {
+                            var result = await _escrowService.ReleaseAsync(
+                                new ReleaseEscrowRequest
+                                {
+                                    EscrowId = escrowId,
+                                    Trigger = "dispute_resolved",
+                                    DeliveryId = deliveryId,
+                                    IdempotencyKey = $"system:{escrowId}:dispute_release:{hourBucket}"
+                                },
+                                authenticatedUserId: "system");
+                            if (result.IsSuccess)
                             {
-                                EscrowId = escrowId,
-                                Trigger = "dispute_resolved",
-                                DeliveryId = deliveryId,
-                                IdempotencyKey = $"system:{escrowId}:dispute_release:{hourBucket}"
-                            },
-                            authenticatedUserId: "system");
-                        if (result.IsSuccess)
-                        {
-                            released++;
+                                released++;
+                            }
+                            else if (IsManualPayoutWaiting(result.Error))
+                            {
+                                NoteManualPayoutWaiting(context, escrowId, "dispute release");
+                            }
+                            else
+                            {
+                                context.Logger.LogError(
+                                    $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                            }
+                            break;
                         }
-                        else if (IsManualPayoutWaiting(result.Error))
-                        {
-                            NoteManualPayoutWaiting(context, escrowId, "dispute release");
-                        }
-                        else
-                        {
-                            context.Logger.LogError(
-                                $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
-                        }
-                        break;
-                    }
                     case "buyer_wins":
-                    {
-                        var result = await _escrowService.RefundAsync(
-                            new RefundEscrowRequest
+                        {
+                            var result = await _escrowService.RefundAsync(
+                                new RefundEscrowRequest
+                                {
+                                    EscrowId = escrowId,
+                                    Trigger = "dispute_resolved",
+                                    Reason = "Dispute resolved in the buyer's favour.",
+                                    IdempotencyKey = $"system:{escrowId}:dispute_refund:{hourBucket}"
+                                },
+                                authenticatedUserId: "system");
+                            if (result.IsSuccess)
                             {
-                                EscrowId = escrowId,
-                                Trigger = "dispute_resolved",
-                                Reason = "Dispute resolved in the buyer's favour.",
-                                IdempotencyKey = $"system:{escrowId}:dispute_refund:{hourBucket}"
-                            },
-                            authenticatedUserId: "system");
-                        if (result.IsSuccess)
-                        {
-                            refunded++;
+                                refunded++;
+                            }
+                            else if (IsManualPayoutWaiting(result.Error))
+                            {
+                                NoteManualPayoutWaiting(context, escrowId, "dispute refund");
+                            }
+                            else
+                            {
+                                context.Logger.LogError(
+                                    $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                            }
+                            break;
                         }
-                        else if (IsManualPayoutWaiting(result.Error))
-                        {
-                            NoteManualPayoutWaiting(context, escrowId, "dispute refund");
-                        }
-                        else
-                        {
-                            context.Logger.LogError(
-                                $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
-                        }
-                        break;
-                    }
                     default:
                         context.Logger.LogWarning(
                             $"Dispute {escrowId} resolved as '{resolution ?? "unset"}': no automatic settlement, admin must release or refund.");

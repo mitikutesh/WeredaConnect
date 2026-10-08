@@ -130,9 +130,9 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeValues[":expectedStatus"] = new AttributeValue { S = expectedCurrentStatus };
         }
 
-        // ESC-02: a gateway settlement never lands on an escrow waiting in the manual payout
-        // queue; only TryCloseManualPayoutAsync settles those (and removes the marker).
-        if (newStatus is "released" or "refunded")
+        // ESC-02: neither a gateway settlement nor a dispute lands on an escrow waiting in the
+        // manual payout queue; only TryCloseManualPayoutAsync settles those (and removes the marker).
+        if (newStatus is "released" or "refunded" or "disputed")
         {
             conditions.Add("attribute_not_exists(#manualPayout)");
             request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
@@ -221,9 +221,9 @@ public sealed class EscrowRepository : IEscrowRepository
     /// <inheritdoc />
     public async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs)
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
     {
-        var now = DateTime.UtcNow.ToString("o");
+        var now = queuedAt;
         var sets = new List<string>
         {
             "#marker = :open", "#queuedAt = :now", "#op = :op", "#reason = :reason",
@@ -702,18 +702,27 @@ public sealed class EscrowRepository : IEscrowRepository
             ScanIndexForward = true
         };
 
+        // ESC-02: escrows waiting in the manual payout queue keep their status and expiresAt,
+        // so they would sit at the head of this oldest-first window and starve every newer
+        // escrow. The sweeps have nothing to do with them; the admin queue owns them.
+        var filters = new List<string> { "attribute_not_exists(#manualPayout)" };
+        request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
+
         // Post-query filter for deliveryConfirmedBefore
         if (!string.IsNullOrEmpty(deliveryConfirmedBefore))
         {
-            request.FilterExpression = "#confirmedAt <= :confirmedBefore";
+            filters.Add("#confirmedAt <= :confirmedBefore");
             request.ExpressionAttributeNames["#confirmedAt"] = "deliveryConfirmedAt";
             request.ExpressionAttributeValues[":confirmedBefore"] = new AttributeValue { S = deliveryConfirmedBefore };
         }
 
+        request.FilterExpression = string.Join(" AND ", filters);
+
         var allItems = new List<Dictionary<string, object>>();
         Dictionary<string, AttributeValue>? lastKey = null;
 
-        // Paginate through all results up to the limit
+        // Paginate through all results up to the limit. A filtered page can come back empty
+        // with a LastEvaluatedKey, so paging continues until the limit or the end of the index.
         do
         {
             if (lastKey != null)

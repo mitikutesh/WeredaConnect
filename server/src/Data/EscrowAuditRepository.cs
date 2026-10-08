@@ -47,6 +47,39 @@ public sealed class EscrowAuditRepository : IEscrowAuditRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> AppendIfAbsentAsync(Dictionary<string, object> auditEntry)
+    {
+        var item = new Dictionary<string, AttributeValue>();
+        foreach (var kvp in auditEntry)
+        {
+            if (kvp.Value == null)
+            {
+                continue;
+            }
+
+            item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+        }
+
+        var request = new PutItemRequest
+        {
+            TableName = _tableName,
+            Item = item,
+            // Still append-only: an existing row with this key is never overwritten.
+            ConditionExpression = "attribute_not_exists(escrowId)"
+        };
+
+        try
+        {
+            await _dynamoDb.PutItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<List<Dictionary<string, object>>> GetAuditTrailAsync(string escrowId)
     {
         var allItems = new List<Dictionary<string, object>>();
