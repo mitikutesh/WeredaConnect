@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.7.2
+1.9.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -87,6 +87,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 | `payment_submitted` for 24h (from `paymentSubmittedAt`; `createdAt` for orders from before 1.7.0) with no confirmed payment | Moved to `payment_failed` by the same hourly cron, version-checked so a funding that lands at the same time wins; audited as `order_updated` (`payment_submitted → payment_failed`). The order checkout stops opening new attempts 20 hours after `paymentSubmittedAt` (`escrow-protocol.md` 1.5.0), so none is still open then. A retry goes `payment_failed → pending_payment → payment_submitted`; because the `pending_payment` auto-cancel above counts from `createdAt`, an order older than 24h is cancelled at the next run unless the buyer submits the payment again right away (1.7.0). | `OrderCronFunction.FailStalePaymentsAsync` |
 | `delivered` + 48h no dispute | Escrow auto-releases to farmer (`disbursing → settled`). | escrow cron, `escrow-protocol.md` |
 | escrowed + 7 days no delivery | Escrow refunds the buyer. For order-funded escrows the sweep is order-aware: it refunds only stale-`funded` or terminal orders (then cancels a stale-funded order, `cancelReason: escrow_refunded`, and restores its listing stock, 1.4.2); progressing orders get the expiry pushed +48h. | `escrow-protocol.md` §Order-Funded Escrow; `EscrowCronFunction.TryRestoreListingStockAsync` |
+| escrow due to settle (auto-release, auto-refund, dispute settlement) while a party is suspended or at risk tier CRITICAL | The escrow moves to `held` instead of paying out; the order status does not change (a stale-funded order is not cancelled and its stock not restored until the admin decides). Planned FRD-03, FRD-04, behind `FRAUD_HOLD_ENABLED` (1.9.0). | `EscrowCronFunction`; `escrow-protocol.md` §Additions in 1.7.0 |
 | delivery `pickedUp` / `inTransit` / `delivered` | The linked order advances to `pickup_confirmed` / `in_transit` / `delivered` as a system actor, forward only (never out of `disputed`, `cancelled` or a later status). Self-pickup: `accepted → delivered` in one hop. Best-effort: a failure is logged, the delivery update still succeeds. This is what unblocks ratings without any manual stepping (1.4.0, SIM-11). | `TryAdvanceOrderForDeliveryAsync`, `SyncFunction.cs` |
 | escrow or delivery `disputed` | The order moves `delivered → disputed` (blocks ratings). An escrow dispute also marks the delivery `disputed`; a delivery dispute also freezes the escrow. Best-effort, audited (1.4.1, SIM-12). | `TryPropagateDisputeAsync` (`EscrowService`), `TryAdvanceOrderForDeliveryAsync` + `TryFreezeEscrowForDisputedDeliveryAsync` (`SyncFunction.cs`) |
 | every applied transition | Append-only audit row (who/when/prior→new). | `EmitTxAuditAsync` → `transaction-audit` table |
@@ -168,6 +169,9 @@ leg), so it carries the checks `POST /escrow/initiate` already made:
 | `orderTotal` above 10,000 ETB and farmer not Fayda-verified | `ORDER_KYC_REQUIRED: farmer_fayda: The farmer must verify ...` |
 | `orderTotal` up to and including 10,000 ETB and the token's `auth_time` older than the step-up window | `AUTH_040: Please sign in again ...` |
 | `orderTotal` above 10,000 ETB and the buyer's last Fayda login (`POST /user/fayda-link`) older than the step-up window; a fresh password does not count | `AUTH_041: Confirm it's you with Fayda ...` |
+| buyer's risk tier CRITICAL, or the score read truncated; checked before KYC (1.9.0, planned FRD-04) | `FRAUD_ACCOUNT_HELD: Your account is under review. Some actions are paused. Contact support.` |
+| buyer's risk tier MEDIUM and the password not fresh, at any amount; above 10,000 ETB after the Fayda row above (1.9.0, planned FRD-04) | `AUTH_040: ...` |
+| buyer's risk tier HIGH: Fayda login not fresh, then password not fresh, at any amount (1.9.0, planned FRD-04) | `AUTH_041: ...` first, then `AUTH_040: ...` on the retry |
 | live gateway (`TELEBIRR_MOCK` off) and `orderTotal` outside 100 to 500,000 ETB, what one Telebirr payment can take (1.7.0; bank transfers are ESC-46) | `ORDER_VALIDATION: This order total (X ETB) is outside what one Telebirr payment can take (100 to 500000 ETB).` |
 
 The gates fail closed when the profiles cannot be read. Mock auto-funding (`TELEBIRR_MOCK`)
@@ -200,8 +204,56 @@ active delivery.` opens the existing delivery.
 
 ---
 
+## Fraud hold and risk tiers (1.9.0, planned FRD-03, FRD-04)
+
+Design: `specs/architecture/fraud-detection-architecture.md` 3.0.0, sections 14 to 18; escrow side
+in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
+
+- **No new order status.** `OrderTransitions` and the actor rules are unchanged; the only new rule
+  is the accept refusal below. The hold lives on the escrow (`status: held`), so invariant 3 does
+  not apply.
+- **What the parties see.** Order detail and the order list show "Under review" for the buyer, the
+  farmer and the trucker when the order's escrow is `held`.
+- **When it happens.** Only when the order's escrow is due to settle (auto-release after the dispute
+  window, the 7-day refund sweep, or a dispute verdict) and a party is suspended or at risk tier
+  CRITICAL. At that point no logistics step is left: the delivery is confirmed (the order is
+  `delivered`, or behind it when the best-effort advance lagged), or the order is `disputed`,
+  terminal or a stale `funded` order. The refund sweep checks risk before it cancels a stale
+  `funded` order or restores its listing stock, so the order keeps its status until the admin
+  releases or refunds. That hold is written together with a check that the order's `version` and
+  status are unchanged, the same fence cancel-then-refund uses today, so a farmer's accept that
+  lands in between cancels the hold and the next sweep pushes the expiry.
+- **Accept while held**: the farmer's `accepted` on a `funded` order whose escrow is `held` is
+  refused with `ORDER_VALIDATION: This order is under review and cannot be accepted. Contact
+  support.` (planned FRD-03), because a delivery created after it could never link to the held
+  escrow. Reject and cancel stay allowed.
+- **Admin refund, order side.** For an escrow held before a refund (`heldFor: refund`) the order is
+  cancelled (`cancelReason: escrow_refunded`) and restocked as the sweep would have done, and a
+  progressing order is not refunded. For an escrow held before a payout (`heldFor: release`) the
+  progressing rule does not apply. Before the refund the order goes `delivered` to `disputed` to
+  `dispute_resolved` (or `disputed` to `dispute_resolved`), system actor, version-checked, one
+  transaction-audit row per hop, with the escrow's `disputeResolution: buyer_wins`; the listing is
+  not restocked because the goods were delivered. An order left at `accepted`, `pickup_confirmed`
+  or `in_transit` behind its delivery is first advanced to `delivered` when its active delivery is
+  `delivered`; otherwise, and for any other status, the refund is refused (`422
+  ESCROW_INVALID_TRANSITION`, alarm `RISK_HOLD_ORDER_MISMATCH`). Admin release keeps today's order
+  behaviour.
+- **Order create by a CRITICAL buyer** is refused with `FRAUD_ACCOUNT_HELD` (permanent, nothing
+  written). Crop create (farmer) and trip create (trucker) get the same code; see
+  `sync-protocol.md` 1.9.0.
+- **Gate order on `payment_submitted`**: transition auth, risk read, CRITICAL check, KYC
+  (unchanged), tiered step-up (`AUTH_041` before `AUTH_040` at HIGH), the live-gateway order total
+  check (`ORDER_VALIDATION`, unchanged), then the write and the mock auto-fund. LOW keeps today's
+  behaviour exactly. The tier is never returned to the client.
+- **Client action on `FRAUD_ACCOUNT_HELD`**: revert the local order status as for
+  `ORDER_KYC_REQUIRED`, show the message, do not retry. The mobile `SyncExecutor` reverts only on
+  `ORDER_KYC_REQUIRED` today, so FRD-06 adds the same hook for this code.
+
+---
+
 ## Changelog
 
+- **1.9.0 (2026-10-06)**: Fraud hold and risk tiers (planned FRD-03, FRD-04): no new order status; an order whose escrow is `held` shows "Under review" to all three roles; the farmer's accept of a funded order whose escrow is held is refused (`ORDER_VALIDATION`); an admin refund of an escrow held before a payout moves the order to `dispute_resolved` (`buyer_wins`), advancing an order left behind its confirmed delivery first; the refund-sweep hold is fenced on the order version; the refund sweep checks risk before cancelling or restocking a stale-funded order; `payment_submitted` gains the CRITICAL (`FRAUD_ACCOUNT_HELD`), MEDIUM and HIGH step-up rows and its gate order is stated; order create by a CRITICAL buyer is refused.
 - **1.7.2 (2026-10-06)**: Client order previews use the server formula, commission on the crop cost only (SIM-53). The place-order preview charged it on crop plus transport and showed more than the server charges (18375 instead of 18350 ETB for 17000 of crop and 500 of transport). Doc-only, no wire change.
 - **1.7.1 (2026-10-06)**: The payment screen shows the full order id as the transfer reference (SIM-54); it was the first 8 characters upper-cased, which repeated across orders (`ORD_1790` for every legacy web order). Demo references are `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}`. No wire change; live payments are still matched by the server's `merch_order_id`.
 - **1.7.0 (2026-09-30)**: Live order funding (ESC-01): with the live gateway the buyer pays a `payment_submitted` order through `POST /escrow/order-checkout`, and the Telebirr webhook funds it exactly once with the same side effects as the mock path; the funding stock decrement is idempotent per order; the Telebirr references are server-only order fields; `payment_failed` is system-only. The server stamps `paymentSubmittedAt` on `payment_submitted`; the order cron moves an order that stayed `payment_submitted` for 24 hours to `payment_failed`; with the live gateway `payment_submitted` refuses an `orderTotal` outside 100 to 500,000 ETB.

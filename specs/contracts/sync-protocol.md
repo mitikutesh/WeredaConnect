@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.7.0
+1.9.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -197,7 +197,7 @@ These rules must always hold:
 - 400 Bad Request (validation error) → Mark as `failed`, requires data fix
 - 409 Conflict → Resolve conflict, mark as `synced` (not retry)
 - 422 Unprocessable Entity → Mark as `failed`, requires data fix
-- Fraud rejections (`FRAUD_*`, `SYNC_VALIDATION`) → Mark as permanently rejected
+- Fraud rejections (`FRAUD_*`, including `FRAUD_ACCOUNT_HELD` since 1.9.0, and `SYNC_VALIDATION`) → Mark as permanently rejected
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -272,10 +272,30 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 ---
 
+## Operation errors added (1.9.0, planned FRD-03, FRD-04)
+
+| Message prefix | Where | Client action |
+|----------------|-------|---------------|
+| `FRAUD_ACCOUNT_HELD:` | crop, trip and order `create`; order update to `payment_submitted` | permanent (the `FRAUD_*` rule above): mark rejected, show the message, do not retry; on `payment_submitted` also revert the local order status as for `ORDER_KYC_REQUIRED` |
+| `AUTH_040:` / `AUTH_041:` | order update to `payment_submitted`, now also raised by the account's risk tier at any amount (MEDIUM: password, after Fayda above 10,000 ETB as today; HIGH: Fayda, then password) | unchanged: keep the operation pending, re-authenticate (Fayda first when both are asked), sync again |
+| `ORDER_VALIDATION: This order is under review and cannot be accepted. Contact support.` | farmer's order update to `accepted` while the order's escrow is `held` (FRD-03) | show the message; the order stays `funded` until an admin decides, and a retry gets the same answer |
+
+The message after `FRAUD_ACCOUNT_HELD:` is `Your account is under review. Some actions are paused.
+Contact support.` The risk tier and score are never part of the response. The shipped mobile
+`SyncExecutor` already treats every `FRAUD_` prefix as permanent, so permanence needs no change;
+the payment revert and the message need a `SyncExecutor` change (FRD-06), because today only
+`ORDER_KYC_REQUIRED` reverts the local order and the batch error message names only
+`FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`. The web repositories, which call the API
+directly, handle the code in FRD-06 too. Design:
+`specs/architecture/fraud-detection-architecture.md` 3.0.0, section 17.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.9.0 | 2026-10-06 | `FRAUD_ACCOUNT_HELD:` operation error (planned FRD-04) on crop, trip and order create and on order `payment_submitted`, permanent under the existing `FRAUD_*` rule; `AUTH_040:` and `AUTH_041:` may also come from the account's risk tier at any amount; `ORDER_VALIDATION:` on the farmer's accept while the order's escrow is `held` (planned FRD-03) |
 | 1.7.0 | 2026-10-01 | Idempotency keys are scoped to the authenticated caller (SIM-48, ESC-11, SEC-03): another user's key can no longer pre-claim yours; documented-format keys are stored unchanged, other keys as `{sub}:{key}`; no client change |
 | 1.6.0 | 2026-09-29 | Payment step-up tiers: `AUTH_040` on every `payment_submitted` up to 10,000 ETB without a fresh password; `AUTH_041` above 10,000 ETB without a fresh Fayda login (the password does not count) |
 | 1.5.0 | 2026-09-29 | `ORDER_KYC_REQUIRED` carries a reason token (`buyer_phone`, `buyer_fayda`, `farmer_phone`, `farmer_fayda`, `unavailable`); the prefix is unchanged |
@@ -287,5 +307,5 @@ unsent. Clients fall back to the wording ("farmer", "phone") for servers older t
 
 ---
 
-**Last Updated**: 2026-10-01
-**Version**: 1.7.0
+**Last Updated**: 2026-10-06
+**Version**: 1.9.0

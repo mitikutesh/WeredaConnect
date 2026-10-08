@@ -561,7 +561,7 @@ Farmers may hand their phone to someone else. Mitigations:
 
 ### 8.6 Server-Side Fraud Detection (MVP — Implemented)
 
-5 automated rules: duplicate detection, price anomaly, velocity limits, GPS consistency, risk scoring.
+4 automated rules: duplicate detection, price anomaly, velocity limits, GPS consistency. Each writes a weighted fraud signal; risk scoring, tiers and holds are designed in `specs/architecture/fraud-detection-architecture.md` v3 but not built (EPIC FRD).
 
 ### 8.7 Fake Receipt Protection
 
