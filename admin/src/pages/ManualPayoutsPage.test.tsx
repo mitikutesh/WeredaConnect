@@ -15,7 +15,7 @@ type MutateOptions = {
 };
 
 const mocks = vi.hoisted(() => ({
-  payouts: { data: undefined as unknown, isLoading: false },
+  payouts: { data: undefined as unknown, isLoading: false, isError: false },
   mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
 }));
 
@@ -121,6 +121,7 @@ describe("ManualPayoutsPage", () => {
   beforeEach(() => {
     mocks.mutate.mockReset();
     mocks.payouts.isLoading = false;
+    mocks.payouts.isError = false;
     mocks.payouts.data = { payouts: [releaseWithTwoLegs(), refundOverdue()], total: 2 };
   });
 
@@ -264,6 +265,47 @@ describe("ManualPayoutsPage", () => {
     expect(within(farmerRow).queryByRole("button", { name: "Mark as paid" })).toBeNull();
     const truckerRow = rowFor("Chala Tolosa");
     expect(within(truckerRow).getByRole("button", { name: "Mark as paid" })).toBeTruthy();
+  });
+
+  it("tells the admin to look up a gateway-reported payment instead of paying it again", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const hint =
+      "Gateway reported paid without a reference. Find it in the portal and record its ID; pay only if it is missing.";
+    const buyerRow = rowFor("Sara Bekele");
+    expect(within(buyerRow).getByText(hint)).toBeTruthy();
+    expect(within(buyerRow).queryByRole("button", { name: "Mark as paid" })).toBeNull();
+
+    // A PAYOUT_NOT_SUPPORTED row keeps the plain pay-and-record wording.
+    const farmerRow = rowFor("Abebe Kebede");
+    expect(within(farmerRow).queryByText(hint)).toBeNull();
+    expect(within(farmerRow).getByRole("button", { name: "Mark as paid" })).toBeTruthy();
+
+    await user.type(within(buyerRow).getByLabelText("Telebirr transaction ID"), "TB2026100600009");
+    await user.click(within(buyerRow).getByRole("button", { name: "Record reference" }));
+
+    expect(
+      within(buyerRow).getByText("The portal shows 20,000.00 Birr paid to +251911000003 under this ID?"),
+    ).toBeTruthy();
+  });
+
+  it("shows a load failure instead of an empty queue", () => {
+    mocks.payouts.isError = true;
+    mocks.payouts.data = undefined;
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The payout queue could not be loaded. Reload before paying anything.",
+    );
+    expect(screen.queryByText("No payouts are waiting.")).toBeNull();
+  });
+
+  it("says when more payouts wait beyond the first page", () => {
+    mocks.payouts.data = { payouts: [releaseWithTwoLegs()], nextToken: "next-page", total: 1 };
+    renderPage();
+
+    expect(screen.getByText("Showing the oldest 50. Record these, then reload for the rest.")).toBeTruthy();
   });
 
   it("shows the empty state when nothing is waiting", () => {

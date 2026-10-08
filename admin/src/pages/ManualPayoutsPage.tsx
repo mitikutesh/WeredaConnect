@@ -48,6 +48,10 @@ type Row = Record<string, unknown> & {
 
 const OVERDUE_HOURS = 24;
 
+/* The gateway said it paid but gave no reference: the money has probably moved, so the
+ * admin looks the payment up in the portal and records its id instead of paying again. */
+const REF_MISSING = "GATEWAY_REF_MISSING";
+
 function hoursSince(iso: string): number {
   const ms = Date.now() - new Date(iso).getTime();
   return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 3_600_000)) : 0;
@@ -59,7 +63,7 @@ function fill(template: string, values: Record<string, string>): string {
 
 export function ManualPayoutsPage() {
   const { t, locale } = useLocale();
-  const { data, isLoading } = useManualPayouts();
+  const { data, isLoading, isError } = useManualPayouts();
   const complete = useCompleteManualPayout();
   const [refs, setRefs] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -67,7 +71,7 @@ export function ManualPayoutsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const resp = data as { payouts?: ManualPayout[] } | undefined;
+  const resp = data as { payouts?: ManualPayout[]; nextToken?: string | null } | undefined;
   const payouts = resp?.payouts ?? [];
   const rows: Row[] = payouts.flatMap((payout) =>
     payout.legs.map((leg) => ({ key: `${payout.escrowId}:${leg.ref}`, payout, leg })),
@@ -163,7 +167,12 @@ export function ManualPayoutsPage() {
       key: "amount",
       header: t("payouts.amount"),
       render: (row: Row) => (
-        <span className="font-semibold">{formatETB(Number(row.leg.amount) || 0, locale)}</span>
+        <div className="space-y-1">
+          <span className="font-semibold">{formatETB(Number(row.leg.amount) || 0, locale)}</span>
+          {row.payout.reason === REF_MISSING && row.leg.status === "pending" && (
+            <p className="max-w-56 text-xs text-warning">{t("payouts.refMissingHint")}</p>
+          )}
+        </div>
       ),
     },
     {
@@ -232,11 +241,12 @@ export function ManualPayoutsPage() {
 
         const value = refs[row.key] ?? "";
         const busy = submitting === row.key;
+        const refMissing = row.payout.reason === REF_MISSING;
         if (confirming === row.key) {
           return (
             <div className="space-y-2">
               <p className="text-sm">
-                {fill(t("payouts.confirmPaid"), {
+                {fill(t(refMissing ? "payouts.confirmFound" : "payouts.confirmPaid"), {
                   amount: formatETB(Number(row.leg.amount) || 0, locale),
                   phone: row.leg.payeePhone || row.leg.payeeId,
                 })}
@@ -279,7 +289,7 @@ export function ManualPayoutsPage() {
               disabled={!value.trim() || busy}
               className="rounded bg-primary px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
             >
-              {t("payouts.markPaid")}
+              {t(refMissing ? "payouts.recordRef" : "payouts.markPaid")}
             </button>
           </div>
         );
@@ -309,6 +319,17 @@ export function ManualPayoutsPage() {
           {errorMsg}
         </div>
       )}
+      {isError && (
+        <div
+          role="alert"
+          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
+        >
+          {t("payouts.loadFailed")}
+        </div>
+      )}
+      {!isError && resp?.nextToken && (
+        <p className="mb-4 text-sm text-text-muted">{t("payouts.more")}</p>
+      )}
       {notice && (
         <div
           role="status"
@@ -317,15 +338,17 @@ export function ManualPayoutsPage() {
           {notice}
         </div>
       )}
-      <Card>
-        {!isLoading && rows.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-text-muted">
-            {t("payouts.empty")}
-          </div>
-        ) : (
-          <DataTable columns={columns} data={rows} isLoading={isLoading} />
-        )}
-      </Card>
+      {!isError && (
+        <Card>
+          {!isLoading && rows.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-text-muted">
+              {t("payouts.empty")}
+            </div>
+          ) : (
+            <DataTable columns={columns} data={rows} isLoading={isLoading} />
+          )}
+        </Card>
+      )}
     </div>
   );
 }

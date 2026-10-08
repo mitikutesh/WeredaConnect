@@ -103,7 +103,8 @@ export function useUserAction() {
 export function useManualPayouts() {
   return useQuery({
     queryKey: ["admin", "payouts"],
-    queryFn: () => api.get("/admin/payouts/manual"),
+    // Oldest first; the page says when more are waiting beyond these 50.
+    queryFn: () => api.get("/admin/payouts/manual?limit=50"),
   });
 }
 

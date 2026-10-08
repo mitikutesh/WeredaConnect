@@ -139,7 +139,12 @@
     "paidBy": "Kan galmeesse",
     "payeeNotVerified": "Fudhataan ammaaf kaffalamuu hin danda'u",
     "recorded": "Kaffaltiin galmaa'eera.",
-    "pendingTotal": "Eegaa jira"
+    "pendingTotal": "Eegaa jira",
+    "refMissingHint": "Karaan wabii malee akka kaffalame gabaase. Kaffaltii sana poortaalicha keessatti barbaadaatii eenyummeessaa isaa galmeessaa; yoo hin jiraanne qofa kaffalaa.",
+    "recordRef": "Wabii galmeessi",
+    "confirmFound": "Poortaalichi eenyummeessa kanaan {amount} {phone}f akka kaffalame agarsiisaa?",
+    "loadFailed": "Tarreen kaffaltii fe'amuu hin dandeenye. Homaa kaffaluu dura irra deebi'ii fe'aa.",
+    "more": "Kanneen durii 50 qofatu mul'ata. Isaan kana galmeessaatii kanneen hafan argachuuf irra deebi'ii fe'aa."
   },
   "fraud": {
     "title": "Gamaaggama Gosoota",

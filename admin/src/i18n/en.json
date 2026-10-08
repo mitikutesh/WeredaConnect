@@ -139,7 +139,12 @@
     "paidBy": "Recorded by",
     "payeeNotVerified": "Payee cannot be paid yet",
     "recorded": "Payment recorded.",
-    "pendingTotal": "Waiting"
+    "pendingTotal": "Waiting",
+    "refMissingHint": "Gateway reported paid without a reference. Find it in the portal and record its ID; pay only if it is missing.",
+    "recordRef": "Record reference",
+    "confirmFound": "The portal shows {amount} paid to {phone} under this ID?",
+    "loadFailed": "The payout queue could not be loaded. Reload before paying anything.",
+    "more": "Showing the oldest 50. Record these, then reload for the rest."
   },
   "fraud": {
     "title": "Fraud Review",

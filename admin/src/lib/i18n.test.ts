@@ -33,6 +33,8 @@ describe("manual payout strings exist in every locale", () => {
       expect(t("payouts.age", locale)).toContain("{hours}");
       expect(t("payouts.confirmPaid", locale)).toContain("{amount}");
       expect(t("payouts.confirmPaid", locale)).toContain("{phone}");
+      expect(t("payouts.confirmFound", locale)).toContain("{amount}");
+      expect(t("payouts.confirmFound", locale)).toContain("{phone}");
     }
   });
 });
