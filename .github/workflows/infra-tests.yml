@@ -42,7 +42,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: infra
-        run: npm test -- --coverage --testPathPattern=unit
+        run: npm test -- --coverage --testPathPatterns=unit
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
@@ -74,7 +74,7 @@ jobs:
 
       - name: Run snapshot tests
         working-directory: infra
-        run: npm test -- --testPathPattern=snapshot
+        run: npm test -- --testPathPatterns=snapshot
 
       - name: Check for snapshot changes
         if: github.event_name == 'pull_request'
@@ -156,7 +156,7 @@ jobs:
 
       - name: Run integration tests
         working-directory: infra
-        run: npm test -- --testPathPattern=integration
+        run: npm test -- --testPathPatterns=integration
 
   vulnerability-scan:
     name: Dependency Vulnerability Scan
