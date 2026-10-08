@@ -87,6 +87,47 @@ public class DeviceTokenFunctionTests
         await _repo.Received(1).PutAsync("buyer-1", EndpointArn, "android", "fcm-token-xyz");
     }
 
+    // --- SIM-60: platform is an allow-list, not free text ---
+
+    [Theory]
+    [InlineData("ios")]
+    [InlineData("web")]
+    [InlineData("<script>alert(1)</script>")]
+    public async Task Register_UnknownPlatform_Returns400AndCreatesNoEndpoint(string platform)
+    {
+        var response = await _fn.FunctionHandler(
+            Req("buyer-1", new { token = "fcm-token-xyz", platform }), _ctx);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("DEVICE_TOKEN_VALIDATION", response.Body);
+        Assert.Contains("platform must be", response.Body);
+        await _sns.DidNotReceive().CreatePlatformEndpointAsync(
+            Arg.Any<CreatePlatformEndpointRequest>(), Arg.Any<CancellationToken>());
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Register_OverlongPlatform_Returns400()
+    {
+        var response = await _fn.FunctionHandler(
+            Req("buyer-1", new { token = "fcm-token-xyz", platform = new string('a', 300) }), _ctx);
+
+        Assert.Equal(400, response.StatusCode);
+        await _repo.DidNotReceive().PutAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Register_PlatformIsCaseInsensitive_StoredLowercase()
+    {
+        var response = await _fn.FunctionHandler(
+            Req("buyer-1", new { token = "fcm-token-xyz", platform = " Android " }), _ctx);
+
+        Assert.Equal(200, response.StatusCode);
+        await _repo.Received(1).PutAsync("buyer-1", EndpointArn, "android", "fcm-token-xyz");
+    }
+
     [Fact]
     public async Task MalformedJsonBody_Returns400()
     {

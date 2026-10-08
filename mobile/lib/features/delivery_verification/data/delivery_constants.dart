@@ -65,4 +65,18 @@ abstract final class DeliveryConstants {
   static final RegExp uuidRegex = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
   );
+
+  /// Shape of a photo key issued by `POST /deliveries/{id}/photos`:
+  /// `uploads/photos/{deliveryId}/{pickup|dropoff}-{ms}.webp`. Mirrors the
+  /// server's `PhotoRefRegex` (`SyncFunction.cs`): a delivery sync op whose
+  /// `pickupPhotoRef` / `dropoffPhotoRef` has any other shape is refused as a
+  /// whole (`DELIVERY_INVALID_FIELD`), so a local file path must never be sent.
+  static final RegExp serverPhotoRefRegex = RegExp(
+    r'^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$',
+  );
+
+  /// True when [ref] is a server upload key that belongs to [deliveryId].
+  static bool isServerPhotoRef(String ref, String deliveryId) =>
+      serverPhotoRefRegex.hasMatch(ref) &&
+      ref.startsWith('uploads/photos/$deliveryId/');
 }

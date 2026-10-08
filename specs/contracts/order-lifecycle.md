@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-1.9.0
+1.10.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -32,8 +32,8 @@ statuses are camelCase on the wire).
 | 3 | `payment_submitted` | Buyer initiated the transfer (Telebirr/CBE) and submitted the reference. **Not yet verified.** The server stamps `paymentSubmittedAt`, which starts the payment clock (1.7.0). | Money claimed, unconfirmed. | Buyer |
 | 4 | `funded` | Payment **confirmed held in the platform escrow account**. In dev/staging (`TELEBIRR_MOCK=true` on the sync Lambda) the server auto-verifies instantly after `payment_submitted`; with the live gateway the buyer pays through `POST /escrow/order-checkout` and the Telebirr webhook funds the order (1.7.0, `escrow-protocol.md` 1.5.0). | Money safely in escrow. | **System only** |
 | 5 | `accepted` | Farmer accepted the funded order and prepares the crops. | In escrow. | Farmer |
-| 6 | `pickup_confirmed` | Pickup from the farmer confirmed (QR scan; trucker delivery or buyer self-pickup). | In escrow. | **System** when the delivery becomes `pickedUp` (1.4.0); any participant incl. the trucker may also set it |
-| 7 | `in_transit` | Crops en route to the buyer. | In escrow. | **System** when the delivery becomes `inTransit`; any participant incl. the trucker |
+| 6 | `pickup_confirmed` | Pickup from the farmer confirmed (QR scan; trucker delivery or buyer self-pickup). | In escrow. | **System** when the delivery becomes `pickedUp` (1.4.0). A participant (incl. the trucker) may request it only once the order's active delivery is `pickedUp` or later; an order without an active delivery is refused (1.10.0) |
+| 7 | `in_transit` | Crops en route to the buyer. | In escrow. | **System** when the delivery becomes `inTransit`. A participant (incl. the trucker) may request it only once the active delivery is `inTransit` or later (1.10.0) |
 | 8 | `delivered` | Delivery confirmed by the buyer. Starts the dispute window (see `escrow-protocol.md`: 48h; auto-release after it). | In escrow, release pending. | **System** when the delivery becomes `delivered` (self-pickup jumps here from `accepted`); a client request is refused unless the order's active delivery is already `delivered` |
 | 9 | `disbursing` | Escrow release to the farmer's account is in progress (minus commission). | Leaving escrow. | **System only** |
 | 10 | `settled` | Farmer received the money. Order complete. | Paid out. Terminal. | **System only** |
@@ -69,7 +69,7 @@ mismatch — see `trip-transition` gotchas: send the **pre-increment** version).
 - **System-managed** (client sync is rejected): `funded`, `disbursing`, `settled`, `dispute_resolved`, and since 1.7.0 `payment_failed`. Before that any participant (the farmer too) could set `payment_failed` while a Telebirr payment was in flight, which let the buyer resubmit and pay twice.
 - **Buyer-only**: `cancelled`, `pending_payment`, `payment_submitted`.
 - **Farmer-only**: `accepted`, `rejected`.
-- **Either participant**: `pickup_confirmed`, `in_transit`, `delivered`. The order's matched trucker counts as a participant for these three only (1.4.0); `delivered` additionally requires the order's active delivery to be `delivered`.
+- **Either participant**: `pickup_confirmed`, `in_transit`, `delivered`. The order's matched trucker counts as a participant for these three only (1.4.0). Each is a catch-up of what the delivery already says: `delivered` requires the order's active delivery to be `delivered` (1.4.0; orders without an active delivery keep the old behaviour), `pickup_confirmed` requires it to be `pickedUp` or later and `in_transit` requires `inTransit` or later, and an order with no active delivery is refused for both (`ORDER_VALIDATION`, 1.10.0). Before 1.10.0 any participant could mark pickup or transit with no delivery at all.
 
 ---
 
@@ -253,6 +253,7 @@ in `escrow-protocol.md` 1.7.0. Nothing here is deployed yet.
 
 ## Changelog
 
+- **1.10.0 (2026-10-06)**: Order follows its delivery for pickup too (SIM-60): a client `pickup_confirmed` / `in_transit` is honoured only when the order's active delivery is already `pickedUp` or later / `inTransit` or later; an order without an active delivery is refused. The delivery update remains the normal path (it advances the order as a system actor).
 - **1.9.0 (2026-10-06)**: Fraud hold and risk tiers (planned FRD-03, FRD-04): no new order status; an order whose escrow is `held` shows "Under review" to all three roles; the farmer's accept of a funded order whose escrow is held is refused (`ORDER_VALIDATION`); an admin refund of an escrow held before a payout moves the order to `dispute_resolved` (`buyer_wins`), advancing an order left behind its confirmed delivery first; the refund-sweep hold is fenced on the order version; the refund sweep checks risk before cancelling or restocking a stale-funded order; `payment_submitted` gains the CRITICAL (`FRAUD_ACCOUNT_HELD`), MEDIUM and HIGH step-up rows and its gate order is stated; order create by a CRITICAL buyer is refused.
 - **1.7.2 (2026-10-06)**: Client order previews use the server formula, commission on the crop cost only (SIM-53). The place-order preview charged it on crop plus transport and showed more than the server charges (18375 instead of 18350 ETB for 17000 of crop and 500 of transport). Doc-only, no wire change.
 - **1.7.1 (2026-10-06)**: The payment screen shows the full order id as the transfer reference (SIM-54); it was the first 8 characters upper-cased, which repeated across orders (`ORD_1790` for every legacy web order). Demo references are `MOCK-CBE-{orderId}` / `MOCK-TBR-{orderId}`. No wire change; live payments are still matched by the server's `merch_order_id`.

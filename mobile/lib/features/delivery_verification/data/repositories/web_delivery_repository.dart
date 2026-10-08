@@ -3,6 +3,7 @@ import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Web-only delivery repository.
@@ -215,7 +216,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         'longitude': gpsPickup.longitude,
       };
     }
-    if (photoRef != null) data['pickupPhotoRef'] = photoRef;
+    // Server upload keys only (the server refuses any other shape and would
+    // fail the whole pickup); same rule as the mobile repository.
+    if (photoRef != null &&
+        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
+      data['pickupPhotoRef'] = photoRef;
+    }
     if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     final response = await _api.post<Map<String, dynamic>>(
@@ -260,7 +266,10 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
         'longitude': gpsDropoff.longitude,
       };
     }
-    if (photoRef != null) data['dropoffPhotoRef'] = photoRef;
+    if (photoRef != null &&
+        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
+      data['dropoffPhotoRef'] = photoRef;
+    }
     if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     final response = await _api.post<Map<String, dynamic>>(

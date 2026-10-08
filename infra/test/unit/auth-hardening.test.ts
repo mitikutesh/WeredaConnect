@@ -51,10 +51,11 @@ describe('ApiStack auth hardening (dev)', () => {
     template = buildApi().template;
   });
 
-  test('public auth routes use payload 1.0 so the handlers see the path and the caller IP', () => {
+  test('auth routes use payload 1.0 so the handlers see the path, the caller IP and the claims', () => {
     // The auth handlers dispatch on request.Path and apply per-IP caps from the
     // v1.0 event shape; a v2.0 integration would misroute /auth/fayda-start and
-    // /auth/resend-otp and blind the IP caps.
+    // /auth/resend-otp and blind the IP caps. Logout (SIM-60) reads the caller's
+    // sub from authorizer.claims, which only the 1.0 event carries.
     const lambdas = template.findResources('AWS::Lambda::Function');
     const integrations = template.findResources('AWS::ApiGatewayV2::Integration');
     const routes = template.findResources('AWS::ApiGatewayV2::Route');
@@ -74,6 +75,7 @@ describe('ApiStack auth hardening (dev)', () => {
       ['POST /auth/fayda-start', 'wereda-connect-dev-auth-fayda-verify'],
       ['POST /auth/verify-otp', 'wereda-connect-dev-auth-verify-otp'],
       ['POST /auth/resend-otp', 'wereda-connect-dev-auth-verify-otp'],
+      ['POST /auth/logout', 'wereda-connect-dev-auth-logout'],
     ];
     for (const [routeKey, functionName] of expectations) {
       const integration = integrationFor(routeKey);

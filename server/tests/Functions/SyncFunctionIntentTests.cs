@@ -216,6 +216,60 @@ public class SyncFunctionIntentTests
             Arg.Any<Dictionary<string, object>>(), 2);
     }
 
+    // --- SIM-60: buyerId is required on create, optional (but never someone else's) on update ---
+
+    [Fact]
+    public async Task BuyerUpdatesIntent_WithoutBuyerId_Succeeds()
+    {
+        // The row is keyed by the caller, so a partial update needs no echoed buyerId.
+        _intents.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(
+                new Dictionary<string, object> { { "intentId", "intent-1" }, { "version", "3" } }));
+        var op = IntentOp(action: "update", data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" }, { "maxPricePerKg", 150 }, { "version", 2 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("INTENT_UNAUTHORIZED", response.Body);
+        await _intents.Received(1).UpdateAsync("intent-1", "buyer-1",
+            Arg.Any<Dictionary<string, object>>(), 2);
+    }
+
+    [Fact]
+    public async Task BuyerUpdatesIntent_WithAnotherBuyersId_IsRejected()
+    {
+        var op = IntentOp(action: "update", data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" }, { "buyerId", "buyer-2" }, { "maxPricePerKg", 150 }, { "version", 2 },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("INTENT_UNAUTHORIZED", response.Body);
+        await _intents.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task BuyerCreatesIntent_WithoutBuyerId_IsRejected()
+    {
+        var op = IntentOp(data: new Dictionary<string, object>
+        {
+            { "intentId", "intent-1" }, { "cropType", "wheat" }, { "quantityNeeded", 10 },
+            { "maxPricePerKg", 120 }, { "deliveryWoreda", "Adama" },
+        });
+
+        var response = await _fn.FunctionHandler(Req(op, "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("INTENT_UNAUTHORIZED", response.Body);
+        await _intents.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task IntentUpdateVersionConflict_ReportsConflict()
     {

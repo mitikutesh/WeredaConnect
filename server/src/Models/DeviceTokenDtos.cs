@@ -14,7 +14,10 @@ public sealed record RegisterDeviceTokenRequest
     /// <summary>The FCM registration token from the device.</summary>
     public string? Token { get; init; }
 
-    /// <summary>Device platform (currently "android").</summary>
+    /// <summary>
+    /// Device platform. Optional, defaults to "android"; the only allowed value today
+    /// (case-insensitive, trimmed). Anything else is a 400 DEVICE_TOKEN_VALIDATION.
+    /// </summary>
     public string? Platform { get; init; }
 }
 

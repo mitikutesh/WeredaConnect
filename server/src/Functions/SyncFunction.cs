@@ -366,6 +366,47 @@ public partial class SyncFunction
     [GeneratedRegex(@"^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$")]
     private static partial Regex PhotoRefRegex();
 
+    // SIM-60: departureDate is ISO 8601 date and time with Z, an offset or no zone, as clients
+    // send it (Dart toIso8601String of a UTC time; builds before 2026-06-18 sent a local time
+    // without a zone, and trip creates they queued still replay). It is the sort key of
+    // StatusDepartureDateIndex, so a value only a lenient parse accepts ("10/15/2026")
+    // would sort ahead of every real date in buyer browse.
+    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,7})?)?(Z|[+-][0-9]{2}:[0-9]{2})?$")]
+    private static partial Regex IsoDepartureDateRegex();
+
+    /// <summary>
+    /// SIM-60: read a departureDate as a UTC instant; an offset is converted and a value
+    /// without a zone is taken as UTC. <paramref name="requireIsoShape"/> also requires
+    /// <see cref="IsoDepartureDateRegex"/> (client input; stored values are read as they are).
+    /// </summary>
+    private static bool TryParseDepartureDateUtc(string? raw, bool requireIsoShape, out DateTime utc)
+    {
+        utc = default;
+        if (string.IsNullOrWhiteSpace(raw) || (requireIsoShape && !IsoDepartureDateRegex().IsMatch(raw)))
+        {
+            return false;
+        }
+
+        return DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+            out utc);
+    }
+
+    /// <summary>
+    /// SIM-60: store departureDate in one form, UTC with milliseconds, the shape mobile and
+    /// web send (toUtc().toIso8601String()), so an offset cannot move a trip within the
+    /// StatusDepartureDateIndex order. Call after <see cref="ValidateTripFields"/> passed.
+    /// </summary>
+    private static void NormalizeDepartureDate(Dictionary<string, object> data)
+    {
+        if (data.TryGetValue("departureDate", out var raw)
+            && TryParseDepartureDateUtc(raw?.ToString(), requireIsoShape: true, out var utc))
+        {
+            data["departureDate"] = utc.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
     // FIX-011: Validate photo ref format and delivery ID ownership to prevent path traversal
     private static bool IsValidPhotoRef(string photoRef, string deliveryId)
     {
@@ -989,8 +1030,10 @@ public partial class SyncFunction
     /// Process a buyer_intent sync operation (create, update, delete).
     ///
     /// Buyer intents are owned by the authenticated buyer; only role "buyer" may
-    /// create/modify them, and the data's buyerId must match the caller. New crops
-    /// are matched against these intents for push alerts (see
+    /// create/modify them. The data's buyerId must name the caller on create; an update
+    /// may omit it (the row is keyed by the caller, so ownership is enforced by the
+    /// repository) but may not name anyone else (SIM-60). New crops are matched against
+    /// these intents for push alerts (see
     /// specs/architecture/push-notifications-architecture.md).
     /// </summary>
     private async Task<SyncOperationResult> ProcessBuyerIntentAsync(
@@ -1034,9 +1077,11 @@ public partial class SyncFunction
                         };
                     }
 
-                    // buyerId in the payload must match the authenticated user.
-                    if (!operation.Data.TryGetValue("buyerId", out var buyerIdObj)
-                        || buyerIdObj?.ToString() != authenticatedUserId)
+                    // buyerId in the payload must match the authenticated user. It is
+                    // required on create; a partial update may leave it out (SIM-60).
+                    var hasBuyerId = operation.Data.TryGetValue("buyerId", out var buyerIdObj);
+                    if ((operation.Action == "create" && !hasBuyerId)
+                        || (hasBuyerId && buyerIdObj?.ToString() != authenticatedUserId))
                     {
                         return new SyncOperationResult
                         {
@@ -2414,6 +2459,8 @@ public partial class SyncFunction
                         };
                     }
 
+                    NormalizeDepartureDate(operation.Data);
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -2601,8 +2648,11 @@ public partial class SyncFunction
                         };
                     }
 
-                    // C3: Validate present fields
-                    var validationErrors = ValidateTripFields(operation.Data, isCreate: false);
+                    // C3: Validate present fields (SIM-60: a changed departureDate must
+                    // satisfy the create window; an unchanged echo is accepted).
+                    var validationErrors = ValidateTripFields(
+                        operation.Data, isCreate: false,
+                        storedDepartureDate: existing.TryGetValue("departureDate", out var storedDep) ? storedDep.S : null);
                     if (validationErrors.Count > 0)
                     {
                         return new SyncOperationResult
@@ -2612,6 +2662,8 @@ public partial class SyncFunction
                             Message = $"TRIP_VALIDATION: {string.Join(" ", validationErrors)}"
                         };
                     }
+
+                    NormalizeDepartureDate(operation.Data);
 
                     // H1: Validate status transition if status is being changed
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
@@ -2838,10 +2890,34 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// Validate trip data fields. For create: all required fields checked.
-    /// For update: only validates fields that are present in the data.
+    /// True when an update's departureDate echoes the stored one (same text, or the same
+    /// UTC instant; <paramref name="parsed"/> is UTC), so no date rule needs to run.
     /// </summary>
-    private static List<string> ValidateTripFields(Dictionary<string, object> data, bool isCreate)
+    private static bool IsUnchangedDepartureDate(string raw, DateTime parsed, string? stored)
+    {
+        if (string.IsNullOrEmpty(stored))
+        {
+            return false;
+        }
+
+        if (string.Equals(raw, stored, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return TryParseDepartureDateUtc(stored, requireIsoShape: false, out var storedUtc)
+               && storedUtc == parsed;
+    }
+
+    /// <summary>
+    /// Validate trip data fields. For create: all required fields checked.
+    /// For update: only validates fields that are present in the data. A departureDate
+    /// that differs from <paramref name="storedDepartureDate"/> must be in the future and
+    /// within 30 days, like on create (SIM-60); an echo of the stored value is accepted
+    /// so a departed trip can still move matched -> inTransit -> delivered.
+    /// </summary>
+    private static List<string> ValidateTripFields(
+        Dictionary<string, object> data, bool isCreate, string? storedDepartureDate = null)
     {
         var errors = new List<string>();
 
@@ -2920,19 +2996,19 @@ public partial class SyncFunction
             errors.Add("fromWoreda and toWoreda must be different.");
         }
 
-        // departureDate: required on create, valid ISO 8601, future-only on create, max 30 days
+        // departureDate: required on create, valid ISO 8601, future and max 30 days ahead
+        // on create and whenever an update changes it
         if (isCreate || data.ContainsKey("departureDate"))
         {
             if (!data.TryGetValue("departureDate", out var dateObj)
                 || string.IsNullOrWhiteSpace(dateObj?.ToString()))
             {
-                if (isCreate)
-                {
-                    errors.Add("departureDate is required.");
-                }
+                // SIM-60: a blank value sent on update used to be written as the sort key.
+                errors.Add(isCreate
+                    ? "departureDate is required."
+                    : "departureDate must be a valid ISO 8601 date.");
             }
-            else if (!DateTime.TryParse(dateObj.ToString(), null,
-                         System.Globalization.DateTimeStyles.RoundtripKind, out var parsedDate))
+            else if (!TryParseDepartureDateUtc(dateObj.ToString(), requireIsoShape: true, out var parsedDate))
             {
                 errors.Add("departureDate must be a valid ISO 8601 date.");
             }
@@ -2942,6 +3018,19 @@ public partial class SyncFunction
                 if (parsedDate <= DateTime.UtcNow)
                 {
                     errors.Add("departureDate must be in the future for create.");
+                }
+                else if (parsedDate > DateTime.UtcNow.AddDays(30))
+                {
+                    errors.Add("departureDate must be within 30 days.");
+                }
+            }
+            else if (!IsUnchangedDepartureDate(dateObj.ToString()!, parsedDate, storedDepartureDate))
+            {
+                // SIM-60: an update used to accept any parseable date, so an open trip
+                // could be moved into the past or beyond the planning horizon.
+                if (parsedDate <= DateTime.UtcNow)
+                {
+                    errors.Add("departureDate must be in the future when changed.");
                 }
                 else if (parsedDate > DateTime.UtcNow.AddDays(30))
                 {
@@ -4931,7 +5020,8 @@ public partial class SyncFunction
     /// <summary>
     /// Query for a delivery item by deliveryId (partition key).
     /// </summary>
-    private async Task<Dictionary<string, AttributeValue>?> GetDeliveryItemAsync(string deliveryId)
+    private async Task<Dictionary<string, AttributeValue>?> GetDeliveryItemAsync(
+        string deliveryId, bool consistentRead = false)
     {
         var request = new QueryRequest
         {
@@ -4941,7 +5031,8 @@ public partial class SyncFunction
             {
                 { ":id", new AttributeValue { S = deliveryId } }
             },
-            Limit = 1
+            Limit = 1,
+            ConsistentRead = consistentRead
         };
 
         var response = await _dynamoDb.QueryAsync(request);
@@ -5443,6 +5534,20 @@ public partial class SyncFunction
                 }
             }
 
+            // SIM-60: pickup_confirmed and in_transit follow the delivery as well. The
+            // pickup scan advances the order server-side; a client request is a catch-up
+            // honoured only when the active delivery is already that far. There is no
+            // legacy fallback here: an order without an active delivery cannot have been
+            // picked up, so it is refused for every participant (buyer, farmer, trucker).
+            if (newStatus is "pickup_confirmed" or "in_transit")
+            {
+                var followError = await CheckOrderFollowsDeliveryAsync(existingOrder, newStatus);
+                if (followError != null)
+                {
+                    return OrderValidationError(operation, followError);
+                }
+            }
+
             // SIM-11: the order becomes "delivered" only once its delivery is confirmed.
             // The confirmation itself advances the order server-side, so a client request
             // is honoured only when the active delivery already says so. Orders with no
@@ -5620,6 +5725,46 @@ public partial class SyncFunction
                 $"Failed to freeze escrow for disputed delivery {deliveryId}: [{ex.GetType().Name}] {ex.Message}");
             return DeliveryDisputeFreeze.NothingToFreeze;
         }
+    }
+
+    /// <summary>
+    /// Delivery statuses that already imply each client-settable logistics order status
+    /// (SIM-60): pickup_confirmed needs a picked-up delivery, in_transit one in transit.
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> DeliveryStatusesImplyingOrderStatus = new()
+    {
+        { "pickup_confirmed", new HashSet<string> { "pickedUp", "inTransit", "delivered" } },
+        { "in_transit", new HashSet<string> { "inTransit", "delivered" } },
+    };
+
+    /// <summary>
+    /// SIM-60: a client may set pickup_confirmed or in_transit only once the order's active
+    /// delivery is already at least that far. Returns the error text without the code
+    /// prefix, or null when the transition is allowed.
+    /// </summary>
+    private async Task<string?> CheckOrderFollowsDeliveryAsync(
+        Dictionary<string, object> existingOrder, string newStatus)
+    {
+        var activeDeliveryId = existingOrder.TryGetValue("activeDeliveryId", out var adObj)
+            ? adObj?.ToString()
+            : null;
+        if (string.IsNullOrEmpty(activeDeliveryId))
+        {
+            return $"The order has no active delivery; '{newStatus}' is set when the delivery is picked up.";
+        }
+
+        // Strongly consistent: the catch-up usually comes right after the delivery's own
+        // transition, which an eventually consistent read may not show yet.
+        var delivery = await GetDeliveryItemAsync(activeDeliveryId, consistentRead: true);
+        var deliveryStatus = delivery != null && delivery.TryGetValue("status", out var dsAttr) ? dsAttr.S : null;
+        if (deliveryStatus != null && DeliveryStatusesImplyingOrderStatus[newStatus].Contains(deliveryStatus))
+        {
+            return null;
+        }
+
+        var step = newStatus == "pickup_confirmed" ? "picked up" : "in transit";
+        return $"The delivery is not {step} yet (delivery status: {deliveryStatus ?? "unknown"}); "
+               + "the order follows its delivery.";
     }
 
     /// <summary>Order logistics statuses in progression order (SIM-11).</summary>
@@ -6023,8 +6168,10 @@ public partial class SyncFunction
             }
         }
 
-        // Logistics transitions (pickup_confirmed, in_transit, delivered):
-        // either participant allowed — already gated by participant check
+        // Logistics transitions (pickup_confirmed, in_transit, delivered): either
+        // participant (and the order's trucker) may request them, gated by the
+        // participant check above and, in ProcessOrderUpdateAsync, by the state of the
+        // order's active delivery (SIM-11 for delivered, SIM-60 for the other two).
 
         return null;
     }

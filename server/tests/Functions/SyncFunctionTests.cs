@@ -1156,7 +1156,8 @@ public class SyncFunctionTests
     }
 
     private void SetupExistingTrip(string tripId, string truckerId, string status, int version,
-        string? deletedAt = null, string? truckerPhone = null, double? pricePerQuintal = null)
+        string? deletedAt = null, string? truckerPhone = null, double? pricePerQuintal = null,
+        string? departureDate = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -1184,6 +1185,10 @@ public class SyncFunctionTests
             {
                 N = pricePerQuintal.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
             };
+        }
+        if (departureDate != null)
+        {
+            item["departureDate"] = new AttributeValue { S = departureDate };
         }
         _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>())
             .Returns(new QueryResponse
@@ -1549,6 +1554,216 @@ public class SyncFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Contains("error", response.Body);
         Assert.Contains("TRIP_UNAUTHORIZED", response.Body);
+    }
+
+    // --- SIM-60: departureDate on update ---
+
+    private static SyncOperationRequest MakeTripUpdateOp(Dictionary<string, object> data) => new()
+    {
+        OperationId = "op-trip-update",
+        IdempotencyKey = "user:trip:trip-001:update:12345",
+        EntityType = "trip",
+        EntityId = "trip-001",
+        Action = "update",
+        Data = data
+    };
+
+    [Fact]
+    public async Task TripUpdate_PastDepartureDate_ReturnsValidationErrorAndDoesNotWrite()
+    {
+        // An open trip could be moved into the past: the update path only parsed the date.
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", DateTime.UtcNow.AddDays(-1).ToString("o") }, { "version", 1 }
+            }))), _context);
+
+        Assert.Contains("TRIP_VALIDATION: departureDate must be in the future when changed.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripUpdate_DepartureDateOver30Days_ReturnsValidationError()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", DateTime.UtcNow.AddDays(31).ToString("o") }, { "version", 1 }
+            }))), _context);
+
+        Assert.Contains("TRIP_VALIDATION: departureDate must be within 30 days.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripUpdate_FutureDepartureDate_Succeeds()
+    {
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 2) });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", DateTime.UtcNow.AddDays(5).ToString("o") }, { "version", 1 }
+            }))), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("TRIP_VALIDATION", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripUpdate_UnchangedPastDepartureEcho_IsAccepted()
+    {
+        // A departed trip still moves matched -> inTransit; a client that echoes the
+        // stored (past) date must not be refused.
+        var departed = DateTime.UtcNow.AddDays(-1).ToString("o");
+        SetupExistingTrip("trip-001", "trucker-001", "matched", 2, departureDate: departed);
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 3) });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", departed }, { "status", "inTransit" }, { "version", 2 }
+            }))), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("departureDate must", response.Body);
+    }
+
+    [Theory]
+    [InlineData("blank")]
+    [InlineData("us-date")]
+    public async Task TripUpdate_BlankOrNonIsoDepartureDate_IsRefusedAndNotWritten(string kind)
+    {
+        // departureDate is the browse index sort key: " " or "10/15/2026" sort ahead of
+        // every real date, and the update path used to write them as sent.
+        var value = kind == "blank"
+            ? " "
+            : DateTime.UtcNow.AddDays(5).ToString("MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", value }, { "version", 1 }
+            }))), _context);
+
+        Assert.Contains("TRIP_VALIDATION: departureDate must be a valid ISO 8601 date.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
+    }
+
+    [Fact]
+    public async Task TripCreate_NonIsoDepartureDate_IsRefusedAndNotWritten()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "departureDate", DateTime.UtcNow.AddDays(5).ToString("MM/dd/yyyy", System.Globalization.CultureInfo.InvariantCulture) }
+        });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("TRIP_VALIDATION: departureDate must be a valid ISO 8601 date.", response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
+    /// <summary>
+    /// A departure 5 days out at 06:00 UTC, sent as mobile and web do ("Z"), with an
+    /// offset ("+03:00"), or without a zone like builds before 2026-06-18 ("none"),
+    /// and the single form the server stores for all three.
+    /// </summary>
+    private static (string Sent, string Stored) DepartureDateIn(string zone)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var departure = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(5).AddHours(6), TimeSpan.Zero);
+        var stored = departure.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", inv);
+        var sent = zone switch
+        {
+            "Z" => stored,
+            "+03:00" => departure.ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", inv),
+            _ => departure.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff", inv),
+        };
+        return (sent, stored);
+    }
+
+    [Theory]
+    [InlineData("Z")]
+    [InlineData("+03:00")]
+    [InlineData("none")]
+    public async Task TripUpdate_IsoDepartureDate_IsAcceptedAndStoredAsUtc(string zone)
+    {
+        // An offset must not move the trip within StatusDepartureDateIndex, so every
+        // accepted value is written in the one UTC form shipped clients send.
+        var (sent, stored) = DepartureDateIn(zone);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1,
+            departureDate: DateTime.UtcNow.AddDays(3).ToString("o"));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 2) });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", sent }, { "version", 1 }
+            }))), _context);
+
+        Assert.Contains("success", response.Body);
+        Assert.DoesNotContain("TRIP_VALIDATION", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeValues.Values.Any(v => v.S == stored)));
+    }
+
+    [Theory]
+    [InlineData("+03:00")]
+    [InlineData("none")]
+    public async Task TripCreate_IsoDepartureDate_IsStoredAsUtc(string zone)
+    {
+        // A zone-less value is read as UTC, so a create queued by an old build still replays.
+        var (sent, stored) = DepartureDateIn(zone);
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object> { { "departureDate", sent } });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.TableName == "test-trips-table" && r.Item["departureDate"].S == stored));
+    }
+
+    [Fact]
+    public async Task TripUpdate_UnchangedDepartureEchoedWithAnOffset_IsStoredAsUtc()
+    {
+        // The same-instant echo rule accepts another spelling of the stored date, but the
+        // row keeps the UTC form, so the echo cannot shift the trip's browse rank.
+        var departedUtc = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-1).AddHours(6), TimeSpan.Zero);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        SetupExistingTrip("trip-001", "trucker-001", "matched", 2,
+            departureDate: departedUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", inv));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(new UpdateItemResponse { Attributes = MakeUpdatedTripAttributes("trip-001", 3) });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeTripUpdateOp(new Dictionary<string, object>
+            {
+                { "departureDate", departedUtc.ToOffset(TimeSpan.FromHours(3)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", inv) },
+                { "status", "inTransit" }, { "version", 2 }
+            }))), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeValues.Values.Any(v =>
+                v.S == departedUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", inv))
+            && !r.ExpressionAttributeValues.Values.Any(v => v.S != null && v.S.EndsWith("+03:00"))));
     }
 
     // --- Trip Update Tests ---
@@ -4549,7 +4764,10 @@ public class SyncFunctionTests
     public async Task OrderUpdate_TruckerMaySetLogisticsStatus()
     {
         // The fleet run: the order's own trucker was refused pickup_confirmed / in_transit.
-        SetupExistingOrder(status: "accepted");
+        // Since SIM-60 the catch-up is honoured only once the delivery is picked up.
+        var order = SetupExistingOrder(status: "accepted");
+        order["activeDeliveryId"] = "del-001";
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
         SetupOrderUpdateSucceeds();
 
         var body = await UpdateOrderAs("trucker-001", "trucker", new Dictionary<string, object>
@@ -4608,6 +4826,145 @@ public class SyncFunctionTests
         });
 
         Assert.Contains("success", body);
+    }
+
+    // --- SIM-60: pickup_confirmed / in_transit follow the delivery ---
+
+    [Fact]
+    public async Task OrderUpdate_BuyerPickupConfirmedWithoutDelivery_IsRefused()
+    {
+        // The buyer could mark an order picked up with no delivery at all.
+        SetupExistingOrder(status: "accepted");
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: The order has no active delivery", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer")]
+    [InlineData("farmer-001", "farmer")]
+    [InlineData("trucker-001", "trucker")]
+    public async Task OrderUpdate_PickupConfirmedBeforeDeliveryPickedUp_IsRefused(string userId, string role)
+    {
+        var order = SetupExistingOrder(status: "accepted");
+        order["activeDeliveryId"] = "del-001";
+        SetupDeliveryQuery(DeliveryItemForOrder());
+
+        var body = await UpdateOrderAs(userId, role, new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: The delivery is not picked up yet (delivery status: pending)", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_InTransitBeforeDeliveryInTransit_IsRefused()
+    {
+        var order = SetupExistingOrder(status: "pickup_confirmed");
+        order["activeDeliveryId"] = "del-001";
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "in_transit" }, { "version", 1 }
+        });
+
+        Assert.Contains("ORDER_VALIDATION: The delivery is not in transit yet (delivery status: pickedUp)", body);
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PickupConfirmedAllowedOnceDeliveryPickedUp()
+    {
+        // Catch-up path: the pickup scan already advanced the delivery.
+        var order = SetupExistingOrder(status: "accepted");
+        order["activeDeliveryId"] = "del-001";
+        SetupOrderUpdateSucceeds();
+        SetupDeliveryQuery(DeliveryItemForOrder(status: "pickedUp"));
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+    }
+
+    [Fact]
+    public async Task OrderUpdate_PickupCatchUp_ReadsTheDeliveryStronglyConsistent()
+    {
+        // Right after the pickup scan an eventually consistent read may still say pending
+        // and would refuse the catch-up; only the consistent read sees pickedUp here.
+        var order = SetupExistingOrder(status: "accepted");
+        order["activeDeliveryId"] = "del-001";
+        SetupOrderUpdateSucceeds();
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && !r.ConsistentRead))
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder() } });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder(status: "pickedUp") }
+            });
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "status", "pickup_confirmed" }, { "version", 1 }
+        });
+
+        Assert.Contains("success", body);
+        await _mockDynamoDb.Received().QueryAsync(Arg.Is<QueryRequest>(r =>
+            r.TableName == "test-deliveries-table" && r.ConsistentRead));
+    }
+
+    // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---
+
+    [Fact]
+    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAccepted()
+    {
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+        const string key = "uploads/photos/del-001/pickup-1700000000000.webp";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "scannedQrNonce", "nonce-abc-123" },
+                { "pickupPhotoRef", key }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
+            r.ExpressionAttributeValues.Values.Any(v => v.S == key)));
+    }
+
+    [Theory]
+    [InlineData("photos/del-001/pickup-1700000000000.webp")]
+    [InlineData("uploads/photos/del-999/pickup-1700000000000.webp")]
+    [InlineData("/data/user/0/app/files/photos/del-001/pickup-1700000000000.webp")]
+    [InlineData("uploads/photos/del-001/pickup-1700000000000-fb.webp")]
+    public async Task DeliveryUpdate_PhotoRefNotAnUploadKeyOfThisDelivery_IsRejected(string photoRef)
+    {
+        // In order: the pre-1.7.0 contract example shape, another delivery's key, the
+        // local file path the camera screen produces, and the fallback-quality file name.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "pickedUp" }, { "scannedQrNonce", "nonce-abc-123" },
+                { "pickupPhotoRef", photoRef }, { "version", 1 }
+            })), "trucker-001"), _context);
+
+        Assert.Contains("DELIVERY_INVALID_FIELD: pickupPhotoRef has invalid format.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
 
     // --- SIM-12: a disputed delivery disputes the order and freezes the escrow ---

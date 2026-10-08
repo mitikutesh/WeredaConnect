@@ -456,7 +456,12 @@ class DeliveryRepository extends BaseDeliveryRepository {
       };
     }
 
-    if (photoRef != null) {
+    // Only a server upload key travels in the op. The camera path hands over
+    // the local file path (uploads are FRD-12) and the server refuses anything
+    // but its own key, which used to fail the whole pickup. Isar keeps the
+    // local path above so the photo stays on the device.
+    if (photoRef != null &&
+        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
       syncData['pickupPhotoRef'] = photoRef;
     }
 
@@ -521,7 +526,9 @@ class DeliveryRepository extends BaseDeliveryRepository {
       };
     }
 
-    if (photoRef != null) {
+    // Server upload keys only, as in confirmPickup.
+    if (photoRef != null &&
+        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
       syncData['dropoffPhotoRef'] = photoRef;
     }
 
