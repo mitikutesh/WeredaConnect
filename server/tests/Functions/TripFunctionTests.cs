@@ -1221,6 +1221,186 @@ public class TripFunctionTests
         Assert.Contains("TRIP_FORBIDDEN", response.Body);
     }
 
+    // --- SIM-31: cancelled/deleted trips are never listed (list and detail agree) ---
+
+    [Fact]
+    public async Task HandleGetTrips_TruckerRole_ExcludesCancelledTrips()
+    {
+        // A trip cancelled through a status update has status=cancelled but no deletedAt,
+        // so the repository's deletedAt filter lets it through.
+        var trips = new List<Dictionary<string, object>>
+        {
+            CreateTripItem("trip-open", "open"),
+            CreateTripItem("trip-cancelled", "cancelled"),
+            CreateTripItem("trip-delivered", "delivered")
+        };
+        _mockTripRepo.QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((trips, null));
+
+        var request = MakeAuthenticatedGetRequest("trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-open", response.Body);
+        Assert.Contains("trip-delivered", response.Body);
+        Assert.DoesNotContain("trip-cancelled", response.Body);
+        Assert.Contains("\"total\":2", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_BuyerRole_ExcludesCancelledAndDeletedTrips()
+    {
+        var deletedTrip = CreateTripItem("trip-deleted", "open");
+        deletedTrip["deletedAt"] = "2026-02-17T00:00:00Z";
+        var trips = new List<Dictionary<string, object>>
+        {
+            CreateTripItem("trip-open", "open"),
+            CreateTripItem("trip-cancelled", "cancelled"),
+            deletedTrip
+        };
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((trips, null));
+
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-open", response.Body);
+        Assert.DoesNotContain("trip-cancelled", response.Body);
+        Assert.DoesNotContain("trip-deleted", response.Body);
+        Assert.Contains("\"total\":1", response.Body);
+    }
+
+    [Theory]
+    [InlineData("buyer-001", "buyer")]
+    [InlineData("trucker-001", "trucker")]
+    public async Task HandleGetTrips_StatusCancelled_ReturnsEmptyWithoutQuery(string userId, string role)
+    {
+        var queryParams = new Dictionary<string, string> { { "status", "cancelled" } };
+        var request = MakeAuthenticatedGetRequest(userId, role, queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"trips\":[]", response.Body);
+        Assert.Contains("\"hasMore\":false", response.Body);
+        Assert.Contains("\"total\":0", response.Body);
+
+        await _mockTripRepo.DidNotReceive().QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockTripRepo.DidNotReceive().QueryTripsByTruckerAsync(
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_FarmerRole_StatusCancelled_StillForbidden()
+    {
+        var queryParams = new Dictionary<string, string> { { "status", "cancelled" } };
+        var request = MakeAuthenticatedGetRequest("farmer-001", "farmer", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("TRIP_FORBIDDEN", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_StatusCancelled_InvalidLimit_StillReturns400()
+    {
+        var queryParams = new Dictionary<string, string>
+        {
+            { "status", "cancelled" },
+            { "limit", "0" }
+        };
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_StatusCancelled_InvalidMinCapacity_StillReturns400()
+    {
+        var queryParams = new Dictionary<string, string>
+        {
+            { "status", "cancelled" },
+            { "minCapacity", "abc" }
+        };
+        var request = MakeAuthenticatedGetRequest("buyer-001", "buyer", queryParams: queryParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains("minCapacity", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("open", false, true)]
+    [InlineData("delivered", false, true)]
+    [InlineData("cancelled", false, false)]
+    [InlineData("matched", true, false)]
+    public async Task ListAndDetail_Agree_OnVisibility(string status, bool hasDeletedAt, bool expectedVisible)
+    {
+        var trip = CreateTripItem("trip-sim31", status);
+        trip["truckerId"] = "trucker-001";
+        if (hasDeletedAt)
+        {
+            trip["deletedAt"] = "2026-02-17T00:00:00Z";
+        }
+
+        _mockTripRepo.GetByIdAsync("trip-sim31").Returns(trip);
+        _mockTripRepo.QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { trip }, null));
+
+        var listResponse = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest("trucker-001", "trucker"), _context);
+        var detailResponse = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest("trucker-001", "trucker", "/trips/trip-sim31",
+                pathParams: new Dictionary<string, string> { { "id", "trip-sim31" } }),
+            _context);
+
+        Assert.Equal(200, listResponse.StatusCode);
+        var listContainsTrip = listResponse.Body.Contains("trip-sim31");
+        Assert.Equal(detailResponse.StatusCode == 200, listContainsTrip);
+        Assert.Equal(expectedVisible, listContainsTrip);
+        Assert.Equal(expectedVisible ? 200 : 404, detailResponse.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("open", false, false)]
+    [InlineData("delivered", false, false)]
+    [InlineData("cancelled", false, true)]
+    [InlineData("open", true, true)]
+    public void IsCancelledOrDeleted_Cases(string status, bool hasDeletedAt, bool expected)
+    {
+        var trip = CreateTripItem("trip-001", status);
+        if (hasDeletedAt)
+        {
+            trip["deletedAt"] = "2026-02-17T00:00:00Z";
+        }
+
+        Assert.Equal(expected, TripFunction.IsCancelledOrDeleted(trip));
+    }
+
     // --- Constructor Tests ---
 
     [Fact]

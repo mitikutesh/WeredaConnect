@@ -264,11 +264,12 @@ class WebTripListingRepository extends BaseTripListingRepository {
     );
     final trips = _parseTrips(data);
     if (trips.isEmpty) return null;
-    // Exactly the mobile priority: inTransit > matched > open > delivered. NOTE
-    // 'cancelled' is deliberately excluded — the mobile repo never surfaces a
-    // cancelled trip in the hero card, and cancelled trips are still returned by
-    // the query (they carry no deletedAt), so a bare "most recent" fallback would
-    // wrongly let a cancelled trip win over a delivered one.
+    // Exactly the mobile priority: inTransit > matched > open > delivered.
+    // 'cancelled' is deliberately excluded: the mobile repo never surfaces a
+    // cancelled trip in the hero card. The server stops listing cancelled
+    // trips with SIM-31, but an older deployment still returns them (they carry
+    // no deletedAt), and a bare "most recent" fallback would then let a
+    // cancelled trip win over a delivered one.
     for (final status in [
       TripStatus.inTransit,
       TripStatus.matched,
