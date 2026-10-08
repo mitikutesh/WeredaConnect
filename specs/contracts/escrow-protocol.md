@@ -1464,19 +1464,29 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
   it is before the payout resolution and its `release_blocked_kyc` audit entry.
 - **Write**: conditional on `status = heldFromStatus AND attribute_not_exists(settlementLock)`; a
   settlement already in progress wins. Fields: `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`,
-  `heldFor` (`release` or `refund`).
+  `heldFor` (`release` or `refund`). For an order escrow in the auto-refund sweep the hold also
+  fences the order, as cancel-then-refund does today: one `TransactWriteItems` with a
+  `ConditionCheck` that the order's `version` and `status` are still what the sweep read, so a
+  farmer's accept in between cancels the hold and the next sweep pushes the expiry instead.
 - **Exits**: admin group only, `POST /escrow/release` or `POST /escrow/refund`. No resume. A release
   resolves the payout as today. A refund depends on `heldFor`:
   - `heldFor: refund`: the steps the sweep skipped. For the auto-refund of an order escrow it cancels
     a still `funded` order and restores its stock first, and is refused with
     `422 ESCROW_INVALID_TRANSITION` while the order is progressing; a `buyer_wins` dispute escrow is
-    refunded as the dispute sweep would.
-  - `heldFor: release`: allowed whatever the order status, because otherwise a payout to the flagged
-    party would be the only exit. The order takes the dispute path, `delivered` to `disputed` to
-    `dispute_resolved` (or `disputed` to `dispute_resolved`), system actor, version-checked, each hop
-    in transaction-audit. The escrow records `disputeResolution: buyer_wins`, `disputeResolvedBy`
-    and `disputeResolvedAt`, then goes `held` to `refunded` directly. Listing stock is not
-    restored (the goods were delivered).
+    refunded as the dispute sweep would; a delivery-initiated escrow is just refunded.
+  - `heldFor: release`: the progressing-order rule does not apply, because otherwise a payout to the
+    flagged party would be the only exit. The order takes the dispute path before the refund:
+    `delivered` to `disputed` to `dispute_resolved`, or `disputed` to `dispute_resolved`. An order
+    left at `accepted`, `pickup_confirmed` or `in_transit` behind its delivery is first advanced to
+    `delivered` when its active delivery is `delivered`; otherwise, and for any other status or a
+    missing order, the refund is refused with `422 ESCROW_INVALID_TRANSITION` and the alarm token
+    `RISK_HOLD_ORDER_MISMATCH`. An order already `dispute_resolved` by this escrow's earlier attempt
+    is left as it is. Each hop is a system-actor write, version-checked, with a transaction-audit
+    row. Still before the refund, the escrow records `disputeResolution: buyer_wins`,
+    `disputeResolvedBy` and `disputeResolvedAt` while it stays `held`; the refund then moves it
+    `held` to `refunded` directly. Listing stock is not restored
+    (the goods were delivered). A delivery-initiated escrow (no `orderId`) is refunded with no order
+    write.
 - **Settlement lock**: the settleable set becomes `escrowed`, `disputed` and `dispute_resolved` for
   every caller, plus `held` for the admin routes only. Today the lock condition omits
   `dispute_resolved`, so dispute settlements fail at the lock; FRD-03 fixes that with it.
@@ -1484,10 +1494,12 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
   order still gets `ESCROW_024` and delivery linkage does not mint a second escrow. Linkage and
   refund scheduling require `escrowed` and do nothing on `held`.
 - **Crons** never select `held`. Delivery linkage and the delivery-confirmation stamp keep requiring
-  `escrowed`: a hold happens only once no logistics step is left (order `delivered`, `disputed`,
-  terminal, or a stale `funded` order). On a stale `funded` order whose escrow is held, the farmer's
-  `accepted` is refused with `ORDER_VALIDATION` (`order-lifecycle.md` 1.9.0), since a delivery
-  created after it could never link to the held escrow.
+  `escrowed`: a hold happens only once no logistics step is left (delivery confirmed, order
+  `disputed`, terminal, or a stale `funded` order). Delivery-initiated escrows are held too, at
+  auto-release (the sweep does not filter by source) or after their 7-day timeout. On a stale
+  `funded` order whose escrow is held, the farmer's `accepted` is refused with `ORDER_VALIDATION`
+  (`order-lifecycle.md` 1.9.0), since a delivery created after it could never link to the held
+  escrow.
 - `POST /escrow/dispute` on a held escrow is refused (`ESCROW_INVALID_TRANSITION`).
 - **Visibility**: parties see `status: held` ("Under review"); `holdReason`, `heldBy`,
   `heldFromStatus` and `heldFor` appear in admin responses only. Party scoping is unchanged.
@@ -1513,7 +1525,7 @@ returned. The `AUTH_041` message becomes amount-neutral; clients key on the code
 
 | Version | Date | Change |
 |---------|------|--------|
-| 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
+| 1.7.0 | 2026-10-06 | Fraud hold and risk tiers (planned FRD-03, FRD-04): new status `held` with `holdReason`, `heldAt`, `heldBy`, `heldFromStatus`, `heldFor`; settlement-only entry from `escrowed` or `dispute_resolved`, admin-only exits (an admin refund of a `heldFor: release` escrow moves the order to `dispute_resolved` as `buyer_wins`; the auto-refund hold is fenced on the order's version), `held` counts as active, crons never select it, `FRAUD_HOLD_ENABLED`; `403 FRAUD_ACCOUNT_HELD` on initiate and order-checkout; `AUTH_040`/`AUTH_041` also from the risk tier; clients tolerate unknown status values; state table gains `dispute_resolved`, `held` and the missing 1.3.0 transitions; `dispute_resolved` named in the release and refund transition errors; amount anomaly marked planned (FRD-09) |
 | 1.5.1 | 2026-10-01 | Dispute propagation fixed (SIM-47): the escrow Lambda can write the order and delivery it mirrors a dispute onto (UpdateItem only); legs independent, order conflicts retried, failures logged as `DISPUTE_PROPAGATION_FAILED` and audited with the failed leg; response unchanged |
 | 1.5.0 | 2026-09-30 | Live order payments (ESC-01): `POST /escrow/order-checkout` (server-generated hashed merch_order_id, one open checkout per order until 130 minutes after Telebirr answered, re-signed URL on retry, mapping written before Telebirr and never deleted, 400-day TTL, no Telebirr call 20 hours after `paymentSubmittedAt` or `createdAt`, each checkout bound to the order's payment attempt); the webhook funds a paid order checkout exactly once (payment-reference classification, status-conditional funding write, idempotent stock and escrow repair except on closed orders, inbox row, alarm tokens, a failed or malformed mapping lookup alarmed instead of dropped, `Failed` only audited, a refused payment keeps its verdict on redelivery, a payment from an earlier attempt never funds); `/escrow/initiate` refuses an order that is already funded or paid (`ESCROW_024`) even without its escrow record; order escrows take the server-only `telebirrPaymentOrderId` as hold reference; new codes `ESCROW_030` to `ESCROW_033`; header version corrected (it still read 1.3.0) |
 | 1.4.0 | 2026-09-29 | Tiered step-up on initiate: a fresh password up to 10,000 ETB (`AUTH_040`, now for every amount), a fresh Fayda login above it (`AUTH_041`), `503 ESCROW_012` when the buyer profile cannot be read for the Fayda check; clients keep the server's step-up code; dispute step-up unchanged |
