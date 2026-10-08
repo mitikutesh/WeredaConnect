@@ -721,6 +721,14 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "orderId",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "manualPayout",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "manualPayoutQueuedAt",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
         "GlobalSecondaryIndexes": [
@@ -813,6 +821,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               },
               {
                 "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "ManualPayoutIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "manualPayout",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "manualPayoutQueuedAt",
                 "KeyType": "RANGE",
               },
             ],

@@ -31,6 +31,22 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('escrows table carries the sparse ManualPayoutIndex (ESC-02)', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'wereda-connect-dev-escrows',
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'ManualPayoutIndex',
+          KeySchema: [
+            { AttributeName: 'manualPayout', KeyType: 'HASH' },
+            { AttributeName: 'manualPayoutQueuedAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'ALL' },
+        }),
+      ]),
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -122,8 +138,24 @@ describe('ApiStack', () => {
     // Plus admin routes and the delivery-qr-secrets work → 49,
     // plus /auth/verify-otp, /auth/resend-otp, /auth/fayda-start, /user/fayda-start,
     // /user/fayda-link and DELETE /device-tokens (auth hardening) → 55,
-    // plus POST /escrow/order-checkout (ESC-01, live order payments) → 56 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 56);
+    // plus POST /escrow/order-checkout (ESC-01, live order payments) → 56,
+    // plus GET /admin/payouts/manual and POST /admin/payouts/{escrowId}/{ref}/complete
+    // (ESC-02, manual payout queue) → 58 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 58);
+  });
+
+  test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/complete']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
   });
 
   test('auth hardening: password login only through the server, settlement only for admins', () => {

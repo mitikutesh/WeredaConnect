@@ -1948,6 +1948,7 @@ export class ApiStack extends cdk.Stack {
       "/admin/transactions",
       "/admin/transactions/{orderId}",
       "/admin/audit",
+      "/admin/payouts/manual",
     ];
 
     for (const path of adminGetPaths) {
@@ -1973,6 +1974,8 @@ export class ApiStack extends cdk.Stack {
       "/admin/disputes/{id}/resolve",
       "/admin/fraud-signals/{id}/action",
       "/admin/users/{id}/action",
+      // ESC-02: record an admin-paid manual payout leg (admin group checked in the Lambda).
+      "/admin/payouts/{escrowId}/{ref}/complete",
     ];
 
     for (const path of adminPostPaths) {
