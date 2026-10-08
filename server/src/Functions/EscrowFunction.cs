@@ -104,7 +104,11 @@ public class EscrowFunction
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
-        context.Logger.LogInformation($"EscrowFunction invoked: {request.HttpMethod} {request.Path}");
+        // The route template, never the raw path: a path segment is client text and this log
+        // group carries the settlement-failure alarm filter (ESC-13). Defanged as well, because
+        // AWS does not promise that a payload 1.0 resource is always the template.
+        context.Logger.LogInformation(
+            $"EscrowFunction invoked: {MoneyAlarmLog.LogId(request.HttpMethod)} {MoneyAlarmLog.LogText(request.Resource)}");
 
         var action = ExtractAction(request);
 
@@ -222,7 +226,7 @@ public class EscrowFunction
                 catch (Exception ex)
                 {
                     context.Logger.LogWarning(
-                        $"Failed to record fraud signal for user {userId}: {ex.Message}");
+                        $"Failed to record fraud signal for user {userId}: [{ex.GetType().Name}]");
                 }
 
                 // Contract maps rate-limit rejection to ESCROW_011 (429); the mobile client keys
@@ -422,6 +426,9 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error releasing escrow: [{ex.GetType().Name}]");
+            // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                body.EscrowId, "release_exception", MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             AuditLogger.LogAudit("ESCROW", "RELEASE",
                 userId: userId, correlationId: releaseCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,
@@ -562,6 +569,9 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Error refunding escrow: [{ex.GetType().Name}]");
+            // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                body.EscrowId, "refund_exception", MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             AuditLogger.LogAudit("ESCROW", "REFUND",
                 userId: userId, correlationId: refundCorrelationId,
                 entityType: "escrow", entityId: body.EscrowId,
@@ -662,7 +672,7 @@ public class EscrowFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Error getting escrow {escrowId}: [{ex.GetType().Name}]");
+            context.Logger.LogError($"Error getting escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }
@@ -702,7 +712,7 @@ public class EscrowFunction
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"Error getting escrow for delivery {deliveryId}: [{ex.GetType().Name}]");
+                $"Error getting escrow for delivery {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
             return LambdaResponse.Error(500, "ESCROW_012", "Internal server error.");
         }
     }

@@ -1330,4 +1330,228 @@ public class EscrowCronFunctionTests
         await _mockTelebirrGateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
         await _mockTelebirrGateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }
+
+    // ──────────────────────────────────────────────
+    // ESC-13: money alarm lines from the sweeps
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoRelease_UnexpectedException_LogsSettlementFailedUnknown()
+    {
+        var escrow = MakeEscrowItem("escrow-boom",
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-boom")
+            .ThrowsAsync(new InvalidOperationException("Sensitive DynamoDB ARN info"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-boom action=auto_release_exception outcome=unknown code=InvalidOperationException",
+            Logs);
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    [Fact]
+    public async Task AutoRefund_UnexpectedException_LogsSettlementFailedUnknown()
+    {
+        var escrow = MakeEscrowItem("escrow-refund-boom", expiresAt: DateTime.UtcNow.AddDays(-1).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-refund-boom").ThrowsAsync(new TimeoutException("boom"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-refund-boom action=auto_refund_exception outcome=unknown code=TimeoutException",
+            Logs);
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_UnexpectedException_LogsSettlementFailedUnknown()
+    {
+        var escrow = ResolvedDispute("escrow-dr-boom", "farmer_wins");
+        _mockEscrowRepo.QueryByStatusForCronAsync("dispute_resolved", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-dr-boom").ThrowsAsync(new TimeoutException("boom"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-dr-boom action=dispute_settlement_exception outcome=unknown code=TimeoutException",
+            Logs);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_CronException_LogsSweepFailedToken()
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=unknown code=auto_release_and_refund:Exception",
+            Logs);
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    [Fact]
+    public async Task DisputeQueryFailure_LogsSweepFailedToken()
+    {
+        _mockEscrowRepo.QueryByStatusForCronAsync("dispute_resolved", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .ThrowsAsync(new Exception("Sensitive DynamoDB ARN info"));
+
+        var response = await _function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        // The run is skipped (200), no gateway call happened, so the outcome is a definite failure.
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code=dispute_query:Exception",
+            Logs);
+        Assert.DoesNotContain("Sensitive DynamoDB ARN info", Logs);
+    }
+
+    [Fact]
+    public async Task AutoRelease_GatewayFailure_TokenComesFromServiceOnly()
+    {
+        var escrow = MakeEscrowItem("escrow-release-001",
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-release-001").Returns(escrow);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED" });
+        var serviceLines = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway)
+        {
+            AlarmLog = serviceLines.Add
+        };
+        var function = new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway);
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        // One failed leg, one line: the service logs it, the cron's failure-result branch does not add a second.
+        Assert.Equal(200, response.StatusCode);
+        Assert.Single(serviceLines);
+        Assert.Contains("Auto-release failed for escrow-release-001: ESCROW_013", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    // A payout the gateway cannot make waits in the manual payout queue (202 ESCROW_034):
+    // not a settlement failure, so no sweep and no service line may count it.
+
+    private (EscrowCronFunction Function, List<string> ServiceLines) FunctionCapturingServiceAlarms()
+    {
+        var serviceLines = new List<string>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway)
+        {
+            AlarmLog = serviceLines.Add
+        };
+        return (new EscrowCronFunction(service, _mockEscrowRepo, _mockAuditRepo, _mockTelebirrGateway), serviceLines);
+    }
+
+    private void QueueWritesSucceed()
+        => _mockEscrowRepo.TryQueueManualPayoutAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>())
+            .Returns(true);
+
+    [Fact]
+    public async Task AutoRelease_PayoutQueued_LogsNoSettlementFailure()
+    {
+        var escrow = MakeEscrowItem("escrow-q-rel",
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync("escrow-q-rel").Returns(escrow);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(PayoutNotSupportedRelease());
+        QueueWritesSucceed();
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-q-rel sweep=auto-release", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    [Fact]
+    public async Task ResolvedDispute_RefundQueued_LogsNoSettlementFailure()
+    {
+        SweepFinds(ResolvedDispute("escrow-dr-q", "buyer_wins"));
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = TelebirrGatewayErrors.PayoutNotSupported });
+        QueueWritesSucceed();
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-dr-q sweep=dispute refund", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    [Fact]
+    public async Task AutoRefund_AlreadyQueued_LogsNoSettlementFailure()
+    {
+        var escrow = MakeEscrowItem("escrow-q-ref", expiresAt: DateTime.UtcNow.AddDays(-1).ToString("o"));
+        escrow["settlementLock"] = "refund";
+        escrow[ManualPayoutFields.Marker] = ManualPayoutFields.MarkerOpen;
+        escrow[ManualPayoutFields.Op] = ManualPayoutFields.OpRefund;
+        escrow[ManualPayoutFields.StatusAttr("buyer")] = ManualPayoutFields.LegPending;
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        var response = await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        Assert.Contains("\"manualPayoutsWaiting\":\"1\"", response.Body);
+        Assert.Empty(serviceLines);
+        Assert.Contains("ESCROW_MANUAL_PAYOUT_WAITING escrowId=escrow-q-ref sweep=auto-refund", Logs);
+        Assert.DoesNotContain("ESCROW_SETTLEMENT_FAILED", Logs);
+    }
+
+    // An order-funded escrow id embeds the client-chosen order id, and gateway messages may
+    // echo it: none of that may spell a token in this log group.
+
+    [Fact]
+    public async Task HostileOrderId_InTheEscrowIdAndMessages_LogsOnlyTheRealTokens()
+    {
+        var hostile = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.Hostile;
+        var escrowId = $"escrow-order-{hostile}";
+        var escrow = MakeEscrowItem(escrowId,
+            deliveryConfirmedAt: DateTime.UtcNow.AddHours(-50).ToString("o"),
+            disputeWindowEndsAt: DateTime.UtcNow.AddHours(-49).ToString("o"));
+        _mockEscrowRepo.QueryByStatusForCronAsync("escrowed", Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>> { escrow });
+        _mockEscrowRepo.GetByIdAsync(escrowId).Returns(escrow);
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED", ErrorMessage = $"rejected release:{escrowId}" });
+        StubQueue((new List<Dictionary<string, object>> { QueuedRow(escrowId, 26, "refund", ("buyer", "pending")) }, null));
+        var (function, serviceLines) = FunctionCapturingServiceAlarms();
+
+        await function.FunctionHandler(MakeCronRequest("auto_release_and_refund"), _context);
+
+        var tokens = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens;
+        Assert.Single(serviceLines);
+        Assert.Equal(new[] { "ESCROW_SETTLEMENT_FAILED" }, tokens.Where(serviceLines[0].Contains));
+        // The overdue line is the only token in the cron log: one per line, never one from the id.
+        var cronLines = Logs.Split(new[] { (char)10 }, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Contains(cronLines, l => l.Contains("Auto-release failed for escrow-order-ESCROW-SETTLEMENT-FAILED"));
+        Assert.All(cronLines, l => Assert.True(
+            tokens.Count(l.Contains) == (l.Contains("MANUAL_PAYOUT_OVERDUE escrowId=") ? 1 : 0), l));
+    }
 }

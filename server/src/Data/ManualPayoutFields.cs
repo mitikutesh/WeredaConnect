@@ -40,6 +40,12 @@ internal static class ManualPayoutFields
     public const string ReasonPayoutNotSupported = "PAYOUT_NOT_SUPPORTED";
     public const string ReasonGatewayRefMissing = "GATEWAY_REF_MISSING";
 
+    /// <summary>
+    /// Prefix of the failure code (audit metadata) when the queue write itself failed:
+    /// <c>MANUAL_QUEUE_FAILED:&lt;reason&gt;</c>. The money alarm reads it (ESC-13).
+    /// </summary>
+    public const string QueueFailedCodePrefix = "MANUAL_QUEUE_FAILED:";
+
     public static readonly string[] AllLegs = { LegFarmer, LegTrucker, LegBuyer };
 
     public static bool IsLeg(string? leg) => leg is LegFarmer or LegTrucker or LegBuyer;

@@ -677,6 +677,28 @@ public class TelebirrWebhookFunctionTests
     }
 
     [Fact]
+    public async Task Order_payment_for_an_order_id_that_spells_tokens_logs_no_alarm_token()
+    {
+        // ESC-13: the order id is client-chosen and lands in every payment line of this log group.
+        var hostileOrderId = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.Hostile;
+        var function = NewOrderFunction();
+        _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
+            .Returns(new OrderCheckoutMapping(OrderMerchOrderId, hostileOrderId, "buyer-1", 15000m));
+        _orderRepo.GetByIdAsync(hostileOrderId, true).Returns(StoredOrder("payment_submitted"));
+        _orderRepo.TryMarkFundedAsync(hostileOrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(StoredOrder("funded", OrderPaymentId));
+        _cropRepo.TryDecrementStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>())
+            .Returns(StockDecrementResult.Decremented);
+        _checkoutRepo.CloseSlotForMerchOrderAsync(hostileOrderId, OrderMerchOrderId, OrderCheckoutOutcome.Paid)
+            .ThrowsAsync(new AmazonDynamoDBException("throttled"));
+
+        await function.FunctionHandler(Req(OrderBody()), _ctx);
+
+        Logs.Should().Contain("ORDER_PAYMENT_BOOKKEEPING_FAILED orderId=ESCROW-SETTLEMENT-FAILED-");
+        WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens.Where(Logs.Contains).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Order_payment_inbox_update_failure_is_not_a_refund_alarm()
     {
         _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("payment_submitted"));

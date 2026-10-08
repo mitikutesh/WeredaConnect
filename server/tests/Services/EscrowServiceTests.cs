@@ -3081,4 +3081,155 @@ public class EscrowServiceTests
         await _mockTelebirrGateway.Received(1).RefundFundsAsync(
             Arg.Is<RefundFundsRequest>(r => r.BuyerPhone == "+251933333333"));
     }
+
+    // ===== ESC-13: money alarm lines =====
+
+    private EscrowService CreateServiceCapturingAlarms(List<string> lines, IUserRepository? userRepo = null)
+        => new(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway, userRepo ?? _mockUserRepo)
+        {
+            AlarmLog = lines.Add
+        };
+
+    [Fact]
+    public async Task ReleaseAsync_TelebirrFailure_LogsSettlementFailedToken()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED" });
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_failed outcome=failed code=TELEBIRR_RELEASE_FAILED" },
+            lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_TelebirrTimeout_LogsUnknownOutcome()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_TIMEOUT" });
+        var lines = new List<string>();
+
+        await CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system");
+
+        // After a timeout Telebirr may still have paid: the operator must check before retrying by hand.
+        Assert.Equal(
+            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_failed outcome=unknown code=TELEBIRR_TIMEOUT" },
+            lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_UnverifiedTrucker_LogsTruckerReleaseFailed()
+    {
+        var item = MakeEscrowItem(status: "escrowed", amount: 16_000m, commission: 400m, farmerPayout: 14_600m);
+        item["truckerPayout"] = 1_000m;
+        item["truckerId"] = "trucker-unverified";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(item);
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        userRepo.GetUserByIdAsync("trucker-unverified").Returns((UserDto?)null);
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines, userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        // The farmer leg still succeeds; the pending trucker leg is what the alarm must show
+        // (nothing retries it until ESC-04), with no gateway code because no call was made.
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=trucker_release_failed outcome=failed code=-" },
+            lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_TruckerGatewayFailure_LogsTruckerReleaseFailed()
+    {
+        var item = MakeEscrowItem(status: "escrowed", amount: 16_000m, commission: 400m, farmerPayout: 14_600m);
+        item["truckerPayout"] = 1_000m;
+        item["truckerId"] = "trucker-001";
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(item);
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer"));
+        userRepo.GetUserByIdAsync("trucker-001").Returns(MakeVerifiedUser("trucker-001", "trucker"));
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.Amount == 1_000m))
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_NETWORK" });
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines, userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=trucker_release_failed outcome=unknown code=TELEBIRR_NETWORK" },
+            lines);
+    }
+
+    [Fact]
+    public async Task RefundAsync_TelebirrFailure_LogsSettlementFailedToken()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockTelebirrGateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>())
+            .Returns(new RefundFundsResponse { Success = false, ErrorCode = "TELEBIRR_REFUND_FAILED" });
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines).RefundAsync(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_timeout",
+            Reason = "No delivery within 7 days.",
+            IdempotencyKey = "system:escrow-001:refund:1708171200999"
+        }, "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            new[] { "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=refund_failed outcome=failed code=TELEBIRR_REFUND_FAILED" },
+            lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_Success_LogsNothing()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_FarmerIdentityBlocked_LogsNothing()
+    {
+        // release_blocked_kyc is a known wait for the farmer to verify, not a settlement failure.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        var userRepo = Substitute.For<IUserRepository>();
+        userRepo.GetUserByIdAsync(FarmerId).Returns(MakeVerifiedUser(FarmerId, "farmer") with { IsPhoneVerified = false });
+        var lines = new List<string>();
+
+        var result = await CreateServiceCapturingAlarms(lines, userRepo).ReleaseAsync(SystemRelease(), "system");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_029", result.Error!.Code);
+        Assert.Empty(lines);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_AuditWriteThrows_StillLogsToken()
+    {
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: "escrowed"));
+        _mockTelebirrGateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "TELEBIRR_RELEASE_FAILED" });
+        _mockAuditRepo.AppendAsync(Arg.Is<Dictionary<string, object>>(e => e["action"].ToString() == "release_failed"))
+            .ThrowsAsync(new Exception("audit table down"));
+        var lines = new List<string>();
+
+        await Assert.ThrowsAsync<Exception>(() => CreateServiceCapturingAlarms(lines).ReleaseAsync(SystemRelease(), "system"));
+
+        // The line goes out before the audit write, so a dead audit table cannot hide the failure.
+        Assert.Single(lines);
+        Assert.StartsWith("ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_failed", lines[0]);
+    }
 }

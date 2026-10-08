@@ -70,9 +70,6 @@ public class EscrowCronFunction
     private const int ManualPayoutReportPageSize = 50;
     private const int ManualPayoutReportMaxPages = 20;
 
-    /// <summary>A manual payout older than this logs MANUAL_PAYOUT_OVERDUE every run (ESC-13).</summary>
-    private static readonly TimeSpan ManualPayoutOverdueAfter = TimeSpan.FromHours(24);
-
     private const int ReconciliationStaleMinutes = 30;
 
     /// <summary>
@@ -201,6 +198,9 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"EscrowCronFunction error for action '{safeAction}': [{ex.GetType().Name}]");
+            // ESC-13: a sweep that died mid-run is an unknown outcome for whatever it was settling.
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeUnknown, $"{safeAction}:{ex.GetType().Name}"));
             return LambdaResponse.Error(500, "ESCROW_CRON_ERROR",
                 $"Cron job '{safeAction}' failed unexpectedly.");
         }
@@ -266,6 +266,9 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogError($"Dispute settlement: query failed [{ex.GetType().Name}]; skipping this run.");
+            // ESC-13: no gateway call happened, so the outcome is a definite failure (verdicts wait).
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"dispute_query:{ex.GetType().Name}"));
             return (0, 0);
         }
 
@@ -305,7 +308,7 @@ public class EscrowCronFunction
                             else
                             {
                                 context.Logger.LogError(
-                                    $"Dispute settlement (release) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                                    $"Dispute settlement (release) failed for {MoneyAlarmLog.LogId(escrowId)}: {result.Error?.Code} - {MoneyAlarmLog.LogText(result.Error?.Message)}");
                             }
                             break;
                         }
@@ -331,13 +334,13 @@ public class EscrowCronFunction
                             else
                             {
                                 context.Logger.LogError(
-                                    $"Dispute settlement (refund) failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                                    $"Dispute settlement (refund) failed for {MoneyAlarmLog.LogId(escrowId)}: {result.Error?.Code} - {MoneyAlarmLog.LogText(result.Error?.Message)}");
                             }
                             break;
                         }
                     default:
                         context.Logger.LogWarning(
-                            $"Dispute {escrowId} resolved as '{resolution ?? "unset"}': no automatic settlement, admin must release or refund.");
+                            $"Dispute {MoneyAlarmLog.LogId(escrowId)} resolved as '{MoneyAlarmLog.LogId(resolution ?? "unset")}': no automatic settlement, admin must release or refund.");
                         break;
                 }
             }
@@ -345,6 +348,10 @@ public class EscrowCronFunction
             {
                 context.Logger.LogError(
                     $"Dispute settlement: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "dispute_settlement_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 
@@ -393,7 +400,7 @@ public class EscrowCronFunction
                 // double payout now that the Telebirr ref is stable.)
                 var hourBucket = now.ToString("yyyyMMddHH");
 
-                context.Logger.LogInformation($"Auto-releasing escrow {escrowId} (dispute window ended).");
+                context.Logger.LogInformation($"Auto-releasing escrow {MoneyAlarmLog.LogId(escrowId)} (dispute window ended).");
 
                 var result = await _escrowService.ReleaseAsync(
                     new ReleaseEscrowRequest
@@ -416,13 +423,17 @@ public class EscrowCronFunction
                 else
                 {
                     context.Logger.LogError(
-                        $"Auto-release failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                        $"Auto-release failed for {MoneyAlarmLog.LogId(escrowId)}: {result.Error?.Code} - {MoneyAlarmLog.LogText(result.Error?.Message)}");
                 }
             }
             catch (Exception ex)
             {
                 context.Logger.LogError(
                     $"Auto-release: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "auto_release_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 
@@ -490,7 +501,7 @@ public class EscrowCronFunction
                     if (_orderRepo == null)
                     {
                         context.Logger.LogWarning(
-                            $"Order-funded escrow {escrowId} expired but ORDERS_TABLE is not "
+                            $"Order-funded escrow {MoneyAlarmLog.LogId(escrowId)} expired but ORDERS_TABLE is not "
                             + "wired — skipping refund (fail-safe).");
                         continue;
                     }
@@ -514,8 +525,8 @@ public class EscrowCronFunction
                     if (orderStatus == null || !RefundableOrderStatuses.Contains(orderStatus))
                     {
                         context.Logger.LogWarning(
-                            $"Order-funded escrow {escrowId} expired but its order "
-                            + $"{escrowOrderId} is '{orderStatus ?? "missing"}' — skipping "
+                            $"Order-funded escrow {MoneyAlarmLog.LogId(escrowId)} expired but its order "
+                            + $"{MoneyAlarmLog.LogId(escrowOrderId)} is '{MoneyAlarmLog.LogId(orderStatus ?? "missing")}', skipping "
                             + "refund; needs reconciliation.");
                         continue;
                     }
@@ -545,7 +556,7 @@ public class EscrowCronFunction
                 // stable per-escrow ref (refund:{id}), so re-driving never double-refunds.
                 var hourBucket = now.ToString("yyyyMMddHH");
 
-                context.Logger.LogInformation($"Auto-refunding expired escrow {escrowId}.");
+                context.Logger.LogInformation($"Auto-refunding expired escrow {MoneyAlarmLog.LogId(escrowId)}.");
 
                 var scheduledReason = GetStringOrNull(escrow, "refundReason");
                 var result = await _escrowService.RefundAsync(
@@ -571,13 +582,17 @@ public class EscrowCronFunction
                 else
                 {
                     context.Logger.LogError(
-                        $"Auto-refund failed for {escrowId}: {result.Error?.Code} - {result.Error?.Message}");
+                        $"Auto-refund failed for {MoneyAlarmLog.LogId(escrowId)}: {result.Error?.Code} - {MoneyAlarmLog.LogText(result.Error?.Message)}");
                 }
             }
             catch (Exception ex)
             {
                 context.Logger.LogError(
                     $"Auto-refund: unexpected error processing an escrow: [{ex.GetType().Name}]. Continuing batch.");
+                // ESC-13: the exception may have hit after the gateway call, so the outcome is unknown.
+                context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                    GetStringOrNull(escrow, "escrowId"), "auto_refund_exception",
+                    MoneyAlarmLog.OutcomeUnknown, ex.GetType().Name));
             }
         }
 
@@ -596,7 +611,7 @@ public class EscrowCronFunction
     private void NoteManualPayoutWaiting(ILambdaContext context, string escrowId, string sweep)
     {
         _manualPayoutsWaiting++;
-        context.Logger.LogInformation($"ESCROW_MANUAL_PAYOUT_WAITING escrowId={escrowId} sweep={sweep}");
+        context.Logger.LogInformation($"ESCROW_MANUAL_PAYOUT_WAITING escrowId={MoneyAlarmLog.LogId(escrowId)} sweep={sweep}");
     }
 
     /// <summary>
@@ -623,8 +638,8 @@ public class EscrowCronFunction
                     var age = DateTime.TryParse(queuedAt, CultureInfo.InvariantCulture,
                         DateTimeStyles.RoundtripKind, out var queued)
                         ? now - queued.ToUniversalTime()
-                        : ManualPayoutOverdueAfter; // unreadable time: treat as overdue
-                    if (age < ManualPayoutOverdueAfter)
+                        : MoneyAlarmLog.QueueAlarmAfter; // unreadable time: treat as overdue
+                    if (age < MoneyAlarmLog.QueueAlarmAfter)
                     {
                         return lines;
                     }
@@ -637,7 +652,7 @@ public class EscrowCronFunction
                         .ToList();
                     foreach (var leg in pending.Count > 0 ? pending : ["no_pending_leg"])
                     {
-                        context.Logger.LogWarning(ManualPayoutOverdueLine(escrowId, $"{op}:{leg}", ageHours));
+                        context.Logger.LogWarning(MoneyAlarmLog.ManualPayoutOverdue(escrowId, $"{op}:{leg}", ageHours));
                         lines++;
                     }
                 }
@@ -655,28 +670,11 @@ public class EscrowCronFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError(
-                $"ESCROW_SETTLEMENT_FAILED escrowId=- action=sweep_failed outcome=failed code={AlarmField($"manual_payout_query:{ex.GetType().Name}")}");
+            context.Logger.LogError(MoneyAlarmLog.SettlementFailed(
+                null, "sweep_failed", MoneyAlarmLog.OutcomeFailed, $"manual_payout_query:{ex.GetType().Name}"));
         }
 
         return lines;
-    }
-
-    /// <summary>
-    /// The ESC-13 line format (<c>MoneyAlarmLog.ManualPayoutOverdue</c> in PR #113, which
-    /// switches this producer to that helper when it lands).
-    /// </summary>
-    private static string ManualPayoutOverdueLine(string? escrowId, string reference, int ageHours)
-        => $"MANUAL_PAYOUT_OVERDUE escrowId={AlarmField(escrowId)} ref={AlarmField(reference)} ageHours={Math.Max(0, ageHours)}";
-
-    /// <summary>Keep [A-Za-z0-9-_.:], cut at 64 characters, empty becomes "-" (ESC-13 field rule).</summary>
-    private static string AlarmField(string? value)
-    {
-        var safe = new string((value ?? "")
-            .Where(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or ':')
-            .Take(64)
-            .ToArray());
-        return safe.Length == 0 ? "-" : safe;
     }
 
     /// <summary>
@@ -706,13 +704,13 @@ public class EscrowCronFunction
         {
             var restored = await _cropRepo.TryRestoreStockAsync(listingId, orderId, quintals);
             context.Logger.LogInformation(restored
-                ? $"Listing {listingId}: +{quintals} quintals restored (order {orderId} cancelled by escrow refund)"
-                : $"Listing {listingId}: nothing to restore for order {orderId}");
+                ? $"Listing {MoneyAlarmLog.LogId(listingId)}: +{quintals} quintals restored (order {MoneyAlarmLog.LogId(orderId)} cancelled by escrow refund)"
+                : $"Listing {MoneyAlarmLog.LogId(listingId)}: nothing to restore for order {MoneyAlarmLog.LogId(orderId)}");
         }
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"ORDER_STOCK_RESTORE_FAILED orderId={orderId} listingId={listingId}: [{ex.GetType().Name}]");
+                $"ORDER_STOCK_RESTORE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)}: [{ex.GetType().Name}]");
         }
     }
 
@@ -745,8 +743,8 @@ public class EscrowCronFunction
             if (!result.IsSuccess)
             {
                 context.Logger.LogWarning(
-                    $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={orderId}: "
-                    + $"{result.Error?.Message} — refund deferred to the next sweep.");
+                    $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={MoneyAlarmLog.LogId(orderId)}: "
+                    + $"{MoneyAlarmLog.LogText(result.Error?.Message)}; refund deferred to the next sweep.");
                 return false;
             }
 
@@ -755,7 +753,7 @@ public class EscrowCronFunction
         catch (Exception ex)
         {
             context.Logger.LogWarning(
-                $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={orderId}: "
+                $"ORDER_ESCROW_REFUND_ORDER_CANCEL_FAILED orderId={MoneyAlarmLog.LogId(orderId)}: "
                 + $"[{ex.GetType().Name}] — refund deferred to the next sweep.");
             return false;
         }
@@ -785,7 +783,7 @@ public class EscrowCronFunction
             var createdAt = GetString(escrow, "createdAt");
 
             context.Logger.LogInformation(
-                $"Crash-recovery: completing stuck 'released' escrow {escrowId}.");
+                $"Crash-recovery: completing stuck 'released' escrow {MoneyAlarmLog.LogId(escrowId)}.");
 
             try
             {
@@ -811,7 +809,7 @@ public class EscrowCronFunction
             catch (Exception ex)
             {
                 context.Logger.LogError(
-                    $"Crash-recovery: failed to complete 'released' escrow {escrowId}: [{ex.GetType().Name}]");
+                    $"Crash-recovery: failed to complete 'released' escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
             }
         }
 
@@ -868,7 +866,7 @@ public class EscrowCronFunction
                 }
 
                 context.Logger.LogInformation(
-                    $"Reconciliation: cancelling {escrowId} (no Telebirr ref, payment window elapsed).");
+                    $"Reconciliation: cancelling {MoneyAlarmLog.LogId(escrowId)} (no Telebirr ref, payment window elapsed).");
 
                 await _escrowRepo.UpdateStatusAsync(escrowId, createdAtStr, "cancelled", "initiated",
                     new Dictionary<string, object> { { "cancelledAt", now.ToString("o") } });
@@ -881,7 +879,7 @@ public class EscrowCronFunction
             }
 
             // Query Telebirr for the transaction status
-            context.Logger.LogInformation($"Reconciliation: checking Telebirr status for {escrowId}.");
+            context.Logger.LogInformation($"Reconciliation: checking Telebirr status for {MoneyAlarmLog.LogId(escrowId)}.");
 
             try
             {
@@ -921,7 +919,7 @@ public class EscrowCronFunction
             catch (Exception ex)
             {
                 context.Logger.LogError(
-                    $"Reconciliation: Telebirr query failed for {escrowId}: [{ex.GetType().Name}]");
+                    $"Reconciliation: Telebirr query failed for {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
                 skipped++;
             }
         }
@@ -1030,13 +1028,13 @@ public class EscrowCronFunction
                     { "disputeWindowEndsAt", windowEnd }
                 });
             context.Logger.LogWarning(
-                $"Escrow {escrowId}: delivery {deliveryId} was delivered but escrow was unstamped; "
+                $"Escrow {MoneyAlarmLog.LogId(escrowId)}: delivery {MoneyAlarmLog.LogId(deliveryId)} was delivered but escrow was unstamped; "
                 + "stamped now to trigger auto-release (refund averted).");
         }
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"Escrow {escrowId}: failed to stamp a delivered-but-unstamped escrow: [{ex.GetType().Name}]. "
+                $"Escrow {MoneyAlarmLog.LogId(escrowId)}: failed to stamp a delivered-but-unstamped escrow: [{ex.GetType().Name}]. "
                 + "Skipping refund anyway to avoid refunding a delivered order.");
         }
         return true; // delivery was confirmed → never refund

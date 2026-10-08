@@ -653,6 +653,38 @@ public class SyncFunctionTests
     }
 
     [Fact]
+    public async Task HostileOperationFields_CannotFireAMoneyAlarm()
+    {
+        // ESC-13: the sync log group carries the ORDER_ESCROW_* alarm filter, and every op is
+        // logged with its client-chosen id and its result message (which echoes the action).
+        var hostile = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.Hostile;
+        SyncOperationRequest Op(string tag, string action) => new()
+        {
+            OperationId = $"{tag}-{hostile}",
+            IdempotencyKey = $"{tag}:{hostile}",
+            EntityType = "crop_listing",
+            EntityId = hostile,
+            Action = action,
+            Data = new Dictionary<string, object> { { "foo", hostile } }
+        };
+        _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Is<string>(k => k.Contains("dup:"))).Returns(true);
+        _mockSyncMeta.IdempotencyKeyExistsAsync(Arg.Is<string>(k => k.Contains("boom:")))
+            .ThrowsAsync(new FormatException($"The input string \x27{hostile}\x27 was not in a correct format."));
+        var request = MakeAuthenticatedRequest(
+            MakeSyncRequest(Op("bad", hostile), Op("dup", "create"), Op("boom", "create")), "farmer-001");
+        request.Headers = new Dictionary<string, string> { { "X-Correlation-Id", "ORDER_ESCROW_LINK_FAILED" } };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        var logs = ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+        Assert.Contains("Invalid action", logs);
+        Assert.Contains("Duplicate idempotency key", logs);
+        Assert.Contains("Error processing operation boom-", logs);
+        Assert.DoesNotContain(WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens, logs.Contains);
+    }
+
+    [Fact]
     public async Task FunctionHandler_CreateWithNoData_ReturnsError()
     {
         var noDataOp = new SyncOperationRequest

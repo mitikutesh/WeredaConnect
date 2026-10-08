@@ -23,31 +23,51 @@ public static class AuditLogger
         string? outcome = null,
         string? errorCode = null)
     {
+        try
+        {
+            Console.WriteLine(FormatAudit(
+                category, action, userId, correlationId, entityType, entityId, detail, outcome, errorCode));
+        }
+        catch (Exception ex)
+        {
+            // Never let logging crash the Lambda: write raw fallback to stderr.
+            Console.Error.WriteLine(
+                $"[AuditLogger] Serialization failed: {ex.Message} | category={category} action={action}");
+        }
+    }
+
+    /// <summary>
+    /// The JSON line <see cref="LogAudit"/> writes. The ids a client can choose (the user,
+    /// correlation and entity ids) are defanged (<c>_</c> becomes <c>-</c>): this line lands in
+    /// the escrow and sync log groups, whose money alarm filters count any line that contains
+    /// a token (ESC-13, <see cref="MoneyAlarmLog"/>).
+    /// </summary>
+    public static string FormatAudit(
+        string category,
+        string action,
+        string? userId = null,
+        string? correlationId = null,
+        string? entityType = null,
+        string? entityId = null,
+        string? detail = null,
+        string? outcome = null,
+        string? errorCode = null)
+    {
         var entry = new AuditLogEntry
         {
             Timestamp = DateTime.UtcNow.ToString("O"),
             Category = category,
             Action = action,
-            UserId = userId,
-            CorrelationId = correlationId,
+            UserId = MoneyAlarmLog.Defang(userId),
+            CorrelationId = MoneyAlarmLog.Defang(correlationId),
             EntityType = entityType,
-            EntityId = entityId,
+            EntityId = MoneyAlarmLog.Defang(entityId),
             Detail = detail,
             Outcome = outcome ?? "unknown",
             ErrorCode = errorCode
         };
 
-        try
-        {
-            var json = JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.AuditLogEntry);
-            Console.WriteLine(json);
-        }
-        catch (Exception ex)
-        {
-            // Never let logging crash the Lambda — write raw fallback to stderr.
-            Console.Error.WriteLine(
-                $"[AuditLogger] Serialization failed: {ex.Message} | category={category} action={action}");
-        }
+        return JsonSerializer.Serialize(entry, AuditLogJsonContext.Default.AuditLogEntry);
     }
 
     /// <summary>

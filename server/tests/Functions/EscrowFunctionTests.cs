@@ -1118,4 +1118,90 @@ public class EscrowFunctionTests
         Assert.Contains("ESCROW_024", response.Body);
         await _fraud.DidNotReceive().RecordPaymentInitiatedAsync(Arg.Any<string>());
     }
+
+    // ──────────────────────────────────────────────
+    // ESC-13: money alarm lines from the admin settlement routes
+    // ──────────────────────────────────────────────
+
+    private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    [Fact]
+    public async Task HandleRelease_Exception_LogsSettlementFailedUnknown()
+    {
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
+            .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
+        var body = JsonSerializer.Serialize(new ReleaseEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            Trigger = "delivery_confirmed",
+            DeliveryId = "del-001",
+            IdempotencyKey = "system:escrow-001:release:1708171200000"
+        }, AppJsonContext.Default.ReleaseEscrowRequest);
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-001 action=release_exception outcome=unknown code=Exception", Logs);
+        Assert.DoesNotContain("secret-info", Logs);
+    }
+
+    [Fact]
+    public async Task HandleRefund_Exception_LogsSettlementFailedUnknown()
+    {
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>())
+            .ThrowsAsync(new Exception("Table not found: arn:aws:dynamodb:secret-info"));
+        var body = JsonSerializer.Serialize(new RefundEscrowRequest
+        {
+            EscrowId = "escrow-002",
+            Trigger = "delivery_timeout",
+            Reason = "No delivery within 7 days.",
+            IdempotencyKey = "system:escrow-002:refund:1708171200000"
+        }, AppJsonContext.Default.RefundEscrowRequest);
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/refund", body, "system"), _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains(
+            "ESCROW_SETTLEMENT_FAILED escrowId=escrow-002 action=refund_exception outcome=unknown code=Exception", Logs);
+        Assert.DoesNotContain("secret-info", Logs);
+    }
+
+    [Theory]
+    [InlineData("id")]
+    [InlineData("deliveryId")]
+    public async Task HostilePathParameter_OnAnyUsersGet_CannotFireAMoneyAlarm(string pathParam)
+    {
+        // Any farmer, trucker or buyer can call these routes; a path that spells a token used
+        // to reach the log through the invocation line and the error line.
+        var hostile = WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.Hostile;
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>()).ThrowsAsync(new Exception(hostile));
+        _mockEscrowRepo.GetByDeliveryIdAsync(Arg.Any<string>()).ThrowsAsync(new Exception(hostile));
+        var request = MakeGetRequest($"/escrow/{hostile}", "buyer-001",
+            pathParams: new Dictionary<string, string> { { pathParam, hostile } }, role: "buyer");
+        request.Resource = pathParam == "id" ? "/escrow/{id}" : "/escrow/by-delivery/{deliveryId}";
+        request.Headers = new Dictionary<string, string> { { "X-Correlation-Id", "ESCROW_SETTLEMENT_FAILED" } };
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(500, response.StatusCode);
+        Assert.Contains($"EscrowFunction invoked: GET {request.Resource}", Logs);
+        Assert.DoesNotContain(WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens, Logs.Contains);
+    }
+
+    [Fact]
+    public async Task ResourceThatIsTheRawPath_CannotFireAMoneyAlarm()
+    {
+        // AWS does not promise that a payload 1.0 resource is the route template; if it ever
+        // carries the client path, the invocation line must still match no money filter.
+        _mockEscrowRepo.GetByIdAsync(Arg.Any<string>()).Returns((Dictionary<string, object>?)null);
+        var request = MakeGetRequest("/escrow/ESCROW_SETTLEMENT_FAILED", "buyer-001",
+            pathParams: new Dictionary<string, string> { { "id", "ESCROW_SETTLEMENT_FAILED" } }, role: "buyer");
+        request.Resource = "/escrow/ESCROW_SETTLEMENT_FAILED";
+
+        await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("EscrowFunction invoked: GET /escrow/ESCROW-SETTLEMENT-FAILED", Logs);
+        Assert.DoesNotContain(WeredaConnect.Server.Tests.Helpers.MoneyAlarmLogTests.AlarmTokens, Logs.Contains);
+    }
 }

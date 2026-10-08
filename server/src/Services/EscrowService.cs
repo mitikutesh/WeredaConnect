@@ -101,6 +101,13 @@ public sealed class EscrowService
     };
 
     /// <summary>
+    /// ESC-13: the gateway reported a payout without a reference and the manual payout queue
+    /// write failed. The money may have moved, so the alarm line says <c>outcome=unknown</c>.
+    /// </summary>
+    private const string QueueFailedRefMissingCode =
+        ManualPayoutFields.QueueFailedCodePrefix + ManualPayoutFields.ReasonGatewayRefMissing;
+
+    /// <summary>
     /// System actor ID used by cron jobs and automated operations.
     /// </summary>
     internal const string SystemActor = "system";
@@ -138,6 +145,13 @@ public sealed class EscrowService
     {
         "rejected", "cancelled", "settled", "payment_failed", "dispute_resolved"
     };
+
+    /// <summary>
+    /// Sink for the money alarm lines (ESC-13). Defaults to stdout, which Lambda ships to
+    /// the function's CloudWatch log group where the settlement-failure metric filter
+    /// counts them. Tests replace it to capture the lines.
+    /// </summary>
+    public Action<string> AlarmLog { get; init; } = Console.WriteLine;
 
     public EscrowService(
         IEscrowRepository escrowRepo,
@@ -1511,7 +1525,7 @@ public sealed class EscrowService
 
             // The queue write failed and nothing moved: today's retryable failure path.
             await AppendAuditAsync(request.EscrowId, "release_failed", currentStatus, currentStatus,
-                authenticatedUserId, metadata: $"MANUAL_QUEUE_FAILED:{farmerManualReason}");
+                authenticatedUserId, metadata: ManualPayoutFields.QueueFailedCodePrefix + farmerManualReason);
             await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<ReleaseEscrowResponse>.Failure(
@@ -1597,7 +1611,7 @@ public sealed class EscrowService
                     truckerRelease = new ReleaseFundsResponse
                     {
                         Success = false,
-                        ErrorCode = $"MANUAL_QUEUE_FAILED:{truckerManualReason}"
+                        ErrorCode = ManualPayoutFields.QueueFailedCodePrefix + truckerManualReason
                     };
                 }
 
@@ -1993,7 +2007,7 @@ public sealed class EscrowService
 
         var legs = string.Join(",", failures);
         Console.WriteLine(
-            $"DISPUTE_PROPAGATION_FAILED escrowId={escrowId} orderId={orderId} deliveryId={deliveryId} legs={legs}");
+            $"DISPUTE_PROPAGATION_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(orderId)} deliveryId={MoneyAlarmLog.LogId(deliveryId)} legs={legs}");
         try
         {
             await AppendAuditAsync(
@@ -2003,7 +2017,7 @@ public sealed class EscrowService
         {
             // The ledger write itself failed; the dispute is still recorded on the escrow.
             Console.WriteLine(
-                $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={escrowId} reason=[{ex.GetType().Name}]");
+                $"DISPUTE_PROPAGATION_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
         }
     }
 
@@ -2034,7 +2048,7 @@ public sealed class EscrowService
         {
             await AppendAuditAsync(escrowId, "dispute_refused_manual_payout", "escrowed", "escrowed", disputedBy,
                 metadata: $"deliveryId={deliveryId};op={GetStringOrNull(escrow, ManualPayoutFields.Op)}");
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={escrowId}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_DISPUTE_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)}");
             return DeliveryDisputeFreeze.RefusedManualPayout;
         }
         var now = DateTime.UtcNow;
@@ -2199,7 +2213,7 @@ public sealed class EscrowService
             }
 
             await AppendAuditAsync(request.EscrowId, "refund_failed", currentStatus, currentStatus,
-                authenticatedUserId, metadata: $"MANUAL_QUEUE_FAILED:{refundManualReason}");
+                authenticatedUserId, metadata: ManualPayoutFields.QueueFailedCodePrefix + refundManualReason);
             await _escrowRepo.ReleaseSettlementLockAsync(request.EscrowId, createdAt);
             await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
             return EscrowResult<RefundEscrowResponse>.Failure(
@@ -2345,7 +2359,7 @@ public sealed class EscrowService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={escrowId} error={ex.GetType().Name}");
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             }
 
             return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message);
@@ -2480,7 +2494,7 @@ public sealed class EscrowService
             await EnsureQueuedAuditAsync(escrow, op);
             await EnsureAuditAsync(escrowId, now, "manual_payout_paid", currentStatus, currentStatus, actorUserId,
                 reference, ManualPaidMetadata(leg, amount, payeeId));
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={escrowId} op={op} leg={leg} remaining={pendingOthers.Count}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_PAID escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} leg={leg} remaining={pendingOthers.Count}");
 
             var finalStatus = currentStatus;
             if (newStatus != currentStatus)
@@ -2589,7 +2603,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             return "released";
         }
 
@@ -2601,7 +2615,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_AUDIT_DEFERRED escrowId={escrowId} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_COMPLETE_AUDIT_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
         }
 
         return "completed";
@@ -2757,7 +2771,7 @@ public sealed class EscrowService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+            Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} error={ex.GetType().Name}");
             queued = false;
         }
 
@@ -2770,7 +2784,7 @@ public sealed class EscrowService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_RECHECK_FAILED escrowId={escrowId} op={op} error={ex.GetType().Name}");
+                Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUE_RECHECK_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} error={ex.GetType().Name}");
                 return false;
             }
 
@@ -2786,7 +2800,7 @@ public sealed class EscrowService
         var legNames = string.Join(",", legs.Select(l => l.Leg));
         await EnsureAuditAsync(escrowId, queuedAt, "manual_payout_queued", fromStatus, fromStatus, actor,
             metadata: $"op={op};legs={legNames};reason={reason}");
-        Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={escrowId} op={op} legs={legNames} reason={reason}");
+        Console.WriteLine($"ESCROW_MANUAL_PAYOUT_QUEUED escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={legNames} reason={reason}");
         return true;
     }
 
@@ -3232,6 +3246,19 @@ public sealed class EscrowService
         string escrowId, string action, string fromState, string toState,
         string actor, string? telebirrRef = null, string? metadata = null)
     {
+        // ESC-13: a failed settlement leg is logged before the audit write, so the money
+        // alarm fires even when the audit write itself fails. The gateway code decides the
+        // outcome: after a timeout or a lost answer Telebirr may still have paid, and so may
+        // it after a success without a reference whose manual payout queue write failed.
+        if (MoneyAlarmLog.IsSettlementFailureAuditAction(action))
+        {
+            var outcome = metadata != null
+                && (UncertainGatewayErrors.Contains(metadata) || metadata == QueueFailedRefMissingCode)
+                ? MoneyAlarmLog.OutcomeUnknown
+                : MoneyAlarmLog.OutcomeFailed;
+            AlarmLog(MoneyAlarmLog.SettlementFailed(escrowId, action, outcome, metadata));
+        }
+
         await _auditRepo.AppendAsync(BuildAuditEntry(
             $"audit-{Guid.NewGuid():N}", DateTime.UtcNow.ToString("o"),
             escrowId, action, fromState, toState, actor, telebirrRef, metadata));

@@ -100,19 +100,19 @@ public sealed class OrderFundingService
         catch (Exception ex)
         {
             context.Logger.LogError(
-                $"ORDER_STOCK_DECREMENT_FAILED orderId={orderId} listingId={listingId} reason=[{ex.GetType().Name}]");
+                $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} reason=[{ex.GetType().Name}]");
             return StockDecrementResult.Failed;
         }
 
         if (result is StockDecrementResult.Failed or StockDecrementResult.ListingNotFound)
         {
             context.Logger.LogError(
-                $"ORDER_STOCK_DECREMENT_FAILED orderId={orderId} listingId={listingId} reason={result}");
+                $"ORDER_STOCK_DECREMENT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} listingId={MoneyAlarmLog.LogId(listingId)} reason={result}");
         }
         else
         {
             context.Logger.LogInformation(
-                $"Listing {listingId}: stock for order {orderId} {result} ({quintals} quintals).");
+                $"Listing {MoneyAlarmLog.LogId(listingId)}: stock for order {MoneyAlarmLog.LogId(orderId)} {result} ({quintals} quintals).");
         }
 
         return result;
@@ -132,14 +132,14 @@ public sealed class OrderFundingService
             var created = await _escrowService.CreateFromFundedOrderAsync(fundedOrder, actor, auditContext);
             if (!created)
             {
-                context.Logger.LogError($"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=validation");
+                context.Logger.LogError($"ORDER_ESCROW_CREATE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=validation");
             }
 
             return created;
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"ORDER_ESCROW_CREATE_FAILED orderId={orderId} reason=[{ex.GetType().Name}]");
+            context.Logger.LogError($"ORDER_ESCROW_CREATE_FAILED orderId={MoneyAlarmLog.LogId(orderId)} reason=[{ex.GetType().Name}]");
             return false;
         }
     }

@@ -706,20 +706,11 @@ public class TelebirrWebhookFunction
            + $"paymentOrderId={SafeLogId(payment.PaymentOrderId)}";
 
     /// <summary>
-    /// A value reduced to ASCII letters, digits and <c>-_.:</c> (at most 64), so an id cannot
-    /// forge alarm tokens or log lines.
+    /// A value reduced to ASCII letters, digits and <c>-.:</c> with <c>_</c> turned into <c>-</c>
+    /// (at most 64), so an id (the order id is client-chosen) cannot forge an alarm token or a
+    /// log line. The shared ESC-13 rule, <see cref="MoneyAlarmLog.LogId"/>.
     /// </summary>
-    private static string SafeLogId(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "-";
-        }
-
-        var safe = new string(value.Where(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
-            or '-' or '_' or '.' or ':').Take(64).ToArray());
-        return safe.Length == 0 ? "-" : safe;
-    }
+    private static string SafeLogId(string? value) => MoneyAlarmLog.LogId(value);
 
     private static decimal RoundMoney(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
