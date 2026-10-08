@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -161,9 +162,13 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   double get _transportCost =>
       _selectedTrip != null ? _quantity * _selectedTrip!.pricePerQuintal : 0.0;
 
-  double get _commission => (_cropCost + _transportCost) * 0.05;
+  /// The server's formula: commission on the crop cost only (SIM-53).
+  OrderPricing get _pricing =>
+      OrderPricing(cropCost: _cropCost, transportCost: _transportCost);
 
-  double get _total => _cropCost + _transportCost + _commission;
+  double get _commission => _pricing.commissionAmount;
+
+  double get _total => _pricing.orderTotal;
 
   @override
   Widget build(BuildContext context) {

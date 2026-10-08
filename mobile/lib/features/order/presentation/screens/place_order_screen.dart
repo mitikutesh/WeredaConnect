@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -46,7 +47,7 @@ class PlaceOrderScreen extends StatefulWidget {
 
 class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   late final TextEditingController _quantityController;
-  static const _commissionRate = 0.05;
+  static const _commissionRate = defaultOrderCommissionRate;
   static final _kgFormat = NumberFormat('#,##0.##', 'en_US');
 
   @override
@@ -89,9 +90,15 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     return quintals * widget.selectedTrip!.pricePerQuintal;
   }
 
-  double get _commission => (_cropCost + _transportCost) * _commissionRate;
+  /// The server's formula: commission on the crop cost only (SIM-53), so the
+  /// preview equals what the buyer is asked to pay. Uses the same default
+  /// rate as [_commissionRate].
+  OrderPricing get _pricing =>
+      OrderPricing(cropCost: _cropCost, transportCost: _transportCost);
 
-  double get _total => _cropCost + _transportCost + _commission;
+  double get _commission => _pricing.commissionAmount;
+
+  double get _total => _pricing.orderTotal;
 
   /// Close the loop from order back to the buying request: when the order
   /// covers the full quantity the request asked for, mark it fulfilled so it
